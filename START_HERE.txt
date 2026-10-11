@@ -1,0 +1,15 @@
+KINGDOMS UNBOUND - STARTER PACK
+
+Folder structure:
+  MASTER_PROMPT.md      -> paste this entire file into Antigravity Agent when ready
+  docs/GDD.md           -> original game design specification
+  docs/GDD_REVIEW.md    -> review and proposed scope clarifications
+
+Instructions:
+1. Create/open your Godot project folder first.
+2. Extract these files into the ROOT of that project folder (next to project.godot).
+3. In Antigravity, open the same project root folder.
+4. Verify docs/GDD.md is visible in the workspace.
+5. Paste MASTER_PROMPT.md into Agent chat. If /goal is supported, use /goal first.
+
+Do not put the project folder inside another project folder by accident. project.godot, MASTER_PROMPT.md, and docs/ should be at the correct root level.
