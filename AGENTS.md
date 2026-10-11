@@ -41,4 +41,16 @@ After each implementation task, report:
 - Known issues and unresolved decisions.
 - Git status and any remaining phase-gate requirements.
 
+## 7. Interruption Recovery and Checkpoint Discipline
+- Never depend on conversation history as the only record of implementation progress.
+- Complete work in small, coherent, independently verifiable units.
+- Save completed changes to disk before moving to the next unit.
+- After each stable milestone, run the relevant validation and create a local Git checkpoint when the changes are safe to preserve.
+- Before ending a task, update `docs/WORKLOG.md` with the current phase, completed work, changed files, test results, outstanding issues, and the exact next step.
+- If an interruption, quota exhaustion warning, or session termination is detected, stop starting new tasks. Finish the smallest safe operation possible, save the current state, and document unfinished work when execution is still available.
+- Never mark incomplete features as complete or tests as passed without evidence.
+- On resumption in a new conversation, inspect Git status, recent commits, `docs/WORKLOG.md`, and the affected files before continuing. Run the relevant tests before extending potentially incomplete changes.
+- Never use `git reset --hard`, force-push, or destructive cleanup as an automatic recovery strategy.
+- Do not push to GitHub automatically unless explicitly authorized.
+
 Do not commit, push, or proceed to another phase automatically unless authorized by the project workflow.
