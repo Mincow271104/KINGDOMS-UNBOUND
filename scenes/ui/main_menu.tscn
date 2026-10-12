@@ -1,0 +1,241 @@
+[gd_scene load_steps=2 format=3 uid="uid://cmainmenu001"]
+
+[ext_resource type="Script" path="res://scripts/ui/main_menu.gd" id="1_menu"]
+
+[node name="MainMenu" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_menu")
+
+[node name="Background" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.1, 0.12, 0.15, 1)
+
+[node name="CenterContainer" type="CenterContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="MainPanel" type="PanelContainer" parent="CenterContainer"]
+custom_minimum_size = Vector2(380, 420)
+layout_mode = 2
+
+[node name="MarginContainer" type="MarginContainer" parent="CenterContainer/MainPanel"]
+layout_mode = 2
+theme_override_constants/margin_left = 32
+theme_override_constants/margin_top = 32
+theme_override_constants/margin_right = 32
+theme_override_constants/margin_bottom = 32
+
+[node name="VBoxContainer" type="VBoxContainer" parent="CenterContainer/MainPanel/MarginContainer"]
+layout_mode = 2
+theme_override_constants/separation = 20
+
+[node name="TitleBox" type="VBoxContainer" parent="CenterContainer/MainPanel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="TitleLabel" type="Label" parent="CenterContainer/MainPanel/MarginContainer/VBoxContainer/TitleBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.9, 0.72, 0.23, 1)
+theme_override_font_sizes/font_size = 28
+text = "KINGDOMS UNBOUND"
+horizontal_alignment = 1
+
+[node name="SubtitleLabel" type="Label" parent="CenterContainer/MainPanel/MarginContainer/VBoxContainer/TitleBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.6, 0.7, 0.8, 1)
+theme_override_font_sizes/font_size = 14
+text = "Mô Phỏng Vương Quốc Dimetric Isometric"
+horizontal_alignment = 1
+
+[node name="HSeparator" type="HSeparator" parent="CenterContainer/MainPanel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+
+[node name="ActionButtons" type="VBoxContainer" parent="CenterContainer/MainPanel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="NewWorldBtn" type="Button" parent="CenterContainer/MainPanel/MarginContainer/VBoxContainer/ActionButtons"]
+custom_minimum_size = Vector2(0, 42)
+layout_mode = 2
+text = "Thế Giới Mới"
+
+[node name="LoadWorldBtn" type="Button" parent="CenterContainer/MainPanel/MarginContainer/VBoxContainer/ActionButtons"]
+custom_minimum_size = Vector2(0, 42)
+layout_mode = 2
+text = "Tải Thế Giới (Phase 6/8)"
+
+[node name="SettingsBtn" type="Button" parent="CenterContainer/MainPanel/MarginContainer/VBoxContainer/ActionButtons"]
+custom_minimum_size = Vector2(0, 42)
+layout_mode = 2
+text = "Cài Đặt"
+
+[node name="QuitBtn" type="Button" parent="CenterContainer/MainPanel/MarginContainer/VBoxContainer/ActionButtons"]
+custom_minimum_size = Vector2(0, 42)
+layout_mode = 2
+text = "Thoát"
+
+[node name="NewWorldOverlay" type="ColorRect" parent="."]
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.05, 0.05, 0.08, 0.75)
+
+[node name="CenterContainer" type="CenterContainer" parent="NewWorldOverlay"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="NewWorldPanel" type="PanelContainer" parent="NewWorldOverlay/CenterContainer"]
+custom_minimum_size = Vector2(460, 380)
+layout_mode = 2
+
+[node name="MarginContainer" type="MarginContainer" parent="NewWorldOverlay/CenterContainer/NewWorldPanel"]
+layout_mode = 2
+theme_override_constants/margin_left = 28
+theme_override_constants/margin_top = 24
+theme_override_constants/margin_right = 28
+theme_override_constants/margin_bottom = 24
+
+[node name="VBoxContainer" type="VBoxContainer" parent="NewWorldOverlay/CenterContainer/NewWorldPanel/MarginContainer"]
+layout_mode = 2
+theme_override_constants/separation = 16
+
+[node name="Header" type="Label" parent="NewWorldOverlay/CenterContainer/NewWorldPanel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.9, 0.72, 0.23, 1)
+theme_override_font_sizes/font_size = 20
+text = "KHỞI TẠO THẾ GIỚI MỚI"
+horizontal_alignment = 1
+
+[node name="HSeparator" type="HSeparator" parent="NewWorldOverlay/CenterContainer/NewWorldPanel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+
+[node name="NameField" type="VBoxContainer" parent="NewWorldOverlay/CenterContainer/NewWorldPanel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="NewWorldOverlay/CenterContainer/NewWorldPanel/MarginContainer/VBoxContainer/NameField"]
+layout_mode = 2
+text = "Tên Vương Quốc:"
+
+[node name="WorldNameInput" type="LineEdit" parent="NewWorldOverlay/CenterContainer/NewWorldPanel/MarginContainer/VBoxContainer/NameField"]
+layout_mode = 2
+text = "Đế Chế Khởi Nguyên"
+
+[node name="SeedField" type="VBoxContainer" parent="NewWorldOverlay/CenterContainer/NewWorldPanel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="NewWorldOverlay/CenterContainer/NewWorldPanel/MarginContainer/VBoxContainer/SeedField"]
+layout_mode = 2
+text = "Mã Seed Thế Giới (Tái lập bản đồ):"
+
+[node name="HBoxContainer" type="HBoxContainer" parent="NewWorldOverlay/CenterContainer/NewWorldPanel/MarginContainer/VBoxContainer/SeedField"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="SeedInput" type="LineEdit" parent="NewWorldOverlay/CenterContainer/NewWorldPanel/MarginContainer/VBoxContainer/SeedField/HBoxContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "12345"
+
+[node name="RandomSeedBtn" type="Button" parent="NewWorldOverlay/CenterContainer/NewWorldPanel/MarginContainer/VBoxContainer/SeedField/HBoxContainer"]
+layout_mode = 2
+text = "Ngẫu Nhiên"
+
+[node name="DifficultyField" type="VBoxContainer" parent="NewWorldOverlay/CenterContainer/NewWorldPanel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="NewWorldOverlay/CenterContainer/NewWorldPanel/MarginContainer/VBoxContainer/DifficultyField"]
+layout_mode = 2
+text = "Độ Khó Cân Bằng:"
+
+[node name="DifficultyOptions" type="OptionButton" parent="NewWorldOverlay/CenterContainer/NewWorldPanel/MarginContainer/VBoxContainer/DifficultyField"]
+layout_mode = 2
+
+[node name="ButtonBox" type="HBoxContainer" parent="NewWorldOverlay/CenterContainer/NewWorldPanel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme_override_constants/separation = 16
+
+[node name="CancelBtn" type="Button" parent="NewWorldOverlay/CenterContainer/NewWorldPanel/MarginContainer/VBoxContainer/ButtonBox"]
+custom_minimum_size = Vector2(0, 38)
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Hủy"
+
+[node name="StartBtn" type="Button" parent="NewWorldOverlay/CenterContainer/NewWorldPanel/MarginContainer/VBoxContainer/ButtonBox"]
+custom_minimum_size = Vector2(0, 38)
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Bắt Đầu Chơi"
+
+[node name="SettingsOverlay" type="ColorRect" parent="."]
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.05, 0.05, 0.08, 0.75)
+
+[node name="CenterContainer" type="CenterContainer" parent="SettingsOverlay"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="SettingsPanel" type="PanelContainer" parent="SettingsOverlay/CenterContainer"]
+custom_minimum_size = Vector2(400, 280)
+layout_mode = 2
+
+[node name="MarginContainer" type="MarginContainer" parent="SettingsOverlay/CenterContainer/SettingsPanel"]
+layout_mode = 2
+theme_override_constants/margin_left = 28
+theme_override_constants/margin_top = 24
+theme_override_constants/margin_right = 28
+theme_override_constants/margin_bottom = 24
+
+[node name="VBoxContainer" type="VBoxContainer" parent="SettingsOverlay/CenterContainer/SettingsPanel/MarginContainer"]
+layout_mode = 2
+theme_override_constants/separation = 16
+
+[node name="Header" type="Label" parent="SettingsOverlay/CenterContainer/SettingsPanel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.9, 0.72, 0.23, 1)
+theme_override_font_sizes/font_size = 20
+text = "CÀI ĐẶT HỆ THỐNG"
+horizontal_alignment = 1
+
+[node name="HSeparator" type="HSeparator" parent="SettingsOverlay/CenterContainer/SettingsPanel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+
+[node name="FullscreenCheck" type="CheckBox" parent="SettingsOverlay/CenterContainer/SettingsPanel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+text = "Chế độ Toàn Màn Hình (Fullscreen)"
+
+[node name="CloseSettingsBtn" type="Button" parent="SettingsOverlay/CenterContainer/SettingsPanel/MarginContainer/VBoxContainer"]
+custom_minimum_size = Vector2(0, 38)
+layout_mode = 2
+text = "Đóng"

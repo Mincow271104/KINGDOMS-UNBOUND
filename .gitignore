@@ -3,3 +3,4 @@ builds/
 exports/
 *.log
 Thumbs.db
+addons/godot_mcp/cache/

@@ -18,19 +18,19 @@
 
 ---
 
-## Phase 1: Vertical Slice, World, Camera, Time & Visual-Validation Gate
-- [ ] **TASK-1.1:** Create coordinate transformation utility script (`scripts/utils/iso_math.gd`) with forward/inverse 2:1 dimetric functions.
-- [ ] **TASK-1.2:** Write automated unit test `test_coordinates.gd` verifying all 13 reference coordinate cases.
-- [ ] **TASK-1.3:** Implement `TimeManager.gd` autoload supporting Pause (0×), 1×, 2×, 3× speeds, hourly/daily ticks.
-- [ ] **TASK-1.4:** Create procedural World Generator (`scripts/world/world_generator.gd`) generating 64×64 logical grid map from seed.
-- [ ] **TASK-1.5:** Implement 2:1 dimetric isometric diamond `TileMapLayer` presentation layer (`scenes/world/world_view.tscn`).
-- [ ] **TASK-1.6:** Implement interactive mouse hover tile highlight matching 32×16 diamond geometry.
-- [ ] **TASK-1.7:** Implement `CameraController.gd` with WASD/mouse pan, zoom, and map bounds clamping.
-- [ ] **TASK-1.8:** Create Starter Building instances (Town Hall 3×3, 4 Houses 2×2, Farm 2×2, Storehouse 2×2, Woodcutter Camp 2×2) with visible roofs and SW/SE facades.
-- [ ] **TASK-1.9:** Implement Main Menu (`scenes/ui/main_menu.tscn`) with New World (seed input, difficulty), Settings, Quit.
-- [ ] **TASK-1.10:** Implement in-game HUD with time controls, clock, resource summary bar, and pause menu.
-- [ ] **TASK-1.11:** Build and pass the mandatory **Visual-Validation Gate Scene** (`scenes/test/visual_validation_test.tscn`) verifying 32×16 diamond tiles, multi-tile building, props, moving citizen, and flawless Y-sorting.
-- [ ] **TASK-1.12:** Git checkpoint Phase 1.
+## Phase 1: Vertical Slice, World, Camera, Time & Visual-Validation Gate (Completed)
+- [x] **TASK-1.1:** Create coordinate transformation utility script (`scripts/utils/iso_math.gd`) with forward/inverse 2:1 dimetric functions.
+- [x] **TASK-1.2:** Write automated unit test `test_coordinates.gd` verifying all 13 reference coordinate cases.
+- [x] **TASK-1.3:** Implement `TimeManager.gd` autoload supporting Pause (0×), 1×, 2×, 3× speeds, hourly/daily ticks.
+- [x] **TASK-1.4:** Create procedural World Generator (`scripts/world/world_generator.gd`) generating 64×64 logical grid map from seed.
+- [x] **TASK-1.5:** Implement 2:1 dimetric isometric diamond `TileMapLayer` presentation layer (`scenes/world/world_view.tscn`).
+- [x] **TASK-1.6:** Implement interactive mouse hover tile highlight matching 32×16 diamond geometry.
+- [x] **TASK-1.7:** Implement `CameraController.gd` with WASD/mouse pan, zoom, and map bounds clamping.
+- [x] **TASK-1.8:** Create Starter Building instances (Town Hall 3×3, 4 Houses 2×2, Farm 2×2, Storehouse 2×2, Woodcutter Camp 2×2) with visible roofs and SW/SE facades.
+- [x] **TASK-1.9:** Implement Main Menu (`scenes/ui/main_menu.tscn`) with New World (seed input, difficulty), Settings, Quit.
+- [x] **TASK-1.10:** Implement in-game HUD with time controls, clock, resource summary bar, and pause menu.
+- [x] **TASK-1.11:** Build and pass the mandatory **Visual-Validation Gate Scene** (`scenes/test/visual_validation_test.tscn`) verifying 32×16 diamond tiles, multi-tile building, props, moving citizen, and flawless Y-sorting.
+- [x] **TASK-1.12:** Git checkpoint Phase 1.
 
 ---
 

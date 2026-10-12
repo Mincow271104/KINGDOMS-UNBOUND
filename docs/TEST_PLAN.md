@@ -127,3 +127,7 @@ When Godot Editor is running with the MCP plugin:
 |---|---|---|---|---|
 | 2026-10-12 | TC-0.1 | Engine Launch & Scan | **PASS** | Exit code 0, 0 errors after adding `docs/.gdignore` |
 | 2026-10-12 | TC-0.2 | MCP Bridge Connection | **PASS** | `diagnose_connection` healthy, port 6505 live |
+| 2026-10-12 | TC-1.1 | Coordinate Forward/Inverse Transform | **PASS** | All 13 cases passed in `test_coordinates.gd` |
+| 2026-10-12 | TC-1.2 | Deterministic Seeded World Generation | **PASS** | 100% identical 64×64 grid across runs in `test_world_gen.gd` |
+| 2026-10-12 | TC-1.3 | Visual-Validation Gate Scene | **PASS** | `visual_validation_test.tscn` passed headless & live screenshot 3162 inspected |
+| 2026-10-12 | TC-1.4 | TimeManager Clock & Pause Safety | **PASS** | Speeds 0–3, pause safety, seasonal modifiers passed in `test_time_manager.gd` |

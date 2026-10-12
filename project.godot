@@ -11,17 +11,19 @@ config_version=5
 [application]
 
 config/name="KINGDOMS UNBOUND"
+run/main_scene="res://scenes/ui/main_menu.tscn"
 config/features=PackedStringArray("4.7", "Forward Plus")
 config/icon="res://icon.svg"
+
+[autoload]
+
+MCPRuntime="*res://addons/godot_mcp/runtime/mcp_runtime.gd"
+TimeManager="*res://scripts/core/time_manager.gd"
 
 [display]
 
 window/stretch/mode="canvas_items"
 window/stretch/aspect="expand"
-
-[autoload]
-
-MCPRuntime="*res://addons/godot_mcp/runtime/mcp_runtime.gd"
 
 [editor_plugins]
 

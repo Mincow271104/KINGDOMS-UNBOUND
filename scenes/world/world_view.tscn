@@ -1,0 +1,35 @@
+[gd_scene load_steps=4 format=3 uid="uid://cworldview001"]
+
+[ext_resource type="Script" path="res://scripts/world/world_view.gd" id="1_world"]
+[ext_resource type="Script" path="res://scripts/world/camera_controller.gd" id="2_cam"]
+[ext_resource type="PackedScene" path="res://scenes/ui/hud.tscn" id="3_hud"]
+
+[node name="WorldView" type="Node2D"]
+script = ExtResource("1_world")
+
+[node name="World" type="Node2D" parent="."]
+y_sort_enabled = true
+
+[node name="TerrainLayer" type="Node2D" parent="World"]
+
+[node name="Entities" type="Node2D" parent="World"]
+y_sort_enabled = true
+
+[node name="Props" type="Node2D" parent="World/Entities"]
+y_sort_enabled = true
+
+[node name="Buildings" type="Node2D" parent="World/Entities"]
+y_sort_enabled = true
+
+[node name="Citizens" type="Node2D" parent="World/Entities"]
+y_sort_enabled = true
+
+[node name="CursorHighlight" type="Sprite2D" parent="World"]
+z_index = 10
+
+[node name="Camera2D" type="Camera2D" parent="."]
+script = ExtResource("2_cam")
+start_grid_pos = Vector2i(32, 32)
+auto_center_on_start = true
+
+[node name="HUD" parent="." instance=ExtResource("3_hud")]

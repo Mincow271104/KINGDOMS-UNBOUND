@@ -118,6 +118,59 @@ Execute Phase 0 requirements as mandated by `MASTER_PROMPT.md` and user instruct
 - **Status: PASSED.** Project imports, opens, and connects to tooling with zero errors. All required documents are populated and committed to disk.
 
 ### Next Exact Step
-- Execute Phase 0 local Git checkpoint.
-- Proceed to **Phase 1: Vertical Slice**: Implement `scripts/utils/iso_math.gd` and execute unit test `test_coordinates.gd`.
+- Phase 0 Complete. Begin Phase 1 (Vertical Slice).
+
+---
+
+## [2026-10-12] Milestone 4: Phase 1 Vertical Slice & Visual-Validation Gate (Completed)
+
+### Context & Objective
+Implement Phase 1 Vertical Slice as mandated by `MASTER_PROMPT.md`:
+- Main menu scene with New World, Settings, Quit.
+- Seeded procedural 64×64 logical grid map rendered in 2D dimetric (2:1 isometric) projection with 32×16 diamond ground tiles.
+- Starter building instances (Town Hall 3×3, 4 Houses 2×2, Farm 2×2, Storehouse 2×2, Woodcutter Camp 2×2) with visible roofs and SW/SE facades.
+- CameraController with pan, zoom, and bounding box clamping.
+- Central `TimeManager` autoload with pause safety and speed multipliers (0x, 1x, 2x, 3x).
+- Interactive mouse-hover diamond tile highlight.
+- Mandatory **Visual-Validation Gate Scene (`res://scenes/test/visual_validation_test.tscn`)** demonstrating terrain, props, multi-tile building, moving citizen, diamond cursor highlight, and flawless Y-sorting.
+
+### Completed Work
+1. **Mathematical Coordinate Decoupling:**
+   - Implemented `scripts/utils/iso_math.gd` with forward/inverse 2:1 dimetric functions, bounding box queries, and neighbor lookups.
+   - Verified via unit test `scripts/test/test_coordinates.gd` (TC-1.1): all 13 reference coordinate cases passed.
+2. **Central Simulation Clock:**
+   - Implemented `scripts/core/time_manager.gd` autoload singleton with pause safety, speed controls (0x–3x), hourly/daily/seasonal ticks, and calendar formatting.
+   - Registered in `project.godot` autoload.
+   - Verified via unit test `scripts/test/test_time_manager.gd` (TC-1.4).
+3. **Procedural Pixel Art Pipeline:**
+   - Implemented `scripts/tools/generate_pixel_assets.gd` conforming strictly to `docs/ASSET_STYLE_GUIDE.md` and 27-color palette.
+   - Generated 13 pixel-perfect assets: terrain tiles (grass, dirt, water, sand), props (tree, rock), buildings (townhall, house, farm, storehouse, woodcutter), citizen sprite (24×32 canvas, foot pivot at (12, 30)), and diamond cursor outline.
+4. **Deterministic Seeded World Generation:**
+   - Implemented `scripts/world/world_generator.gd` generating 64×64 simulation grid with FastNoiseLite elevation, island shaping, dry central plaza, and deterministic placement of all 8 starter buildings and flora.
+   - Verified via unit test `scripts/test/test_world_gen.gd` (TC-1.2): 100% byte-for-byte identical terrain and props across identical seed runs.
+5. **Mandatory Visual-Validation Gate Scene:**
+   - Delivered `scenes/test/visual_validation_test.tscn` and `scripts/test/visual_validation_test.gd`.
+   - Verified 32×16 diamond terrain, multi-tile building with visible rooftop/facade, isometric props, 1 moving citizen with ground-contact foot pivot, interactive hover cursor, and flawless Y-sorting behind and in front of buildings.
+   - Captured runtime screenshot (`screenshot_3162.png`) and visually verified natural occlusion.
+6. **Full In-Game World & HUD:**
+   - Implemented `scripts/world/world_view.gd` and `scenes/world/world_view.tscn`.
+   - Implemented `scripts/ui/hud.gd` and `scenes/ui/hud.tscn` with time controls, clock, resource ledger, and pause menu.
+   - Implemented `scripts/ui/main_menu.gd` and `scenes/ui/main_menu.tscn`.
+   - Configured `run/main_scene="res://scenes/ui/main_menu.tscn"` in `project.godot`.
+   - Captured runtime screenshot (`screenshot_3547.png`) verifying 64×64 isometric world, starter settlement, HUD, and 24 citizens.
+
+### Validations Performed & Results
+- **TC-1.1 Coordinate Transform:** **PASS** (13/13 cases passed).
+- **TC-1.2 World Generation Reproducibility:** **PASS** (Identical seed produces identical 64×64 map; 0 building collisions).
+- **TC-1.3 Visual-Validation Gate:** **PASS** (Headless check passed, runtime screenshot 3162 inspected).
+- **TC-1.4 TimeManager & Pause Safety:** **PASS** (1 real sec = 1 game hour, pause stops all simulation, seasonal modifiers correct).
+- **Project Headless Launch:** **PASS** (Exit code 0, 0 parse/import errors).
+
+### Phase 1 Exit Gate Assessment
+- **Status: PASSED.** All requirements of Phase 1 and the Visual-Validation Gate are fully satisfied, tested, and visually confirmed.
+
+### Next Exact Step
+- Execute Phase 1 local Git checkpoint.
+- Proceed to **Phase 2: Authoritative Resources, Buildings & Economic Accounting**.
+
 
