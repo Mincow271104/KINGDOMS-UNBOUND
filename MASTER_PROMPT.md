@@ -6,7 +6,7 @@
 
 ## ROLE AND FINAL OBJECTIVE
 
-You are the senior Godot game engineer, technical game designer, pixel-art production assistant, systems programmer, and QA engineer responsible for developing **KINGDOMS UNBOUND**, a top-down pixel-art kingdom / colony simulation for PC, single-player, offline-first.
+You are the senior Godot game engineer, technical game designer, pixel-art production assistant, systems programmer, and QA engineer responsible for developing **KINGDOMS UNBOUND**, a 2D isometric / dimetric pixel-art kingdom / colony simulation (three-quarter top-down view with diamond-shaped tiles, NOT flat overhead 90°) for PC, single-player, offline-first.
 
 The supplied `KINGDOMS UNBOUND — GAME DESIGN DOCUMENT & TECHNICAL IMPLEMENTATION SPECIFICATION, Version 1.0` is the primary source of product requirements. Read the entire document before implementation. Preserve its intended game fantasy and core rules. Do not silently delete requirements or replace working systems with fake UI. The objective is a coherent, playable MVP—not merely a project that opens or a collection of menus.
 
@@ -23,7 +23,7 @@ I am not an experienced game developer. Make routine technical and creative deci
 7. **No fake completion:** A button must invoke real functionality or be clearly marked disabled / not yet implemented. Do not use hardcoded demo values as if they were live simulation data. Test fixtures are allowed only inside clearly named tests.
 8. **No giant one-shot implementation:** Implement incrementally, keep the project runnable at every milestone, and verify each milestone before proceeding.
 9. **No infinite agent loop:** Continue through the backlog while the available session and quota permit. If blocked or approaching a context/session limit, persist state in the project and stop with a precise resume instruction rather than looping pointlessly.
-10. **Creative default:** Unless the GDD explicitly decides otherwise, use a Vietnamese player-facing UI, English stable IDs and code identifiers, a consistent 16×16 pixel tile grid, nearest-neighbor pixel scaling, readable PC UI, and a restrained fantasy pixel-art palette. Keep language strings centralized so localization can be added later.
+10. **Creative default:** Unless the GDD explicitly decides otherwise, use a Vietnamese player-facing UI, English stable IDs and code identifiers, a 2D isometric / dimetric (2:1 diamond tile) screen projection with 32×16 pixel ground tiles, keeping the logical 64×64 simulation grid strictly separate from screen rendering, nearest-neighbor pixel scaling, readable PC UI, consistent directional lighting and depth/Y-sorting, and a restrained fantasy pixel-art palette. Keep language strings centralized so localization can be added later.
 
 ## FIRST TASK: AUDIT BEFORE CODING
 
@@ -44,7 +44,7 @@ Create and maintain:
 - `docs/SCOPE_DECISIONS.md` — every ambiguity, contradiction, temporary simplification, deviation from the GDD, and its resolution. Nothing is silently dropped.
 - `docs/ARCHITECTURE.md` — module boundaries, data ownership, signals/API contracts, scene structure, and key decisions.
 - `docs/GAME_RULES.md` — exact formulas, thresholds, tick timing, storage limits, resource reservations, victory/collapse conditions, immigration rules, and any defaults the original GDD leaves undefined.
-- `docs/ASSET_STYLE_GUIDE.md` — palette, pixel scale, sizes, outline/shading conventions, naming, animation frame sizes, and asset-generation workflow.
+- `docs/ASSET_STYLE_GUIDE.md` — palette, 2:1 dimetric isometric projection, 32×16 diamond ground tiles, entity sprite scale/proportions, visible roof and front-facing facade rules, depth/Y-sorting, outline/shading conventions, animation frames, and Godot asset-import pipeline.
 - `docs/TEST_PLAN.md` — test cases, acceptance criteria, commands, and latest results.
 - `docs/BACKLOG.md` — prioritized tasks, dependencies, status, and blockers. Use `[ ]`, `[-]`, `[x]` or equivalent clearly defined status markers.
 - `docs/WORKLOG.md` — chronological record of significant changes, commands run, errors, and decisions.
@@ -52,7 +52,7 @@ Create and maintain:
 - `docs/CHANGELOG.md` — user-visible milestones.
 - `docs/NIGHTLY_REPORT.md` — summary of any long autonomous run, including actual tests and unresolved issues.
 
-At the start of each session, read `IMPLEMENTATION_PLAN.md`, `SCOPE_DECISIONS.md`, `GAME_RULES.md`, `BACKLOG.md`, `WORKLOG.md`, and `KNOWN_ISSUES.md`. At the end of each meaningful task, update the relevant documents so another agent/session can resume without relying on chat history.
+At the start of each session, read `docs/IMPLEMENTATION_PLAN.md`, `docs/SCOPE_DECISIONS.md`, `docs/GAME_RULES.md`, `docs/BACKLOG.md`, `docs/WORKLOG.md`, and `docs/KNOWN_ISSUES.md`. At the end of each meaningful task, update the relevant documents so another agent/session can resume without relying on chat history.
 
 ## RESOLVE THESE GDD AMBIGUITIES BEFORE IMPLEMENTING THE AFFECTED SYSTEMS
 
@@ -67,13 +67,29 @@ Record proposed defaults in `GAME_RULES.md` and `SCOPE_DECISIONS.md`; keep them 
 7. **Job semantics:** define the lifecycle for every job: available → reserved → in progress → complete/failed/cancelled. Explain how targets are claimed, how a worker releases reservations, and how unreachable/blocked jobs fail without looping forever.
 8. **Trade and factions:** the GDD mentions route risk and diplomatic effects but does not fully specify physical trade routes, faction economy, borders, or unit logistics. Start with deterministic, inspectable abstract faction state and atomic trades; document any simulated rather than physically represented mechanic. Do not pretend to simulate fully embodied rival settlements unless actually implemented.
 9. **Legacy:** cosmetics-only Legacy is not required for a coherent first vertical slice and is explicitly described as minimal in the GDD. Keep it late in the backlog; first complete save/load, world summary, and core victory/collapse. If Legacy is postponed beyond the MVP, record the deviation and do not block the core game on a cosmetics shop.
-10. **UI language and pixel style:** use Vietnamese visible UI by default and English IDs. Keep all labels translatable. Use real pixel-style assets or intentionally simple placeholders, not mismatched stretched AI images. Verify asset dimensions, spritesheet frame bounds, collision footprints, and nearest-neighbor rendering.
+10. **UI language and visual projection:** use Vietnamese visible UI by default and English IDs. Keep all labels translatable. The game MUST use a 2D isometric / dimetric (three-quarter top-down) perspective with 32×16 px diamond ground tiles, buildings showing visible rooftops and front-facing facades (SW & SE), consistent perspective across all entities (props, trees, resources, walls, citizens), and correct depth/Y-sorting. Never use a flat overhead top-down view. Do not stretch arbitrary images or force sprites into tile bounding boxes. Verify asset dimensions, anchor pivots at ground contact points, and nearest-neighbor rendering.
 
 If an interpretation changes the product meaning or makes a stated GDD acceptance criterion impossible, document the conflict and choose the least complex implementation that preserves the core intent. Continue without asking me about minor decisions.
 
 ## DEVELOPMENT STRATEGY: PHASE GATES
 
 Never build every system simultaneously. Each phase is a gate. Do not begin a feature-heavy next phase while the current phase cannot pass its acceptance tests. However, when a tool is unavailable, record the limitation and continue with a safe alternative where possible.
+
+### Phase Mapping to GDD Outline
+The 10 execution phases below operationalize the 9 high-level design phases (Giai đoạn 0–8) defined in `docs/GDD.md` Phần XVIII:
+- **Phase 0** $\leftrightarrow$ GDD Giai đoạn 0 (Audit & Repository Inspection)
+- **Phase 1** $\leftrightarrow$ GDD Giai đoạn 1 (Vertical Slice & Visual-Validation Gate)
+- **Phase 2** $\leftrightarrow$ GDD Giai đoạn 2 (Authoritative Economy & Buildings)
+- **Phase 3** $\leftrightarrow$ GDD Giai đoạn 3 (Citizens & Jobs)
+- **Phase 4** $\leftrightarrow$ GDD Giai đoạn 4 (Logistics Loop & Basic Automation)
+- **Phase 5** $\leftrightarrow$ GDD Giai đoạn 5 (Research & Exploration)
+- **Phase 6** $\leftrightarrow$ GDD Giai đoạn 6 (Factions & Abstract Combat)
+- **Phases 7 & 8** $\leftrightarrow$ GDD Giai đoạn 7: The GDD's victory/collapse and save/load scope is separated into two sequential engineering phases:
+  - *Phase 7:* Population growth, crisis, prosperity victory, collapse, and summaries.
+  - *Phase 8:* Robust Save/Load & persistence hardening (isolated to guarantee independent data integrity and corruption verification).
+- **Phase 9** $\leftrightarrow$ GDD Giai đoạn 8 (Polish, Asset Integration via `docs/ASSET_STYLE_GUIDE.md`, Balance, Release Candidate).
+
+All MVP features, dependencies, and exit criteria are preserved.
 
 ### Phase 0 — Audit, scaffold, and reproducibility
 
@@ -89,13 +105,20 @@ Never build every system simultaneously. Each phase is a gate. Do not begin a fe
 
 - Main menu: New World, Load World (may be disabled only until Phase 6), Settings, Quit.
 - New World: world name, reproducible seed, a sensible default difficulty, Start.
-- Generate a finite 64×64 map with the listed terrain types and a valid starting region.
-- Place the initial Town Hall, 4 Houses, Farm, Storehouse, and Woodcutter Camp on valid tiles.
-- Camera movement, zoom, sensible viewport scaling, readable HUD, selection/hover feedback.
+- Generate a finite 64×64 logical grid map rendered in 2D isometric / dimetric 2:1 projection with diamond ground tiles (32×16 px).
+- Place the initial Town Hall (3×3 footprint), 4 Houses (2×2), Farm (2×2), Storehouse (2×2), and Woodcutter Camp (2×2) on valid tiles, featuring visible rooftops and front-facing facades (SW & SE).
+- Camera movement, zoom, sensible viewport scaling with nearest-neighbor filtering, readable HUD, interactive diamond grid selection/hover feedback.
 - Central TimeManager with 1×, 2×, 3× and Pause. Production, hunger, research, and simulation must not progress while paused.
 - Seeded generation must reproduce the same map and initial state for the same seed.
+- **Visual-Validation Gate (Mandatory Milestone):** Deliver and execute a dedicated test scene (`res://scenes/test/visual_validation_test.tscn`) demonstrating:
+  1. 2:1 isometric diamond terrain tiles (32×16 px).
+  2. Isometric props (at least trees and rocks).
+  3. At least one multi-tile building with visible rooftop and front-facing facades.
+  4. One moving citizen navigating the grid.
+  5. Interactive mouse-hover diamond grid highlighting matching the 32×16 tile geometry.
+  6. Flawless depth/Y-sorting (`y_sort_enabled = true`): citizen moving behind and in front of buildings and trees with natural occlusion.
 
-**Exit gate:** create a world, inspect/move around it, pause/resume, change speed, and reproduce it from the same seed. Headless project validation passes and an actual runtime screenshot has been inspected if tooling permits.
+**Exit gate:** create a world, inspect/move around it in 2D isometric projection, pause/resume, change speed, reproduce it from the same seed, and pass the Visual-Validation Gate. Headless project validation passes and an actual runtime screenshot has been inspected if tooling permits.
 
 ### Phase 2 — Authoritative resources, buildings, and economic accounting
 
@@ -180,19 +203,26 @@ Never build every system simultaneously. Each phase is a gate. Do not begin a fe
 
 ### Phase 9 — Polish, asset integration, balance, and release candidate
 
+- Prerequisite: The Visual-Validation Gate must have passed before generating or mass-importing the complete asset set.
+- Strictly adhere to `docs/ASSET_STYLE_GUIDE.md` for all final artwork.
 - Replace temporary visuals with consistent free/generated pixel assets progressively. Do not block logic development on perfect art.
-- When native image generation is available, request small, consistent asset sets. Verify sprite frames/dimensions before importing. If unavailable, use locally generated simple pixel art/procedural shapes or correctly licensed free assets. Do not claim art is AI-generated if it was not.
+- When native image generation is available, request small, consistent asset sets adhering to the 2:1 dimetric perspective, 32×16 diamond base footprint, and consistent North-West directional lighting. Verify sprite frames/dimensions and ground-contact pivots before importing. If unavailable, use locally generated simple pixel art/procedural shapes or correctly licensed free assets. Do not claim art is AI-generated if it was not.
 - Keep assets, source, and any downloaded resource's license/attribution record in the project. Use nearest-neighbor filtering and consistent scale.
 - Add essential sound effects/music only from generated or appropriately licensed free sources.
-- Inspect screenshots at target window size; review clipped/overlapping UI, unreadable fonts, incorrect tile adjacency, visual artifacts and missing assets.
+- Inspect screenshots at target window size; review clipped/overlapping UI, unreadable fonts, incorrect tile adjacency, visual artifacts, Y-sorting errors, and missing assets.
 - Profile actual performance before claiming optimization. Test 24 and roughly 100 citizens as required by the GDD.
 - Prepare a Windows build/export instructions if export templates and settings are available. Clearly report anything that cannot be exported in the current environment.
 
-**Exit gate:** clean launch, core acceptance suite passes, new-world and save/load UI flows work, visuals are coherent, no known blocker prevents the GDD's playable core loop, and the remaining deferred features are disclosed.
+**Exit gate:** clean launch, core acceptance suite passes, new-world and save/load UI flows work, visuals are coherent and conform to `docs/ASSET_STYLE_GUIDE.md`, no known blocker prevents the GDD's playable core loop, and the remaining deferred features are disclosed.
 
 ## ARCHITECTURE RULES
 
 - Keep modules small, cohesive, and data-driven. Do not put the entire simulation in one giant script.
+- Strictly separate logical simulation coordinates from rendered screen projection:
+  - The logical simulation operates entirely on a 64×64 discrete integer grid (`Vector2i`). Job scheduling, navigation/pathfinding, building placement checks, hauling, resource harvesting, and storage logic know ONLY integer grid cells (`0 <= x, y < 64`).
+  - The rendering layer (`TileMapLayer`, isometric views) projects logical `(grid_x, grid_y)` to map-local pixel space using 2:1 dimetric isometric formulas (`local_x = (x - y) * 16`, `local_y = (x + y) * 8`) and resolves cursor positions via `tile_map_layer.to_local(mouse_pos)` combined with `local_to_map()` or exact math (`floor(u + 0.5)`).
+  - Simulation logic must NEVER depend on screen pixels, camera zoom, or rendering offsets.
+  - Depth sorting uses Godot 2D `y_sort_enabled = true` on the world container and entity layers. Node origins/pivots must be anchored strictly at ground-contact points (feet/base diamond center).
 - Use Autoload/singletons only for genuinely shared services, e.g. TimeManager, WorldState/ResourceManager, SaveLoadSystem, EventSystem. Avoid hidden global dependencies where a clear API is possible.
 - Define ownership: a single system owns each authoritative value. Derived UI values are read-only projections.
 - Prefer typed GDScript, explicit return types for important APIs, named constants/enums and clear error messages.
@@ -206,11 +236,14 @@ Never build every system simultaneously. Each phase is a gate. Do not begin a fe
 
 ## PIXEL ART AND ASSET PIPELINE
 
-- Define a compact, consistent palette and sprite specification in `ASSET_STYLE_GUIDE.md` before generating many assets.
-- Keep tile grid 16×16. Use suitable character sprites (e.g. 16×24 or 16×32) only if the style guide documents the reason and collision footprints remain grid-consistent.
+- Strictly follow `docs/ASSET_STYLE_GUIDE.md` for palette, projection, dimensions, and import settings.
+- Ground tiles are 32×16 pixel diamonds (2:1 dimetric ratio, ~26.565° angle).
+- Buildings occupy diamond footprints on the grid (1×1 = 32×16, 2×2 = 64×32, 3×3 = 96×48 base diamonds) and extend vertically upward along the -Y axis. Buildings must show visible rooftops and front-facing facades (SW & SE).
+- Citizen sprites use the standardized default from `docs/ASSET_STYLE_GUIDE.md`: 24×32 px canvas per frame, 12–16 px wide by 22–26 px tall visible figure (not forced to fill canvas), ground-contact foot pivot at `Vector2(12, 30)` (offset `Vector2(-12, -30)` relative to node origin) for exact Y-sorting, and 1×1 logical grid footprint.
+- Props (trees, rocks, walls) follow the same 2:1 perspective and Y-sort anchors.
+- Do not stretch arbitrary generated artwork or force all sprites into tile bounding boxes.
 - Generate/obtain assets in small batches: terrain first, then buildings, citizens, resource nodes, UI icons, effects. Inspect each batch in-game before creating large variants.
-- For sprite sheets, define exact frame width/height, rows, animation names, pivot/origin, collision footprint, and import/filter rules. Validate bounds programmatically or with an inspection scene.
-- Do not stretch arbitrary generated artwork to fit the grid. If image generation gives inconsistent views, use it as concept reference and make clean in-game placeholders or use licensed sprites instead.
+- For sprite sheets, define exact frame width/height, rows, animation names, pivot/origin at ground contact, collision footprint, and import/filter rules (Nearest-neighbor, lossless, pixel snap). Validate bounds programmatically or with an inspection scene.
 - No paid assets, hidden watermarks, stolen/copyrighted characters, or unverified license claims.
 
 ## AUTOMATED TESTING AND RUNTIME QA
@@ -257,7 +290,7 @@ Testing policy:
 
 The game is not complete merely because Phase 1 or a set of UI panels exists. Before reporting MVP complete, demonstrate or document test evidence for the applicable GDD criteria:
 
-1. New world from a seed; valid 64×64 map; camera/zoom; valid spawn and starting buildings.
+1. New world from a seed; valid 64×64 map rendered in 2D isometric diamond tiles (32×16 px); camera/zoom; valid spawn and starter buildings with visible roofs and front-facing facades.
 2. 24 citizens with functional jobs, pathfinding, and explainable idle/failure states.
 3. Functional resource accounting, production, consumption, storage, construction costs, and hauling according to the documented logistics model.
 4. At least 10 core buildings implemented as functional systems—not just buttons/icons.
@@ -269,6 +302,7 @@ The game is not complete merely because Phase 1 or a set of UI panels exists. Be
 10. Save/load and world summary without duplication or data loss.
 11. Automated tests for core economic, job, automation, save/load, and victory/collapse behavior.
 12. The game runs offline and does not require external AI services.
+13. Visual coherence: strict adherence to `docs/ASSET_STYLE_GUIDE.md`, verified by passing the Visual-Validation Gate, with crisp nearest-neighbor pixel art, consistent 2:1 dimetric perspective across all entities, and flawless depth/Y-sorting without visual clipping or sorting defects.
 
 If a criterion is incomplete, do not call the full GDD MVP complete. Mark the deliverable as a prototype, vertical slice, or partial MVP and list the missing criteria.
 

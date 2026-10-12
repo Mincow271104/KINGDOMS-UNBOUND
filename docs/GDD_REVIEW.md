@@ -96,4 +96,4 @@ Không được coi menu có nút là hoàn thành gameplay. Không được coi
 
 ## 8. Cách dùng file Master Prompt
 
-Dùng `Kingdoms_Unbound_AI_Master_Prompt.md` cùng GDD gốc trong một workspace riêng. Nếu Antigravity hỗ trợ `/goal`, có thể prefix prompt bằng `/goal`. Để agent thực sự làm việc lâu dài, mọi tiến độ phải được ghi vào `docs/BACKLOG.md`, `docs/WORKLOG.md`, `docs/TEST_PLAN.md` và `docs/KNOWN_ISSUES.md`; quota, lỗi công cụ hoặc phiên agent kết thúc vẫn có thể ngắt công việc, nên prompt không thể bảo đảm chạy vô hạn.
+Dùng `MASTER_PROMPT.md` cùng GDD gốc trong một workspace riêng. Nếu Antigravity hỗ trợ `/goal`, có thể prefix prompt bằng `/goal`. Quy trình thực thi trong `MASTER_PROMPT.md` chia thành 10 Phase kỹ thuật (Phases 0–9, trong đó Save/Load được tách riêng thành Phase 8 độc lập để bảo đảm an toàn dữ liệu, khớp hoàn toàn với 9 Giai đoạn 0–8 cấp cao trong GDD). Để agent thực sự làm việc lâu dài, mọi tiến độ phải được ghi vào `docs/BACKLOG.md`, `docs/WORKLOG.md`, `docs/TEST_PLAN.md` và `docs/KNOWN_ISSUES.md`; quota, lỗi công cụ hoặc phiên agent kết thúc vẫn có thể ngắt công việc, nên prompt không thể bảo đảm chạy vô hạn.

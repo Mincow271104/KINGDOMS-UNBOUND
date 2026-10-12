@@ -1,7 +1,7 @@
 # KINGDOMS UNBOUND
 ## GAME DESIGN DOCUMENT & TECHNICAL IMPLEMENTATION SPECIFICATION
 **Version:** 1.0 — MVP Development Blueprint  
-**Genre:** Top-down Pixel Art Kingdom Simulation / Strategy / Colony Management  
+**Genre:** 2D Isometric / Dimetric Pixel Art Kingdom Simulation / Colony Management (Three-Quarter Top-Down Perspective, NOT Flat Overhead)  
 **Target:** PC, single-player, offline-first  
 **Primary language of design:** Vietnamese  
 **Recommended engine:** Godot 4.x, 2D, GDScript  
@@ -13,7 +13,14 @@
 
 ## 1.1. Ý tưởng cốt lõi
 
-Xây dựng một game mô phỏng vương quốc góc nhìn top-down với đồ họa pixel art. Người chơi bắt đầu với một khu định cư nhỏ, một nhóm dân cư và lượng tài nguyên hạn chế. Qua quá trình quản lý, người chơi phát triển kinh tế, xây dựng công trình, nghiên cứu công nghệ, khám phá bản đồ, thiết lập quan hệ với các thế lực khác và bảo vệ vương quốc khỏi khủng hoảng.
+Xây dựng một game mô phỏng vương quốc bằng đồ họa 2D pixel art với góc nhìn 2D isometric / dimetric 2:1 (three-quarter top-down), tuyệt đối KHÔNG sử dụng góc nhìn phẳng thẳng đứng từ trên xuống (flat overhead 90°). Phong cách thị giác bám sát hình ảnh chuẩn tham chiếu (`docs/reference/kingdom_visual_reference.png`):
+- Các ô đất có hình thoi (diamond-shaped ground tiles).
+- Các công trình thể hiện rõ mặt mái nghiêng và các mặt tường tiền diện (front-facing facades hướng Tây Nam và Đông Nam).
+- Phối cảnh 3/4 đồng bộ tuyệt đối trên toàn bộ thế giới: nhà cửa, cây cối, đá tài nguyên, tường thành và cư dân.
+- Phân tầng chiều sâu theo trục Y (depth/Y-sorting) chính xác để các đối tượng tự nhiên che khuất hoặc hiển thị phía trước/phía sau nhau khi di chuyển.
+- Đồ họa pixel art sắc nét với bộ lọc phóng đại Nearest-Neighbor và tỉ lệ kích thước cân đối, hài hòa.
+
+Người chơi bắt đầu với một khu định cư nhỏ, một nhóm dân cư và lượng tài nguyên hạn chế. Qua quá trình quản lý, người chơi phát triển kinh tế, xây dựng công trình, nghiên cứu công nghệ, khám phá bản đồ, thiết lập quan hệ với các thế lực khác và bảo vệ vương quốc khỏi khủng hoảng.
 
 Điểm khác biệt chính của game là sự kết hợp giữa:
 
@@ -73,7 +80,7 @@ MVP không phải bản demo chỉ có nhân vật di chuyển và giao diện t
 
 1. Tạo bản đồ hữu hạn 64 × 64 ô.
 2. Sinh địa hình, cây, đá, mỏ và các địa điểm khám phá.
-3. Hiển thị bản đồ top-down pixel art.
+3. Hiển thị bản đồ 2D isometric / dimetric pixel art với lưới ô hình thoi (diamond tiles), phân tầng chiều sâu (Y-sorting) chính xác, và công trình thể hiện rõ mặt mái cùng mặt tiền.
 4. Quản lý 24 dân cư ban đầu.
 5. Có hệ thống tài nguyên, sản xuất, tiêu thụ và kho chứa.
 6. Có ít nhất 10 công trình cốt lõi.
@@ -115,17 +122,71 @@ Có thể chuẩn bị kiến trúc mở rộng, nhưng không được xây nh�
 
 # PHẦN III — THẾ GIỚI VÀ BẢN ĐỒ
 
-## 3.1. Quy mô bản đồ
+## 3.1. Quy mô bản đồ và Hệ thống chiếu hình Isometric
 
-- Kích thước mặc định: 64 × 64 ô.
-- Mỗi ô đại diện một vị trí trên lưới.
-- Kích thước hiển thị một ô: 16 × 16 pixel ở mức tài nguyên đồ họa cơ bản.
-- Có thể phóng to, thu nhỏ và di chuyển camera.
-- Bản đồ hữu hạn; không tạo thêm đất khi người chơi đi đến rìa.
-- Các khu vực chưa khám phá được che bởi Fog of War.
-- Bản đồ được sinh từ seed để có thể tái tạo khi kiểm thử.
+### Tách biệt giữa Lưới Logic và Hình chiếu Render
+Game duy trì sự phân tách nghiêm ngặt giữa hai không gian tọa độ:
+1. **Lưới Logic (Logical Simulation Grid):**
+   - Kích thước cố định: **64 × 64 ô** (tọa độ nguyên `Vector2i(grid_x, grid_y)` với `0 <= grid_x, grid_y < 64`).
+   - Toàn bộ thuật toán mô phỏng (A* pathfinding, khoảng cách di chuyển, kiểm tra chiếm dụng ô xây dựng, bán kính kho bãi, khai thác tài nguyên) hoạt động hoàn toàn trên lưới logic này.
+   - Logic mô phỏng hoàn toàn không phụ thuộc vào pixel màn hình hay tỉ lệ thu phóng camera.
+2. **Hình chiếu Hiển thị (Rendered Screen Projection):**
+   - Sử dụng phối cảnh **2D Isometric / Dimetric tỉ lệ 2:1** (ba phần tư từ trên xuống — three-quarter top-down view; tuyệt đối không dùng flat overhead 90°).
+   - Mỗi ô mặt đất được chiếu thành một **hình thoi (diamond tile)** có tỉ lệ cạnh bước 2 pixel ngang trên 1 pixel dọc (góc nghiêng trục xấp xỉ 26.565°).
 
-Kích thước tile và cách hiển thị phải được cấu hình tập trung, không hardcode rải rác khắp dự án.
+### Đánh giá và Lựa chọn Kích thước Diamond Tile (32 × 16 pixel)
+Ban đầu, mức tile cơ bản xung quanh 32 × 16 pixel được đánh giá kỹ lưỡng so với các phương án khả thi:
+- **So với 16 × 8 pixel:** Một ô thoi 16 × 8 pixel chỉ có diện tích 64 px², quá chật hẹp để vẽ chất liệu địa hình (cỏ, đất xới, đá cuội, mặt nước) mà vẫn giữ được độ sắc nét và cái hồn pixel art. Nhân vật và chi tiết sẽ bị thu nhỏ quá mức hoặc dính răng cưa dày đặc.
+- **So với 64 × 32 pixel:** Một ô thoi 64 × 32 pixel có diện tích gấp 4 lần (1024 px²), buộc toàn bộ sprite nhân vật phải cao từ 48–64 px và công trình phải cao 120–200 px. Điều này làm tăng đột biến khối lượng đồ họa, dung lượng bộ nhớ, và khiến khung hình PC thông thường (1080p / 720p) chỉ hiển thị được một góc rất nhỏ của vương quốc, làm suy giảm tầm nhìn chiến lược.
+- **Lý do chốt kích thước 32 × 16 pixel:**
+  - Hình thoi rộng **32 pixel**, cao **16 pixel** là kích thước chuẩn mực kinh điển của isometric pixel art 2:1.
+  - Toàn bộ bản đồ 64 × 64 ô trải dài trên không gian màn hình là **2048 × 1024 pixel**. Ở độ phân giải PC chuẩn (1080p / 720p) với các mức zoom 1× đến 2.5×, người chơi vừa có thể phóng to để ngắm chi tiết cư dân làm việc, vừa có thể thu nhỏ để bao quát cả vương quốc một cách rõ ràng.
+  - Cung cấp vừa đủ không gian điểm ảnh (256 px²) để thể hiện hoa văn địa hình đẹp mắt mà không làm bùng nổ gánh nặng vẽ asset.
+  - Tỉ lệ bước 2:1 cho đường viền pixel sạch sẽ, hoàn hảo không bị gãy nét hay răng cưa lệch bậc.
+
+### Nguyên tắc Tỉ lệ Sprite và Chiều cao Công trình (Không bóp méo Sprite)
+- **Không ép hay bóp méo sprite vào kích thước ô:** Kích thước 32 × 16 pixel chỉ là diện tích tiếp xúc mặt đất (footprint). Các thực thể (cây cối, cư dân, công trình, đá, tường) có chiều cao thực tế vươn thẳng đứng lên phía trên theo trục `-Y` màn hình.
+  - **Cư dân (Quy chuẩn mặc định):** Khung hình canvas mặc định là 24 × 32 pixel; hình nhân vật hiển thị thực tế cao xấp xỉ 22 – 26 pixel, rộng 12 – 16 pixel (không ép giãn kín khung nhằm chừa khoảng trống cho mũ, động tác nhấp nhô và công cụ cầm tay); điểm tiếp đất (foot pivot) đặt tại `Vector2(12, 30)` của khung hình, trùng với gốc tọa độ node để phân tầng Y-sorting chuẩn xác; footprint logic trên lưới là 1 × 1 ô. (Quy chuẩn này là mặc định đề xuất, có thể linh hoạt mở rộng kích thước khung khi có nhân vật đặc thù hợp lý).
+  - Cây cối / Tài nguyên: cao từ 32–64 pixel; chân gốc đặt tại tâm ô tiếp đất.
+  - Công trình: footprint chiếm diện tích hình thoi 1×1 ô (32×16 px), 2×2 ô (64×32 px), hoặc 3×3 ô (96×48 px); chiều cao vươn lên từ 32–96 pixel, thể hiện rõ phần mái và mặt tiền hướng Tây Nam / Đông Nam.
+
+### Chuyển đổi Tọa độ và Chọn Ô (Coordinate Mapping & Cell Selection)
+1. **Không gian Tọa độ:**
+   - Tọa độ chuột màn hình (`get_global_mouse_position()`) phải được chuyển về tọa độ cục bộ của bản đồ thông qua `tile_map_layer.to_local(mouse_pos)` trước khi tính toán.
+   - Lưới logic: Tọa độ số nguyên `Vector2i(grid_x, grid_y)` thuộc phạm vi $0 \le \text{grid\_x}, \text{grid\_y} < 64$.
+2. **Từ Lưới Logic `(grid_x, grid_y)` sang Tọa độ Cục bộ `(local_x, local_y)`:**
+   - `local_x = (grid_x - grid_y) * (TILE_WIDTH / 2) = (grid_x - grid_y) * 16.0`
+   - `local_y = (grid_x + grid_y) * (TILE_HEIGHT / 2) = (grid_x + grid_y) * 8.0`
+3. **Từ Tọa độ Cục bộ `(local_x, local_y)` sang Ô Lưới `(grid_x, grid_y)` (Công thức Nghịch đảo Chuẩn xác):**
+   - Đặt tọa độ trục liên tục:
+     $$u = \frac{\text{local\_x}}{32.0} + \frac{\text{local\_y}}{16.0}$$
+     $$v = \frac{\text{local\_y}}{16.0} - \frac{\text{local\_x}}{32.0}$$
+   - Để tâm ô $(0, 0)$ bao quát đúng hình thoi đối xứng và tránh lệch góc phần tư (quadrant shift), công thức làm tròn ô chuẩn xác là:
+     - `grid_x = floor(u + 0.5) = floor((local_x / 32.0 + local_y / 16.0) + 0.5)`
+     - `grid_y = floor(v + 0.5) = floor((local_y / 16.0 - local_x / 32.0) + 0.5)`
+4. **API Native Godot 4 `TileMapLayer`:**
+   - Khi cấu hình `TileMapLayer` với `tile_shape = TileSet.TILE_SHAPE_ISOMETRIC` và `tile_size = Vector2i(32, 16)`, Godot cung cấp sẵn các phương thức tối ưu C++:
+     ```gdscript
+     var local_mouse: Vector2 = tile_map_layer.to_local(get_global_mouse_position())
+     var cell: Vector2i = tile_map_layer.local_to_map(local_mouse)
+     var cell_center: Vector2 = tile_map_layer.map_to_local(cell)
+     ```
+5. **Kiểm tra Biên Bản đồ và Đồng bộ Con trỏ:**
+   - Ô hợp lệ phải thỏa mãn: `0 <= cell.x < 64 and 0 <= cell.y < 64`.
+   - Cả hệ thống highlight con trỏ chuột và hệ thống đặt công trình đều bắt buộc sử dụng chung kết quả ánh xạ `cell` này. Nếu `cell` nằm ngoài biên thế giới hoặc footprint công trình vượt ra ngoài biên, thao tác bị từ chối và khung highlight hiển thị trạng thái không hợp lệ.
+
+### Phân tầng Chiều sâu (Depth / Y-Sorting)
+- Hệ thống hiển thị sử dụng Godot `y_sort_enabled = true`.
+- Gốc tọa độ (origin / pivot) của mọi node hiển thị (cư dân, cây cối, công trình) phải được đặt chính xác tại **điểm tiếp đất (chân sprite / tâm đáy footprint)**.
+- Nhờ đó, khi một cư dân di chuyển về phía sau công trình (Y nhỏ hơn), công trình tự động che khuất cư dân; khi cư dân bước ra phía trước công trình (Y lớn hơn), cư dân tự động hiển thị đè lên mặt tiền công trình một cách tự nhiên.
+
+### Camera, Hiển thị và Cấu hình Tập trung
+- Camera 2D hỗ trợ di chuyển (Pan), phóng to/thu nhỏ (Zoom) mượt mà.
+- Bắt buộc dùng phóng to Nearest-Neighbor (`TEXTURE_FILTER_NEAREST`) để giữ độ sắc nét nguyên bản của pixel art.
+- Bản đồ hữu hạn (không mở rộng vô hạn khi chạm biên).
+- Vùng chưa mở được che bởi Fog of War theo các ô thoi.
+- Bản đồ sinh từ Seed để tái lập chính xác khi kiểm thử.
+- Mọi thông số kích thước ô (32 × 16 px), hệ số chiếu và offset phải được lưu trữ trong Resource cấu hình tập trung, tuyệt đối không hardcode rải rác.
 
 ## 3.2. Các loại địa hình
 
@@ -464,22 +525,31 @@ Không triển khai di truyền nhiều gene trong MVP.
 
 ## 7.1. Danh sách công trình
 
-| Công trình | Công dụng | Chi phí khởi điểm |
-|---|---|---|
-| Town Hall | Trung tâm quản trị | Có sẵn |
-| House | Chỗ ở | 15 Wood, 5 Stone |
-| Farm | Sản xuất thức ăn | 20 Wood |
-| Woodcutter Camp | Khai thác gỗ | 15 Wood |
-| Quarry | Khai thác đá | 15 Wood, 5 Tools |
-| Mine | Khai thác quặng | 20 Wood, 10 Stone |
-| Workshop | Chế tạo công cụ và kim loại | 20 Wood, 15 Stone, 5 Metal |
-| Storehouse | Lưu trữ | 15 Wood, 10 Stone |
-| Research Hall | Nghiên cứu công nghệ | 25 Wood, 10 Stone |
-| Watchtower | Phát hiện nguy hiểm | 20 Wood, 15 Stone |
-| Market | Giao dịch | 25 Wood, 10 Stone |
-| Barracks | Tuyển quân | 25 Wood, 20 Stone, 5 Metal |
+| Công trình | Công dụng | Footprint (Lưới ô thoi) | Chi phí khởi điểm |
+|---|---|---|---|
+| Town Hall | Trung tâm quản trị | 3 × 3 ô (96 × 48 px base) | Có sẵn |
+| House | Chỗ ở | 2 × 2 ô (64 × 32 px base) | 15 Wood, 5 Stone |
+| Farm | Sản xuất thức ăn | 2 × 2 ô (64 × 32 px base) | 20 Wood |
+| Woodcutter Camp | Khai thác gỗ | 2 × 2 ô (64 × 32 px base) | 15 Wood |
+| Quarry | Khai thác đá | 2 × 2 ô (64 × 32 px base) | 15 Wood, 5 Tools |
+| Mine | Khai thác quặng | 2 × 2 ô (64 × 32 px base) | 20 Wood, 10 Stone |
+| Workshop | Chế tạo công cụ và kim loại | 2 × 2 ô (64 × 32 px base) | 20 Wood, 15 Stone, 5 Metal |
+| Storehouse | Lưu trữ | 2 × 2 ô (64 × 32 px base) | 15 Wood, 10 Stone |
+| Research Hall | Nghiên cứu công nghệ | 3 × 3 ô (96 × 48 px base) | 25 Wood, 10 Stone |
+| Watchtower | Phát hiện nguy hiểm | 1 × 1 ô (32 × 16 px base) | 20 Wood, 15 Stone |
+| Market | Giao dịch | 3 × 3 ô (96 × 48 px base) | 25 Wood, 10 Stone |
+| Barracks | Tuyển quân | 3 × 3 ô (96 × 48 px base) | 25 Wood, 20 Stone, 5 Metal |
 
-Các mức chi phí là giá trị ban đầu để kiểm thử. Mọi chi phí phải đặt trong dữ liệu cấu hình, không viết cứng trong logic xây dựng.
+Các mức chi phí là giá trị ban đầu để kiểm thử. Mọi chi phí và footprint phải đặt trong dữ liệu cấu hình, không viết cứng trong logic xây dựng.
+
+### Quy chuẩn Phối cảnh và Thị giác Công trình
+Bám sát hình ảnh tham chiếu chuẩn (`docs/reference/kingdom_visual_reference.png`):
+- **Góc nhìn ba phần tư (Three-quarter isometric):** Mọi công trình đều thể hiện rõ:
+  - Mặt mái che (rooftop): Các bề mặt dốc nhìn từ trên hướng về Tây Bắc / Đông Bắc.
+  - Các mặt tường tiền diện (front-facing facades): Hai mặt tường hướng về phía Tây Nam và Đông Nam hướng thẳng về phía người chơi.
+  - Tường sau (hướng Tây Bắc và Đông Bắc) bị che khuất tự nhiên bởi phần mái, không hiển thị.
+- **Chiều cao công trình (Không nén dẹp sprite):** Đáy công trình khớp hoàn hảo với footprint hình thoi trên mặt đất (1×1 = 32×16 px, 2×2 = 64×32 px, 3×3 = 96×48 px). Toàn bộ khối kiến trúc vươn lên theo trục thẳng đứng `-Y` (chiều cao đồ họa từ 32px đến 96px tùy quy mô công trình).
+- **Điểm neo phân tầng chiều sâu (Y-Sort Anchor):** Gốc tọa độ của công trình được đặt tại đáy tâm của footprint tiếp đất (hoặc cạnh trước tiếp xúc mặt đất) để bảo đảm quy tắc Y-sorting chuẩn xác: cư dân bước phía sau nhà sẽ bị mái/tường che, cư dân bước phía trước nhà sẽ hiển thị nổi trên mặt tường.
 
 ## 7.2. Trạng thái công trình
 
@@ -487,8 +557,8 @@ Mỗi công trình có:
 
 - ID.
 - Loại.
-- Vị trí.
-- Kích thước.
+- Vị trí logic trên lưới (`Vector2i`).
+- Kích thước footprint (`Vector2i`).
 - Trạng thái xây dựng.
 - Độ bền nếu cần.
 - Công suất.
@@ -973,6 +1043,7 @@ Hiển thị:
 - Nút Pause.
 - Nút Save.
 - Nút mở bảng quản lý.
+- Khung chọn ô và tương tác chuột: Hiển thị con trỏ hình thoi (diamond highlight cursor) 32 × 16 pixel bám theo vị trí chuột trên lưới; khi xây dựng công trình, hiển thị footprint hình thoi tương ứng (1×1, 2×2, 3×3) với màu phản hồi (xanh: hợp lệ, đỏ: bị chiếm/không hợp lệ).
 
 Không hiển thị mọi chỉ số dân cùng lúc trên màn hình chính.
 
@@ -1096,9 +1167,11 @@ Khi tải game, phải khôi phục trạng thái mô phỏng chứ không chạ
 ## 16.1. Công nghệ mặc định
 
 - Godot 4.x.
-- GDScript.
-- Game 2D.
-- TileMap hoặc hệ thống tile tương thích phiên bản Godot đang dùng.
+- GDScript (ưu tiên typed GDScript).
+- Game 2D Isometric / Dimetric (hình chiếu 2:1, diamond tile 32 × 16 pixel).
+- TileMapLayer hoặc hệ thống hiển thị Tile 2D tương thích Godot 4.x hỗ trợ Isometric.
+- Cơ chế phân tầng độ sâu trục Y: `y_sort_enabled = true` trên các node chứa thế giới và thực thể.
+- Hiển thị pixel art chuẩn: Texture Filter Nearest (`TEXTURE_FILTER_NEAREST`), tắt mipmaps, kích hoạt 2D pixel snap.
 - Dữ liệu cấu hình bằng Resource hoặc định dạng dữ liệu phù hợp.
 - Git để quản lý phiên bản.
 - Kiểm thử bằng các test scene hoặc framework test phù hợp.
@@ -1173,8 +1246,13 @@ Theo dõi thành tích và Legacy.
 
 Hiển thị trạng thái và gửi lệnh đến các hệ thống.
 
+### IsometricView / RenderLayer
+
+Quản lý toàn bộ hiển thị 2D Isometric: ánh xạ chuyển đổi giữa lưới logic 64×64 (`Vector2i`) và tọa độ màn hình (`Vector2`), quản lý `TileMapLayer`, sprite công trình, cây cối, cư dân, con trỏ chuột hình thoi, cơ chế `y_sort_enabled` và camera pan/zoom.
+
 ## 16.3. Nguyên tắc kiến trúc
 
+- **Tách biệt tuyệt đối giữa Mô phỏng Logic và Hiển thị Isometric:** Lưới thế giới trong mô phỏng là không gian số nguyên 64 × 64 ô (`Vector2i`). Mọi thuật toán (Job, Pathfinding, Building placement, Citizen movement logic) chỉ xử lý trên lưới logic này. Tầng hiển thị (`RenderLayer`) đóng vai trò là một hình chiếu đọc trạng thái và chuyển đổi sang không gian pixel 2:1 dimetric. Tuyệt đối không để logic mô phỏng phụ thuộc vào tọa độ pixel hay zoom camera.
 - UI không trực tiếp tự thay đổi tài nguyên.
 - UI gửi yêu cầu đến hệ thống tương ứng.
 - Các hệ thống kiểm tra điều kiện trước khi cập nhật trạng thái.
@@ -1287,10 +1365,30 @@ MVP chỉ được coi là hoàn thành khi người chơi có thể:
 12. Chiến thắng thịnh vượng hoặc sụp đổ.
 13. Xem tổng kết.
 14. Lưu và tải mà không lỗi dữ liệu.
+15. Trình diễn toàn bộ thế giới theo chuẩn 2D Isometric / Dimetric 2:1 (ô thoi 32 × 16 pixel), công trình có mái và mặt tiền, phân tầng Y-sorting chính xác và hiển thị pixel art sắc nét.
 
 ---
 
 # PHẦN XVIII — KẾ HOẠCH TRIỂN KHAI CHO AI VIBE CODING
+
+### 18.0. Mối quan hệ giữa Lộ trình GDD (Giai đoạn 0–8) và Kế hoạch Kỹ thuật trong Master Prompt (Phases 0–9)
+Lộ trình trong GDD (Phần XVIII) thể hiện các giai đoạn thiết kế tính năng cấp cao (Design Roadmap). Trong khi đó, Master Prompt (`MASTER_PROMPT.md`) quy định 10 giai đoạn thực thi kỹ thuật chi tiết (Execution Phases 0–9) với các cổng nghiệm thu (exit gates) tuần tự nghiêm ngặt.
+
+Mối tương quan giữa hai tài liệu được quy định rõ ràng như sau:
+
+| Giai đoạn GDD (Design Roadmap) | Phase Master Prompt (Execution Phase) | Nội dung & Cổng nghiệm thu kỹ thuật |
+|---|---|---|
+| **Giai đoạn 0 — Kiểm tra repository** | **Phase 0 — Audit, scaffold, and reproducibility** | Kiểm tra engine, cấu hình conventions, sinh tài liệu kiến trúc/kế hoạch, xác thực baseline. |
+| **Giai đoạn 1 — Nền tảng game** | **Phase 1 — Vertical slice: world, camera, time, UI** | Bản đồ isometric 64×64, ô thoi 32×16, camera, HUD, vượt qua **Visual-Validation Gate**. |
+| **Giai đoạn 2 — Tài nguyên và công trình** | **Phase 2 — Authoritative resources, buildings, economy** | ResourceManager authoritative, đặt công trình, kho bãi, kiểm thử trừ nguyên liệu. |
+| **Giai đoạn 3 — Dân cư và công việc** | **Phase 3 — Citizens, navigation, and real jobs** | 24 dân, quy chuẩn sprite 24×32 canvas (22–26px figure), tìm đường, JobSystem chung. |
+| **Giai đoạn 4 — Tự động hóa** | **Phase 4 — Working logistics loop and basic automation** | Vận chuyển thực tế, quy tắc điều kiện/hành động, giải thích trạng thái dân. |
+| **Giai đoạn 5 — Công nghệ và khám phá** | **Phase 5 — Research, exploration, fog of war, events** | Cây công nghệ, Fog of War, phế tích, phần thưởng persistent, world events. |
+| **Giai đoạn 6 — Thế giới và xung đột** | **Phase 6 — Trading, factions, diplomacy, abstract battles** | Faction đối thủ, giao dịch nguyên tử, ngoại giao, BattleResolver tất định. |
+| **Giai đoạn 7 — Chiến thắng, sụp đổ và save/load** | **Phase 7 — Population growth, crisis, victory, summaries**<br><br>**Phase 8 — Robust Save/Load & persistence hardening** | *Tách thành 2 phase kỹ thuật độc lập để bảo đảm an toàn dữ liệu:*<br>- **Phase 7:** Dân số ≥30, chu kỳ khủng hoảng, chiến thắng thịnh vượng giữ 5 ngày, tổng kết.<br>- **Phase 8:** Hệ thống Save/Load an toàn, schema versioning, chống dupe data, kiểm thử file hỏng. |
+| **Giai đoạn 8 — Hoàn thiện và tối ưu** | **Phase 9 — Polish, asset integration, balance, release** | Hoàn thiện asset theo `docs/ASSET_STYLE_GUIDE.md` (yêu cầu Visual-Validation Gate), âm thanh, performance, Windows build. |
+
+Hai hệ thống phân chia này hoàn toàn đồng nhất về mục tiêu: GDD giữ vai trò định hướng thiết kế và luật chơi, còn Master Prompt giữ vai trò kiểm soát quy trình lập trình và kiểm thử. Toàn bộ tính năng MVP, thứ tự phụ thuộc và tiêu chí nghiệm thu được bảo toàn tuyệt đối.
 
 ## Giai đoạn 0 — Kiểm tra repository
 
@@ -1310,15 +1408,21 @@ AI phải:
 Triển khai:
 
 - Main menu.
-- Tạo thế giới.
-- Bản đồ 64 × 64.
-- Camera và zoom.
-- Seed.
-- Địa hình.
-- Nhà chính.
+- Tạo thế giới từ seed.
+- Bản đồ thế giới 64 × 64 ô logic chiếu hình 2D Isometric (diamond tiles 32 × 16 pixel).
+- Camera di chuyển và zoom (bộ lọc Nearest-Neighbor).
+- Địa hình, cây cối, nhà chính và các công trình khởi đầu hiển thị phối cảnh 3/4 đúng Y-sorting.
+- Con trỏ chuột hình thoi (hover/selection diamond highlight).
 - Pause và tốc độ mô phỏng.
+- **Cổng kiểm định thị giác (Visual-Validation Gate - Bắt buộc):** Tạo và xác nhận scene kiểm thử độc lập (`res://scenes/test/visual_validation_test.tscn`) gồm:
+  1. Địa hình ô thoi 32 × 16 px (cỏ, nước, đường đất).
+  2. Cây cối và đá tài nguyên phối cảnh isometric.
+  3. Ít nhất một công trình hoàn chỉnh thể hiện rõ mặt mái và mặt tiền hướng Tây Nam / Đông Nam.
+  4. Một cư dân di chuyển thực tế trên lưới.
+  5. Khung highlight hình thoi bám chuột chính xác.
+  6. Phân tầng Y-sorting hoàn hảo (cư dân đi ra sau và ra trước công trình/cây cối được che khuất/nổi lên đúng thực tế).
 
-**Tiêu chí hoàn thành:** tạo được một thế giới mới và tương tác với bản đồ.
+**Tiêu chí hoàn thành:** tạo được một thế giới mới, tương tác với bản đồ isometric và vượt qua Cổng kiểm định thị giác (Visual-Validation Gate).
 
 ## Giai đoạn 2 — Tài nguyên và công trình
 
@@ -1409,6 +1513,7 @@ Triển khai:
 
 - Sửa lỗi.
 - Kiểm thử.
+- Thay thế asset tạm bằng asset hoàn thiện theo quy chuẩn `docs/ASSET_STYLE_GUIDE.md`. Điều kiện tiên quyết: Bắt buộc phải vượt qua Cổng kiểm định thị giác (Visual-Validation Gate) trước khi sản xuất hoặc tích hợp số lượng lớn asset đồ họa.
 - Cải thiện giao diện.
 - Tối ưu hiệu năng.
 - Thêm âm thanh và hoạt ảnh cần thiết.
@@ -1443,7 +1548,7 @@ Không thêm các hệ thống lớn mới ở giai đoạn này nếu còn lỗ
 
 # PHẦN XX — MASTER PROMPT ĐƯA CHO AI VIBE CODING
 
-Bạn là Senior Game Developer, Technical Designer và QA Engineer chịu trách nhiệm triển khai một game top-down pixel-art kingdom simulation theo GDD đính kèm.
+Bạn là Senior Game Developer, Technical Designer và QA Engineer chịu trách nhiệm triển khai một game 2D isometric / dimetric pixel-art kingdom simulation (three-quarter top-down view, tuyệt đối không dùng flat overhead 90°) theo GDD đính kèm.
 
 Mục tiêu là xây dựng một MVP có thể chơi hoàn chỉnh, không phải một bản demo giao diện.
 
