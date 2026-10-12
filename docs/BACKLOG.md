@@ -70,14 +70,14 @@
 
 ---
 
-## Phase 5: Research, Exploration & Events
-- [ ] **TASK-5.1:** Implement 4 research branches with 8–12 data-driven technologies.
-- [ ] **TASK-5.2:** Implement Research Hall building and active project progress system.
-- [ ] **TASK-5.3:** Implement Fog of War grid layer (Unexplored, Explored, Visible).
-- [ ] **TASK-5.4:** Implement map Points of Interest with single-claim persistent discovery rewards.
-- [ ] **TASK-5.5:** Implement random world events with cooldowns and UI notifications.
-- [ ] **TASK-5.6:** Write automated test for research and POI rewards.
-- [ ] **TASK-5.7:** Git checkpoint Phase 5.
+## Phase 5: Research, Exploration & Events (Completed)
+- [x] **TASK-5.1:** Implement 4 research branches with 8–12 data-driven technologies (`scripts/research/tech_tree.gd`).
+- [x] **TASK-5.2:** Implement Royal Research Institute system and active single-project progress (`scripts/research/research_manager.gd`).
+- [x] **TASK-5.3:** Implement Fog of War grid layer (Unexplored, Explored, Visible) (`scripts/world/fog_of_war.gd`).
+- [x] **TASK-5.4:** Implement map Points of Interest with single-claim persistent discovery rewards (`scripts/world/poi_manager.gd`).
+- [x] **TASK-5.5:** Implement world events with deterministic cooldowns and UI notifications (`scripts/core/world_event_system.gd`).
+- [x] **TASK-5.6:** Write automated tests for research, Fog of War, and POI rewards (`scripts/test/test_research_and_exploration.gd`).
+- [x] **TASK-5.7:** Git checkpoint Phase 5.
 
 ---
 

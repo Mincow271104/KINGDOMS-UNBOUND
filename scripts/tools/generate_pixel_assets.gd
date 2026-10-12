@@ -59,6 +59,7 @@ func _init() -> void:
 	_generate_farm_building("res://assets/buildings/bld_farm.png")
 	_generate_storehouse_building("res://assets/buildings/bld_storehouse.png")
 	_generate_woodcutter_building("res://assets/buildings/bld_woodcutter.png")
+	_generate_poi_ruins("res://assets/props/prop_poi_ruins.png")
 	
 	print("=== All pixel assets generated successfully ===")
 	quit(0)
@@ -446,3 +447,39 @@ func _generate_woodcutter_building(path: String) -> void:
 			
 	img.save_png(path)
 	print("Generated: %s" % path)
+
+## 10. POI Ancient Ruins / Shrine (32x32 px, ground pivot at (16, 28))
+func _generate_poi_ruins(path: String) -> void:
+	var img := Image.create(32, 32, false, Image.FORMAT_RGBA8)
+	img.fill(COL_TRANSPARENT)
+	
+	# Weathered Stone Obelisk / Pillars
+	for y in range(8, 28):
+		for x in range(10, 22):
+			var col := COL_STONE_LIGHT
+			if x < 16:
+				col = COL_STONE_HIGHLIGHT # NW lit facet
+			else:
+				col = COL_STONE_MID # SE shaded facet
+			if (y % 6 == 0):
+				col = COL_STONE_DEEP # Runes / Carvings
+			img.set_pixel(x, y, col)
+			
+	# Glowing Crystal Gem embedded in ruins (y: 12..16, x: 14..18)
+	for y in range(12, 17):
+		for x in range(14, 18):
+			img.set_pixel(x, y, COL_GOLD)
+	img.set_pixel(15, 14, COL_CREAM) # Highlight
+	
+	# Broken Stone Pedestal base (diamond at y: 24..29, x: 6..26)
+	for y in range(25, 29):
+		for x in range(8, 24):
+			img.set_pixel(x, y, COL_STONE_DEEP)
+			
+	# Ground shadow
+	for x in range(10, 22):
+		img.set_pixel(x, 29, Color(0, 0, 0, 0.4))
+		
+	img.save_png(path)
+	print("Generated: %s" % path)
+

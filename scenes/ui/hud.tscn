@@ -144,6 +144,12 @@ layout_mode = 2
 theme_override_colors/font_color = Color(0.9, 0.8, 0.3, 1)
 text = "🏗️ Xây Dựng (B)"
 
+[node name="ResearchBtn" type="Button" parent="BottomBar/PanelContainer/MarginContainer/HBoxContainer"]
+custom_minimum_size = Vector2(140, 36)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.4, 0.8, 1, 1)
+text = "🔬 Nghiên Cứu (T)"
+
 [node name="BuildMenuPanel" type="PanelContainer" parent="."]
 visible = false
 anchors_preset = 7
@@ -358,3 +364,85 @@ text = "Tiếp Tục Chơi"
 [node name="MenuBtn" type="Button" parent="PauseMenuOverlay/CenterContainer/PanelContainer/MarginContainer/VBoxContainer"]
 layout_mode = 2
 text = "Về Menu Chính"
+
+[node name="ResearchMenuPanel" type="PanelContainer" parent="."]
+visible = false
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -340.0
+offset_top = -240.0
+offset_right = 340.0
+offset_bottom = 240.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="MarginContainer" type="MarginContainer" parent="ResearchMenuPanel"]
+layout_mode = 2
+theme_override_constants/margin_left = 16
+theme_override_constants/margin_top = 12
+theme_override_constants/margin_right = 16
+theme_override_constants/margin_bottom = 12
+
+[node name="VBoxContainer" type="VBoxContainer" parent="ResearchMenuPanel/MarginContainer"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Header" type="Label" parent="ResearchMenuPanel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.4, 0.8, 1, 1)
+text = "VIỆN NGHIÊN CỨU HOÀNG GIA"
+horizontal_alignment = 1
+
+[node name="TechStatusLabel" type="Label" parent="ResearchMenuPanel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+text = "Chưa có dự án nghiên cứu nào đang tiến hành"
+horizontal_alignment = 1
+
+[node name="ScrollContainer" type="ScrollContainer" parent="ResearchMenuPanel/MarginContainer/VBoxContainer"]
+custom_minimum_size = Vector2(0, 300)
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="TechListVBox" type="VBoxContainer" parent="ResearchMenuPanel/MarginContainer/VBoxContainer/ScrollContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 6
+
+[node name="CloseResearchBtn" type="Button" parent="ResearchMenuPanel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+text = "Đóng (ESC)"
+
+[node name="EventBanner" type="PanelContainer" parent="."]
+visible = false
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -300.0
+offset_top = 64.0
+offset_right = 300.0
+offset_bottom = 144.0
+grow_horizontal = 2
+
+[node name="MarginContainer" type="MarginContainer" parent="EventBanner"]
+layout_mode = 2
+theme_override_constants/margin_left = 16
+theme_override_constants/margin_top = 8
+theme_override_constants/margin_right = 16
+theme_override_constants/margin_bottom = 8
+
+[node name="VBoxContainer" type="VBoxContainer" parent="EventBanner/MarginContainer"]
+layout_mode = 2
+
+[node name="EventTitle" type="Label" parent="EventBanner/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.85, 0.2, 1)
+text = "Sự Kiện Thế Giới"
+
+[node name="EventDesc" type="Label" parent="EventBanner/MarginContainer/VBoxContainer"]
+layout_mode = 2
+text = "Mô tả sự kiện diễn ra trong vương quốc..."
+autowrap_mode = 2
+

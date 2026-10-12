@@ -8,6 +8,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### [0.6.0] - 2026-10-12
+#### Added
+- Phase 5 Research, Exploration & Events completed:
+  - Central technology tree `scripts/research/tech_tree.gd` with 4 branches (survival, production, military, mysticism) and 10 technologies with prerequisites and atomic resource deductions.
+  - Royal Research Institute system `scripts/research/research_manager.gd` enforcing single active project constraint, atomic upfront cost deduction, 50% cancellation refund, pause safety, and global research bonuses (+500 storage capacity, +25% research speed).
+  - 3-state Fog of War simulation `scripts/world/fog_of_war.gd` (UNEXPLORED, EXPLORED, VISIBLE) with diamond sight reveals.
+  - Deterministic Points of Interest `scripts/world/poi_manager.gd` (Ancient Ruins, Abandoned Mines, Sacred Groves, Ancient Shrines) with single-claim persistent discovery rewards rejecting double-spending.
+  - World events system `scripts/core/world_event_system.gd` with periodic positive/negative events and cooldown intervals.
+  - Decoupled event router autoload `scripts/core/event_manager.gd` registered in `project.godot`.
+  - In-Game HUD Royal Research Institute panel (`KEY_T`), Research button, and Event Banner.
+  - Ancient Ruins pixel art prop `assets/props/prop_poi_ruins.png`.
+  - Automated test suite `scripts/test/test_research_and_exploration.gd` (TC-5.1, TC-5.2, TC-5.3 passed).
+
 ### [0.5.0] - 2026-10-12
 #### Added
 - Phase 4 Working Logistics Loop & Basic Automation completed:

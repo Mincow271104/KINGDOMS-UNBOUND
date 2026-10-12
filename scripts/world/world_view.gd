@@ -13,6 +13,10 @@ const JobManager = preload("res://scripts/jobs/job_manager.gd")
 const CitizenControllerScript = preload("res://scripts/entities/citizen_controller.gd")
 const WorkplaceManager = preload("res://scripts/economy/workplace_manager.gd")
 const AutomationManager = preload("res://scripts/economy/automation_manager.gd")
+const ResearchManager = preload("res://scripts/research/research_manager.gd")
+const FogOfWar = preload("res://scripts/world/fog_of_war.gd")
+const POIManager = preload("res://scripts/world/poi_manager.gd")
+const WorldEventSystem = preload("res://scripts/core/world_event_system.gd")
 
 @export var world_seed: int = 12345
 
@@ -30,6 +34,11 @@ var nav: GridNavigation
 var job_mgr: JobManager
 var workplace_mgr: WorkplaceManager
 var automation_mgr: AutomationManager
+var research_mgr: ResearchManager
+var fog_of_war: FogOfWar
+var poi_mgr: POIManager
+var event_system: WorldEventSystem
+var poi_nodes_by_id: Dictionary = {}
 
 var buildings_by_cell: Dictionary = {} # cell (Vector2i) -> building_type (String)
 var citizens_by_id: Dictionary = {}
@@ -57,6 +66,7 @@ func _ready() -> void:
 	if Engine.has_singleton("TimeManager") or get_node_or_null("/root/TimeManager"):
 		var tm = get_node("/root/TimeManager")
 		tm.hour_passed.connect(_on_simulation_hour_passed)
+		tm.day_passed.connect(_on_simulation_day_passed)
 		
 	# Focus camera on settlement plaza
 	if camera:
@@ -78,6 +88,7 @@ func _load_assets() -> void:
 	
 	prop_textures["tree"] = load("res://assets/props/prop_tree.png")
 	prop_textures["rock"] = load("res://assets/props/prop_rock.png")
+	prop_textures["poi_ruins"] = load("res://assets/props/prop_poi_ruins.png")
 	
 	cursor_highlight.texture = load("res://assets/ui/cursor_diamond.png")
 	cursor_highlight.offset = Vector2(-16.0, -8.0)
@@ -101,11 +112,30 @@ func _generate_and_build_world() -> void:
 	workplace_mgr = WorkplaceManager.new()
 	automation_mgr = AutomationManager.new()
 	
+	research_mgr = ResearchManager.new()
+	fog_of_war = FogOfWar.new(IsoMath.MAP_SIZE)
+	fog_of_war.reveal_circle(Vector2i(32, 32), 10)
+	
+	poi_mgr = POIManager.new()
+	var walkable: Array[Vector2i] = []
+	for x in range(IsoMath.MAP_SIZE):
+		for y in range(IsoMath.MAP_SIZE):
+			var cell := Vector2i(x, y)
+			if nav.is_walkable(cell):
+				walkable.append(cell)
+	poi_mgr.generate_pois(world_seed, walkable, 4)
+	
+	event_system = WorldEventSystem.new(world_seed)
+	
+	if hud:
+		hud.set_research_manager(research_mgr)
+	
 	_setup_workplaces()
 	_create_workplace_jobs()
 	_render_terrain()
 	_spawn_starter_buildings()
 	_spawn_props()
+	_spawn_pois()
 	_spawn_starter_citizens()
 
 func _setup_workplaces() -> void:
@@ -199,6 +229,25 @@ func _spawn_props() -> void:
 			
 		p_node.add_child(spr)
 		props_container.add_child(p_node)
+
+func _spawn_pois() -> void:
+	if poi_mgr == null:
+		return
+	for poi in poi_mgr.get_all_pois():
+		var p_node := Node2D.new()
+		p_node.name = "POI_%s" % poi.id
+		p_node.position = IsoMath.map_to_local(poi.cell)
+		p_node.y_sort_enabled = true
+		
+		var spr := Sprite2D.new()
+		spr.name = "Sprite2D"
+		spr.texture = prop_textures.get("poi_ruins")
+		spr.centered = false
+		spr.offset = Vector2(-16.0, -24.0)
+		p_node.add_child(spr)
+		
+		props_container.add_child(p_node)
+		poi_nodes_by_id[poi.id] = p_node
 
 func _spawn_starter_citizens() -> void:
 	var citizen_tex = load("res://assets/entities/citizen.png")
@@ -363,11 +412,39 @@ func _on_return_to_menu() -> void:
 	get_tree().change_scene_to_file("res://scenes/ui/main_menu.tscn")
 
 func _on_simulation_hour_passed(_hour: int, _day: int) -> void:
+	var rm = get_node_or_null("/root/ResourceManager")
+	
+	# Progress active research project
+	if research_mgr != null:
+		research_mgr.progress_research(1.0, rm)
+		
+	# Update citizen vision and fog of war
+	if fog_of_war != null:
+		for cit in citizen_list:
+			var c_cell: Vector2i = cit.get("current_cell")
+			fog_of_war.reveal_circle(c_cell, 4)
+			
+	# Update POI discovery
+	if poi_mgr != null and fog_of_war != null:
+		poi_mgr.update_discovery(fog_of_war)
+		# Proximity check for claiming rewards
+		for poi in poi_mgr.get_all_pois():
+			if poi.state != POIManager.POIState.CLAIMED:
+				for cit in citizen_list:
+					var c_cell: Vector2i = cit.get("current_cell")
+					if IsoMath.grid_distance(c_cell, poi.cell) <= 2:
+						poi_mgr.claim_poi_reward(poi.id, rm)
+						break
+						
 	if workplace_mgr != null and job_mgr != null:
 		workplace_mgr.update_hauling_jobs(job_mgr)
 		if automation_mgr != null:
 			var tm = get_node_or_null("/root/TimeManager")
 			var season: String = tm.get_season_name() if tm else "spring"
-			var rm = get_node_or_null("/root/ResourceManager")
 			automation_mgr.evaluate_rules(rm, job_mgr, workplace_mgr, season)
 
+func _on_simulation_day_passed(day: int, _season: String, _year: int) -> void:
+	if event_system != null:
+		var rm = get_node_or_null("/root/ResourceManager")
+		var em = get_node_or_null("/root/EventManager")
+		event_system.check_and_trigger_event(day, rm, em)

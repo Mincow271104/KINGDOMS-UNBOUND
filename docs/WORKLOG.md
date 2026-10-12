@@ -312,6 +312,56 @@ Implement Phase 4 logistics loop, consumption ticks, and priority automation as 
 - Execute Phase 4 local Git checkpoint.
 - Proceed to **Phase 5: Research, Exploration & Events**.
 
+---
+
+## [2026-10-12] Milestone 8: Phase 5 Research, Exploration & Events (Completed)
+
+### Context & Objective
+Implement Phase 5 research tree, exploration/Fog of War, Points of Interest (POIs), and world event system per `MASTER_PROMPT.md` and `docs/GDD.md`:
+- Tech tree with 4 branches (survival, production, military, mysticism) and 10 technologies with prerequisites and atomic resource deductions.
+- Single active research project constraint per GDD 9.3; pause safety.
+- 3-state Fog of War grid (UNEXPLORED, EXPLORED, VISIBLE) per GDD 3.4.
+- Deterministic POI exploration sites with single-claim persistent discovery rewards (preventing double-claiming).
+- Periodic colony world events with deterministic cooldown intervals and decoupled event dispatch.
+- In-Game HUD Royal Research Institute panel (`KEY_T`), Research button, and Event Banner.
+- Automated test suite `scripts/test/test_research_and_exploration.gd` (TC-5.1, TC-5.2, TC-5.3).
+
+### Completed Work
+1. **Technology Tree & Research Manager:**
+   - Created `scripts/research/tech_tree.gd` defining 4 branches and 10 technologies with prerequisites, resource costs, and research durations.
+   - Implemented `scripts/research/research_manager.gd` enforcing single active project constraint, atomic resource deduction, 50% cancellation refund, pause safety, and bonus applications (e.g. +500 storage capacity, +25% research speed).
+2. **Fog of War 3-State Simulation:**
+   - Implemented `scripts/world/fog_of_war.gd` supporting `UNEXPLORED` (0), `EXPLORED` (1), and `VISIBLE` (2), diamond radius vision reveals, and state degradation.
+3. **Points of Interest (POI) Management:**
+   - Created `scripts/world/poi_manager.gd` placing deterministic exploration sites (Ancient Ruins, Abandoned Mines, Sacred Groves, Ancient Shrines) on walkable cells outside the central settlement.
+   - Enforced single-claim rule: reward claimed atomically into storage once; subsequent claims rejected.
+   - Created pixel art asset `assets/props/prop_poi_ruins.png`.
+4. **World Event System & EventManager Autoload:**
+   - Created `scripts/core/world_event_system.gd` with positive and negative events and cooldown intervals.
+   - Registered `scripts/core/event_manager.gd` autoload in `project.godot` routing decoupled world alerts.
+5. **HUD & World View Integration:**
+   - Added `ResearchBtn`, `ResearchMenuPanel` ("VIỆN NGHIÊN CỨU HOÀNG GIA"), and `EventBanner` to `scenes/ui/hud.tscn`.
+   - Wired `scripts/ui/hud.gd` with live research progress, interactive research buttons, `KEY_T` shortcut, and event banners.
+   - Updated `scripts/world/world_view.gd` instantiating research, fog of war, POI nodes, citizen vision updates, POI reward claiming, and daily event triggers.
+6. **Automated Test Suite & Verification:**
+   - Authored `scripts/test/test_research_and_exploration.gd` validating TC-5.1, TC-5.2, and TC-5.3.
+   - Visual verification via Direct3D 12 render runtime: captured screenshots `screenshot_phase5.png` (world view with POIs and Research button) and `screenshot_phase5_research_menu.png` (open Royal Research Institute dialog).
+
+### Validations Performed & Results
+- **TC-5.1 Tech Tree Prerequisites & Deductions:** **PASS** (Prerequisites strictly enforced; atomic cost deductions verified; single active project limit enforced; unlocks work).
+- **TC-5.2 Fog of War & POI Exploration:** **PASS** (3-state grid initialized to UNEXPLORED; sight radius marks VISIBLE; degradation to EXPLORED verified; POIs discovered upon fog exploration; single-claim enforced, double-spend rejected).
+- **TC-5.3 World Event Triggers & Cooldowns:** **PASS** (Periodic events trigger, apply resource effects, dispatch via EventManager, and obey cooldown intervals).
+- **Full Regression Test Matrix:** TC-0.1, TC-0.2, TC-1.1, TC-1.2, TC-1.3, TC-1.4, TC-2.1, TC-2.2, TC-3.1, TC-3.2, TC-4.1, TC-4.2, TC-4.3, TC-5.1, TC-5.2, TC-5.3 all passed with exit code 0.
+- **Runtime Visual Inspection:** Screenshots `screenshot_phase5.png` and `screenshot_phase5_research_menu.png` verified with 0 runtime errors.
+
+### Phase 5 Exit Gate Assessment
+- **Status: PASSED.** 4 research branches operational; single-project constraint strictly obeyed; 3-state Fog of War and deterministic POIs working with single-claim persistent rewards; world events dispatching; scripted tests 100% passed.
+
+### Next Exact Step
+- Execute Phase 5 local Git checkpoint.
+- Proceed to **Phase 6: Factions, Diplomacy, Trade & Abstract Battles** (Task 6.1: 2 rival factions and 1 neutral faction with deterministic states; scheduled trade caravans; deterministic battle resolver).
+
+
 
 
 

@@ -137,3 +137,8 @@ When Godot Editor is running with the MCP plugin:
 | 2026-10-12 | TC-3.2 | 24 Citizen Spawn & Job Allocation | **PASS** | Exactly 24 citizens, starter roles, unique IDs verified in `test_citizens.gd` |
 | 2026-10-12 | TC-4.1 | Physical Hauling Loop vs Teleportation | **PASS** | Workplace buffers & physical hauler loop verified in `test_logistics.gd` |
 | 2026-10-12 | TC-4.2 | Seasonal Modifiers & Starvation Escalation | **PASS** | Summer 1.2x vs Winter 0.5x & non-instant health decay verified in `test_logistics.gd` |
+| 2026-10-12 | TC-4.3 | Priority Automation Rules & Execution Budget | **PASS** | Emergency food boosts & 10-check limit verified in `test_logistics.gd` |
+| 2026-10-12 | TC-5.1 | Tech Tree Prerequisites & Deductions | **PASS** | 4 branches, 10 techs, atomic cost lock, single project verified in `test_research_and_exploration.gd` |
+| 2026-10-12 | TC-5.2 | Fog of War & POI Exploration Rewards | **PASS** | 3-state degradation, POI reveal, and single-claim lock verified in `test_research_and_exploration.gd` |
+| 2026-10-12 | TC-5.3 | World Events & Cooldown Intervals | **PASS** | Event trigger, resource grants, cooldown intervals verified in `test_research_and_exploration.gd` |
+

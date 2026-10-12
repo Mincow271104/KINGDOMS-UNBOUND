@@ -63,10 +63,13 @@
 - `TC-4.1` Physical Hauling Loop vs Teleportation: **PASS** (Local workplace buffers & physical haulers).
 - `TC-4.2` Seasonal Modifiers & Starvation Escalation: **PASS** (Summer 1.2x vs Winter 0.5x, non-instant starvation).
 - `TC-4.3` Automation Rules & Execution Budget: **PASS** (Budget capped at 10 checks, emergency boosts).
-- Runtime Visual Inspection: Screenshots `screenshot_3162.png`, `screenshot_3547.png`, `screenshot_3466.png`, `screenshot_104607.png`, `screenshot_6682.png` inspected.
+- `TC-5.1` Tech Tree Prerequisites & Deductions: **PASS** (4 branches, 10 techs, atomic deductions, single active project).
+- `TC-5.2` Fog of War & POI Exploration Rewards: **PASS** (3-state grid, sight radius, degradation to EXPLORED, POI reveal, single-claim lock).
+- `TC-5.3` World Events & Cooldown Intervals: **PASS** (Periodic events, resource effects, cooldown intervals).
+- Runtime Visual Inspection: Screenshots `screenshot_3162.png`, `screenshot_3547.png`, `screenshot_3466.png`, `screenshot_104607.png`, `screenshot_6682.png`, `screenshot_phase5.png`, `screenshot_phase5_research_menu.png` inspected.
 
 ---
 
 ## 3. Next Exact Step
-- Execute Phase 4 Git checkpoint.
-- Proceed to **Phase 5: Research, Exploration & Events** (Task 5.1: 4 research branches with 8–12 technologies, Fog of War, POI discovery rewards).
+- Execute Phase 5 Git checkpoint.
+- Proceed to **Phase 6: Factions, Diplomacy, Trade & Abstract Battles** (Task 6.1: 2 rival factions and 1 neutral faction with deterministic state; scheduled trade caravans; deterministic battle resolver).

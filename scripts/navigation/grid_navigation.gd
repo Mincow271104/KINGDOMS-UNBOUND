@@ -23,6 +23,9 @@ func is_cell_walkable(cell: Vector2i) -> bool:
 		return false
 	return true
 
+func is_walkable(cell: Vector2i) -> bool:
+	return is_cell_walkable(cell)
+
 ## Finds the closest walkable neighbor adjacent to an occupied/unwalkable target (e.g. building).
 func find_closest_walkable_adjacent(target: Vector2i, from: Vector2i) -> Vector2i:
 	if is_cell_walkable(target):
