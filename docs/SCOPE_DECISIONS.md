@@ -1,0 +1,121 @@
+# KINGDOMS UNBOUND — Scope Decisions & Ambiguity Resolutions
+
+## Document Status
+- **Author:** Antigravity Autonomous Agent
+- **Date:** 2026-10-12
+- **Authority:** Secondary to `MASTER_PROMPT.md` and `docs/GDD.md`.
+- **Purpose:** Formally documents all resolved design ambiguities, baseline configuration defaults, deferred systems, and architectural compromises.
+
+---
+
+## 1. Ambiguity Resolutions (Mandatory Master Prompt Items)
+
+### 1.1 Starting Jobs vs. Starting Buildings
+- **Problem:** `docs/GDD.md` allocates starting jobs to 2 Miners, 2 Researchers, and 2 Guards, but the starting settlement lacks a Mine, Research Hall, or Barracks.
+- **Resolution:** Citizens cannot be assigned to workplaces that do not exist.
+- **Starter Allocation (24 citizens total):**
+  - **Farmers:** 5 (assigned to starter Farm)
+  - **Woodcutters:** 4 (assigned to starter Woodcutter Camp)
+  - **Builders:** 3 (assigned to construction tasks)
+  - **Haulers:** 3 (assigned to logistics / transport)
+  - **Idle / Unassigned:** 9 (available pool)
+- **Unlock Rule:** Miner, Researcher, and Guard jobs unlock strictly when their corresponding workplace structures are constructed and active.
+
+### 1.2 Initial Buildings & Starting Resources
+- **Problem:** Starting inventory lists materials while starter buildings already exist on map generation.
+- **Resolution:** The starter structures (Town Hall 3×3, 4 Houses 2×2, Farm 2×2, Storehouse 2×2, Woodcutter Camp 2×2) are generated as already constructed and operational during world initialization.
+- **Starting Inventory:** The GDD starting amounts represent the net post-settlement stock placed in the Storehouse/Town Hall. Initial structures are never billed a second time against this inventory:
+  - Food: 150
+  - Wood: 120
+  - Stone: 60
+  - Ore: 0
+  - Metal: 20
+  - Tools: 15
+  - Magic Crystal: 5
+  - Herbs: 10
+  - Treasury: 200 Gold
+- All values reside in a central configuration resource (`StarterConfig.tres` / `EconomyConfig.gd`).
+
+### 1.3 Food Balance, Seasons & Starvation Pacing
+- **Problem:** 24 citizens consume 19.2 Food/day (0.8 Food/citizen/day). 5 Farmers produce 25 Food/day at base (5.0 Food/farmer/day). In Winter (modifier 0.5), output is 12.5 Food/day, yielding a daily deficit of -6.7 Food/day.
+- **Resolution:**
+  - **Calendar:** 4 seasons (Spring, Summer, Autumn, Winter), 10 game-days per season (40-day year).
+  - **Starting Season:** Game begins on Year 1, Spring, Day 1 (modifier 1.0).
+  - **Seasonal Farm Modifiers:**
+    - Spring: 1.0 (25.0 Food/day)
+    - Summer: 1.2 (30.0 Food/day)
+    - Autumn: 1.0 (25.0 Food/day)
+    - Winter: 0.5 (12.5 Food/day)
+  - **Simulation Ticks:** Daily consumption and seasonal transitions occur at game-day midnight (00:00).
+  - **Starvation Escalation:** Food hitting 0 NEVER causes instant death. Instead:
+    - Stage 1 (Food = 0): "Nạn đói" (Starvation) status applied. Morale drops by -15/day, Fatigue +20/day.
+    - Stage 2 (Continued starvation): Health drops by 5%/day. Citizens prioritize eating if any food arrives.
+    - Stage 3 (Fatal threshold): Death occurs only when citizen Health reaches 0.
+    - Recovery: When Food > 0, citizens consume food, starvation status is cleared, and health naturally recovers at 10%/day.
+
+### 1.4 Population Growth & Prosperity Victory
+- **Problem:** Prosperity victory requires $\ge 30$ population, but game starts with 24. GDD mentions probabilistic birth/immigration without clear deterministic gating.
+- **Resolution:**
+  - **Immigration Gating:** Every 3 game-days at 06:00, if:
+    1. Housing Capacity > Current Population
+    2. Available Food $\ge 30$
+    3. Settlement Stability $\ge 50\%$
+    4. Settlement Morale $\ge 60\%$
+  - Then 1–2 immigrants arrive at the Town Hall.
+  - Complex family genetics and birth cycles are deferred to post-MVP; immigration is the deterministic growth mechanism.
+  - **Victory Hold:** All prosperity criteria must be maintained for 5 consecutive game-days (120 game-hours). If any metric drops below threshold, the 5-day timer resets to 0.
+
+### 1.5 Collapse Conditions & Recovery Windows
+- **Problem:** GDD defines collapse qualitatively ("loss of governmental capacity").
+- **Resolution:** Deterministic failure states:
+  1. **Extinction:** Population reaches 0 $\to$ Immediate collapse.
+  2. **Town Hall Loss:** If Town Hall is destroyed, a 3-game-day emergency timer starts. If not rebuilt/repaired to $\ge 50\%$ health before expiry $\to$ Collapse.
+  3. **Total Anarchy:** Stability reaches 0% for 3 continuous game-days $\to$ Collapse.
+- **Explanatory UI:** Collapse warning banner displays exact cause, severity, and remaining countdown.
+
+### 1.6 Storage, Buffers & Logistics
+- **Problem:** Ambiguity between global magic inventory and physical item hauling.
+- **Resolution:** Single Authoritative Resource Ledger (`ResourceManager`):
+  - **Total Stock** = `Storehouse Stock` + `Town Hall Stock` + `Local Building Buffers`.
+  - **Available Stock** = Total stock minus `Reserved Stock`.
+  - Production outputs deposit first to the workplace's local output buffer.
+  - Haulers physically travel to workplace, pick up cargo, navigate to Storehouse/Town Hall, and deposit items.
+  - Only deposited goods become part of central available stock for construction/crafting.
+  - Double-spending is prevented via atomic reservations (`reserve_resource(type, amount)`).
+
+### 1.7 Job Lifecycle Semantics
+- **Problem:** Contradictory states or workers getting stuck when jobs fail.
+- **Resolution:** Strict job state machine:
+  `Available` $\to$ `Reserved` $\to$ `In Progress` $\to$ `Completed` / `Failed` / `Cancelled`.
+  - If target becomes unreachable or destroyed, worker releases reservation, drops carried items to nearest accessible tile or returns them, and transitions to `Idle`.
+
+### 1.8 Trade & Faction Simulation
+- **Problem:** Full physical trade caravans across large world borders would exceed initial milestone scope.
+- **Resolution:**
+  - Abstract faction state machine with deterministic periodic economy ticks.
+  - Visiting merchant caravans arrive at Town Hall on scheduled days.
+  - Transactions are atomic (all-or-nothing check on price, stock, and storage capacity).
+  - Combat resolved via deterministic `BattleResolver` calculating casualties and morale from equipment, numbers, and defense ratings.
+
+### 1.9 Legacy & Achievements Scope
+- **Problem:** Cosmetic Legacy unlocks distract from core colony simulation stability.
+- **Resolution:** Deferred to Phase 7/8. No core gameplay system depends on Legacy cosmetics.
+
+### 1.10 Visual Projection & Localization
+- **Problem:** Projection inconsistencies and language fragmentation.
+- **Resolution:**
+  - 2D dimetric isometric projection (2:1 slope, 32×16 px diamond ground tiles).
+  - Ground contact anchors for all entities (`y_sort_enabled = true`).
+  - Visible rooftops and SW/SE wall facades on all multi-tile buildings.
+  - Player-facing UI in Vietnamese; internal IDs, logs, code, and comments in English.
+
+---
+
+## 2. Deferred & Excluded Scope for MVP
+| Feature | GDD Section | Status for MVP | Rationale |
+|---|---|---|---|
+| Complex family trees & genetics | Phần IV | Deferred | Replaced by deterministic immigration system |
+| Real-time physical tactical combat | Phần VII | Simplified | Abstract BattleResolver with deterministic factors |
+| Cosmetic Legacy store | Phần IX | Post-MVP | Preserves focus on core simulation and save/load |
+| Steam integration / Cloud save | Phần XVIII | Excluded | Offline-first PC requirement |
+| Multiplayer / Co-op | Phần I | Excluded | Single-player offline specification |

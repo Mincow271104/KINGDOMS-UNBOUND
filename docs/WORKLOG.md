@@ -76,5 +76,48 @@ Rigorous consistency review of all specification documents (`docs/GDD.md`, `MAST
 - None. All specifications are mutually consistent, mathematically validated, and ready for execution.
 
 ### Next Exact Step
-- Wait for user confirmation.
-- When instructed to start development, initiate **Phase 0** as specified in `MASTER_PROMPT.md`.
+- Phase 0 Complete. Begin Phase 1 (Vertical Slice).
+
+---
+
+## [2026-10-12] Milestone 3: Phase 0 Audit, Scaffold & Reproducibility (Completed)
+
+### Context & Objective
+Execute Phase 0 requirements as mandated by `MASTER_PROMPT.md` and user instructions: lightweight live MCP check, diagnostic recovery, documentation suite creation, `MCPRuntime` autoload verification, and baseline validation using `Godot_v4.7-stable_win64_console.exe`.
+
+### Completed Work
+1. **Lightweight MCP Status Check & Diagnostic Recovery:**
+   - Identified Godot running idle at Project Manager window without project arguments.
+   - Diagnosed via `diagnose_connection`.
+   - Launched Godot Editor targeting `E:\KINGDOMS UNBOUND\kingdoms-unbound` with Godot MCP plugin loaded.
+   - Verified live MCP connection on port 6505 (`connected: true`, `mode: live`, `addon_version: 1.2.1`).
+2. **Project Hygiene & Import Isolation:**
+   - Identified import failure on `res://docs/reference/kingdom_visual_reference.png` caused by non-PNG header.
+   - Added `docs/.gdignore` to cleanly isolate documentation from Godot asset scanning.
+   - Removed orphaned `.import` artifact.
+3. **Autoload Verification:**
+   - Verified `res://addons/godot_mcp/runtime/mcp_runtime.gd` exists on disk.
+   - Added `MCPRuntime="*res://addons/godot_mcp/runtime/mcp_runtime.gd"` to `[autoload]` in `project.godot`.
+   - Triggered filesystem rescan via MCP.
+4. **Master Document Suite Created:**
+   - `docs/SCOPE_DECISIONS.md`: Resolved all 10 Master Prompt ambiguities and established starter resource/job rules.
+   - `docs/GAME_RULES.md`: Mathematical formulas for 2:1 dimetric projection, simulation ticks, needs decay, seasons, victory/collapse.
+   - `docs/ARCHITECTURE.md`: Pure 64×64 simulation coordinate decoupling, scene tree hierarchy, Y-sorting pivots, data contracts.
+   - `docs/IMPLEMENTATION_PLAN.md`: 10-phase execution roadmap mapping directly to GDD Phases 0–8.
+   - `docs/TEST_PLAN.md`: Headless and MCP test harness, test suites TC-0.1 through TC-9.1.
+   - `docs/BACKLOG.md`: Task tracker with `[ ]`, `[-]`, `[x]` status markers.
+   - `docs/KNOWN_ISSUES.md`: Issue register with symptoms, causes, and verified fixes.
+   - `docs/CHANGELOG.md`: Versioned user-visible changelog.
+   - `docs/NIGHTLY_REPORT.md`: Autonomous execution summary.
+
+### Validations Performed & Results
+- **TC-0.1 Headless Scan:** Executed `Godot_v4.7-stable_win64_console.exe --headless --editor --path "E:\KINGDOMS UNBOUND\kingdoms-unbound" --quit`. Result: Exit code 0, 0 parse errors, 0 asset errors.
+- **TC-0.2 MCP Live Bridge:** Verified via `get_godot_status` and `diagnose_connection`: connected to `E:/KINGDOMS UNBOUND/kingdoms-unbound/`, port 6505, healthy.
+
+### Phase 0 Exit Gate Assessment
+- **Status: PASSED.** Project imports, opens, and connects to tooling with zero errors. All required documents are populated and committed to disk.
+
+### Next Exact Step
+- Execute Phase 0 local Git checkpoint.
+- Proceed to **Phase 1: Vertical Slice**: Implement `scripts/utils/iso_math.gd` and execute unit test `test_coordinates.gd`.
+
