@@ -518,10 +518,14 @@ func _on_save_game_pressed() -> void:
 		
 	var res: Dictionary = SaveManager.save_to_file(world_view_ref)
 	if res.get("success", false):
+		var am = get_node_or_null("/root/AudioManager")
+		if am: am.play_coin()
 		if save_status_label:
 			save_status_label.text = "✅ Đã lưu thế giới thành công!"
 			save_status_label.modulate = Color(0.5, 1.0, 0.5)
 	else:
+		var am = get_node_or_null("/root/AudioManager")
+		if am: am.play_error()
 		if save_status_label:
 			save_status_label.text = "❌ Lỗi: " + res.get("error", "Không thể lưu tệp")
 			save_status_label.modulate = Color(1.0, 0.4, 0.4)
@@ -534,6 +538,8 @@ func _on_load_game_pressed() -> void:
 		
 	var load_res: Dictionary = SaveManager.load_from_file()
 	if not load_res.get("success", false):
+		var am = get_node_or_null("/root/AudioManager")
+		if am: am.play_error()
 		if save_status_label:
 			save_status_label.text = "❌ Lỗi đọc bản lưu: " + load_res.get("error", "")
 			save_status_label.modulate = Color(1.0, 0.4, 0.4)
@@ -541,11 +547,15 @@ func _on_load_game_pressed() -> void:
 		
 	var apply_res: Dictionary = SaveManager.apply_loaded_state_to_world(world_view_ref, load_res["data"])
 	if apply_res.get("success", false):
+		var am = get_node_or_null("/root/AudioManager")
+		if am: am.play_coin()
 		if save_status_label:
 			save_status_label.text = "✅ Đã tải thế giới thành công!"
 			save_status_label.modulate = Color(0.5, 1.0, 0.5)
 		_close_pause_menu()
 	else:
+		var am = get_node_or_null("/root/AudioManager")
+		if am: am.play_error()
 		if save_status_label:
 			save_status_label.text = "❌ Lỗi áp dụng bản lưu: " + apply_res.get("error", "")
 			save_status_label.modulate = Color(1.0, 0.4, 0.4)
@@ -614,6 +624,9 @@ func show_victory_panel(report: Dictionary) -> void:
 	
 	victory_stats_label.text = "• Thời gian sinh tồn: %d ngày\n• Dân số đạt đỉnh: %d người\n• Lương thực dự trữ: %d | Ngân khố: %d vàng\n• Công nghệ đã mở khóa: %d\n• Điểm di sản Legacy nhận được: +%d điểm" % [days, peak, food, gold, techs, legacy]
 	victory_panel.visible = true
+	var am = get_node_or_null("/root/AudioManager")
+	if am:
+		am.play_fanfare()
 
 func show_collapse_panel(report: Dictionary) -> void:
 	if not collapse_panel:
@@ -630,6 +643,9 @@ func show_collapse_panel(report: Dictionary) -> void:
 	collapse_reason_label.text = "Nguyên nhân chính: %s" % cause
 	collapse_stats_label.text = "• Thời gian duy trì: %d ngày %d giờ\n• Dân số cao nhất: %d người\n• Công trình đã xây: %d\n• Công nghệ hoàn thành: %d\n\n(Lưu ý: Dữ liệu thế giới được bảo toàn nguyên vẹn, bạn có thể xem lại hoặc tải bản lưu bất kỳ lúc nào)" % [days, hours, peak, buildings, techs]
 	collapse_panel.visible = true
+	var am = get_node_or_null("/root/AudioManager")
+	if am:
+		am.play_alarm()
 
 func set_tile_info(cell: Vector2i, terrain_name: String, building_name: String = "") -> void:
 	if building_name != "":

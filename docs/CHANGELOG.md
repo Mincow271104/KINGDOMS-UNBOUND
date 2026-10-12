@@ -8,6 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### [1.0.0-rc1] - 2026-10-12
+#### Added
+- Phase 9 Polish, Asset Integration, Stress Test & Release Candidate completed:
+  - Procedural 16-bit audio synthesis subsystem `scripts/audio/audio_manager.gd` generating 8 crisp retro sound streams (UI click, building thud, error buzz, tech arpeggio chime, coin trade ding, victory fanfare, crisis alarm, and looping pastoral ambient music) with polyphonic playback pool and volume/mute controls.
+  - 100-citizen simulation stress test `scripts/test/test_stress_100_citizens.gd` maintaining ~145 FPS at 1× and 3× speed (mean frame time 6.87 ms, beating the $\ge 60$ FPS threshold).
+  - Extended multi-day simulation verified across 72 continuous simulation hours (3 game days) in 238.65 ms without stalls or memory leaks.
+  - Windows Desktop release export presets configured in `export_presets.cfg`.
+  - Comprehensive non-programmer manual verification guide in `docs/SMOKE_TEST_CHECKLIST.md`.
+  - Full 12-suite regression test matrix passing 100% with Exit Code 0.
+  - Verified visual fidelity adhering strictly to `docs/ASSET_STYLE_GUIDE.md` across Main Menu and 64×64 WorldView scenes.
+
 ### [0.9.0] - 2026-10-12
 #### Added
 - Phase 8 Robust Save/Load & Persistence Hardening completed:

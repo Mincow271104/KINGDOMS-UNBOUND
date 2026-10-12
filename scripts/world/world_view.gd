@@ -84,6 +84,10 @@ func _ready() -> void:
 	if camera:
 		camera.focus_on_cell(Vector2i(32, 32))
 		
+	var am = get_node_or_null("/root/AudioManager")
+	if am:
+		am.start_ambient_music()
+		
 	print("[WorldView] 64x64 Isometric World generated from seed: %d" % world_seed)
 
 func _load_assets() -> void:
@@ -464,14 +468,23 @@ func _execute_placement(cell: Vector2i) -> void:
 		var housing_cap: int = BuildingSystem.get_total_housing_capacity(world_data)
 		if hud:
 			hud.update_population_display(citizen_list.size(), housing_cap)
+		var am = get_node_or_null("/root/AudioManager")
+		if am:
+			am.play_build()
 		_cancel_placement()
 	else:
 		print("[WorldView] Cannot place building: %s" % res["reason"])
+		var am = get_node_or_null("/root/AudioManager")
+		if am:
+			am.play_error()
 
 func _cancel_placement() -> void:
 	placing_building_type = ""
 	if ghost_building_node:
 		ghost_building_node.visible = false
+	var am = get_node_or_null("/root/AudioManager")
+	if am:
+		am.play_click()
 
 func _get_terrain_name(type: int) -> String:
 	match type:

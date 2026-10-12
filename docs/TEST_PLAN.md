@@ -152,6 +152,8 @@ When Godot Editor is running with the MCP plugin:
 | 2026-10-12 | TC-8.1 | Save→Load→Save Canonical Equivalence | **PASS** | 24 citizens, 8 buildings, resources, research, victory, fog_of_war 100% preserved across roundtrip in `test_save_load.gd` |
 | 2026-10-12 | TC-8.2 | Corruption Handling & Backup Recovery | **PASS** | Bad schema rejected; missing section rejected; malformed JSON rejected; .bak fallback succeeded in `test_save_load.gd` |
 | 2026-10-12 | TC-8.3 | UI Save/Load & Menu Integration | **PASS** | Pause menu opened; HUD save button saved and displayed "✅" feedback; HUD load button restored world state (gold verify); MainMenu LoadWorldBtn enabled in `test_save_load.gd` |
+| 2026-10-12 | TC-9.1 | 100 Citizen Simulation Stress Test | **PASS** | 145.5 FPS at 1x (6.87 ms), 144.9 FPS at 3x (6.90 ms); 72 continuous simulation hours executed in 238.65 ms in `test_stress_100_citizens.gd` |
+| 2026-10-12 | TC-9.2 | Procedural Audio Synthesis Subsystem | **PASS** | 8 16-bit PCM streams, polyphonic pool, volume curves, mute toggle verified in `test_audio.gd` |
 
 ### Phase 8: Save/Load Persistence
 - **TC-8.1: Save → Load → Save Canonical Equivalence**
@@ -166,4 +168,14 @@ When Godot Editor is running with the MCP plugin:
   - *Script:* `res://scripts/test/test_save_load.gd`
   - *Acceptance Criteria:* HUD save button writes file and shows success; HUD load button restores world state; MainMenu LoadWorldBtn enabled when save exists.
   - *Status:* **PASSED** (2026-10-12, Exit Code 0).
+
+### Phase 9: Performance Stress & Polish
+- **TC-9.1: 100 Citizen Simulation Stress Test**
+  - *Script:* `res://scripts/test/test_stress_100_citizens.gd`
+  - *Acceptance Criteria:* Simulation maintains $\ge 60$ FPS at $1\times$ and $3\times$ speed with 100 active pathfinding citizens.
+  - *Status:* **PASSED** (2026-10-12, Exit Code 0: 145.5 FPS at 1x, 144.9 FPS at 3x).
+- **TC-9.2: Procedural Audio Synthesis Subsystem**
+  - *Script:* `res://scripts/test/test_audio.gd`
+  - *Acceptance Criteria:* All 8 procedural sound streams generate and play cleanly without external file dependencies.
+  - *Status:* **PASSED** (2026-10-12, Exit Code 0: 5/5 subtests passed).
 

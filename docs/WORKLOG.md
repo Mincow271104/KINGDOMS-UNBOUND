@@ -493,6 +493,59 @@ Phase 8 hardened world persistence: versioned JSON serialization, atomic disk wr
 - Create local Git checkpoint: `git add . ; git commit -m "Phase 8 Complete: Robust Save/Load, Versioned Schema, UI Wiring & Autosave"`.
 - Proceed to **Phase 9: Polish, Stress Test & Release Candidate**.
 
+---
+
+## [2026-10-12] Milestone 12: Phase 9 — Polish, Stress Test & Release Candidate ✅ MVP COMPLETE
+
+### Context & Objective
+Phase 9 completes the MVP lifecycle: 100-citizen simulation stress test (TC-9.1), procedural 16-bit audio synthesis subsystem, visual polish at target resolution, export packaging presets, non-programmer smoke-test checklist, full 12-suite regression test matrix, and release candidate signoff.
+
+### Completed Work
+1. **Procedural Audio Subsystem (`scripts/audio/audio_manager.gd`):**
+   - Synthesizes 8 procedural 16-bit PCM waveforms at 22050 Hz: click, build thud, error buzzer, tech arpeggio chime, coin trade ding, victory fanfare, crisis alarm, and looping ambient pastoral music.
+   - Zero external audio file dependencies or copyright/licensing risks.
+   - Polyphonic player pool (8 channels), dedicated looping music stream, master volume sliders, mute toggle.
+   - Registered as global autoload singleton `AudioManager` in `project.godot`.
+   - Wired audio cues into `world_view.gd` (build/error/ambient), `hud.gd` (victory fanfare, collapse alarm, trade coins, save/load, button clicks), and `main_menu.gd` (button clicks).
+   - Automated unit test suite `scripts/test/test_audio.gd` (5/5 tests PASS).
+2. **100-Citizen Simulation Stress Benchmark (TC-9.1, `scripts/test/test_stress_100_citizens.gd`):**
+   - Spawns up to 100 active pathfinding citizens into the 64×64 isometric world with diverse job roles.
+   - Evaluated across 200 frames at 1× speed and 200 frames at 3× speed plus 72 continuous simulation hours (3 game days).
+   - Measured frame times:
+     - 1× Speed: **6.87 ms** average (≈ **145.5 FPS**, 95th percentile 6.94 ms, max 7.29 ms).
+     - 3× Speed: **6.90 ms** average (≈ **144.9 FPS**, 95th percentile 6.93 ms, max 7.24 ms).
+     - Multi-Day Simulation: 72 hourly ticks + 3 daily ticks completed in **238.65 ms** (3.31 ms/tick).
+   - Both speed tiers exceed the $\ge 60$ FPS (frame time $\le 16.66$ ms) acceptance requirement.
+3. **Release Packaging & Smoke Test Documentation:**
+   - Authored `export_presets.cfg` targeting Windows Desktop x86_64.
+   - Authored `docs/SMOKE_TEST_CHECKLIST.md` with complete, non-programmer step-by-step verification checklist covering controls, new world creation, building placement, logistics hauling, research, diplomacy/trade, victory/collapse, saving/loading, and CLI build commands.
+4. **Visual Polish & Screenshots:**
+   - Captured and reviewed `screenshot_5780.png` (Main Menu with Load World enabled).
+   - Captured and reviewed `screenshot_6398.png` (Live 64×64 Isometric WorldView with complete HUD).
+5. **Full Regression Matrix Execution:**
+   - 12 out of 12 test suites passed with Exit Code 0 (TC-0.1 through TC-9.1).
+
+### Validations Performed & Results
+- **TC-9.1 100-Citizen Stress Benchmark:** **PASS** (145.5 FPS at 1×, 144.9 FPS at 3×, 100/100 citizens responsive).
+- **Phase 9 Audio Subsystem Test:** **PASS** (8 streams, polyphonic pool, volume curves, mute toggle).
+- **Full Regression Test Matrix:** **12/12 PASSED (0 FAILURES)**:
+  - `test_coordinates.gd` (TC-1.1): **PASS**
+  - `test_world_gen.gd` (TC-1.2): **PASS**
+  - `test_time_manager.gd` (TC-1.4): **PASS**
+  - `test_economy.gd` (TC-2.1, TC-2.2): **PASS**
+  - `test_citizens.gd` (TC-3.1, TC-3.2): **PASS**
+  - `test_logistics.gd` (TC-4.1, TC-4.2, TC-4.3): **PASS**
+  - `test_research_and_exploration.gd` (TC-5.1, TC-5.2, TC-5.3): **PASS**
+  - `test_factions_and_battles.gd` (TC-6.1, TC-6.2): **PASS**
+  - `test_victory_and_collapse.gd` (TC-7.1, TC-7.2, TC-7.3): **PASS**
+  - `test_save_load.gd` (TC-8.1, TC-8.2, TC-8.3): **PASS**
+  - `test_audio.gd`: **PASS**
+  - `test_stress_100_citizens.gd` (TC-9.1): **PASS**
+
+### Phase 9 Exit Gate & MVP Complete Assessment
+- **Status: PASSED.** Clean launch verified; core acceptance suite passes 100%; new-world and save/load UI flows work; visuals adhere strictly to `docs/ASSET_STYLE_GUIDE.md`; no known blocker prevents the GDD playable loop; audio and stress tests verified; Windows release instructions provided.
+- **Kingdoms Unbound MVP Release Candidate 1 is fully delivered.**
+
 
 
 

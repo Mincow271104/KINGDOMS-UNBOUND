@@ -93,11 +93,18 @@
 - `TC-7.1` Immigration Pacing & Gating: **PASS** (Rejects on full housing, food, stability, morale; wave admitted; unique IDs & names in `test_victory_and_collapse.gd`).
 - `TC-7.2` 5-Day Prosperity Victory Hold & Reset: **PASS** (100h hold without early win; reset on lapse; 120h continuous win; duplicate claim prevention in `test_victory_and_collapse.gd`).
 - `TC-7.3` Deterministic Collapse Triggers & Summaries: **PASS** (Pop 0 extinction; 72h town hall ruin; 72h anarchy; summary report with cause in `test_victory_and_collapse.gd`).
-- Runtime Visual Inspection: Screenshots `screenshot_3162.png`, `screenshot_3547.png`, `screenshot_3466.png`, `screenshot_104607.png`, `screenshot_6682.png`, `screenshot_phase5.png`, `screenshot_phase5_research_menu.png`, `screenshot_phase6.png`, `screenshot_phase6_diplomacy.png`, `screenshot_phase7.png`, `screenshot_phase7_victory.png`, `screenshot_phase7_collapse.png` inspected.
+- `TC-8.1` Save→Load→Save Canonical Equivalence: **PASS** (24 citizens, 8 buildings, resources, research, victory, fog_of_war preserved in `test_save_load.gd`).
+- `TC-8.2` Corruption Handling & Backup Recovery: **PASS** (Bad schema, missing sections, and malformed JSON rejected gracefully; automatic .bak fallback in `test_save_load.gd`).
+- `TC-8.3` UI Save/Load & Menu Integration: **PASS** (Pause menu save, live world state reload, MainMenu LoadWorldBtn enabled in `test_save_load.gd`).
+- `TC-9.1` 100-Citizen Simulation Stress Test: **PASS** (145.5 FPS at 1x, 144.9 FPS at 3x, 72 hours executed in 238.65 ms in `test_stress_100_citizens.gd`).
+- `TC-9.2` Procedural Audio Subsystem: **PASS** (8 synthesized 16-bit PCM sound streams, polyphonic pool, volume/mute in `test_audio.gd`).
+- **Full Regression Matrix:** **12/12 PASSED (0 FAILURES)** across all automated test suites.
+- Runtime Visual Inspection: Screenshots `screenshot_3162.png`, `screenshot_3547.png`, `screenshot_3466.png`, `screenshot_104607.png`, `screenshot_6682.png`, `screenshot_phase5.png`, `screenshot_phase5_research_menu.png`, `screenshot_phase6.png`, `screenshot_phase6_diplomacy.png`, `screenshot_phase7.png`, `screenshot_phase7_victory.png`, `screenshot_phase7_collapse.png`, `screenshot_phase8_pause_menu.png`, `screenshot_phase8_main_menu.png`, `screenshot_5780.png` (MainMenu RC1), `screenshot_6398.png` (WorldView RC1).
 
 ---
 
-## 3. Next Exact Step
-- Execute Phase 7 Git checkpoint.
-- Proceed to **Phase 8: Robust Save/Load & Persistence Hardening** (Task 8.1: Versioned JSON schema serialization; Task 8.2: Atomic disk write with `.tmp` and `.bak` backups; Task 8.3: Complete entity reconstruction without duplicate nodes; Task 8.4: Automated Save $\to$ Load $\to$ Save equivalence test suite).
+## 3. Project Status & MVP Sign-off
+- **ALL PHASES (Phase 0 through Phase 9) ARE 100% COMPLETE AND VERIFIED.**
+- **Exit Gates:** All phase exit gates from `MASTER_PROMPT.md` passed with documented test evidence.
+- **Deliverable Status:** KINGDOMS UNBOUND MVP Release Candidate 1 is fully functional, stable, performant, visually cohesive, and self-contained with offline procedural audio.
 

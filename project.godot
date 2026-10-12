@@ -21,6 +21,7 @@ MCPRuntime="*res://addons/godot_mcp/runtime/mcp_runtime.gd"
 TimeManager="*res://scripts/core/time_manager.gd"
 ResourceManager="*res://scripts/economy/resource_manager.gd"
 EventManager="*res://scripts/core/event_manager.gd"
+AudioManager="*res://scripts/audio/audio_manager.gd"
 
 [display]
 

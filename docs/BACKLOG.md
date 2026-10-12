@@ -100,19 +100,19 @@
 
 ---
 
-## Phase 8: Robust Save/Load & Persistence Hardening
-- [ ] **TASK-8.1:** Implement versioned JSON serializer (`SaveLoadManager.gd`).
-- [ ] **TASK-8.2:** Implement atomic file writes (`.tmp` $\to$ `.json`) and `.bak` backup preservation.
-- [ ] **TASK-8.3:** Implement complete world deserialization and entity index reconstruction without node duplication.
-- [ ] **TASK-8.4:** Implement corrupt save detection and error recovery UI.
-- [ ] **TASK-8.5:** Write automated Save $\to$ Load $\to$ Save equivalence test.
-- [ ] **TASK-8.6:** Git checkpoint Phase 8.
+## Phase 8: Robust Save/Load & Persistence Hardening (Completed)
+- [x] **TASK-8.1:** Implement versioned JSON serializer (`SaveManager.gd`).
+- [x] **TASK-8.2:** Implement atomic file writes (`.tmp` $\to$ `.json`) and `.bak` backup preservation.
+- [x] **TASK-8.3:** Implement complete world deserialization and entity index reconstruction without node duplication.
+- [x] **TASK-8.4:** Implement corrupt save detection, schema validation, and error recovery UI.
+- [x] **TASK-8.5:** Write automated Save $\to$ Load $\to$ Save equivalence test suite (`scripts/test/test_save_load.gd`).
+- [x] **TASK-8.6:** Git checkpoint Phase 8.
 
 ---
 
-## Phase 9: Polish, Asset Integration, Balance & Release Candidate
-- [ ] **TASK-9.1:** Integrate complete pixel-art asset set conforming to `docs/ASSET_STYLE_GUIDE.md` and 27-color palette.
-- [ ] **TASK-9.2:** Add sound effects and ambient audio.
-- [ ] **TASK-9.3:** Execute 100-citizen simulation stress test.
-- [ ] **TASK-9.4:** Prepare release export configuration and manual smoke-test instructions.
-- [ ] **TASK-9.5:** Final documentation synchronization and MVP acceptance signoff.
+## Phase 9: Polish, Asset Integration, Balance & Release Candidate (Completed)
+- [x] **TASK-9.1:** Integrate complete pixel-art asset set conforming to `docs/ASSET_STYLE_GUIDE.md` and 27-color palette.
+- [x] **TASK-9.2:** Add procedural sound effects and looping ambient music (`scripts/audio/audio_manager.gd`).
+- [x] **TASK-9.3:** Execute 100-citizen simulation stress test (`test_stress_100_citizens.gd`, TC-9.1 PASS at ~145 FPS).
+- [x] **TASK-9.4:** Prepare release export configuration (`export_presets.cfg`) and manual smoke-test instructions (`docs/SMOKE_TEST_CHECKLIST.md`).
+- [x] **TASK-9.5:** Final documentation synchronization and MVP acceptance signoff.

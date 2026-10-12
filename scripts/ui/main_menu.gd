@@ -66,18 +66,26 @@ func _setup_difficulty_options() -> void:
 	difficulty_options.add_item("Thử Thách (Mùa đông khắc nghiệt)", 2)
 	difficulty_options.select(1) # Default: Standard
 
+func _play_click() -> void:
+	var am = get_node_or_null("/root/AudioManager")
+	if am: am.play_click()
+
 func _on_open_new_world() -> void:
+	_play_click()
 	new_world_overlay.visible = true
 
 func _on_open_settings() -> void:
+	_play_click()
 	settings_overlay.visible = true
 
 func _on_randomize_seed() -> void:
+	_play_click()
 	var rng := RandomNumberGenerator.new()
 	rng.randomize()
 	seed_input.text = str(rng.randi_range(10000, 9999999))
 
 func _on_start_game() -> void:
+	_play_click()
 	var s_val := int(seed_input.text)
 	if s_val == 0:
 		s_val = 12345
@@ -96,10 +104,16 @@ func _on_start_game() -> void:
 	queue_free()
 
 func _on_load_world() -> void:
+	_play_click()
 	var load_res: Dictionary = SaveManager.load_from_file()
 	if not load_res.get("success", false):
 		print("[MainMenu] Failed to load save file: %s" % load_res.get("error", ""))
+		var am = get_node_or_null("/root/AudioManager")
+		if am: am.play_error()
 		return
+		
+	var am = get_node_or_null("/root/AudioManager")
+	if am: am.play_coin()
 		
 	var save_data: Dictionary = load_res.get("data", {})
 	var meta: Dictionary = save_data.get("metadata", {})
