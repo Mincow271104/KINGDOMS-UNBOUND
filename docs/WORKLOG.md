@@ -361,6 +361,51 @@ Implement Phase 5 research tree, exploration/Fog of War, Points of Interest (POI
 - Execute Phase 5 local Git checkpoint.
 - Proceed to **Phase 6: Factions, Diplomacy, Trade & Abstract Battles** (Task 6.1: 2 rival factions and 1 neutral faction with deterministic states; scheduled trade caravans; deterministic battle resolver).
 
+---
+
+## [2026-10-12] Milestone 9: Phase 6 Factions, Diplomacy, Trade & Abstract Battles (Completed)
+
+### Context & Objective
+Implement Phase 6 external factions, diplomatic treaties, visiting merchant caravans, and deterministic battle resolver per `MASTER_PROMPT.md` and `docs/GDD.md`:
+- 2 rival factions ("Cổ Thành Thiết Giáp", "Thương Hội Vân Đồn") and 1 neutral faction ("Bản Làng Rừng Xanh") with deterministic states.
+- Diplomatic state machine: Non-Aggression Pacts (NAP), Alliances, Gifts/Tribute, War declarations, Peace treaties.
+- Scheduled trade caravans with finite inventory, asymmetric buy/sell pricing, faction opinion modifiers, and atomic exchange transactions.
+- Deterministic abstract battle resolver (`BattleResolver.gd`) calculating casualties, plunder spoils, fortification impact, and explainable outcome reports.
+- In-Game HUD Royal Diplomacy & Trade modal (`KEY_Y`) and BottomBar navigation button.
+- Automated test suite `scripts/test/test_factions_and_battles.gd` (TC-6.1 & TC-6.2).
+
+### Completed Work
+1. **Faction Data & Diplomacy Manager:**
+   - Implemented `scripts/factions/faction_data.gd` modeling disposition (`HOSTILE`, `NEUTRAL`, `FRIENDLY`, `ALLIED`), opinion (-100 to +100), military power, stability, population, and active treaties.
+   - Implemented `scripts/factions/faction_manager.gd` with gift sending, treaty negotiations (NAP requires opinion $\ge 0$, Alliance requires opinion $\ge 60$), war declarations, peace accords, and neutral tribe evolution checks.
+2. **Trade Caravans & Atomic Transactions:**
+   - Implemented `scripts/trade/trade_caravan.gd` with deterministic seeded arrivals, finite item stocks, gold budgets, asymmetric buy/sell pricing, opinion discounts, and atomic all-or-nothing transactions preventing item/gold duplication.
+3. **Deterministic Battle Resolver:**
+   - Implemented `scripts/combat/battle_resolver.gd` calculating combat scores from troops, equipment tiers (1–3), morale, fortification levels (0–3), and terrain multipliers.
+   - Formulated proportional casualty distributions (winner 8–25%, loser 35–70%) and plunder spoils (20% of defender stock).
+   - Generates comprehensive `BattleReport` with explainable outcome reasons.
+4. **HUD & World View Integration:**
+   - Added `DiplomacyBtn` ("👑 Ngoại Giao (Y)") to HUD bottom bar and `DiplomacyPanel` ("NGOẠI GIAO VÀ THƯƠNG MẠI HOÀNG GIA") to `scenes/ui/hud.tscn`.
+   - Wired `scripts/ui/hud.gd` to list external factions, handle diplomatic gift tributes, treaty negotiations, war/peace actions, and visiting caravan quick-trade.
+   - Updated `scripts/world/world_view.gd` with daily faction simulations and scheduled caravan arrivals every 5 days starting Day 3.
+5. **Automated Test Suite & Evidence:**
+   - Authored `scripts/test/test_factions_and_battles.gd` validating TC-6.1 (diplomatic treaties, NAP requirements, gifts, war declarations, atomic buy/sell transactions, stock limits, insufficient fund rejection, zero duplication) and TC-6.2 (100% deterministic reproducibility, superior force victory, plunder mechanics, tier 3 fortification & terrain overcoming raw numerical advantage).
+   - Captured runtime screenshots `screenshot_phase6.png` and `screenshot_phase6_diplomacy.png` verifying visual HUD button and interactive Diplomacy panel.
+
+### Validations Performed & Results
+- **TC-6.1 Trade Conservation & Diplomatic Treaties:** **PASS** (Treaty prerequisites strictly enforced; gifts boost opinion and deduct gold; atomic transactions conserve currency and items; zero duplication).
+- **TC-6.2 Deterministic Battle Resolver & Explanations:** **PASS** (Identical seeds produce 100% identical outcomes; explainable casualty breakdown generated; fortifications allow smaller forces to defend successfully).
+- **Full Regression Test Matrix:** TC-0.1, TC-0.2, TC-1.1, TC-1.2, TC-1.3, TC-1.4, TC-2.1, TC-2.2, TC-3.1, TC-3.2, TC-4.1, TC-4.2, TC-4.3, TC-5.1, TC-5.2, TC-5.3, TC-6.1, TC-6.2 all passed with exit code 0.
+- **Runtime Visual Inspection:** Screenshots `screenshot_phase6.png` and `screenshot_phase6_diplomacy.png` verified with 0 runtime errors.
+
+### Phase 6 Exit Gate Assessment
+- **Status: PASSED.** Faction state machine operational; atomic trade verified without duplication; battle resolver produces explainable deterministic outcomes; scripted tests 100% passed.
+
+### Next Exact Step
+- Execute Phase 6 local Git checkpoint.
+- Proceed to **Phase 7: Population Growth, Victory, Collapse & Summaries** (Task 7.1: deterministic immigration pacing; 5-day continuous prosperity victory hold; deterministic collapse triggers; world summary screens).
+
+
 
 
 

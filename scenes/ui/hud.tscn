@@ -150,6 +150,12 @@ layout_mode = 2
 theme_override_colors/font_color = Color(0.4, 0.8, 1, 1)
 text = "🔬 Nghiên Cứu (T)"
 
+[node name="DiplomacyBtn" type="Button" parent="BottomBar/PanelContainer/MarginContainer/HBoxContainer"]
+custom_minimum_size = Vector2(150, 36)
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.75, 0.35, 1)
+text = "👑 Ngoại Giao (Y)"
+
 [node name="BuildMenuPanel" type="PanelContainer" parent="."]
 visible = false
 anchors_preset = 7
@@ -445,4 +451,54 @@ text = "Sự Kiện Thế Giới"
 layout_mode = 2
 text = "Mô tả sự kiện diễn ra trong vương quốc..."
 autowrap_mode = 2
+
+[node name="DiplomacyPanel" type="PanelContainer" parent="."]
+visible = false
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -380.0
+offset_top = -250.0
+offset_right = 380.0
+offset_bottom = 250.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="MarginContainer" type="MarginContainer" parent="DiplomacyPanel"]
+layout_mode = 2
+theme_override_constants/margin_left = 16
+theme_override_constants/margin_top = 12
+theme_override_constants/margin_right = 16
+theme_override_constants/margin_bottom = 12
+
+[node name="VBoxContainer" type="VBoxContainer" parent="DiplomacyPanel/MarginContainer"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Header" type="Label" parent="DiplomacyPanel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.8, 0.3, 1)
+text = "NGOẠI GIAO VÀ THƯƠNG MẠI HOÀNG GIA"
+horizontal_alignment = 1
+
+[node name="CaravanStatusLabel" type="Label" parent="DiplomacyPanel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+text = "Đang chờ thương đoàn ghé thăm..."
+horizontal_alignment = 1
+
+[node name="ScrollContainer" type="ScrollContainer" parent="DiplomacyPanel/MarginContainer/VBoxContainer"]
+custom_minimum_size = Vector2(0, 320)
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="FactionsListVBox" type="VBoxContainer" parent="DiplomacyPanel/MarginContainer/VBoxContainer/ScrollContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 8
+
+[node name="CloseDiplomacyBtn" type="Button" parent="DiplomacyPanel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+text = "Đóng (ESC)"
 

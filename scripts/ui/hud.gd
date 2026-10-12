@@ -18,6 +18,8 @@ signal citizen_role_changed(citizen_id: String, new_role: String)
 @onready var food_label: Label = $TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources/FoodLabel
 @onready var wood_label: Label = $TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources/WoodLabel
 const TechTree = preload("res://scripts/research/tech_tree.gd")
+const FactionData = preload("res://scripts/factions/faction_data.gd")
+const TradeCaravan = preload("res://scripts/trade/trade_caravan.gd")
 
 @onready var stone_label: Label = $TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources/StoneLabel
 @onready var gold_label: Label = $TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources/GoldLabel
@@ -26,8 +28,15 @@ const TechTree = preload("res://scripts/research/tech_tree.gd")
 @onready var tile_info_label: Label = $BottomBar/PanelContainer/MarginContainer/HBoxContainer/TileInfoLabel
 @onready var open_build_btn: Button = $BottomBar/PanelContainer/MarginContainer/HBoxContainer/BuildBtn
 @onready var open_research_btn: Button = $BottomBar/PanelContainer/MarginContainer/HBoxContainer/ResearchBtn
+@onready var open_diplomacy_btn: Button = $BottomBar/PanelContainer/MarginContainer/HBoxContainer/DiplomacyBtn
 @onready var pause_menu_dialog: Control = $PauseMenuOverlay
 @onready var build_menu_panel: Control = $BuildMenuPanel
+
+# Diplomacy & Trade Panel
+@onready var diplomacy_panel: Control = $DiplomacyPanel
+@onready var caravan_status_label: Label = $DiplomacyPanel/MarginContainer/VBoxContainer/CaravanStatusLabel
+@onready var factions_list_vbox: VBoxContainer = $DiplomacyPanel/MarginContainer/VBoxContainer/ScrollContainer/FactionsListVBox
+@onready var close_diplomacy_btn: Button = $DiplomacyPanel/MarginContainer/VBoxContainer/CloseDiplomacyBtn
 
 # Research Panel
 @onready var research_menu_panel: Control = $ResearchMenuPanel
@@ -54,6 +63,8 @@ const TechTree = preload("res://scripts/research/tech_tree.gd")
 
 var inspected_citizen: Node = null
 var research_mgr: Object = null
+var faction_mgr: Object = null
+var world_view_ref: Node = null
 
 func _ready() -> void:
 	# Connect to TimeManager signals
@@ -114,6 +125,13 @@ func _ready() -> void:
 		open_research_btn.pressed.connect(_toggle_research_menu)
 	if close_research_btn:
 		close_research_btn.pressed.connect(func(): research_menu_panel.visible = false)
+
+	# Diplomacy & Trade controls
+	diplomacy_panel.visible = false
+	if open_diplomacy_btn:
+		open_diplomacy_btn.pressed.connect(_toggle_diplomacy_menu)
+	if close_diplomacy_btn:
+		close_diplomacy_btn.pressed.connect(func(): diplomacy_panel.visible = false)
 
 	# Event Banner controls
 	if event_banner:
@@ -227,6 +245,136 @@ func show_event_banner(title: String, desc: String, is_positive: bool = true, du
 			event_banner.visible = false
 	)
 
+func set_faction_manager(mgr: Object, world_ref: Node = null) -> void:
+	faction_mgr = mgr
+	world_view_ref = world_ref
+	if faction_mgr != null:
+		faction_mgr.relation_changed.connect(func(_id, _op, _disp): _refresh_diplomacy_ui())
+		faction_mgr.treaty_signed.connect(func(_id, treaty): show_event_banner("Ký Kết Hiệp Ước!", "Đã ký thành công hiệp ước %s" % treaty, true))
+		faction_mgr.war_declared.connect(func(_id): show_event_banner("Chiến Tranh!", "Đã nổ ra chiến tranh với thế lực!", false))
+
+func _toggle_diplomacy_menu() -> void:
+	diplomacy_panel.visible = not diplomacy_panel.visible
+	if diplomacy_panel.visible:
+		_refresh_diplomacy_ui()
+
+func _refresh_diplomacy_ui() -> void:
+	if faction_mgr == null:
+		return
+		
+	for child in factions_list_vbox.get_children():
+		child.queue_free()
+		
+	# 1. Update Visiting Caravan Status
+	var active_caravan = world_view_ref.get("active_caravan") if world_view_ref != null else null
+	if active_caravan != null and active_caravan.get("is_active"):
+		caravan_status_label.text = "🐪 Đang có mặt: %s (Rời đi ngày %d) | Ngân sách: %d Vàng" % [
+			active_caravan.get("name"),
+			active_caravan.get("departure_day"),
+			active_caravan.get("gold")
+		]
+		
+		# Add caravan quick trade section
+		var c_panel := PanelContainer.new()
+		var c_vbox := VBoxContainer.new()
+		c_vbox.add_theme_constant_override("separation", 4)
+		
+		var c_title := Label.new()
+		c_title.text = "HÀNG HÓA THƯƠNG ĐOÀN (Bấm để mua nhanh 10 món):"
+		c_title.modulate = Color(0.4, 1.2, 0.6)
+		c_vbox.add_child(c_title)
+		
+		var c_grid := GridContainer.new()
+		c_grid.columns = 3
+		c_grid.add_theme_constant_override("h_separation", 8)
+		
+		var rm = get_node_or_null("/root/ResourceManager")
+		var inv: Dictionary = active_caravan.get("inventory")
+		for res_id in inv:
+			if inv[res_id] > 0:
+				var buy_btn := Button.new()
+				var price = active_caravan.call("get_effective_sell_price", res_id, 0.0)
+				buy_btn.text = "Mua 10 %s (%d Vàng)" % [res_id, price * 10]
+				buy_btn.pressed.connect(func():
+					active_caravan.call("buy_from_caravan", res_id, 10, rm, 0.0)
+					_refresh_diplomacy_ui()
+				)
+				c_grid.add_child(buy_btn)
+				
+		c_vbox.add_child(c_grid)
+		c_panel.add_child(c_vbox)
+		factions_list_vbox.add_child(c_panel)
+	else:
+		var tm = get_node_or_null("/root/TimeManager")
+		var cur_day: int = tm.current_day if tm else 1
+		var next_day: int = cur_day + (3 - (cur_day % 5)) if (cur_day % 5) <= 3 else cur_day + (8 - (cur_day % 5))
+		caravan_status_label.text = "Chưa có thương đoàn tại quảng trường (Dự kiến đến ngày %d)" % next_day
+		
+	# 2. List Factions
+	var factions = faction_mgr.call("get_all_factions")
+	for fac in factions:
+		var card := PanelContainer.new()
+		var vbox := VBoxContainer.new()
+		vbox.add_theme_constant_override("separation", 4)
+		
+		var title_lbl := Label.new()
+		title_lbl.text = "⚔️ %s (%s)" % [fac.get("name"), fac.call("get_disposition_name")]
+		title_lbl.modulate = Color(1.0, 0.85, 0.3)
+		vbox.add_child(title_lbl)
+		
+		var info_lbl := Label.new()
+		info_lbl.text = "Thiện cảm: %.1f | Quân lực: %.0f | Dân số: %d | NAP: %s | Đồng minh: %s" % [
+			fac.get("opinion"),
+			fac.get("military_power"),
+			fac.get("population"),
+			"Có" if fac.get("has_nap") else "Không",
+			"Có" if fac.get("has_alliance") else "Không"
+		]
+		vbox.add_child(info_lbl)
+		
+		var hbox := HBoxContainer.new()
+		hbox.add_theme_constant_override("separation", 8)
+		
+		var gift_btn := Button.new()
+		gift_btn.text = "Tặng 50 Vàng (+Thiện cảm)"
+		gift_btn.pressed.connect(func():
+			var rm = get_node_or_null("/root/ResourceManager")
+			faction_mgr.call("send_gift", fac.get("id"), EconomyConfig.RES_GOLD, 50, rm)
+			_refresh_diplomacy_ui()
+		)
+		hbox.add_child(gift_btn)
+		
+		if not fac.get("has_nap") and not fac.get("is_at_war"):
+			var nap_btn := Button.new()
+			nap_btn.text = "Ký Hiệp Ước NAP"
+			nap_btn.pressed.connect(func():
+				faction_mgr.call("propose_treaty", fac.get("id"), "nap")
+				_refresh_diplomacy_ui()
+			)
+			hbox.add_child(nap_btn)
+			
+		if not fac.get("is_at_war"):
+			var war_btn := Button.new()
+			war_btn.text = "Tuyên Chiến"
+			war_btn.modulate = Color(1.5, 0.4, 0.4)
+			war_btn.pressed.connect(func():
+				faction_mgr.call("declare_war", fac.get("id"))
+				_refresh_diplomacy_ui()
+			)
+			hbox.add_child(war_btn)
+		else:
+			var peace_btn := Button.new()
+			peace_btn.text = "Đàm Phán Hòa Bình"
+			peace_btn.pressed.connect(func():
+				faction_mgr.call("propose_treaty", fac.get("id"), "peace")
+				_refresh_diplomacy_ui()
+			)
+			hbox.add_child(peace_btn)
+			
+		vbox.add_child(hbox)
+		card.add_child(vbox)
+		factions_list_vbox.add_child(card)
+
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		var k: InputEventKey = event as InputEventKey
@@ -237,6 +385,8 @@ func _unhandled_input(event: InputEvent) -> void:
 				build_menu_panel.visible = false
 			elif research_menu_panel.visible:
 				research_menu_panel.visible = false
+			elif diplomacy_panel.visible:
+				diplomacy_panel.visible = false
 			else:
 				_toggle_pause_menu()
 		elif k.keycode == KEY_SPACE:
@@ -245,6 +395,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			_toggle_build_menu()
 		elif k.keycode == KEY_T:
 			_toggle_research_menu()
+		elif k.keycode == KEY_Y:
+			_toggle_diplomacy_menu()
 		elif k.keycode == KEY_1:
 			get_node("/root/TimeManager").set_speed(1)
 		elif k.keycode == KEY_2:

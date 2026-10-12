@@ -81,12 +81,12 @@
 
 ---
 
-## Phase 6: Factions, Diplomacy, Trade & Abstract Battles
-- [ ] **TASK-6.1:** Implement 2 rival factions and 1 neutral faction with deterministic state.
-- [ ] **TASK-6.2:** Implement scheduled merchant caravans and atomic trade exchange interface.
-- [ ] **TASK-6.3:** Implement deterministic `BattleResolver.gd` factoring troops, equipment, fortifications, and terrain.
-- [ ] **TASK-6.4:** Write automated test for trade conservation and battle resolutions.
-- [ ] **TASK-6.5:** Git checkpoint Phase 6.
+## Phase 6: Factions, Diplomacy, Trade & Abstract Battles (Completed)
+- [x] **TASK-6.1:** Implement 2 rival factions and 1 neutral faction with deterministic state (`scripts/factions/faction_manager.gd`, `faction_data.gd`).
+- [x] **TASK-6.2:** Implement scheduled merchant caravans and atomic trade exchange interface (`scripts/trade/trade_caravan.gd`).
+- [x] **TASK-6.3:** Implement deterministic `BattleResolver.gd` factoring troops, equipment, fortifications, and terrain.
+- [x] **TASK-6.4:** Write automated test for trade conservation and battle resolutions (`scripts/test/test_factions_and_battles.gd`).
+- [x] **TASK-6.5:** Git checkpoint Phase 6.
 
 ---
 

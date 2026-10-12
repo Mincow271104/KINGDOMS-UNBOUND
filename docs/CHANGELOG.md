@@ -8,7 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-### [0.6.0] - 2026-10-12
+### [0.7.0] - 2026-10-12
+#### Added
+- Phase 6 Factions, Diplomacy, Trade & Abstract Battles completed:
+  - Faction management subsystem `scripts/factions/faction_data.gd` and `scripts/factions/faction_manager.gd` tracking 2 rival kingdoms ("Cổ Thành Thiết Giáp", "Thương Hội Vân Đồn") and 1 neutral tribe ("Bản Làng Rừng Xanh") with continuous disposition (-100 to +100), stability, military power, treaties (Neutral, Peace, Non-Aggression, Alliance, War), diplomatic gift sending, and neutral tribe ascension mechanics.
+  - Royal Trade Caravan simulation `scripts/trade/trade_caravan.gd` with deterministic seed arrivals (every 5 days), finite inventories, asymmetric buy/sell pricing (with diplomatic disposition discounts), atomic item transactions, and double-spending prevention.
+  - Deterministic Battle Resolver `scripts/combat/battle_resolver.gd` modeling attacker/defender troops, equipment tier (1-3), morale, fortification level (0-3), terrain bonuses (chokepoints, high ground), casualty calculation, and plunder spoils (20% defender stock) satisfying GDD 10.4 without random outcome swings.
+  - In-Game HUD Royal Diplomacy & Trade interface (`scenes/ui/hud.tscn` and `scripts/ui/hud.gd`) accessible via HUD button and shortcut `KEY_Y`.
+  - Automated headless test suite `scripts/test/test_factions_and_battles.gd` (TC-6.1 and TC-6.2 passed).
+
 #### Added
 - Phase 5 Research, Exploration & Events completed:
   - Central technology tree `scripts/research/tech_tree.gd` with 4 branches (survival, production, military, mysticism) and 10 technologies with prerequisites and atomic resource deductions.

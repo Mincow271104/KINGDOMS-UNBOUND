@@ -141,4 +141,7 @@ When Godot Editor is running with the MCP plugin:
 | 2026-10-12 | TC-5.1 | Tech Tree Prerequisites & Deductions | **PASS** | 4 branches, 10 techs, atomic cost lock, single project verified in `test_research_and_exploration.gd` |
 | 2026-10-12 | TC-5.2 | Fog of War & POI Exploration Rewards | **PASS** | 3-state degradation, POI reveal, and single-claim lock verified in `test_research_and_exploration.gd` |
 | 2026-10-12 | TC-5.3 | World Events & Cooldown Intervals | **PASS** | Event trigger, resource grants, cooldown intervals verified in `test_research_and_exploration.gd` |
+| 2026-10-12 | TC-6.1 | Faction Treaties & Atomic Trade Conservation | **PASS** | NAP gating, war breaks, atomic caravan buy/sell, zero dupe verified in `test_factions_and_battles.gd` |
+| 2026-10-12 | TC-6.2 | Deterministic Battle Resolver & Explanations | **PASS** | Deterministic reproducibility, plunder spoils, Tier 3 fort defense verified in `test_factions_and_battles.gd` |
+
 

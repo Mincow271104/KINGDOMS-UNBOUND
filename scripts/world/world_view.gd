@@ -17,6 +17,8 @@ const ResearchManager = preload("res://scripts/research/research_manager.gd")
 const FogOfWar = preload("res://scripts/world/fog_of_war.gd")
 const POIManager = preload("res://scripts/world/poi_manager.gd")
 const WorldEventSystem = preload("res://scripts/core/world_event_system.gd")
+const FactionManager = preload("res://scripts/factions/faction_manager.gd")
+const TradeCaravan = preload("res://scripts/trade/trade_caravan.gd")
 
 @export var world_seed: int = 12345
 
@@ -39,6 +41,8 @@ var fog_of_war: FogOfWar
 var poi_mgr: POIManager
 var event_system: WorldEventSystem
 var poi_nodes_by_id: Dictionary = {}
+var faction_mgr: FactionManager
+var active_caravan: RefCounted = null
 
 var buildings_by_cell: Dictionary = {} # cell (Vector2i) -> building_type (String)
 var citizens_by_id: Dictionary = {}
@@ -126,9 +130,11 @@ func _generate_and_build_world() -> void:
 	poi_mgr.generate_pois(world_seed, walkable, 4)
 	
 	event_system = WorldEventSystem.new(world_seed)
+	faction_mgr = FactionManager.new()
 	
 	if hud:
 		hud.set_research_manager(research_mgr)
+		hud.set_faction_manager(faction_mgr, self)
 	
 	_setup_workplaces()
 	_create_workplace_jobs()
@@ -444,7 +450,23 @@ func _on_simulation_hour_passed(_hour: int, _day: int) -> void:
 			automation_mgr.evaluate_rules(rm, job_mgr, workplace_mgr, season)
 
 func _on_simulation_day_passed(day: int, _season: String, _year: int) -> void:
+	var rm = get_node_or_null("/root/ResourceManager")
+	var em = get_node_or_null("/root/EventManager")
+	
 	if event_system != null:
-		var rm = get_node_or_null("/root/ResourceManager")
-		var em = get_node_or_null("/root/EventManager")
 		event_system.check_and_trigger_event(day, rm, em)
+		
+	# Update daily faction simulation
+	if faction_mgr != null:
+		faction_mgr.update_daily_simulation(day)
+		
+	# Scheduled visiting trade caravan arrivals (Every 5 days, starting Day 3)
+	if (day % 5 == 3) and (active_caravan == null or not active_caravan.get("is_active")):
+		active_caravan = TradeCaravan.generate_caravan(world_seed, day, "rival_merchant")
+		if em != null:
+			em.trigger_event("caravan_arrived", "Thương Đoàn Ghé Thăm!", "%s đã cập bến quảng trường định cư!" % active_caravan.get("name"), true, {})
+			
+	# Check caravan departure
+	if active_caravan != null and day >= active_caravan.get("departure_day"):
+		active_caravan.set("is_active", false)
+		active_caravan = null
