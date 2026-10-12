@@ -19,6 +19,8 @@ const POIManager = preload("res://scripts/world/poi_manager.gd")
 const WorldEventSystem = preload("res://scripts/core/world_event_system.gd")
 const FactionManager = preload("res://scripts/factions/faction_manager.gd")
 const TradeCaravan = preload("res://scripts/trade/trade_caravan.gd")
+const ImmigrationManager = preload("res://scripts/economy/immigration_manager.gd")
+const VictoryManager = preload("res://scripts/core/victory_manager.gd")
 
 @export var world_seed: int = 12345
 
@@ -43,6 +45,8 @@ var event_system: WorldEventSystem
 var poi_nodes_by_id: Dictionary = {}
 var faction_mgr: FactionManager
 var active_caravan: RefCounted = null
+var immigration_mgr: ImmigrationManager
+var victory_mgr: VictoryManager
 
 var buildings_by_cell: Dictionary = {} # cell (Vector2i) -> building_type (String)
 var citizens_by_id: Dictionary = {}
@@ -131,10 +135,15 @@ func _generate_and_build_world() -> void:
 	
 	event_system = WorldEventSystem.new(world_seed)
 	faction_mgr = FactionManager.new()
+	immigration_mgr = ImmigrationManager.new(world_seed + 777)
+	victory_mgr = VictoryManager.new()
 	
 	if hud:
 		hud.set_research_manager(research_mgr)
 		hud.set_faction_manager(faction_mgr, self)
+		victory_mgr.victory_achieved.connect(func(report: Dictionary): hud.show_victory_panel(report))
+		victory_mgr.collapse_triggered.connect(func(report: Dictionary): hud.show_collapse_panel(report))
+		victory_mgr.crisis_warning_issued.connect(func(warning: Dictionary): hud.show_crisis_warning(warning))
 	
 	_setup_workplaces()
 	_create_workplace_jobs()
@@ -300,6 +309,66 @@ func _spawn_starter_citizens() -> void:
 		
 		citizens_by_id[cid] = cit
 		citizen_list.append(cit)
+		cit.citizen_died.connect(func(died_id: String): _on_citizen_died(died_id))
+
+func _spawn_immigrant_wave(immigrants: Array) -> void:
+	var citizen_tex = load("res://assets/entities/citizen.png")
+	var rm = get_node_or_null("/root/ResourceManager")
+	var em = get_node_or_null("/root/EventManager")
+	var rng := RandomNumberGenerator.new()
+	rng.randomize()
+	
+	for imm in immigrants:
+		var cid: String = imm["id"]
+		var cname: String = imm["name"]
+		var crole: String = imm.get("role", "idle")
+		
+		var rx := rng.randi_range(-2, 2)
+		var ry := rng.randi_range(-2, 2)
+		var cell := world_data.center_spawn + Vector2i(rx, ry)
+		cell = IsoMath.clamp_grid(cell)
+		
+		var cit = CitizenControllerScript.new()
+		cit.name = cid
+		
+		var spr := Sprite2D.new()
+		spr.name = "Sprite2D"
+		spr.texture = citizen_tex
+		spr.centered = false
+		spr.offset = Vector2(-12.0, -30.0)
+		cit.add_child(spr)
+		
+		cit.init_citizen(cid, cname, crole, cell, nav, job_mgr, workplace_mgr)
+		citizens_container.add_child(cit)
+		
+		citizens_by_id[cid] = cit
+		citizen_list.append(cit)
+		cit.citizen_died.connect(func(died_id: String): _on_citizen_died(died_id))
+		
+	if rm:
+		rm.active_population = citizen_list.size()
+	if em:
+		em.trigger_event("immigration_arrived", "Đoàn Người Di Cư Đã Đến!", "Có %d người di cư mới gia nhập vương quốc!" % immigrants.size(), true, {})
+	var housing_cap: int = BuildingSystem.get_total_housing_capacity(world_data)
+	if hud:
+		hud.update_population_display(citizen_list.size(), housing_cap)
+
+func _on_citizen_died(died_id: String) -> void:
+	var rm = get_node_or_null("/root/ResourceManager")
+	var em = get_node_or_null("/root/EventManager")
+	var cit = citizens_by_id.get(died_id)
+	if cit:
+		citizen_list.erase(cit)
+		citizens_by_id.erase(died_id)
+		if is_instance_valid(cit):
+			cit.queue_free()
+	if rm:
+		rm.active_population = citizen_list.size()
+	if em:
+		em.trigger_event("citizen_died", "Tang Lễ Vương Quốc", "Một cư dân đã qua đời do nạn đói hoặc kiệt sức.", false, {})
+	var housing_cap: int = BuildingSystem.get_total_housing_capacity(world_data)
+	if hud:
+		hud.update_population_display(citizen_list.size(), housing_cap)
 
 func _process(_delta: float) -> void:
 	_update_tile_hover()
@@ -388,6 +457,9 @@ func _execute_placement(cell: Vector2i) -> void:
 		var b_data: Dictionary = res["building"]
 		_instantiate_building_node(b_data["type"], b_data["cell"], b_data["size"])
 		print("[WorldView] Successfully constructed %s at %s" % [b_data["type"], cell])
+		var housing_cap: int = BuildingSystem.get_total_housing_capacity(world_data)
+		if hud:
+			hud.update_population_display(citizen_list.size(), housing_cap)
 		_cancel_placement()
 	else:
 		print("[WorldView] Cannot place building: %s" % res["reason"])
@@ -417,7 +489,7 @@ func _get_building_display_name(key: String) -> String:
 func _on_return_to_menu() -> void:
 	get_tree().change_scene_to_file("res://scenes/ui/main_menu.tscn")
 
-func _on_simulation_hour_passed(_hour: int, _day: int) -> void:
+func _on_simulation_hour_passed(hour: int, day: int) -> void:
 	var rm = get_node_or_null("/root/ResourceManager")
 	
 	# Progress active research project
@@ -448,6 +520,37 @@ func _on_simulation_hour_passed(_hour: int, _day: int) -> void:
 			var tm = get_node_or_null("/root/TimeManager")
 			var season: String = tm.get_season_name() if tm else "spring"
 			automation_mgr.evaluate_rules(rm, job_mgr, workplace_mgr, season)
+
+	# Hourly Immigration & Victory/Crisis Evaluation
+	var housing_cap: int = BuildingSystem.get_total_housing_capacity(world_data)
+	var town_hall_alive: bool = BuildingSystem.is_town_hall_active(world_data)
+	var current_pop: int = citizen_list.size()
+	var food_stock: int = rm.get_available_stock("food") if rm else 0
+	var gold_stock: int = rm.get_available_stock("gold") if rm else 0
+	var techs_count: int = research_mgr.unlocked_techs.size() if research_mgr else 0
+	var buildings_count: int = world_data.buildings.size() if world_data else 0
+
+	var avg_morale: float = 70.0
+	if not citizen_list.is_empty():
+		var total_m: float = 0.0
+		for cit in citizen_list:
+			total_m += cit.get("morale") if cit.get("morale") != null else 70.0
+		avg_morale = total_m / float(citizen_list.size())
+
+	if hud:
+		hud.update_population_display(current_pop, housing_cap)
+
+	if immigration_mgr != null and immigration_mgr.can_evaluate_today(day, hour):
+		var stability_est := 75.0
+		if victory_mgr != null:
+			stability_est = victory_mgr.calculate_stability(food_stock, gold_stock, current_pop, housing_cap, avg_morale, town_hall_alive)
+		var imm_res: Dictionary = immigration_mgr.evaluate_immigration(housing_cap, current_pop, food_stock, stability_est, avg_morale, day)
+		if imm_res["allowed"] and not imm_res["immigrants"].is_empty():
+			_spawn_immigrant_wave(imm_res["immigrants"])
+
+	if victory_mgr != null:
+		var stability: float = victory_mgr.calculate_stability(food_stock, gold_stock, current_pop, housing_cap, avg_morale, town_hall_alive)
+		victory_mgr.tick_hourly(current_pop, food_stock, gold_stock, stability, avg_morale, techs_count, town_hall_alive, buildings_count)
 
 func _on_simulation_day_passed(day: int, _season: String, _year: int) -> void:
 	var rm = get_node_or_null("/root/ResourceManager")

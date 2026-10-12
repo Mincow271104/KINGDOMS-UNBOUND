@@ -49,6 +49,23 @@ const TradeCaravan = preload("res://scripts/trade/trade_caravan.gd")
 @onready var event_title: Label = $EventBanner/MarginContainer/VBoxContainer/EventTitle
 @onready var event_desc: Label = $EventBanner/MarginContainer/VBoxContainer/EventDesc
 
+# Crisis Banner
+@onready var crisis_banner: Control = $CrisisBanner
+@onready var crisis_title: Label = $CrisisBanner/MarginContainer/VBoxContainer/CrisisTitle
+@onready var crisis_desc: Label = $CrisisBanner/MarginContainer/VBoxContainer/CrisisDesc
+
+# Victory Panel
+@onready var victory_panel: Control = $VictoryPanel
+@onready var victory_stats_label: Label = $VictoryPanel/MarginContainer/VBoxContainer/VictoryStatsLabel
+@onready var continue_victory_btn: Button = $VictoryPanel/MarginContainer/VBoxContainer/HBoxContainer/ContinueVictoryBtn
+@onready var return_menu_victory_btn: Button = $VictoryPanel/MarginContainer/VBoxContainer/HBoxContainer/ReturnMenuVictoryBtn
+
+# Collapse Panel
+@onready var collapse_panel: Control = $CollapsePanel
+@onready var collapse_reason_label: Label = $CollapsePanel/MarginContainer/VBoxContainer/CollapseReasonLabel
+@onready var collapse_stats_label: Label = $CollapsePanel/MarginContainer/VBoxContainer/CollapseStatsLabel
+@onready var return_menu_collapse_btn: Button = $CollapsePanel/MarginContainer/VBoxContainer/ReturnMenuCollapseBtn
+
 # Citizen Inspection Panel
 @onready var citizen_panel: Control = $CitizenInspectPanel
 @onready var citizen_name_label: Label = $CitizenInspectPanel/MarginContainer/VBoxContainer/CitizenNameLabel
@@ -65,6 +82,7 @@ var inspected_citizen: Node = null
 var research_mgr: Object = null
 var faction_mgr: Object = null
 var world_view_ref: Node = null
+var total_housing_cap: int = 24
 
 func _ready() -> void:
 	# Connect to TimeManager signals
@@ -132,6 +150,18 @@ func _ready() -> void:
 		open_diplomacy_btn.pressed.connect(_toggle_diplomacy_menu)
 	if close_diplomacy_btn:
 		close_diplomacy_btn.pressed.connect(func(): diplomacy_panel.visible = false)
+
+	# Victory & Collapse dialog controls
+	if continue_victory_btn:
+		continue_victory_btn.pressed.connect(func():
+			victory_panel.visible = false
+			if get_node_or_null("/root/TimeManager"):
+				get_node("/root/TimeManager").resume()
+		)
+	if return_menu_victory_btn:
+		return_menu_victory_btn.pressed.connect(func(): return_to_menu_requested.emit())
+	if return_menu_collapse_btn:
+		return_menu_collapse_btn.pressed.connect(func(): return_to_menu_requested.emit())
 
 	# Event Banner controls
 	if event_banner:
@@ -500,7 +530,53 @@ func _refresh_all_resources() -> void:
 	wood_label.text = "🪵 Gỗ: %d" % rm.get_available_stock("wood")
 	stone_label.text = "🪨 Đá: %d" % rm.get_available_stock("stone")
 	gold_label.text = "🪙 Vàng: %d" % rm.get_available_stock("gold")
-	pop_label.text = "👥 Dân số: %d/24" % rm.active_population
+	pop_label.text = "👥 Dân số: %d/%d" % [rm.active_population, total_housing_cap]
+
+func update_population_display(current_pop: int, max_pop: int) -> void:
+	total_housing_cap = max_pop
+	pop_label.text = "👥 Dân số: %d/%d" % [current_pop, total_housing_cap]
+
+func show_crisis_warning(data: Dictionary) -> void:
+	if not crisis_banner:
+		return
+	crisis_title.text = "⚠️ " + data.get("title", "CẢNH BÁO NGUY CƠ")
+	crisis_desc.text = "%s\nKhuyến nghị: %s" % [data.get("message", ""), data.get("recommended_action", "")]
+	crisis_banner.visible = true
+
+func hide_crisis_warning() -> void:
+	if crisis_banner:
+		crisis_banner.visible = false
+
+func show_victory_panel(report: Dictionary) -> void:
+	if not victory_panel:
+		return
+	if get_node_or_null("/root/TimeManager"):
+		get_node("/root/TimeManager").pause()
+	var days: int = report.get("days_survived", 0)
+	var peak: int = report.get("peak_population", 30)
+	var food: int = report.get("food_reserve", 0)
+	var gold: int = report.get("treasury", 0)
+	var techs: int = report.get("technologies_unlocked", 0)
+	var legacy: int = report.get("legacy_points", 100)
+	
+	victory_stats_label.text = "• Thời gian sinh tồn: %d ngày\n• Dân số đạt đỉnh: %d người\n• Lương thực dự trữ: %d | Ngân khố: %d vàng\n• Công nghệ đã mở khóa: %d\n• Điểm di sản Legacy nhận được: +%d điểm" % [days, peak, food, gold, techs, legacy]
+	victory_panel.visible = true
+
+func show_collapse_panel(report: Dictionary) -> void:
+	if not collapse_panel:
+		return
+	if get_node_or_null("/root/TimeManager"):
+		get_node("/root/TimeManager").pause()
+	var days: int = report.get("days_survived", 0)
+	var hours: int = report.get("hours_survived", 0)
+	var peak: int = report.get("peak_population", 24)
+	var cause: String = report.get("primary_cause", "Không rõ nguyên nhân")
+	var buildings: int = report.get("buildings_count", 0)
+	var techs: int = report.get("technologies_unlocked", 0)
+	
+	collapse_reason_label.text = "Nguyên nhân chính: %s" % cause
+	collapse_stats_label.text = "• Thời gian duy trì: %d ngày %d giờ\n• Dân số cao nhất: %d người\n• Công trình đã xây: %d\n• Công nghệ hoàn thành: %d\n\n(Lưu ý: Dữ liệu thế giới được bảo toàn nguyên vẹn, bạn có thể xem lại hoặc tải bản lưu bất kỳ lúc nào)" % [days, hours, peak, buildings, techs]
+	collapse_panel.visible = true
 
 func set_tile_info(cell: Vector2i, terrain_name: String, building_name: String = "") -> void:
 	if building_name != "":

@@ -94,18 +94,21 @@ When Godot Editor is running with the MCP plugin:
 ### Phase 6: Factions & Battles
 - **TC-6.1: Deterministic Battle Resolver**
   - *Acceptance Criteria:* Identical inputs produce identical casualty and morale outcomes.
-  - *Status:* Pending Phase 6.
+  - *Status:* **PASS** (100% deterministic reproducibility across identical runs, fort and terrain defense verified in `test_factions_and_battles.gd`).
 - **TC-6.2: Trade Atomic Transaction**
   - *Acceptance Criteria:* Trades succeed all-or-nothing; cannot generate duplicate currency.
-  - *Status:* Pending Phase 6.
+  - *Status:* **PASS** (Atomic transactions, finite inventory, price asymmetry, zero duplication verified in `test_factions_and_battles.gd`).
 
 ### Phase 7: Victory & Collapse
-- **TC-7.1: Prosperity Victory 5-Day Hold Duration**
-  - *Acceptance Criteria:* Victory triggers only after 120 continuous game-hours satisfying all conditions; timer resets on lapse.
-  - *Status:* Pending Phase 7.
-- **TC-7.2: Collapse Grace Period & Explanatory Output**
-  - *Acceptance Criteria:* Town Hall destruction provides 3-day countdown before trigger; summary outputs cause.
-  - *Status:* Pending Phase 7.
+- **TC-7.1: Immigration Pacing & Condition Gating**
+  - *Acceptance Criteria:* Evaluates housing, food, stability, and morale gating; expands population to 30 with unique IDs and Vietnamese names.
+  - *Status:* **PASS** (Condition gating and wave admission verified in `test_victory_and_collapse.gd`).
+- **TC-7.2: Prosperity Victory 5-Day Hold Duration & Reset**
+  - *Acceptance Criteria:* Victory triggers only after 120 continuous game-hours satisfying all conditions; timer resets on lapse; duplicate legacy claims prevented.
+  - *Status:* **PASS** (Continuous hold, reset on metric lapse, clean victory trigger at hour 120, and single-claim legacy protection verified in `test_victory_and_collapse.gd`).
+- **TC-7.3: Deterministic Collapse Grace Period & Explanatory Summary**
+  - *Acceptance Criteria:* Extinction triggers immediately at pop 0; Town Hall ruin triggers at 72 hours; Prolonged Anarchy triggers at 72 hours; summary report outputs primary cause.
+  - *Status:* **PASS** (Extinction, 72-hour town hall ruin, 72-hour anarchy, and summary report verified in `test_victory_and_collapse.gd`).
 
 ### Phase 8: Save / Load Integrity
 - **TC-8.1: Save $\to$ Load $\to$ Save Equivalence**
@@ -143,5 +146,9 @@ When Godot Editor is running with the MCP plugin:
 | 2026-10-12 | TC-5.3 | World Events & Cooldown Intervals | **PASS** | Event trigger, resource grants, cooldown intervals verified in `test_research_and_exploration.gd` |
 | 2026-10-12 | TC-6.1 | Faction Treaties & Atomic Trade Conservation | **PASS** | NAP gating, war breaks, atomic caravan buy/sell, zero dupe verified in `test_factions_and_battles.gd` |
 | 2026-10-12 | TC-6.2 | Deterministic Battle Resolver & Explanations | **PASS** | Deterministic reproducibility, plunder spoils, Tier 3 fort defense verified in `test_factions_and_battles.gd` |
+| 2026-10-12 | TC-7.1 | Immigration Pacing & Gating | **PASS** | Rejection on full housing, food, stability, morale; wave admitted; unique IDs & names in `test_victory_and_collapse.gd` |
+| 2026-10-12 | TC-7.2 | 5-Day Prosperity Victory Hold & Reset | **PASS** | 100h hold without early win; reset on lapse; 120h continuous win; duplicate claim prevention in `test_victory_and_collapse.gd` |
+| 2026-10-12 | TC-7.3 | Deterministic Collapse Triggers & Summaries | **PASS** | Pop 0 extinction; 72h town hall ruin; 72h anarchy; summary report with cause in `test_victory_and_collapse.gd` |
+
 
 

@@ -105,3 +105,21 @@ static func demolish_building(b_data: Dictionary, world_data: WorldGenerator.Wor
 				
 	world_data.buildings.erase(b_data)
 	return {"success": true}
+
+static func get_total_housing_capacity(world_data: WorldGenerator.WorldData) -> int:
+	if world_data == null:
+		return 0
+	var total: int = 0
+	for b in world_data.buildings:
+		if b.get("state", "active") != "destroyed":
+			var bp: Dictionary = EconomyConfig.BLUEPRINTS.get(b.get("type", ""), {})
+			total += bp.get("housing_capacity", 0)
+	return total
+
+static func is_town_hall_active(world_data: WorldGenerator.WorldData) -> bool:
+	if world_data == null:
+		return false
+	for b in world_data.buildings:
+		if b.get("type", "") == "townhall" and b.get("state", "active") != "destroyed":
+			return true
+	return false

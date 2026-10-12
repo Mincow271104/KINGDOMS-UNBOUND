@@ -4,6 +4,7 @@ extends Node2D
 ## Implements pathfinding traversal, job execution, need decay, and explainable status.
 
 signal citizen_selected(citizen: CitizenController)
+signal citizen_died(citizen_id: String)
 
 const IsoMath = preload("res://scripts/utils/iso_math.gd")
 const GridNavigation = preload("res://scripts/navigation/grid_navigation.gd")
@@ -298,10 +299,20 @@ func _on_hour_passed(_hour: int, _day: int) -> void:
 		fatigue = minf(100.0, fatigue + 0.833)
 		# Stage 2: Health drops by ~5%/day (-0.208/hr)
 		health = maxf(0.0, health - 0.208)
+		if health <= 0.0:
+			health = 0.0
+			status_reason = "Đã qua đời vì suy kiệt"
+			if active_job != null and job_mgr != null:
+				job_mgr.release_job(active_job)
+				active_job = null
+			citizen_died.emit(citizen_id)
 	else:
 		# Recovery: when well-fed and not starving, health recovers by ~10%/day (+0.417/hr)
 		if hunger < 50.0 and health < 100.0:
 			health = minf(100.0, health + 0.417)
+
+func is_alive() -> bool:
+	return health > 0.0
 
 func set_role(new_role: String) -> void:
 	if role != new_role:

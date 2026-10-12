@@ -8,7 +8,16 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-### [0.7.0] - 2026-10-12
+### [0.8.0] - 2026-10-12
+#### Added
+- Phase 7 Population Growth, Victory, Collapse & Summaries completed:
+  - Deterministic immigration manager `scripts/economy/immigration_manager.gd` pacing arrivals (every 3 days at 06:00) with condition gating (housing capacity $>$ population, food $\ge 30$, stability $\ge 50\%$, morale $\ge 60\%$), generating unique citizen IDs and Vietnamese names.
+  - Authoritative victory, crisis, and collapse manager `scripts/core/victory_manager.gd` enforcing continuous 5-day (120-hour) prosperity hold (population $\ge 30$, food $\ge 500$, treasury $\ge 1000$, stability $\ge 80\%$, morale $\ge 75\%$, technologies $\ge 3$) with immediate duration reset to 0 upon metric lapse.
+  - Deterministic collapse failure triggers: Extinction (population $\le 0$), Town Hall Ruin ($> 72$ hours destroyed), and Prolonged Anarchy ($> 72$ hours at $0\%$ stability) generating structured failure summaries without deleting save data.
+  - Legacy achievement reward system with double-spend protection (`claim_legacy_reward`).
+  - In-Game HUD Victory modal dialog ("👑 CHIẾN THẮNG THỊNH VƯỢNG!"), Collapse modal dialog ("💀 VƯƠNG QUỐC SỤP ĐỔ!"), Crisis alert banner, and dynamic population display (`👥 Dân số: %d/%d`).
+  - Automated headless test suite `scripts/test/test_victory_and_collapse.gd` (TC-7.1, TC-7.2, TC-7.3 passed).
+
 #### Added
 - Phase 6 Factions, Diplomacy, Trade & Abstract Battles completed:
   - Faction management subsystem `scripts/factions/faction_data.gd` and `scripts/factions/faction_manager.gd` tracking 2 rival kingdoms ("Cổ Thành Thiết Giáp", "Thương Hội Vân Đồn") and 1 neutral tribe ("Bản Làng Rừng Xanh") with continuous disposition (-100 to +100), stability, military power, treaties (Neutral, Peace, Non-Aggression, Alliance, War), diplomatic gift sending, and neutral tribe ascension mechanics.

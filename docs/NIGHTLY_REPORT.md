@@ -3,7 +3,7 @@
 ## Session Status
 - **Date:** 2026-10-12
 - **Agent:** Antigravity Autonomous Pair Programmer
-- **Current Phase:** Phase 6 (Factions, Trade & Battles) $\to$ Entering Phase 7 (Population, Victory & Collapse)
+- **Current Phase:** Phase 7 (Population, Victory & Collapse) $\to$ Entering Phase 8 (Save/Load & Persistence)
 - **Godot Version:** 4.7.stable.official.5b4e0cb0f
 - **MCP Bridge Status:** Live, healthy, connected on port 6505.
 
@@ -60,6 +60,14 @@
    - Added interactive Diplomacy & Trade HUD interface (`scenes/ui/hud.tscn`, `scripts/ui/hud.gd`).
    - Automated headless test suite `scripts/test/test_factions_and_battles.gd` (TC-6.1 and TC-6.2 passed).
    - Captured runtime screenshots `screenshot_phase6.png` and `screenshot_phase6_diplomacy.png`.
+9. **Phase 7 Population Growth, Victory, Collapse & Summaries Complete:**
+   - Implemented `scripts/economy/immigration_manager.gd` pacing arrivals (every 3 days at 06:00) with condition gating (housing capacity > population, food >= 30, stability >= 50%, morale >= 60%), generating unique citizen IDs and Vietnamese names.
+   - Implemented `scripts/core/victory_manager.gd` enforcing continuous 5-day (120-hour) prosperity hold (population >= 30, food >= 500, treasury >= 1000, stability >= 80%, morale >= 75%, technologies >= 3) with immediate duration reset to 0 upon metric lapse.
+   - Implemented deterministic collapse failure triggers: Extinction (population <= 0), Town Hall Ruin (> 72 hours destroyed), and Prolonged Anarchy (> 72 hours at 0% stability) generating structured failure summaries without deleting save data.
+   - Implemented duplicate-claim protection for Legacy achievement rewards (`claim_legacy_reward`).
+   - Added Victory modal dialog ("👑 CHIẾN THẮNG THỊNH VƯỢNG!"), Collapse modal dialog ("💀 VƯƠNG QUỐC SỤP ĐỔ!"), Crisis alert banner, and dynamic population display (`👥 Dân số: %d/%d`) to HUD.
+   - Automated headless test suite `scripts/test/test_victory_and_collapse.gd` (TC-7.1, TC-7.2, TC-7.3 passed).
+   - Captured runtime screenshots `screenshot_phase7.png`, `screenshot_phase7_victory.png`, and `screenshot_phase7_collapse.png`.
 
 ---
 
@@ -82,10 +90,14 @@
 - `TC-5.3` World Events & Cooldown Intervals: **PASS** (Periodic events, resource effects, cooldown intervals).
 - `TC-6.1` Factions, Diplomacy Treaties & Caravan Atomic Exchange: **PASS** (Disposition, treaties, caravan buying/selling, zero duplication).
 - `TC-6.2` Deterministic Battle Resolver & Fortification Influence: **PASS** (Casualties, fortification impact, terrain chokepoints, spoils).
-- Runtime Visual Inspection: Screenshots `screenshot_3162.png`, `screenshot_3547.png`, `screenshot_3466.png`, `screenshot_104607.png`, `screenshot_6682.png`, `screenshot_phase5.png`, `screenshot_phase5_research_menu.png`, `screenshot_phase6.png`, `screenshot_phase6_diplomacy.png` inspected.
+- `TC-7.1` Immigration Pacing & Gating: **PASS** (Rejects on full housing, food, stability, morale; wave admitted; unique IDs & names in `test_victory_and_collapse.gd`).
+- `TC-7.2` 5-Day Prosperity Victory Hold & Reset: **PASS** (100h hold without early win; reset on lapse; 120h continuous win; duplicate claim prevention in `test_victory_and_collapse.gd`).
+- `TC-7.3` Deterministic Collapse Triggers & Summaries: **PASS** (Pop 0 extinction; 72h town hall ruin; 72h anarchy; summary report with cause in `test_victory_and_collapse.gd`).
+- Runtime Visual Inspection: Screenshots `screenshot_3162.png`, `screenshot_3547.png`, `screenshot_3466.png`, `screenshot_104607.png`, `screenshot_6682.png`, `screenshot_phase5.png`, `screenshot_phase5_research_menu.png`, `screenshot_phase6.png`, `screenshot_phase6_diplomacy.png`, `screenshot_phase7.png`, `screenshot_phase7_victory.png`, `screenshot_phase7_collapse.png` inspected.
 
 ---
 
 ## 3. Next Exact Step
-- Execute Phase 6 Git checkpoint.
-- Proceed to **Phase 7: Population Growth, Victory, Collapse & Summaries** (Task 7.1: Deterministic immigration pacing; Task 7.2: Continuous 5-day hold victory condition; Task 7.3: Deterministic collapse failure triggers; Task 7.4: World Summary screens).
+- Execute Phase 7 Git checkpoint.
+- Proceed to **Phase 8: Robust Save/Load & Persistence Hardening** (Task 8.1: Versioned JSON schema serialization; Task 8.2: Atomic disk write with `.tmp` and `.bak` backups; Task 8.3: Complete entity reconstruction without duplicate nodes; Task 8.4: Automated Save $\to$ Load $\to$ Save equivalence test suite).
+

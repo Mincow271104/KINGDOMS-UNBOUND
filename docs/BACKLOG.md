@@ -90,13 +90,13 @@
 
 ---
 
-## Phase 7: Population Growth, Victory, Collapse & Summaries
-- [ ] **TASK-7.1:** Implement deterministic immigration pacing (Housing, Food, Stability gating).
-- [ ] **TASK-7.2:** Implement 5-day continuous prosperity victory hold condition.
-- [ ] **TASK-7.3:** Implement deterministic collapse triggers (0 population, town hall destroyed for 3 days, 0% stability for 3 days).
-- [ ] **TASK-7.4:** Implement World Summary screens for victory and collapse.
-- [ ] **TASK-7.5:** Write automated test for victory timer reset and collapse rules.
-- [ ] **TASK-7.6:** Git checkpoint Phase 7.
+## Phase 7: Population Growth, Victory, Collapse & Summaries (Completed)
+- [x] **TASK-7.1:** Implement deterministic immigration pacing (Housing, Food, Stability gating) (`scripts/economy/immigration_manager.gd`).
+- [x] **TASK-7.2:** Implement 5-day continuous prosperity victory hold condition (`scripts/core/victory_manager.gd`).
+- [x] **TASK-7.3:** Implement deterministic collapse triggers (0 population, town hall destroyed for 3 days, 0% stability for 3 days).
+- [x] **TASK-7.4:** Implement World Summary screens for victory and collapse (`scenes/ui/hud.tscn`, `scripts/ui/hud.gd`).
+- [x] **TASK-7.5:** Write automated test for victory timer reset and collapse rules (`scripts/test/test_victory_and_collapse.gd`).
+- [x] **TASK-7.6:** Git checkpoint Phase 7.
 
 ---
 
