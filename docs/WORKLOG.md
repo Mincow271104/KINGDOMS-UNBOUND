@@ -170,7 +170,53 @@ Implement Phase 1 Vertical Slice as mandated by `MASTER_PROMPT.md`:
 - **Status: PASSED.** All requirements of Phase 1 and the Visual-Validation Gate are fully satisfied, tested, and visually confirmed.
 
 ### Next Exact Step
-- Execute Phase 1 local Git checkpoint.
-- Proceed to **Phase 2: Authoritative Resources, Buildings & Economic Accounting**.
+- Phase 1 Complete. Begin Phase 2 (Authoritative Economy).
+
+---
+
+## [2026-10-12] Milestone 5: Phase 2 Authoritative Resources, Buildings & Economy (Completed)
+
+### Context & Objective
+Implement Phase 2 authoritative economy systems as mandated by `MASTER_PROMPT.md`:
+- Data-driven resource definitions using stable string/enum IDs (Food, Wood, Stone, Ore, Metal, Tools, Crystal, Herbs, Gold).
+- Single authoritative `ResourceManager` ledger; no UI directly mutates resources.
+- Starting quantities from GDD ($150$ Food, $120$ Wood, $60$ Stone, $200$ Gold, etc.).
+- Centralized data-driven building blueprints (`EconomyConfig.BLUEPRINTS`).
+- Functional building placement validation (boundary, water check, occupancy collision, cost affordability).
+- Atomic resource reservation preventing double-spending.
+- Storage capacity limits enforcement.
+- Daily food consumption tick ($0.8 \times 24 = 19.2 \approx 20$ Food/day).
+- Interactive In-Game Build Menu and ghost building placement preview.
+
+### Completed Work
+1. **Data-Driven Economy Configuration:**
+   - Authored `scripts/economy/economy_config.gd` defining all 9 resource stable IDs, Vietnamese localized display names, GDD starting inventory, base storage capacities, and complete building blueprints for House, Storehouse, Farm, Woodcutter Camp, and Town Hall.
+2. **Authoritative Resource Ledger:**
+   - Implemented `scripts/economy/resource_manager.gd` autoload singleton with atomic cost locking (`reserve_cost`), deduction (`commit_cost`), and cancellation (`release_cost`).
+   - Registered `ResourceManager` in `project.godot` autoload.
+   - Wired live resource update signals (`resource_changed`, `capacity_changed`, `deficit_warning`).
+3. **Building Placement & Construction System:**
+   - Implemented `scripts/economy/building_system.gd` enforcing discrete grid bounds, water prohibition, occupancy tracking, and storage capacity expansion.
+   - Supports demolition with material refunds.
+4. **Interactive In-Game Build Menu:**
+   - Updated `scenes/ui/hud.tscn` and `scripts/ui/hud.gd` with Build button (`🏗️ Xây Dựng (B)`) and Build Menu panel.
+   - Updated `scripts/world/world_view.gd` with real-time ghost building placement preview showing green (legal) and red (blocked) states, left-click placement, and right-click cancellation.
+5. **Headless Economy Automated Test Suite:**
+   - Authored `scripts/test/test_economy.gd` (TC-2.1 and TC-2.2).
+   - Validated: starting quantities, storage cap limits, atomic reservation, double-spending prevention, all-or-nothing cost reservation, building placement single deduction, footprint collision rejection, water placement rejection, and daily food upkeep consumption.
+
+### Validations Performed & Results
+- **TC-2.1 Resource Ledger & Reservations:** **PASS** (Storage caps enforced, atomic reservation verified, double-spending prevented).
+- **TC-2.2 Building Placement & Deduction:** **PASS** (Costs deducted exactly once, collisions and water rejected).
+- **Full Regression Suite:** TC-0.1, TC-0.2, TC-1.1, TC-1.2, TC-1.3, TC-1.4, TC-2.1, TC-2.2 all passed with 0 failures.
+- **Runtime Screenshot:** Screenshot `screenshot_3466.png` verified in-game HUD with Build button and resource counts.
+
+### Phase 2 Exit Gate Assessment
+- **Status: PASSED.** Build costs charged exactly once; invalid builds fail safely; storage limits enforced; no resource spent twice; scripted economy test passes completely.
+
+### Next Exact Step
+- Execute Phase 2 local Git checkpoint.
+- Proceed to **Phase 3: Citizens, Navigation & Real Jobs**.
+
 
 

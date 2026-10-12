@@ -8,7 +8,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
-### [0.2.0] - 2026-10-12
+### [0.3.0] - 2026-10-12
+#### Added
+- Phase 2 Authoritative Economy & Building Systems completed:
+  - Central data-driven economy configuration `scripts/economy/economy_config.gd` with 9 stable resource IDs and building blueprints.
+  - Authoritative `scripts/economy/resource_manager.gd` singleton with atomic multi-resource cost reservation (`reserve_cost`), deduction (`commit_cost`), and cancellation (`release_cost`).
+  - Storage capacity limits enforcement and daily food upkeep consumption tick ($0.8 \times 24 = 19.2 \approx 20$ Food/day).
+  - Building placement validation `scripts/economy/building_system.gd` enforcing grid bounds, water prohibition, and occupancy tracking.
+  - Interactive In-Game Build Menu and real-time ghost building placement preview.
+  - Automated headless economy test suite `scripts/test/test_economy.gd` (TC-2.1 and TC-2.2 passed).
 #### Added
 - Phase 1 Vertical Slice & Visual-Validation Gate completed:
   - Coordinate decoupling utility `scripts/utils/iso_math.gd` with 2:1 dimetric isometric forward/inverse math.

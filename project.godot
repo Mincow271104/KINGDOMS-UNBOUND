@@ -19,6 +19,7 @@ config/icon="res://icon.svg"
 
 MCPRuntime="*res://addons/godot_mcp/runtime/mcp_runtime.gd"
 TimeManager="*res://scripts/core/time_manager.gd"
+ResourceManager="*res://scripts/economy/resource_manager.gd"
 
 [display]
 

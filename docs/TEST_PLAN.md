@@ -131,3 +131,5 @@ When Godot Editor is running with the MCP plugin:
 | 2026-10-12 | TC-1.2 | Deterministic Seeded World Generation | **PASS** | 100% identical 64×64 grid across runs in `test_world_gen.gd` |
 | 2026-10-12 | TC-1.3 | Visual-Validation Gate Scene | **PASS** | `visual_validation_test.tscn` passed headless & live screenshot 3162 inspected |
 | 2026-10-12 | TC-1.4 | TimeManager Clock & Pause Safety | **PASS** | Speeds 0–3, pause safety, seasonal modifiers passed in `test_time_manager.gd` |
+| 2026-10-12 | TC-2.1 | Resource Conservation & Atomic Reservations | **PASS** | Atomic cost locks, storage caps, double-spend prevention verified in `test_economy.gd` |
+| 2026-10-12 | TC-2.2 | Building Placement & Single-Cost Deduction | **PASS** | Footprint occupancy, water rejection, collision checks verified in `test_economy.gd` |

@@ -34,15 +34,15 @@
 
 ---
 
-## Phase 2: Authoritative Resources, Buildings & Economic Accounting
-- [ ] **TASK-2.1:** Implement resource enum/constants and authoritative `ResourceManager.gd` autoload.
-- [ ] **TASK-2.2:** Define starter inventory quantities in `EconomyConfig` ($150$ food, $120$ wood, $60$ stone, $200$ gold, etc.).
-- [ ] **TASK-2.3:** Implement building definition resources (`BuildingData.gd`, costs, footprints, output buffers, capacities).
-- [ ] **TASK-2.4:** Implement building placement validation system (collision checks, terrain validity, resource deduction).
-- [ ] **TASK-2.5:** Implement atomic resource reservation system (`reserve_resource`, `commit_reservation`, `release_reservation`).
-- [ ] **TASK-2.6:** Implement Economy HUD showing storage capacity, available stock, reserved stock, and daily projections.
-- [ ] **TASK-2.7:** Write headless automated test for economy and building reservations.
-- [ ] **TASK-2.8:** Git checkpoint Phase 2.
+## Phase 2: Authoritative Resources, Buildings & Economic Accounting (Completed)
+- [x] **TASK-2.1:** Implement resource enum/constants and authoritative `ResourceManager.gd` autoload.
+- [x] **TASK-2.2:** Define starter inventory quantities in `EconomyConfig` ($150$ food, $120$ wood, $60$ stone, $200$ gold, etc.).
+- [x] **TASK-2.3:** Implement building definition resources (`BuildingData.gd`, costs, footprints, output buffers, capacities).
+- [x] **TASK-2.4:** Implement building placement validation system (collision checks, terrain validity, resource deduction).
+- [x] **TASK-2.5:** Implement atomic resource reservation system (`reserve_resource`, `commit_reservation`, `release_reservation`).
+- [x] **TASK-2.6:** Implement Economy HUD showing storage capacity, available stock, reserved stock, and daily projections.
+- [x] **TASK-2.7:** Write headless automated test for economy and building reservations.
+- [x] **TASK-2.8:** Git checkpoint Phase 2.
 
 ---
 

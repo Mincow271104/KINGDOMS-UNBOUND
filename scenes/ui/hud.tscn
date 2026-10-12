@@ -29,7 +29,7 @@ theme_override_constants/margin_bottom = 8
 
 [node name="HBoxContainer" type="HBoxContainer" parent="TopBar/PanelContainer/MarginContainer"]
 layout_mode = 2
-theme_override_constants/separation = 24
+theme_override_constants/separation = 20
 
 [node name="Title" type="Label" parent="TopBar/PanelContainer/MarginContainer/HBoxContainer"]
 layout_mode = 2
@@ -110,7 +110,7 @@ anchors_preset = 12
 anchor_top = 1.0
 anchor_right = 1.0
 anchor_bottom = 1.0
-offset_top = -42.0
+offset_top = -48.0
 grow_horizontal = 2
 grow_vertical = 0
 
@@ -131,10 +131,80 @@ theme_override_constants/margin_bottom = 6
 
 [node name="HBoxContainer" type="HBoxContainer" parent="BottomBar/PanelContainer/MarginContainer"]
 layout_mode = 2
+theme_override_constants/separation = 24
 
 [node name="TileInfoLabel" type="Label" parent="BottomBar/PanelContainer/MarginContainer/HBoxContainer"]
 layout_mode = 2
+size_flags_horizontal = 3
 text = "Ô: (32, 32) | Khu vực quảng trường định cư"
+
+[node name="BuildBtn" type="Button" parent="BottomBar/PanelContainer/MarginContainer/HBoxContainer"]
+custom_minimum_size = Vector2(140, 36)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.9, 0.8, 0.3, 1)
+text = "🏗️ Xây Dựng (B)"
+
+[node name="BuildMenuPanel" type="PanelContainer" parent="."]
+visible = false
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -280.0
+offset_top = -220.0
+offset_right = 280.0
+offset_bottom = -56.0
+grow_horizontal = 2
+grow_vertical = 0
+
+[node name="MarginContainer" type="MarginContainer" parent="BuildMenuPanel"]
+layout_mode = 2
+theme_override_constants/margin_left = 16
+theme_override_constants/margin_top = 12
+theme_override_constants/margin_right = 16
+theme_override_constants/margin_bottom = 12
+
+[node name="VBoxContainer" type="VBoxContainer" parent="BuildMenuPanel/MarginContainer"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Header" type="Label" parent="BuildMenuPanel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.9, 0.72, 0.23, 1)
+text = "DANH MỤC CÔNG TRÌNH XÂY DỰNG"
+horizontal_alignment = 1
+
+[node name="GridContainer" type="GridContainer" parent="BuildMenuPanel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme_override_constants/h_separation = 12
+theme_override_constants/v_separation = 8
+columns = 2
+
+[node name="HouseBtn" type="Button" parent="BuildMenuPanel/MarginContainer/VBoxContainer/GridContainer"]
+custom_minimum_size = Vector2(250, 40)
+layout_mode = 2
+text = "🏠 Nhà Ở (25 Gỗ, 10 Đá)"
+
+[node name="StorehouseBtn" type="Button" parent="BuildMenuPanel/MarginContainer/VBoxContainer/GridContainer"]
+custom_minimum_size = Vector2(250, 40)
+layout_mode = 2
+text = "📦 Kho Lương (40 Gỗ, 25 Đá)"
+
+[node name="FarmBtn" type="Button" parent="BuildMenuPanel/MarginContainer/VBoxContainer/GridContainer"]
+custom_minimum_size = Vector2(250, 40)
+layout_mode = 2
+text = "🌾 Nông Trại (30 Gỗ, 5 Đá)"
+
+[node name="WoodcutterBtn" type="Button" parent="BuildMenuPanel/MarginContainer/VBoxContainer/GridContainer"]
+custom_minimum_size = Vector2(250, 40)
+layout_mode = 2
+text = "🪓 Trại Tiều Phu (20 Gỗ, 5 Đá)"
+
+[node name="CloseBuildBtn" type="Button" parent="BuildMenuPanel/MarginContainer/VBoxContainer"]
+custom_minimum_size = Vector2(0, 30)
+layout_mode = 2
+text = "Đóng Menu Xây Dựng"
 
 [node name="PauseMenuOverlay" type="ColorRect" parent="."]
 visible = false
