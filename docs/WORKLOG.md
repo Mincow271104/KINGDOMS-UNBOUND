@@ -546,6 +546,49 @@ Phase 9 completes the MVP lifecycle: 100-citizen simulation stress test (TC-9.1)
 - **Status: PASSED.** Clean launch verified; core acceptance suite passes 100%; new-world and save/load UI flows work; visuals adhere strictly to `docs/ASSET_STYLE_GUIDE.md`; no known blocker prevents the GDD playable loop; audio and stress tests verified; Windows release instructions provided.
 - **Kingdoms Unbound MVP Release Candidate 1 is fully delivered.**
 
+---
+
+## [2026-10-12] Milestone 13: Post-Phase-9 Stabilization & Standalone Build Verification ✅ STABILIZATION COMPLETE
+
+### Context & Objective
+Following the completion of Phase 9, execute the comprehensive post-implementation stabilization quality gate: audit runtime warnings and compiler issues, eliminate GDScript warnings across all systems, package a fully functional standalone Windows build, verify offline headless execution and UI persistence in the standalone package, and run the 12-suite regression test matrix.
+
+### Completed Work
+1. **Engine & Environment Verification:**
+   - Godot Engine `v4.7.stable.official.5b4e0cb0f` verified.
+   - MCP live bridge connected and responsive on port 6505.
+2. **GDScript Compiler & Runtime Warning Cleanup:**
+   - Audited all 49 project GDScript files via Godot MCP `validate_scripts` and runtime debugger logs.
+   - Removed redundant `const ClassName = preload(...)` declarations across 12 files that shadowed Godot 4.7 global class identifiers (`SHADOWED_GLOBAL_IDENTIFIER`).
+   - Fixed integer division truncation warnings (`INTEGER_DIVISION`) in `scripts/core/time_manager.gd` and `scripts/world/world_view.gd` by using explicit `int(float(a) / float(b))`.
+   - Removed unused signal declarations (`UNUSED_SIGNAL`) in `scripts/persistence/save_manager.gd`, `scripts/economy/building_system.gd`, `scripts/economy/workplace_manager.gd`, and `scripts/ui/hud.gd`.
+   - Added explicit `select()` method to `scripts/entities/citizen_controller.gd` emitting `citizen_selected`.
+   - Utilized `treasury` and `morale` parameters in `scripts/core/victory_manager.gd` crisis evaluation to trigger bankruptcy and low morale alerts.
+   - Cleaned unused variable declarations in `scripts/world/world_generator.gd`, `scripts/audio/audio_manager.gd`, and `scripts/world/poi_manager.gd`.
+   - Validated all 49 project scripts: **49/49 scripts valid, 0 compilation errors or invalid scripts**.
+3. **Standalone Windows Build Delivery:**
+   - Packaged production `.pck` via Godot `--export-pack "Windows Desktop" "build/KingdomsUnbound.pck"`.
+   - Placed companion standalone executables `KingdomsUnbound.exe` and `KingdomsUnbound_console.exe` alongside `KingdomsUnbound.pck` and `KingdomsUnbound_console.pck` in `build/`.
+   - Tested standalone executable cold boot (`KingdomsUnbound_console.exe --headless --quit`) — exited with code 0.
+   - Tested standalone persistence suite (`KingdomsUnbound_console.exe --headless -s "res://scripts/test/test_save_load.gd"`) directly against the exported package — all Phase 8 persistence tests (TC-8.1, TC-8.2, TC-8.3) PASSED 100%.
+4. **Full Regression Matrix Verification:**
+   - 12 out of 12 test suites passed cleanly with Exit Code 0:
+     - `test_coordinates.gd` (TC-1.1): **PASS**
+     - `test_world_gen.gd` (TC-1.2): **PASS**
+     - `test_time_manager.gd` (TC-1.4): **PASS**
+     - `test_economy.gd` (TC-2.1, TC-2.2): **PASS**
+     - `test_citizens.gd` (TC-3.1, TC-3.2): **PASS**
+     - `test_logistics.gd` (TC-4.1, TC-4.2, TC-4.3): **PASS**
+     - `test_research_and_exploration.gd` (TC-5.1, TC-5.2, TC-5.3): **PASS**
+     - `test_factions_and_battles.gd` (TC-6.1, TC-6.2): **PASS**
+     - `test_victory_and_collapse.gd` (TC-7.1, TC-7.2, TC-7.3): **PASS**
+     - `test_save_load.gd` (TC-8.1, TC-8.2, TC-8.3): **PASS**
+     - `test_audio.gd`: **PASS**
+     - `test_stress_100_citizens.gd` (TC-9.1): **PASS**
+5. **Quality Gate Assessment:**
+   - Documentation updated in `docs/POST_PHASE9_VERIFICATION.md` and `docs/WORKLOG.md`.
+   - Zero hard errors, zero gameplay regressions, standalone playable build confirmed working.
+
 
 
 

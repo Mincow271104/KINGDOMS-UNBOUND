@@ -6,10 +6,6 @@ extends Node2D
 signal citizen_selected(citizen: CitizenController)
 signal citizen_died(citizen_id: String)
 
-const IsoMath = preload("res://scripts/utils/iso_math.gd")
-const GridNavigation = preload("res://scripts/navigation/grid_navigation.gd")
-const JobManager = preload("res://scripts/jobs/job_manager.gd")
-
 enum State {
 	IDLE = 0,
 	MOVING_TO_JOB = 1,
@@ -73,6 +69,9 @@ func init_citizen(p_id: String, p_name: String, p_role: String, p_cell: Vector2i
 	workplace_mgr = p_workplace_mgr
 	position = IsoMath.map_to_local(current_cell)
 	_update_reason()
+
+func select() -> void:
+	citizen_selected.emit(self)
 
 func _get_time_manager() -> Node:
 	if is_inside_tree() and has_node("/root/TimeManager"):

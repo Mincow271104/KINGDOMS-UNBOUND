@@ -9,10 +9,6 @@ const DEFAULT_SAVE_PATH: String = "user://saves/world_save.json"
 const BACKUP_SAVE_PATH: String = "user://saves/world_save.json.bak"
 const TEMP_SAVE_PATH: String = "user://saves/world_save.json.tmp"
 
-# Signals
-signal save_completed(filepath: String)
-signal load_completed(filepath: String)
-signal save_error(error_message: String)
 
 static func ensure_save_directory() -> void:
 	var dir := DirAccess.open("user://")
@@ -278,8 +274,6 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 	if world_view == null or loaded_data.is_empty():
 		return {"success": false, "error": "WorldView hoặc dữ liệu bản lưu rỗng"}
 
-	var IsoMath = preload("res://scripts/utils/iso_math.gd")
-	var BuildingSystem = preload("res://scripts/economy/building_system.gd")
 	var CitizenControllerScript = preload("res://scripts/entities/citizen_controller.gd")
 	var citizen_tex = load("res://assets/entities/citizen.png")
 

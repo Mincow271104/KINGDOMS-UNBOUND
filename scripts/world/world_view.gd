@@ -4,23 +4,7 @@ extends Node2D
 ## Renders 2:1 isometric diamond terrain, starter buildings, props, citizens, and cursor highlight.
 ## Supports interactive building placement, citizen inspection, and job execution.
 
-const IsoMath = preload("res://scripts/utils/iso_math.gd")
-const WorldGenerator = preload("res://scripts/world/world_generator.gd")
-const EconomyConfig = preload("res://scripts/economy/economy_config.gd")
-const BuildingSystem = preload("res://scripts/economy/building_system.gd")
-const GridNavigation = preload("res://scripts/navigation/grid_navigation.gd")
-const JobManager = preload("res://scripts/jobs/job_manager.gd")
 const CitizenControllerScript = preload("res://scripts/entities/citizen_controller.gd")
-const WorkplaceManager = preload("res://scripts/economy/workplace_manager.gd")
-const AutomationManager = preload("res://scripts/economy/automation_manager.gd")
-const ResearchManager = preload("res://scripts/research/research_manager.gd")
-const FogOfWar = preload("res://scripts/world/fog_of_war.gd")
-const POIManager = preload("res://scripts/world/poi_manager.gd")
-const WorldEventSystem = preload("res://scripts/core/world_event_system.gd")
-const FactionManager = preload("res://scripts/factions/faction_manager.gd")
-const TradeCaravan = preload("res://scripts/trade/trade_caravan.gd")
-const ImmigrationManager = preload("res://scripts/economy/immigration_manager.gd")
-const VictoryManager = preload("res://scripts/core/victory_manager.gd")
 
 @export var world_seed: int = 12345
 
@@ -49,7 +33,6 @@ var immigration_mgr: ImmigrationManager
 var victory_mgr: VictoryManager
 var autosave_enabled: bool = true
 var autosave_interval_days: int = 1
-const SaveManager = preload("res://scripts/persistence/save_manager.gd")
 
 var buildings_by_cell: Dictionary = {} # cell (Vector2i) -> building_type (String)
 var citizens_by_id: Dictionary = {}
@@ -173,12 +156,12 @@ func _setup_workplaces() -> void:
 func _create_workplace_jobs() -> void:
 	# Farm at (36, 35) generates 5 recurring farming jobs
 	for i in range(5):
-		var target := Vector2i(35 + (i % 2), 35 + (i / 2))
+		var target := Vector2i(35 + (i % 2), 35 + int(float(i) / 2.0))
 		job_mgr.create_job("farmer", target, "Chăm sóc và thu hoạch nông sản", "farm_starter", 3.0, 1, true)
 		
 	# Woodcutter Camp at (26, 30) generates 4 recurring woodcutter jobs
 	for i in range(4):
-		var target := Vector2i(25 + (i % 2), 29 + (i / 2))
+		var target := Vector2i(25 + (i % 2), 29 + int(float(i) / 2.0))
 		job_mgr.create_job("woodcutter", target, "Khai thác và chế biến gỗ", "woodcutter_starter", 3.0, 1, true)
 
 func _render_terrain() -> void:

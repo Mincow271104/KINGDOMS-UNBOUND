@@ -199,6 +199,20 @@ func _evaluate_crises(food: int, treasury: int, morale: float, stability: float,
 			"message": "Xã hội rơi vào hỗn loạn. Còn %.1f giờ trước khi sụp đổ hoàn toàn." % (MAX_ANARCHY_HOURS - anarchy_hours),
 			"recommended_action": "Cung cấp đầy đủ nhà ở, lương thực và nâng cao tinh thần người dân."
 		})
+	elif treasury <= 0:
+		crisis_warning_issued.emit({
+			"severity": "medium",
+			"title": "NGÂN KHỐ CẠN KIỆT",
+			"message": "Ngân khố quốc gia không còn tiền vàng để chi trả hoặc giao thương.",
+			"recommended_action": "Khai thác vàng hoặc bán tài nguyên thừa cho thương đoàn."
+		})
+	elif morale < 20.0:
+		crisis_warning_issued.emit({
+			"severity": "medium",
+			"title": "TINH THẦN SUY SỤP",
+			"message": "Tinh thần người dân đang ở mức rất thấp (%.1f%%)." % morale,
+			"recommended_action": "Cung cấp đủ lương thực và nâng cấp chỗ ở để cải thiện tinh thần."
+		})
 
 func record_event(event_description: String) -> void:
 	major_events.append(event_description)

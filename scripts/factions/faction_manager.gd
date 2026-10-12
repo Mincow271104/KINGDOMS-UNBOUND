@@ -4,8 +4,7 @@ extends RefCounted
 ## Conforms to GDD Section 10:
 ## Manages 2 rival kingdoms, 1 neutral tribe, opinion changes, treaties, and diplomatic gifts.
 
-const FactionData = preload("res://scripts/factions/faction_data.gd")
-const EconomyConfig = preload("res://scripts/economy/economy_config.gd")
+
 
 signal relation_changed(faction_id: String, new_opinion: float, disposition: int)
 signal treaty_signed(faction_id: String, treaty_type: String)

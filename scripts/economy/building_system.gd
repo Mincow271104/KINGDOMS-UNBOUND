@@ -1,14 +1,8 @@
 class_name BuildingSystem
 extends RefCounted
-
-const EconomyConfig = preload("res://scripts/economy/economy_config.gd")
-const IsoMath = preload("res://scripts/utils/iso_math.gd")
 ## Building Placement & Construction Manager for KINGDOMS UNBOUND.
 ## Enforces terrain legality, occupancy collision, cost deduction, and storage expansion.
 
-signal building_placed(building_data: Dictionary)
-signal building_completed(building_data: Dictionary)
-signal building_demolished(building_data: Dictionary)
 
 static func can_place_building(type: String, origin: Vector2i, world_data: WorldGenerator.WorldData, resource_mgr: Node) -> Dictionary:
 	var bp: Dictionary = EconomyConfig.BLUEPRINTS.get(type, {})

@@ -4,8 +4,6 @@ extends RefCounted
 ## Conforms to GDD Section 11:
 ## Finite goods, distinct buy/sell prices, opinion discounts, and atomic exchange transactions.
 
-const EconomyConfig = preload("res://scripts/economy/economy_config.gd")
-
 var caravan_id: String
 var name: String
 var origin_faction_id: String

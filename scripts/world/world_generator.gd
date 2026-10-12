@@ -107,7 +107,7 @@ static func generate(seed_val: int) -> WorldData:
 			# Keep center settlement area (25..39) clear of heavy clutter
 			var in_settlement: bool = (x >= 25 and x <= 39 and y >= 24 and y <= 38)
 			var tree_thresh: float = 0.35 if not in_settlement else 0.85
-			var rock_thresh: float = 0.55 if not in_settlement else 0.92
+			var _rock_thresh: float = 0.55 if not in_settlement else 0.92
 			
 			var fn: float = flora_noise.get_noise_2d(float(x), float(y))
 			var roll: float = rng.randf()

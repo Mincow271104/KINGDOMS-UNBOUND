@@ -24,8 +24,6 @@ extends Control
 @onready var close_settings_btn: Button = $SettingsOverlay/CenterContainer/SettingsPanel/MarginContainer/VBoxContainer/CloseSettingsBtn
 @onready var fullscreen_checkbox: CheckBox = $SettingsOverlay/CenterContainer/SettingsPanel/MarginContainer/VBoxContainer/FullscreenCheck
 
-const SaveManager = preload("res://scripts/persistence/save_manager.gd")
-
 func _ready() -> void:
 	new_world_overlay.visible = false
 	settings_overlay.visible = false
@@ -105,14 +103,13 @@ func _on_start_game() -> void:
 
 func _on_load_world() -> void:
 	_play_click()
+	var am = get_node_or_null("/root/AudioManager")
 	var load_res: Dictionary = SaveManager.load_from_file()
 	if not load_res.get("success", false):
 		print("[MainMenu] Failed to load save file: %s" % load_res.get("error", ""))
-		var am = get_node_or_null("/root/AudioManager")
 		if am: am.play_error()
 		return
 		
-	var am = get_node_or_null("/root/AudioManager")
 	if am: am.play_coin()
 		
 	var save_data: Dictionary = load_res.get("data", {})

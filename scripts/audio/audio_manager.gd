@@ -179,7 +179,7 @@ func _synth_coin_sound(sample_rate: int) -> AudioStreamWAV:
 	wav.data = bytes
 	return wav
 
-func _synth_arpeggio(freqs: Array, note_duration: float, sample_rate: int, wave_type: String = "sine") -> AudioStreamWAV:
+func _synth_arpeggio(freqs: Array, note_duration: float, sample_rate: int, _wave_type: String = "sine") -> AudioStreamWAV:
 	var total_duration: float = note_duration * float(freqs.size())
 	var total_samples: int = int(total_duration * sample_rate)
 	var bytes := PackedByteArray()
@@ -300,13 +300,13 @@ func _synth_ambient_loop(sample_rate: int) -> AudioStreamWAV:
 
 # --- Public Playback API ---
 
-func play_sfx(name: String, pitch_scale: float = 1.0) -> void:
+func play_sfx(sfx_name: String, pitch_scale: float = 1.0) -> void:
 	if is_muted or sfx_volume <= 0.001:
 		return
-	if not _streams.has(name):
+	if not _streams.has(sfx_name):
 		return
 		
-	var stream: AudioStreamWAV = _streams[name]
+	var stream: AudioStreamWAV = _streams[sfx_name]
 	var player: AudioStreamPlayer = _sfx_players[_sfx_index]
 	_sfx_index = (_sfx_index + 1) % POOL_SIZE
 	

@@ -4,9 +4,7 @@ extends RefCounted
 ## Manages rule-based priority shifts for jobs and logistics.
 ## Enforces a strict execution budget (MAX_RULE_CHECKS_PER_TICK) to prevent performance death spirals.
 
-const EconomyConfig = preload("res://scripts/economy/economy_config.gd")
-const JobManager = preload("res://scripts/jobs/job_manager.gd")
-const WorkplaceManager = preload("res://scripts/economy/workplace_manager.gd")
+
 
 const MAX_RULE_CHECKS_PER_TICK: int = 10
 

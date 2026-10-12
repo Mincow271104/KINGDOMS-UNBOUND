@@ -3,9 +3,6 @@ extends RefCounted
 ## Grid A* Navigation System for KINGDOMS UNBOUND.
 ## Computes discrete paths across the 64x64 logical simulation grid.
 
-const IsoMath = preload("res://scripts/utils/iso_math.gd")
-const WorldGenerator = preload("res://scripts/world/world_generator.gd")
-
 var world_data: WorldGenerator.WorldData
 
 func _init(p_world_data: WorldGenerator.WorldData = null) -> void:

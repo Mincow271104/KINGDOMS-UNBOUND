@@ -6,8 +6,6 @@ extends RefCounted
 ## 1: Explored (Đã khám phá nhưng hiện không quan sát)
 ## 2: Visible (Đang được quan sát trực tiếp)
 
-const IsoMath = preload("res://scripts/utils/iso_math.gd")
-
 enum State {
 	UNEXPLORED = 0,
 	EXPLORED = 1,

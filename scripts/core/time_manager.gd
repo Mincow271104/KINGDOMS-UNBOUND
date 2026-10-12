@@ -59,13 +59,13 @@ func _advance_one_day() -> void:
 	current_day += 1
 	
 	# Check season transition
-	var new_season_idx: int = ((current_day - 1) / DAYS_PER_SEASON) % SEASONS_PER_YEAR
+	var new_season_idx: int = int(float(current_day - 1) / float(DAYS_PER_SEASON)) % SEASONS_PER_YEAR
 	if new_season_idx != season_index:
 		season_index = new_season_idx
 		season_changed.emit(get_current_season_key(), current_year)
 		
 	# Check year transition
-	var new_year: int = 1 + ((current_day - 1) / DAYS_PER_YEAR)
+	var new_year: int = 1 + int(float(current_day - 1) / float(DAYS_PER_YEAR))
 	if new_year != current_year:
 		current_year = new_year
 		year_passed.emit(current_year)
@@ -139,7 +139,7 @@ func reset_time(start_hour: int = 6, start_day: int = 1, start_year: int = 1) ->
 	previous_speed = Speed.NORMAL
 	current_hour = start_hour
 	current_day = start_day
-	season_index = ((start_day - 1) / DAYS_PER_SEASON) % SEASONS_PER_YEAR
+	season_index = int(float(start_day - 1) / float(DAYS_PER_SEASON)) % SEASONS_PER_YEAR
 	current_year = start_year
 	_hour_accumulator = 0.0
 	time_speed_changed.emit(current_speed)

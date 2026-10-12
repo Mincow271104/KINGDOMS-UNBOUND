@@ -3,8 +3,6 @@ extends RefCounted
 ## World Events System for KINGDOMS UNBOUND.
 ## Generates periodic positive/negative colony events with deterministic cooldowns and UI notifications.
 
-const EconomyConfig = preload("res://scripts/economy/economy_config.gd")
-
 const EVENTS: Array[Dictionary] = [
 	{
 		"id": "bountiful_harvest",

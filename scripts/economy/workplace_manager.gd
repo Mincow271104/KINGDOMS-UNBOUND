@@ -4,12 +4,7 @@ extends RefCounted
 ## Manages production buffers, access points, and physical hauling loop.
 ## Prevents instant teleportation of goods from production sites to central storage.
 
-const EconomyConfig = preload("res://scripts/economy/economy_config.gd")
-const JobManager = preload("res://scripts/jobs/job_manager.gd")
-const IsoMath = preload("res://scripts/utils/iso_math.gd")
-
 signal buffer_changed(workplace_id: String, current_amount: int, max_capacity: int)
-signal cargo_hauled(res_id: String, amount: int, workplace_id: String)
 
 class WorkplaceData:
 	var id: String

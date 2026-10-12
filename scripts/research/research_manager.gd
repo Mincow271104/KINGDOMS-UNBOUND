@@ -4,8 +4,6 @@ extends RefCounted
 ## Manages technology progression, prerequisites, atomic cost deductions, and bonus applications.
 ## Adheres strictly to GDD 9.3: exactly one active project at a time; pause safety.
 
-const TechTree = preload("res://scripts/research/tech_tree.gd")
-
 signal tech_started(tech_id: String)
 signal tech_progress_updated(tech_id: String, progress_hours: float, total_hours: float)
 signal tech_completed(tech_id: String)

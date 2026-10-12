@@ -1,6 +1,4 @@
 extends Node
-
-const EconomyConfig = preload("res://scripts/economy/economy_config.gd")
 ## ResourceManager Autoload Singleton.
 ## Authoritative Economic Ledger for KINGDOMS UNBOUND.
 ## Prevents double-spending, enforces storage limits, and manages atomic reservations.

@@ -3,9 +3,6 @@ extends RefCounted
 ## Shared Job System for KINGDOMS UNBOUND.
 ## Manages job lifecycles (Available -> Reserved -> InProgress -> Completed/Cancelled).
 
-const IsoMath = preload("res://scripts/utils/iso_math.gd")
-const GridNavigation = preload("res://scripts/navigation/grid_navigation.gd")
-
 enum JobState {
 	AVAILABLE = 0,
 	RESERVED = 1,

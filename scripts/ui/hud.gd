@@ -2,8 +2,6 @@ class_name InGameHUD
 extends CanvasLayer
 ## In-Game HUD for KINGDOMS UNBOUND.
 ## Provides time controls, date/season/clock display, resource summary, building menu, citizen inspector, and pause menu.
-
-signal pause_menu_requested
 signal return_to_menu_requested
 signal build_requested(building_type: String)
 signal citizen_role_changed(citizen_id: String, new_role: String)
@@ -17,11 +15,6 @@ signal citizen_role_changed(citizen_id: String, new_role: String)
 
 @onready var food_label: Label = $TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources/FoodLabel
 @onready var wood_label: Label = $TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources/WoodLabel
-const TechTree = preload("res://scripts/research/tech_tree.gd")
-const FactionData = preload("res://scripts/factions/faction_data.gd")
-const TradeCaravan = preload("res://scripts/trade/trade_caravan.gd")
-const SaveManager = preload("res://scripts/persistence/save_manager.gd")
-
 @onready var stone_label: Label = $TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources/StoneLabel
 @onready var gold_label: Label = $TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources/GoldLabel
 @onready var pop_label: Label = $TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources/PopLabel

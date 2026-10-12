@@ -4,9 +4,7 @@ extends RefCounted
 ## Manages deterministic world exploration sites (Ancient Ruins, Abandoned Mines, Sacred Groves).
 ## Enforces single-claim persistent discovery rewards per GDD Section 9.4.
 
-const EconomyConfig = preload("res://scripts/economy/economy_config.gd")
-const IsoMath = preload("res://scripts/utils/iso_math.gd")
-const FogOfWar = preload("res://scripts/world/fog_of_war.gd")
+
 
 enum POIState {
 	UNDISCOVERED = 0,
@@ -93,7 +91,6 @@ func generate_pois(seed_val: int, walkable_cells: Array, count: int = 4) -> void
 		candidate_cells[i] = candidate_cells[j]
 		candidate_cells[j] = temp
 		
-	var placed := 0
 	for i in range(mini(count, candidate_cells.size())):
 		var t_idx := i % poi_types.size()
 		var p_info: Dictionary = poi_types[t_idx]
@@ -108,7 +105,6 @@ func generate_pois(seed_val: int, walkable_cells: Array, count: int = 4) -> void
 		poi.state = POIState.UNDISCOVERED
 		
 		_pois[poi.id] = poi
-		placed += 1
 
 func get_all_pois() -> Array:
 	return _pois.values()

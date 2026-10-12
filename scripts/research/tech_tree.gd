@@ -3,8 +3,6 @@ extends RefCounted
 ## Technology Definitions & Tech Tree Configuration for KINGDOMS UNBOUND.
 ## Conforms to GDD Part IX: 4 branches with 10 data-driven technologies.
 
-const EconomyConfig = preload("res://scripts/economy/economy_config.gd")
-
 const BRANCH_SURVIVAL: String = "survival"
 const BRANCH_PRODUCTION: String = "production"
 const BRANCH_MILITARY: String = "military"
