@@ -94,12 +94,21 @@ func buy_from_caravan(
 	var total_cost := unit_price * amount
 	
 	if resource_mgr != null:
-		if not resource_mgr.has_resource(EconomyConfig.RES_GOLD, total_cost):
+		var has_gold: bool = false
+		if resource_mgr.has_method("has_resource"):
+			has_gold = resource_mgr.has_resource(EconomyConfig.RES_GOLD, total_cost)
+		elif resource_mgr.has_method("get_available_stock"):
+			has_gold = resource_mgr.get_available_stock(EconomyConfig.RES_GOLD) >= total_cost
+		if not has_gold:
 			return {"success": false, "reason": "Không đủ vàng trong ngân khố (cần %d vàng)" % total_cost}
 			
 		# Check destination storage capacity
-		var cur_total: int = resource_mgr.get_total_stock(item_id)
-		var max_cap: int = resource_mgr.get_storage_capacity(item_id)
+		var cur_total: int = resource_mgr.get_total_stock(item_id) if resource_mgr.has_method("get_total_stock") else 0
+		var max_cap: int = 999999
+		if resource_mgr.has_method("get_storage_capacity"):
+			max_cap = resource_mgr.get_storage_capacity(item_id)
+		elif resource_mgr.has_method("get_capacity"):
+			max_cap = resource_mgr.get_capacity(item_id)
 		if cur_total + amount > max_cap:
 			return {"success": false, "reason": "Sức chứa kho hàng không đủ (còn trống %d)" % (max_cap - cur_total)}
 			
@@ -141,8 +150,12 @@ func sell_to_caravan(
 			return {"success": false, "reason": "Không đủ tài nguyên khả dụng trong kho (còn %d)" % resource_mgr.get_available_stock(item_id)}
 			
 		# Check gold storage capacity
-		var cur_gold: int = resource_mgr.get_total_stock(EconomyConfig.RES_GOLD)
-		var max_gold_cap: int = resource_mgr.get_storage_capacity(EconomyConfig.RES_GOLD)
+		var cur_gold: int = resource_mgr.get_total_stock(EconomyConfig.RES_GOLD) if resource_mgr.has_method("get_total_stock") else 0
+		var max_gold_cap: int = 999999
+		if resource_mgr.has_method("get_storage_capacity"):
+			max_gold_cap = resource_mgr.get_storage_capacity(EconomyConfig.RES_GOLD)
+		elif resource_mgr.has_method("get_capacity"):
+			max_gold_cap = resource_mgr.get_capacity(EconomyConfig.RES_GOLD)
 		if cur_gold + total_payout > max_gold_cap:
 			return {"success": false, "reason": "Sức chứa kho vàng không đủ để nhận thanh toán"}
 			

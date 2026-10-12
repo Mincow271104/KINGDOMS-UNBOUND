@@ -289,12 +289,37 @@ func _toggle_diplomacy_menu() -> void:
 	if diplomacy_panel.visible:
 		_refresh_diplomacy_ui()
 
+var _diplomacy_feedback_message: String = ""
+var _diplomacy_feedback_is_error: bool = false
+
+func _show_diplomacy_feedback(message: String, is_error: bool = false) -> void:
+	_diplomacy_feedback_message = message
+	_diplomacy_feedback_is_error = is_error
+	var am = get_node_or_null("/root/AudioManager")
+	if am:
+		if is_error:
+			am.play_sfx("error")
+		else:
+			am.play_sfx("coin")
+	_refresh_all_resources()
+	_refresh_diplomacy_ui()
+
 func _refresh_diplomacy_ui() -> void:
 	if faction_mgr == null:
 		return
 		
 	for child in factions_list_vbox.get_children():
 		child.queue_free()
+		
+	# Display feedback banner if present
+	if not _diplomacy_feedback_message.is_empty():
+		var fb_panel := PanelContainer.new()
+		var fb_lbl := Label.new()
+		fb_lbl.text = _diplomacy_feedback_message
+		fb_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		fb_lbl.modulate = Color(1.5, 0.4, 0.4) if _diplomacy_feedback_is_error else Color(0.4, 1.3, 0.6)
+		fb_panel.add_child(fb_lbl)
+		factions_list_vbox.add_child(fb_panel)
 		
 	# 1. Update Visiting Caravan Status
 	var active_caravan = world_view_ref.get("active_caravan") if world_view_ref != null else null
@@ -308,29 +333,44 @@ func _refresh_diplomacy_ui() -> void:
 		# Add caravan quick trade section
 		var c_panel := PanelContainer.new()
 		var c_vbox := VBoxContainer.new()
-		c_vbox.add_theme_constant_override("separation", 4)
+		c_vbox.add_theme_constant_override("separation", 6)
 		
 		var c_title := Label.new()
-		c_title.text = "HÀNG HÓA THƯƠNG ĐOÀN (Bấm để mua nhanh 10 món):"
+		c_title.text = "HÀNG HÓA THƯƠNG ĐOÀN (Giao dịch 10 món):"
 		c_title.modulate = Color(0.4, 1.2, 0.6)
 		c_vbox.add_child(c_title)
 		
 		var c_grid := GridContainer.new()
 		c_grid.columns = 3
 		c_grid.add_theme_constant_override("h_separation", 8)
+		c_grid.add_theme_constant_override("v_separation", 6)
 		
 		var rm = get_node_or_null("/root/ResourceManager")
 		var inv: Dictionary = active_caravan.get("inventory")
 		for res_id in inv:
 			if inv[res_id] > 0:
+				var cur_res: String = res_id
 				var buy_btn := Button.new()
-				var price = active_caravan.call("get_effective_sell_price", res_id, 0.0)
-				buy_btn.text = "Mua 10 %s (%d Vàng)" % [res_id, price * 10]
+				var price: int = active_caravan.call("get_effective_sell_price", cur_res, 0.0)
+				buy_btn.text = "Mua 10 %s (%d Vàng)" % [cur_res, price * 10]
 				buy_btn.pressed.connect(func():
-					active_caravan.call("buy_from_caravan", res_id, 10, rm, 0.0)
-					_refresh_diplomacy_ui()
+					_handle_caravan_buy(cur_res, 10)
 				)
 				c_grid.add_child(buy_btn)
+				
+		# Also provide selling surplus goods to caravan for gold
+		for res_id in [EconomyConfig.RES_WOOD, EconomyConfig.RES_FOOD, EconomyConfig.RES_STONE, EconomyConfig.RES_HERBS, EconomyConfig.RES_METAL]:
+			var cur_res: String = res_id
+			var avail_stock: int = rm.get_available_stock(cur_res) if rm != null else 0
+			if avail_stock >= 10:
+				var sell_price: int = active_caravan.call("get_effective_buy_price", cur_res, 0.0)
+				var sell_btn := Button.new()
+				sell_btn.text = "Bán 10 %s (+%d Vàng)" % [cur_res, sell_price * 10]
+				sell_btn.modulate = Color(1.1, 1.1, 0.7)
+				sell_btn.pressed.connect(func():
+					_handle_caravan_sell(cur_res, 10)
+				)
+				c_grid.add_child(sell_btn)
 				
 		c_vbox.add_child(c_grid)
 		c_panel.add_child(c_vbox)
@@ -344,12 +384,14 @@ func _refresh_diplomacy_ui() -> void:
 	# 2. List Factions
 	var factions = faction_mgr.call("get_all_factions")
 	for fac in factions:
+		var cur_fac_id: String = fac.get("id")
+		var cur_fac_name: String = fac.get("name")
 		var card := PanelContainer.new()
 		var vbox := VBoxContainer.new()
 		vbox.add_theme_constant_override("separation", 4)
 		
 		var title_lbl := Label.new()
-		title_lbl.text = "⚔️ %s (%s)" % [fac.get("name"), fac.call("get_disposition_name")]
+		title_lbl.text = "⚔️ %s (%s)" % [cur_fac_name, fac.call("get_disposition_name")]
 		title_lbl.modulate = Color(1.0, 0.85, 0.3)
 		vbox.add_child(title_lbl)
 		
@@ -369,9 +411,7 @@ func _refresh_diplomacy_ui() -> void:
 		var gift_btn := Button.new()
 		gift_btn.text = "Tặng 50 Vàng (+Thiện cảm)"
 		gift_btn.pressed.connect(func():
-			var rm = get_node_or_null("/root/ResourceManager")
-			faction_mgr.call("send_gift", fac.get("id"), EconomyConfig.RES_GOLD, 50, rm)
-			_refresh_diplomacy_ui()
+			_handle_faction_gift(cur_fac_id, cur_fac_name, 50)
 		)
 		hbox.add_child(gift_btn)
 		
@@ -379,8 +419,7 @@ func _refresh_diplomacy_ui() -> void:
 			var nap_btn := Button.new()
 			nap_btn.text = "Ký Hiệp Ước NAP"
 			nap_btn.pressed.connect(func():
-				faction_mgr.call("propose_treaty", fac.get("id"), "nap")
-				_refresh_diplomacy_ui()
+				_handle_propose_treaty(cur_fac_id, "nap")
 			)
 			hbox.add_child(nap_btn)
 			
@@ -389,22 +428,73 @@ func _refresh_diplomacy_ui() -> void:
 			war_btn.text = "Tuyên Chiến"
 			war_btn.modulate = Color(1.5, 0.4, 0.4)
 			war_btn.pressed.connect(func():
-				faction_mgr.call("declare_war", fac.get("id"))
-				_refresh_diplomacy_ui()
+				_handle_declare_war(cur_fac_id)
 			)
 			hbox.add_child(war_btn)
 		else:
 			var peace_btn := Button.new()
 			peace_btn.text = "Đàm Phán Hòa Bình"
 			peace_btn.pressed.connect(func():
-				faction_mgr.call("propose_treaty", fac.get("id"), "peace")
-				_refresh_diplomacy_ui()
+				_handle_propose_treaty(cur_fac_id, "peace")
 			)
 			hbox.add_child(peace_btn)
 			
 		vbox.add_child(hbox)
 		card.add_child(vbox)
 		factions_list_vbox.add_child(card)
+
+func _handle_caravan_buy(res_id: String, amount: int) -> void:
+	var active_caravan = world_view_ref.get("active_caravan") if world_view_ref != null else null
+	if active_caravan == null or not active_caravan.get("is_active"):
+		_show_diplomacy_feedback("❌ Thương đoàn đã rời đi!", true)
+		return
+	var rm = get_node_or_null("/root/ResourceManager")
+	var res: Dictionary = active_caravan.call("buy_from_caravan", res_id, amount, rm, 0.0)
+	if res.get("success", false):
+		_show_diplomacy_feedback("✅ Đã mua %d %s (-%d Vàng) thành công!" % [amount, res_id, res.get("total_cost", 0)], false)
+	else:
+		_show_diplomacy_feedback("❌ %s" % res.get("reason", "Không thể mua hàng"), true)
+
+func _handle_caravan_sell(res_id: String, amount: int) -> void:
+	var active_caravan = world_view_ref.get("active_caravan") if world_view_ref != null else null
+	if active_caravan == null or not active_caravan.get("is_active"):
+		_show_diplomacy_feedback("❌ Thương đoàn đã rời đi!", true)
+		return
+	var rm = get_node_or_null("/root/ResourceManager")
+	var res: Dictionary = active_caravan.call("sell_to_caravan", res_id, amount, rm, 0.0)
+	if res.get("success", false):
+		_show_diplomacy_feedback("✅ Đã bán %d %s (+%d Vàng) cho thương đoàn!" % [amount, res_id, res.get("total_payout", 0)], false)
+	else:
+		_show_diplomacy_feedback("❌ %s" % res.get("reason", "Không thể bán hàng"), true)
+
+func _handle_faction_gift(fac_id: String, fac_name: String, amount: int) -> void:
+	if faction_mgr == null:
+		return
+	var rm = get_node_or_null("/root/ResourceManager")
+	var res: Dictionary = faction_mgr.call("send_gift", fac_id, EconomyConfig.RES_GOLD, amount, rm)
+	if res.get("success", false):
+		_show_diplomacy_feedback("✅ Đã gửi tặng %d Vàng cho %s (+%.0f Thiện cảm)!" % [amount, fac_name, res.get("opinion_gain", 0.0)], false)
+	else:
+		_show_diplomacy_feedback("❌ %s" % res.get("reason", "Lỗi gửi quà"), true)
+
+func _handle_propose_treaty(fac_id: String, treaty_type: String) -> void:
+	if faction_mgr == null:
+		return
+	var res: Dictionary = faction_mgr.call("propose_treaty", fac_id, treaty_type)
+	if res.get("success", false):
+		var treaty_name: String = "Hiệp ước Bất Tương Xâm Phạm (NAP)" if treaty_type == "nap" else "Hiệp ước Hòa Bình"
+		_show_diplomacy_feedback("✅ Ký kết thành công %s!" % treaty_name, false)
+	else:
+		_show_diplomacy_feedback("❌ %s" % res.get("reason", "Ký kết hiệp ước thất bại"), true)
+
+func _handle_declare_war(fac_id: String) -> void:
+	if faction_mgr == null:
+		return
+	var res: Dictionary = faction_mgr.call("declare_war", fac_id)
+	if res.get("success", false):
+		_show_diplomacy_feedback("⚠️ ĐÃ TUYÊN CHIẾN!", true)
+	else:
+		_show_diplomacy_feedback("❌ %s" % res.get("reason", "Không thể tuyên chiến"), true)
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:

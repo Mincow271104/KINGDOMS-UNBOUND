@@ -74,7 +74,12 @@ func send_gift(faction_id: String, resource_id: String, amount: int, resource_mg
 		return {"success": false, "reason": "Số lượng quà tặng không hợp lệ"}
 		
 	if resource_mgr != null:
-		if not resource_mgr.has_resource(resource_id, amount):
+		var has_res: bool = false
+		if resource_mgr.has_method("has_resource"):
+			has_res = resource_mgr.has_resource(resource_id, amount)
+		elif resource_mgr.has_method("get_available_stock"):
+			has_res = resource_mgr.get_available_stock(resource_id) >= amount
+		if not has_res:
 			return {"success": false, "reason": "Không đủ tài nguyên trong kho"}
 		resource_mgr.call("consume_resource", resource_id, amount)
 		

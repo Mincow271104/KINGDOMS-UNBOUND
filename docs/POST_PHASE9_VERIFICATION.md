@@ -63,7 +63,7 @@
 - [x] **Loại bỏ cảnh báo UNUSED_PARAMETER & UNUSED_VARIABLE:** Sử dụng đầy đủ `treasury` và `morale` trong bộ đánh giá cảnh báo khủng hoảng của `victory_manager.gd`; dọn dẹp biến chưa dùng trong `world_generator.gd`, `audio_manager.gd`, `poi_manager.gd`.
 - [x] **Kết quả kiểm tra toàn bộ mã nguồn:** Công cụ `validate_scripts` xác nhận: **49/49 script hợp lệ 100% (0 invalid)**.
 
-### 2.4 Kết Quả Ma Trận Kiểm Thử Hồi Quy Toàn Diện (12/12 Suites PASS)
+### 2.4 Kết Quả Ma Trận Kiểm Thử Hồi Quy Toàn Diện (13/13 Suites PASS)
 - `test_coordinates.gd` (TC-1.1): **PASS**
 - `test_world_gen.gd` (TC-1.2): **PASS**
 - `test_time_manager.gd` (TC-1.4): **PASS**
@@ -76,3 +76,12 @@
 - `test_save_load.gd` (TC-8.1, TC-8.2, TC-8.3): **PASS**
 - `test_audio.gd`: **PASS**
 - `test_stress_100_citizens.gd` (TC-9.1): **PASS**
+- `test_gold_transactions.gd` (TC-G.1 - TC-G.8): **PASS**
+
+### 2.5 Kiểm Tra Chức Năng Giao Thương & Quà Tặng Ngoại Giao (Gold QA & Diplomacy Audit)
+- [x] **Hợp đồng API `ResourceManager`:** Bổ sung `has_resource(res_id, amount)` và `get_storage_capacity(res_id)`.
+- [x] **Giao dịch Mua hàng bằng Vàng từ Thương đoàn:** Khấu trừ chính xác số vàng, cộng tài nguyên vào kho, từ chối giao dịch an toàn khi không đủ vàng (TC-G.2, TC-G.3).
+- [x] **Giao dịch Bán tài nguyên cho Thương đoàn:** Người chơi có thể bán tài nguyên thừa lấy vàng từ ngân sách thương đoàn (TC-G.7).
+- [x] **Gửi quà Vàng Ngoại giao:** Khấu trừ 50 vàng, tăng thiện cảm thế lực mục tiêu chính xác, chặn khi thiếu tiền hoặc mục tiêu không tồn tại (TC-G.4, TC-G.5, TC-G.6).
+- [x] **Sửa lỗi bắt biến vòng lặp (Closure Capture Bug):** Nút Mua và nút Tặng vàng nhắm chính xác 100% vào tài nguyên và vương quốc được bấm thay vì mục cuối cùng trong danh sách.
+- [x] **Phản hồi âm thanh & Trực quan:** Hiển thị thông báo kết quả (banner xanh/đỏ) và phát âm thanh `coin` / `error` tương ứng.

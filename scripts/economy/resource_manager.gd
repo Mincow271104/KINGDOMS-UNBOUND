@@ -70,6 +70,12 @@ func get_available_stock(res_id: String) -> int:
 func get_capacity(res_id: String) -> int:
 	return _capacities.get(res_id, 0)
 
+func get_storage_capacity(res_id: String) -> int:
+	return get_capacity(res_id)
+
+func has_resource(res_id: String, amount: int) -> bool:
+	return get_available_stock(res_id) >= amount
+
 func can_afford(cost: Dictionary) -> bool:
 	for res_id in cost:
 		var needed: int = cost[res_id]

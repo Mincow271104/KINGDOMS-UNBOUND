@@ -585,9 +585,48 @@ Following the completion of Phase 9, execute the comprehensive post-implementati
      - `test_save_load.gd` (TC-8.1, TC-8.2, TC-8.3): **PASS**
      - `test_audio.gd`: **PASS**
      - `test_stress_100_citizens.gd` (TC-9.1): **PASS**
-5. **Quality Gate Assessment:**
-   - Documentation updated in `docs/POST_PHASE9_VERIFICATION.md` and `docs/WORKLOG.md`.
-   - Zero hard errors, zero gameplay regressions, standalone playable build confirmed working.
+
+---
+
+## [2026-10-12] Milestone 14: Full QA Functional Audit & Gold Spending/Gifting Fixes ✅ VERIFIED
+
+### Context & Objective
+Investigate and resolve reported manual gameplay failures regarding spending gold to purchase items and gifting gold to other kingdoms. Perform an evidence-based functional audit, identify the root causes across API contracts and UI event wiring, fix confirmed in-scope defects, implement caravan selling capabilities, and verify with unit/integration testing and live gameplay screenshots.
+
+### Root Causes Discovered & Resolutions
+1. **Missing `has_resource` Method on `ResourceManager`:**
+   - *Issue:* `TradeCaravan.buy_from_caravan()` and `FactionManager.send_gift()` called `resource_mgr.has_resource(...)`. The `test_factions_and_battles.gd` unit test had mocked this method, hiding the fact that the actual `ResourceManager` singleton did not declare it. In live gameplay, duck-typed calls crashed with `Invalid call. Nonexistent function 'has_resource' in base 'Node (resource_manager.gd)'`, aborting the transactions.
+   - *Resolution:* Implemented `has_resource(res_id: String, amount: int) -> bool` on `ResourceManager` checking available (unreserved) stock. Also made `buy_from_caravan()` and `send_gift()` defensively fall back to `get_available_stock() >= amount`.
+2. **Missing `get_storage_capacity` Method on `ResourceManager`:**
+   - *Issue:* `TradeCaravan` called `resource_mgr.get_storage_capacity(...)` to check warehouse limits, but `ResourceManager` declared `get_capacity(...)`.
+   - *Resolution:* Added `get_storage_capacity(res_id: String) -> int` as an alias to `get_capacity()` on `ResourceManager`.
+3. **Loop Variable Capture (Closure Bug) in `hud.gd`:**
+   - *Issue:* Lambda closures in `_refresh_diplomacy_ui()` captured loop variables `res_id` and `fac` by reference. Clicking any "Mua 10" button bought the last item in the caravan list, and clicking "Tặng 50 Vàng", "Ký NAP", or "Tuyên Chiến" on any kingdom always executed against the last faction in the list (`neutral_tribe`).
+   - *Resolution:* Captured `cur_res`, `cur_fac_id`, and `cur_fac_name` in local immutable variables before lambda binding, ensuring each button targets its exact intended resource and kingdom.
+4. **Lack of User Feedback & SFX:**
+   - *Issue:* Clicking trade or gift buttons gave no audio or visual feedback when successful, and silently failed without explanation when funds or warehouse capacity were insufficient.
+   - *Resolution:* Added `_show_diplomacy_feedback()`, a prominent green/red status banner at the top of the Diplomacy panel, and triggered `AudioManager.play_sfx("coin")` on success and `"error"` on failure.
+5. **Missing Caravan Selling in UI:**
+   - *Issue:* While `sell_to_caravan()` existed in `TradeCaravan`, the HUD only offered "Mua 10" buttons.
+   - *Resolution:* Added "Bán 10" buttons in the Diplomacy panel for surplus resources (Wood, Food, Stone, Herbs, Metal) whenever player stock $\ge 10$, paying gold from the caravan's finite budget.
+
+### Validations Performed & Results
+- **Dedicated QA Functional Test Suite (`scripts/test/test_gold_transactions.gd`):**
+  - TC-G.1: `ResourceManager` API contract (`has_resource`, `get_storage_capacity`) — **PASS**
+  - TC-G.2: Gold purchasing with sufficient gold (exact deduction, stock credited) — **PASS**
+  - TC-G.3: Gold purchasing with insufficient & zero gold (clean rejection, zero partial deduction) — **PASS**
+  - TC-G.4: Diplomatic gold gifting with sufficient gold (opinion +15, gold deducted) — **PASS**
+  - TC-G.5: Diplomatic gold gifting with insufficient gold (clean rejection) — **PASS**
+  - TC-G.6: Diplomatic gold gifting to invalid target — **PASS**
+  - TC-G.7: Selling resources to caravan for gold (payout credited, stock deducted, caravan gold decremented) — **PASS**
+  - TC-G.8: Rapid repeated transactions until depletion (atomic safety) — **PASS**
+  - **Results: 9/9 tests PASSED (Exit Code 0).**
+- **Full Regression Test Matrix:**
+  - 13 out of 13 test suites passed cleanly with Exit Code 0 (TC-0.1 through TC-9.1 plus `test_gold_transactions.gd`).
+- **Standalone Build Retest:**
+  - `KingdomsUnbound_console.exe --headless -s "res://scripts/test/test_gold_transactions.gd"` executed against the repacked `KingdomsUnbound.pck` — **PASS (Exit Code 0)**.
+- **Live Visual Verification:**
+  - Captured `screenshot_trade_active.png` showing live caravan trading, gold deductions, opinion boost banner, and updated HUD balances.
 
 
 
