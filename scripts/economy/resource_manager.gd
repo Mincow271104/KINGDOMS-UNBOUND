@@ -19,6 +19,10 @@ var _last_day_production: Dictionary = {}
 var _last_day_consumption: Dictionary = {}
 
 var active_population: int = 24
+var _is_starving: bool = false
+
+func is_starving() -> bool:
+	return _is_starving
 
 func _ready() -> void:
 	reset_economy()
@@ -118,6 +122,8 @@ func add_resource(res_id: String, amount: int) -> int:
 	if to_add > 0:
 		_current_stock[res_id] = cur + to_add
 		_daily_production_tallies[res_id] = _daily_production_tallies.get(res_id, 0.0) + float(to_add)
+		if res_id == EconomyConfig.RES_FOOD and _current_stock[res_id] > 0:
+			_is_starving = false
 		resource_changed.emit(res_id, get_available_stock(res_id), get_total_stock(res_id))
 		
 	return to_add
@@ -149,9 +155,11 @@ func _execute_daily_accounting_tick() -> void:
 	var current_food: int = get_available_stock(EconomyConfig.RES_FOOD)
 	if current_food >= food_needed_int:
 		consume_resource(EconomyConfig.RES_FOOD, food_needed_int)
+		_is_starving = false
 	else:
 		# Partial consumption / Deficit
 		consume_resource(EconomyConfig.RES_FOOD, current_food)
+		_is_starving = true
 		deficit_warning.emit(EconomyConfig.RES_FOOD, "Nạn đói: Kho lương thực đã cạn kiệt! Dân làng đang thiếu ăn.")
 
 	# Rotate production/consumption tallies for daily rate display

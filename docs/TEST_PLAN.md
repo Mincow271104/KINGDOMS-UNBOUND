@@ -78,10 +78,10 @@ When Godot Editor is running with the MCP plugin:
 ### Phase 4: Logistics & Automation Loop
 - **TC-4.1: Physical Hauling vs Teleportation**
   - *Acceptance Criteria:* Produced goods remain in workplace buffer until hauled; storehouse updates only on deposit.
-  - *Status:* Pending Phase 4.
+  - *Status:* **PASSED** (2026-10-12, verified in `test_logistics.gd`).
 - **TC-4.2: Winter Food Deficit & Starvation Escalation**
   - *Acceptance Criteria:* Farm output halves in winter; 0 food does not instantly kill; health drops 5%/day.
-  - *Status:* Pending Phase 4.
+  - *Status:* **PASSED** (2026-10-12, verified in `test_logistics.gd`).
 
 ### Phase 5: Research & Events
 - **TC-5.1: Research Pause Safety & Unlock Persistence**
@@ -135,3 +135,5 @@ When Godot Editor is running with the MCP plugin:
 | 2026-10-12 | TC-2.2 | Building Placement & Single-Cost Deduction | **PASS** | Footprint occupancy, water rejection, collision checks verified in `test_economy.gd` |
 | 2026-10-12 | TC-3.1 | A* Pathfinding Walkability & Blocked Target | **PASS** | Obstacle avoidance & unreachable handling verified in `test_citizens.gd` |
 | 2026-10-12 | TC-3.2 | 24 Citizen Spawn & Job Allocation | **PASS** | Exactly 24 citizens, starter roles, unique IDs verified in `test_citizens.gd` |
+| 2026-10-12 | TC-4.1 | Physical Hauling Loop vs Teleportation | **PASS** | Workplace buffers & physical hauler loop verified in `test_logistics.gd` |
+| 2026-10-12 | TC-4.2 | Seasonal Modifiers & Starvation Escalation | **PASS** | Summer 1.2x vs Winter 0.5x & non-instant health decay verified in `test_logistics.gd` |

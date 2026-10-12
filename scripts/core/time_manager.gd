@@ -127,6 +127,12 @@ func get_seasonal_farm_modifier() -> float:
 		_:
 			return 1.0
 
+func get_season_name() -> String:
+	return get_current_season_key()
+
+func get_farm_efficiency_modifier() -> float:
+	return get_seasonal_farm_modifier()
+
 ## Resets time for new world generation
 func reset_time(start_hour: int = 6, start_day: int = 1, start_year: int = 1) -> void:
 	current_speed = Speed.NORMAL

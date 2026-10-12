@@ -143,8 +143,11 @@ func show_citizen_inspector(cit: Node) -> void:
 func _refresh_inspected_citizen() -> void:
 	if inspected_citizen == null:
 		return
-	citizen_name_label.text = "%s (%s)" % [inspected_citizen.get("citizen_name"), inspected_citizen.get("citizen_id")]
-	citizen_role_label.text = "Nghề nghiệp: %s | Vị trí: %s" % [inspected_citizen.get("role"), inspected_citizen.get("current_cell")]
+	var role_text := "Nghề nghiệp: %s | Vị trí: %s" % [inspected_citizen.get("role"), inspected_citizen.get("current_cell")]
+	var carry_amt: int = inspected_citizen.get("carrying_amount")
+	if carry_amt > 0:
+		role_text += " | Mang: %d %s" % [carry_amt, inspected_citizen.get("carrying_resource")]
+	citizen_role_label.text = role_text
 	citizen_reason_label.text = "Hành vi: %s" % [inspected_citizen.get("status_reason")]
 	
 	hunger_bar.value = inspected_citizen.get("hunger")

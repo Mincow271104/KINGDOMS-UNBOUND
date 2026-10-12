@@ -14,7 +14,8 @@ enum State {
 	MOVING_TO_JOB = 1,
 	WORKING = 2,
 	SEEKING_FOOD = 3,
-	RESTING = 4
+	RESTING = 4,
+	HAULING = 5
 }
 
 @export var citizen_id: String = ""
@@ -36,7 +37,13 @@ var active_job: JobManager.JobData = null
 
 var nav: GridNavigation = null
 var job_mgr: JobManager = null
+var workplace_mgr: RefCounted = null
 var move_speed_px: float = 48.0 # Pixel speed per second
+
+# Logistics & Cargo
+var carrying_resource: String = ""
+var carrying_amount: int = 0
+var carry_capacity: int = 10
 
 @onready var sprite: Sprite2D = get_node_or_null("Sprite2D")
 
@@ -55,13 +62,14 @@ func _ready() -> void:
 		var tm = get_node("/root/TimeManager")
 		tm.hour_passed.connect(_on_hour_passed)
 
-func init_citizen(p_id: String, p_name: String, p_role: String, p_cell: Vector2i, p_nav: GridNavigation, p_job_mgr: JobManager) -> void:
+func init_citizen(p_id: String, p_name: String, p_role: String, p_cell: Vector2i, p_nav: GridNavigation, p_job_mgr: JobManager, p_workplace_mgr: RefCounted = null) -> void:
 	citizen_id = p_id
 	citizen_name = p_name
 	role = p_role
 	current_cell = p_cell
 	nav = p_nav
 	job_mgr = p_job_mgr
+	workplace_mgr = p_workplace_mgr
 	position = IsoMath.map_to_local(current_cell)
 	_update_reason()
 
@@ -79,7 +87,7 @@ func _process(delta: float) -> void:
 	match current_state:
 		State.IDLE:
 			_process_idle()
-		State.MOVING_TO_JOB:
+		State.MOVING_TO_JOB, State.HAULING:
 			_process_movement(delta)
 		State.WORKING:
 			_process_working(delta)
@@ -105,7 +113,8 @@ func _process_idle() -> void:
 		var job = job_mgr.request_job(citizen_id, role, current_cell, nav)
 		if job != null:
 			active_job = job
-			var path := nav.find_path(current_cell, job.target_cell)
+			var target_dest: Vector2i = job.source_cell if job.type == "hauler" else job.target_cell
+			var path := nav.find_path(current_cell, target_dest)
 			if not path.is_empty():
 				current_path = path
 				current_state = State.MOVING_TO_JOB
@@ -142,15 +151,73 @@ func _arrive_at_destination() -> void:
 	match current_state:
 		State.MOVING_TO_JOB:
 			if active_job != null:
-				current_state = State.WORKING
-				active_job.state = JobManager.JobState.IN_PROGRESS
-				_update_reason()
+				if active_job.type == "hauler":
+					_pickup_hauler_cargo()
+				else:
+					current_state = State.WORKING
+					active_job.state = JobManager.JobState.IN_PROGRESS
+					_update_reason()
 			else:
 				current_state = State.IDLE
+		State.HAULING:
+			_deposit_hauler_cargo()
 		State.SEEKING_FOOD:
 			_eat_food()
 		State.RESTING:
 			status_reason = "Đang ngủ nghỉ hồi phục thể lực"
+
+func _pickup_hauler_cargo() -> void:
+	if active_job == null:
+		current_state = State.IDLE
+		return
+		
+	var picked_up := 0
+	if workplace_mgr != null and workplace_mgr.has_method("pickup_from_buffer"):
+		picked_up = workplace_mgr.pickup_from_buffer(active_job.source_workplace_id, carry_capacity)
+	else:
+		picked_up = mini(carry_capacity, active_job.cargo_amount)
+		
+	if picked_up > 0:
+		carrying_resource = active_job.cargo_resource
+		carrying_amount = picked_up
+		var path := nav.find_path(current_cell, active_job.dest_cell)
+		if not path.is_empty():
+			current_path = path
+			current_state = State.HAULING
+			_update_reason()
+		else:
+			# Destination blocked: return goods
+			if workplace_mgr != null and workplace_mgr.has_method("get_workplace"):
+				var wp = workplace_mgr.get_workplace(active_job.source_workplace_id)
+				if wp:
+					wp.buffer_amount += picked_up
+			carrying_amount = 0
+			carrying_resource = ""
+			job_mgr.release_job(active_job)
+			active_job = null
+			current_state = State.IDLE
+			status_reason = "Đường vận chuyển về kho bị chặn"
+	else:
+		# Nothing available to haul
+		job_mgr.complete_job(active_job)
+		active_job = null
+		current_state = State.IDLE
+		status_reason = "Kho tạm đã hết hàng, sẵn sàng việc mới"
+
+func _deposit_hauler_cargo() -> void:
+	if carrying_amount > 0:
+		var rm: Node = get_node("/root/ResourceManager") if (is_inside_tree() and has_node("/root/ResourceManager")) else null
+		if rm != null:
+			rm.add_resource(carrying_resource, carrying_amount)
+		carrying_amount = 0
+		carrying_resource = ""
+		
+	if active_job != null:
+		job_mgr.complete_job(active_job)
+		active_job = null
+		
+	current_state = State.IDLE
+	status_reason = "Đã dỡ hàng vào kho an toàn"
 
 func _process_working(delta: float) -> void:
 	if active_job == null or job_mgr == null:
@@ -165,6 +232,13 @@ func _process_working(delta: float) -> void:
 		
 	var completed := job_mgr.progress_job(active_job, delta_hours)
 	if completed:
+		# Production at workplace deposits to buffer (not central storage)
+		if workplace_mgr != null and active_job != null:
+			if active_job.type == "farmer" or active_job.type == "woodcutter":
+				var season_mod := 1.0
+				if tm != null and tm.has_method("get_farm_efficiency_modifier"):
+					season_mod = tm.get_farm_efficiency_modifier()
+				workplace_mgr.produce_to_buffer(active_job.target_building_id, season_mod)
 		active_job = null
 		current_state = State.IDLE
 		status_reason = "Hoàn thành công việc, chuẩn bị việc mới"
@@ -200,7 +274,7 @@ func _seek_rest() -> void:
 
 func _on_hour_passed(_hour: int, _day: int) -> void:
 	match current_state:
-		State.WORKING:
+		State.WORKING, State.HAULING:
 			hunger = minf(100.0, hunger + 4.167)
 			fatigue = minf(100.0, fatigue + 4.0)
 		State.IDLE:
@@ -209,10 +283,25 @@ func _on_hour_passed(_hour: int, _day: int) -> void:
 		State.RESTING:
 			fatigue = maxf(0.0, fatigue - 12.5)
 
-	# Health impact from extreme starvation
-	if hunger >= 100.0:
-		health = maxf(0.0, health - 0.2) # ~5% per day
-		morale = maxf(0.0, morale - 0.6)
+	# Starvation escalation logic
+	var is_starving: bool = (hunger >= 100.0)
+	if is_inside_tree() and has_node("/root/ResourceManager"):
+		var rm: Node = get_node("/root/ResourceManager")
+		if rm.has_method("is_starving") and rm.is_starving():
+			is_starving = true
+		elif rm.call("get_available_stock", "food") <= 0:
+			is_starving = true
+			
+	if is_starving:
+		# Stage 1: Morale drops by ~15/day (-0.625/hr), Fatigue +20/day (+0.833/hr)
+		morale = maxf(0.0, morale - 0.625)
+		fatigue = minf(100.0, fatigue + 0.833)
+		# Stage 2: Health drops by ~5%/day (-0.208/hr)
+		health = maxf(0.0, health - 0.208)
+	else:
+		# Recovery: when well-fed and not starving, health recovers by ~10%/day (+0.417/hr)
+		if hunger < 50.0 and health < 100.0:
+			health = minf(100.0, health + 0.417)
 
 func set_role(new_role: String) -> void:
 	if role != new_role:
@@ -231,6 +320,8 @@ func _update_reason() -> void:
 			status_reason = "Đang di chuyển đến vị trí làm việc"
 		State.WORKING:
 			status_reason = "Đang tích cực lao động sản xuất"
+		State.HAULING:
+			status_reason = "Đang vận chuyển %d %s về kho" % [carrying_amount, carrying_resource]
 		State.SEEKING_FOOD:
 			status_reason = "Đang tìm lương thực"
 		State.RESTING:

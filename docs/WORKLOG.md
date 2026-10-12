@@ -263,6 +263,56 @@ Implement Phase 3 autonomous simulation layer as mandated by `MASTER_PROMPT.md` 
 - Execute Phase 3 local Git checkpoint.
 - Proceed to **Phase 4: Working Logistics Loop & Basic Automation**.
 
+---
+
+## [2026-10-12] Milestone 7: Phase 4 Working Logistics Loop & Basic Automation (Completed)
+
+### Context & Objective
+Implement Phase 4 logistics loop, consumption ticks, and priority automation as mandated by `MASTER_PROMPT.md` and `docs/GDD.md`:
+- Physical hauling loop: workplace production deposited locally in output buffers (Farm: 50 food buffer, Woodcutter: 40 wood buffer) rather than instant teleportation into central inventory.
+- Haulers physically traverse to workplaces, pick up cargo, navigate to Storehouse/Town Hall dropoffs, and deposit items.
+- Seasonal agriculture modifier: $1.2\times$ Summer, $0.5\times$ Winter, $1.0\times$ Spring/Autumn.
+- Non-instant starvation escalation: food depletion triggers "Nạn đói" state; morale drops by -15/day, fatigue +20/day, health drops 5%/day; death only at health 0; natural recovery when fed.
+- Priority automation rules with strict execution budget ($O(1)$ constant overhead) to prevent performance death spirals.
+- Automated headless test suite `scripts/test/test_logistics.gd` (TC-4.1, TC-4.2, TC-4.3).
+
+### Completed Work
+1. **Workplace Output Buffers & Access Points:**
+   - Implemented `scripts/economy/workplace_manager.gd` managing local output buffers, worker production cycles with seasonal modifiers, and nearest dropoff resolution.
+   - Farm buffer max: 50 Food; Woodcutter buffer max: 40 Wood.
+2. **Physical Hauler Logistics Loop:**
+   - Updated `scripts/jobs/job_manager.gd` with priority scoring, recurring workstation slots, and dedicated `create_hauling_job` methods.
+   - Updated `scripts/entities/citizen_controller.gd` with `State.HAULING`, cargo pickup from workplace buffer, physical travel to dropoff, and deposit to `ResourceManager`.
+3. **Seasonal Agriculture & Starvation Escalation:**
+   - Integrated `TimeManager.get_seasonal_farm_modifier()` ($1.2\times$ Summer, $0.5\times$ Winter).
+   - Enhanced `ResourceManager` with `is_starving()` and active daily food upkeep deductions ($0.8 \times 24 = 19.2 \approx 20$ food/day).
+   - Citizen controller implements non-instant starvation: health decays at $0.208\%$/hour (~$5\%$/day) only during starvation, recovering by $+0.417\%$/hour when fed.
+4. **Priority Automation System with Execution Budget:**
+   - Implemented `scripts/economy/automation_manager.gd` with `evaluate_rules` enforcing `MAX_RULE_CHECKS_PER_TICK = 10`.
+   - Rule 1: Emergency Food Priority Boost (food $< 30 \implies$ boost farmer & hauler priorities).
+   - Rule 2: Workplace Buffer Congestion Protection (buffer $\ge 80\% \implies$ boost hauler priority).
+   - Rule 3: Autumn Winter Preparation (food $< 80 \implies$ boost food production).
+5. **HUD & World View Integration:**
+   - Integrated `workplace_mgr` and `automation_mgr` into `scripts/world/world_view.gd` with hourly simulation updates.
+   - Updated HUD citizen inspector to display carried cargo (`scripts/ui/hud.gd`).
+6. **Automated Test Suite:**
+   - Created `scripts/test/test_logistics.gd` validating physical hauling without teleportation, seasonal modifiers (Summer: 6 > Winter: 3), non-instant starvation (health drops to 95% after 24h, no instant death), natural recovery, and automation execution budget (2 / 10 checks used).
+
+### Validations Performed & Results
+- **TC-4.1 Physical Hauling vs Teleportation:** **PASS** (Workplace buffers hold goods locally; central storage updates only upon physical dropoff by hauler).
+- **TC-4.2 Seasonal Modifiers & Non-Instant Starvation:** **PASS** (Summer 1.2x > Winter 0.5x; 24h starvation does not kill citizen; health recovers when fed).
+- **TC-4.3 Automation Rules & Execution Budget:** **PASS** (Emergency rule triggers; budget capped at 10 checks; no performance spirals).
+- **Full Regression Test:** TC-0.1, TC-0.2, TC-1.1, TC-1.2, TC-1.3, TC-1.4, TC-2.1, TC-2.2, TC-3.1, TC-3.2, TC-4.1, TC-4.2, TC-4.3 all passed with 0 failures.
+- **Runtime Visual Inspection:** Screenshot `screenshot_6682.png` verified active simulation, citizens working and hauling, time progressing across hours, and 0 runtime errors.
+
+### Phase 4 Exit Gate Assessment
+- **Status: PASSED.** Food produced at farm is physically hauled to storage; seasonal modifiers visibly scale farm output; starvation escalates non-instantly; automation rules operate within budget; scripted tests pass completely.
+
+### Next Exact Step
+- Execute Phase 4 local Git checkpoint.
+- Proceed to **Phase 5: Research, Exploration & Events**.
+
+
 
 
 

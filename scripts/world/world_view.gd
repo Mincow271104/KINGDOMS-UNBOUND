@@ -11,6 +11,8 @@ const BuildingSystem = preload("res://scripts/economy/building_system.gd")
 const GridNavigation = preload("res://scripts/navigation/grid_navigation.gd")
 const JobManager = preload("res://scripts/jobs/job_manager.gd")
 const CitizenControllerScript = preload("res://scripts/entities/citizen_controller.gd")
+const WorkplaceManager = preload("res://scripts/economy/workplace_manager.gd")
+const AutomationManager = preload("res://scripts/economy/automation_manager.gd")
 
 @export var world_seed: int = 12345
 
@@ -26,6 +28,8 @@ const CitizenControllerScript = preload("res://scripts/entities/citizen_controll
 var world_data: WorldGenerator.WorldData
 var nav: GridNavigation
 var job_mgr: JobManager
+var workplace_mgr: WorkplaceManager
+var automation_mgr: AutomationManager
 
 var buildings_by_cell: Dictionary = {} # cell (Vector2i) -> building_type (String)
 var citizens_by_id: Dictionary = {}
@@ -48,6 +52,11 @@ func _ready() -> void:
 		hud.return_to_menu_requested.connect(_on_return_to_menu)
 		hud.build_requested.connect(_on_build_requested)
 		hud.citizen_role_changed.connect(_on_citizen_role_changed)
+		
+	# Connect to TimeManager simulation clock
+	if Engine.has_singleton("TimeManager") or get_node_or_null("/root/TimeManager"):
+		var tm = get_node("/root/TimeManager")
+		tm.hour_passed.connect(_on_simulation_hour_passed)
 		
 	# Focus camera on settlement plaza
 	if camera:
@@ -89,23 +98,35 @@ func _generate_and_build_world() -> void:
 	world_data = WorldGenerator.generate(world_seed)
 	nav = GridNavigation.new(world_data)
 	job_mgr = JobManager.new()
+	workplace_mgr = WorkplaceManager.new()
+	automation_mgr = AutomationManager.new()
 	
+	_setup_workplaces()
 	_create_workplace_jobs()
 	_render_terrain()
 	_spawn_starter_buildings()
 	_spawn_props()
 	_spawn_starter_citizens()
 
+func _setup_workplaces() -> void:
+	# Farm at (36, 35)
+	workplace_mgr.register_workplace("farm_starter", "farm", Vector2i(36, 35), Vector2i(2, 2), Vector2i(35, 35), EconomyConfig.RES_FOOD, 50, 5.0, 5)
+	# Woodcutter Camp at (26, 30)
+	workplace_mgr.register_workplace("woodcutter_starter", "woodcutter", Vector2i(26, 30), Vector2i(2, 2), Vector2i(28, 30), EconomyConfig.RES_WOOD, 40, 4.0, 4)
+	# Dropoffs: Storehouse (32, 27) and Town Hall (31, 31)
+	workplace_mgr.register_dropoff("storehouse_starter", "storehouse", Vector2i(32, 29))
+	workplace_mgr.register_dropoff("townhall_starter", "townhall", Vector2i(31, 34))
+
 func _create_workplace_jobs() -> void:
-	# Farm at (36, 35) generates 5 farming jobs around perimeter
+	# Farm at (36, 35) generates 5 recurring farming jobs
 	for i in range(5):
 		var target := Vector2i(35 + (i % 2), 35 + (i / 2))
-		job_mgr.create_job("farmer", target, "Chăm sóc và thu hoạch nông sản", "farm_starter", 3.0)
+		job_mgr.create_job("farmer", target, "Chăm sóc và thu hoạch nông sản", "farm_starter", 3.0, 1, true)
 		
-	# Woodcutter Camp at (26, 30) generates 4 woodcutter jobs
+	# Woodcutter Camp at (26, 30) generates 4 recurring woodcutter jobs
 	for i in range(4):
 		var target := Vector2i(25 + (i % 2), 29 + (i / 2))
-		job_mgr.create_job("woodcutter", target, "Khai thác và chế biến gỗ", "woodcutter_starter", 3.0)
+		job_mgr.create_job("woodcutter", target, "Khai thác và chế biến gỗ", "woodcutter_starter", 3.0, 1, true)
 
 func _render_terrain() -> void:
 	for x in range(IsoMath.MAP_SIZE):
@@ -219,7 +240,7 @@ func _spawn_starter_citizens() -> void:
 		spr.offset = Vector2(-12.0, -30.0)
 		cit.add_child(spr)
 		
-		cit.init_citizen(cid, cname, crole, cell, nav, job_mgr)
+		cit.init_citizen(cid, cname, crole, cell, nav, job_mgr, workplace_mgr)
 		citizens_container.add_child(cit)
 		
 		citizens_by_id[cid] = cit
@@ -340,3 +361,13 @@ func _get_building_display_name(key: String) -> String:
 
 func _on_return_to_menu() -> void:
 	get_tree().change_scene_to_file("res://scenes/ui/main_menu.tscn")
+
+func _on_simulation_hour_passed(_hour: int, _day: int) -> void:
+	if workplace_mgr != null and job_mgr != null:
+		workplace_mgr.update_hauling_jobs(job_mgr)
+		if automation_mgr != null:
+			var tm = get_node_or_null("/root/TimeManager")
+			var season: String = tm.get_season_name() if tm else "spring"
+			var rm = get_node_or_null("/root/ResourceManager")
+			automation_mgr.evaluate_rules(rm, job_mgr, workplace_mgr, season)
+

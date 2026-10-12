@@ -59,14 +59,14 @@
 
 ---
 
-## Phase 4: Working Logistics Loop & Basic Automation
-- [ ] **TASK-4.1:** Implement workplace output buffers and physical hauling jobs to Storehouse/Town Hall.
-- [ ] **TASK-4.2:** Implement daily food consumption tick at midnight and seasonal farm output modifiers (Summer $1.2\times$, Winter $0.5\times$).
-- [ ] **TASK-4.3:** Implement non-instant starvation escalation rules (Morale/Fatigue penalty $\to$ 5% Health drop/day).
-- [ ] **TASK-4.4:** Implement configurable priority automation rules (e.g., Food critical $\to$ boost food hauling/harvesting).
-- [ ] **TASK-4.5:** Implement rule execution budget to prevent infinite evaluation loops.
-- [ ] **TASK-4.6:** Write automated test for logistics loop and automation rules.
-- [ ] **TASK-4.7:** Git checkpoint Phase 4.
+## Phase 4: Working Logistics Loop & Basic Automation (Completed)
+- [x] **TASK-4.1:** Implement workplace output buffers and physical hauling jobs to Storehouse/Town Hall.
+- [x] **TASK-4.2:** Implement daily food consumption tick at midnight and seasonal farm output modifiers (Summer $1.2\times$, Winter $0.5\times$).
+- [x] **TASK-4.3:** Implement non-instant starvation escalation rules (Morale/Fatigue penalty $\to$ 5% Health drop/day).
+- [x] **TASK-4.4:** Implement configurable priority automation rules (e.g., Food critical $\to$ boost food hauling/harvesting).
+- [x] **TASK-4.5:** Implement rule execution budget to prevent infinite evaluation loops.
+- [x] **TASK-4.6:** Write automated test for logistics loop and automation rules.
+- [x] **TASK-4.7:** Git checkpoint Phase 4.
 
 ---
 

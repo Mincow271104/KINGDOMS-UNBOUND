@@ -8,6 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### [0.5.0] - 2026-10-12
+#### Added
+- Phase 4 Working Logistics Loop & Basic Automation completed:
+  - Local workplace output buffers `scripts/economy/workplace_manager.gd` (Farm: 50 food buffer, Woodcutter: 40 wood buffer) preventing instant teleportation of goods.
+  - Physical hauling loop: haulers claim hauling jobs, travel to workplace access points, extract cargo, navigate to storehouses, and deposit goods into central stock.
+  - Seasonal agriculture output modifiers ($1.2\times$ Summer, $0.5\times$ Winter, $1.0\times$ Spring/Autumn) scaling farm production.
+  - Non-instant starvation escalation: when food depletes, "Nạn đói" state initiates; health decays gradually at 5%/day with 0 instant deaths, recovering naturally when fed.
+  - Configurable priority automation rules with strict execution budget ($O(1)$ constant time) in `scripts/economy/automation_manager.gd` preventing performance death spirals.
+  - In-game HUD citizen inspector displays live carried cargo.
+  - Automated headless test suite `scripts/test/test_logistics.gd` (TC-4.1, TC-4.2, TC-4.3 passed).
+
 ### [0.4.0] - 2026-10-12
 #### Added
 - Phase 3 Citizens, Navigation & Real Jobs completed:
