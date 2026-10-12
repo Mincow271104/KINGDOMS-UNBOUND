@@ -8,6 +8,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### [0.9.0] - 2026-10-12
+#### Added
+- Phase 8 Robust Save/Load & Persistence Hardening completed:
+  - `scripts/persistence/save_manager.gd`: versioned JSON schema (v1), atomic disk writes (`.tmp` → `.json`), `.bak` auto-backup on overwrite, schema/section validation, graceful corruption rejection, automatic `.bak` fallback recovery.
+  - Full world state serialization: clock, resources (stock + capacities), buildings (id/type/cell/size/state/health), citizens (id/name/role/cell/stats), research progress, faction diplomatic states, POI claim states, victory/collapse progress, fog-of-war explored cells.
+  - Zero-duplication reconstruction in `apply_loaded_state_to_world()`: clears old scene nodes before restoring from save data.
+  - In-Game Pause Menu: "💾 Lưu Thế Giới" and "📂 Tải Bản Lưu" buttons with success/error status feedback label.
+  - Main Menu: "📂 Tải Thế Giới" button dynamically enabled if `user://saves/world_save.json` or `.bak` exists.
+  - Daily autosave: configurable interval (default: every 1 game day) with EventManager notification.
+  - Automated test suite `scripts/test/test_save_load.gd` (TC-8.1, TC-8.2, TC-8.3 all passed):
+    - TC-8.1: save→load→save canonical equivalence (24 citizens, 8 buildings, fog-of-war 100% preserved).
+    - TC-8.2: corrupt/incompatible save rejection; automatic .bak fallback verified.
+    - TC-8.3: HUD save button UI workflow and MainMenu load button UI verified end-to-end.
+
 ### [0.8.0] - 2026-10-12
 #### Added
 - Phase 7 Population Growth, Victory, Collapse & Summaries completed:

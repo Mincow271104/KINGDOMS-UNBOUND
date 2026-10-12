@@ -20,6 +20,7 @@ signal citizen_role_changed(citizen_id: String, new_role: String)
 const TechTree = preload("res://scripts/research/tech_tree.gd")
 const FactionData = preload("res://scripts/factions/faction_data.gd")
 const TradeCaravan = preload("res://scripts/trade/trade_caravan.gd")
+const SaveManager = preload("res://scripts/persistence/save_manager.gd")
 
 @onready var stone_label: Label = $TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources/StoneLabel
 @onready var gold_label: Label = $TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources/GoldLabel
@@ -30,6 +31,9 @@ const TradeCaravan = preload("res://scripts/trade/trade_caravan.gd")
 @onready var open_research_btn: Button = $BottomBar/PanelContainer/MarginContainer/HBoxContainer/ResearchBtn
 @onready var open_diplomacy_btn: Button = $BottomBar/PanelContainer/MarginContainer/HBoxContainer/DiplomacyBtn
 @onready var pause_menu_dialog: Control = $PauseMenuOverlay
+@onready var save_game_btn: Button = $PauseMenuOverlay/CenterContainer/PanelContainer/MarginContainer/VBoxContainer/SaveGameBtn
+@onready var load_game_btn: Button = $PauseMenuOverlay/CenterContainer/PanelContainer/MarginContainer/VBoxContainer/LoadGameBtn
+@onready var save_status_label: Label = $PauseMenuOverlay/CenterContainer/PanelContainer/MarginContainer/VBoxContainer/SaveStatusLabel
 @onready var build_menu_panel: Control = $BuildMenuPanel
 
 # Diplomacy & Trade Panel
@@ -112,6 +116,10 @@ func _ready() -> void:
 	var menu_btn = $PauseMenuOverlay/CenterContainer/PanelContainer/MarginContainer/VBoxContainer/MenuBtn
 	if resume_btn:
 		resume_btn.pressed.connect(_close_pause_menu)
+	if save_game_btn:
+		save_game_btn.pressed.connect(_on_save_game_pressed)
+	if load_game_btn:
+		load_game_btn.pressed.connect(_on_load_game_pressed)
 	if menu_btn:
 		menu_btn.pressed.connect(func(): return_to_menu_requested.emit())
 
@@ -491,11 +499,56 @@ func _select_building(type: String) -> void:
 func _toggle_pause_menu() -> void:
 	pause_menu_dialog.visible = not pause_menu_dialog.visible
 	if pause_menu_dialog.visible:
+		if save_status_label:
+			save_status_label.text = ""
 		get_node("/root/TimeManager").pause()
 
 func _close_pause_menu() -> void:
 	pause_menu_dialog.visible = false
 	get_node("/root/TimeManager").resume()
+
+func _on_save_game_pressed() -> void:
+	if world_view_ref == null and get_parent() != null:
+		world_view_ref = get_parent()
+	if world_view_ref == null:
+		if save_status_label:
+			save_status_label.text = "Lỗi: Không tìm thấy WorldView"
+			save_status_label.modulate = Color(1.0, 0.4, 0.4)
+		return
+		
+	var res: Dictionary = SaveManager.save_to_file(world_view_ref)
+	if res.get("success", false):
+		if save_status_label:
+			save_status_label.text = "✅ Đã lưu thế giới thành công!"
+			save_status_label.modulate = Color(0.5, 1.0, 0.5)
+	else:
+		if save_status_label:
+			save_status_label.text = "❌ Lỗi: " + res.get("error", "Không thể lưu tệp")
+			save_status_label.modulate = Color(1.0, 0.4, 0.4)
+
+func _on_load_game_pressed() -> void:
+	if world_view_ref == null and get_parent() != null:
+		world_view_ref = get_parent()
+	if world_view_ref == null:
+		return
+		
+	var load_res: Dictionary = SaveManager.load_from_file()
+	if not load_res.get("success", false):
+		if save_status_label:
+			save_status_label.text = "❌ Lỗi đọc bản lưu: " + load_res.get("error", "")
+			save_status_label.modulate = Color(1.0, 0.4, 0.4)
+		return
+		
+	var apply_res: Dictionary = SaveManager.apply_loaded_state_to_world(world_view_ref, load_res["data"])
+	if apply_res.get("success", false):
+		if save_status_label:
+			save_status_label.text = "✅ Đã tải thế giới thành công!"
+			save_status_label.modulate = Color(0.5, 1.0, 0.5)
+		_close_pause_menu()
+	else:
+		if save_status_label:
+			save_status_label.text = "❌ Lỗi áp dụng bản lưu: " + apply_res.get("error", "")
+			save_status_label.modulate = Color(1.0, 0.4, 0.4)
 
 func _on_speed_changed(new_speed: int) -> void:
 	_update_speed_buttons(new_speed)

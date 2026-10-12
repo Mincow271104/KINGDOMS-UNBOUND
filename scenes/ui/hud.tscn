@@ -340,7 +340,7 @@ grow_horizontal = 2
 grow_vertical = 2
 
 [node name="PanelContainer" type="PanelContainer" parent="PauseMenuOverlay/CenterContainer"]
-custom_minimum_size = Vector2(300, 220)
+custom_minimum_size = Vector2(320, 280)
 layout_mode = 2
 
 [node name="MarginContainer" type="MarginContainer" parent="PauseMenuOverlay/CenterContainer/PanelContainer"]
@@ -352,7 +352,7 @@ theme_override_constants/margin_bottom = 20
 
 [node name="VBoxContainer" type="VBoxContainer" parent="PauseMenuOverlay/CenterContainer/PanelContainer/MarginContainer"]
 layout_mode = 2
-theme_override_constants/separation = 14
+theme_override_constants/separation = 12
 
 [node name="Title" type="Label" parent="PauseMenuOverlay/CenterContainer/PanelContainer/MarginContainer/VBoxContainer"]
 layout_mode = 2
@@ -365,11 +365,26 @@ layout_mode = 2
 
 [node name="ResumeBtn" type="Button" parent="PauseMenuOverlay/CenterContainer/PanelContainer/MarginContainer/VBoxContainer"]
 layout_mode = 2
-text = "Tiếp Tục Chơi"
+text = "▶ Tiếp Tục Chơi"
+
+[node name="SaveGameBtn" type="Button" parent="PauseMenuOverlay/CenterContainer/PanelContainer/MarginContainer/VBoxContainer"]
+layout_mode = 2
+text = "💾 Lưu Thế Giới"
+
+[node name="LoadGameBtn" type="Button" parent="PauseMenuOverlay/CenterContainer/PanelContainer/MarginContainer/VBoxContainer"]
+layout_mode = 2
+text = "📂 Tải Bản Lưu"
+
+[node name="SaveStatusLabel" type="Label" parent="PauseMenuOverlay/CenterContainer/PanelContainer/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.5, 0.9, 0.5, 1)
+theme_override_font_sizes/font_size = 13
+horizontal_alignment = 1
+autowrap_mode = 2
 
 [node name="MenuBtn" type="Button" parent="PauseMenuOverlay/CenterContainer/PanelContainer/MarginContainer/VBoxContainer"]
 layout_mode = 2
-text = "Về Menu Chính"
+text = "🏠 Về Menu Chính"
 
 [node name="ResearchMenuPanel" type="PanelContainer" parent="."]
 visible = false

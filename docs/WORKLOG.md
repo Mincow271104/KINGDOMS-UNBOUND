@@ -452,11 +452,46 @@ Implement Phase 7 population expansion, prosperity victory continuous hold, dete
 
 ### Next Exact Step
 - Execute Phase 7 local Git checkpoint.
-- Proceed to **Phase 8: Robust Save/Load & Persistence Hardening** (Task 8.1: Versioned JSON schema serialization; Task 8.2: Atomic disk write with `.tmp` and `.bak` backups; Task 8.3: Complete entity reconstruction without duplicate nodes; Task 8.4: Automated Save $\to$ Load $\to$ Save equivalence test suite).
+- Proceed to **Phase 8: Robust Save/Load & Persistence Hardening** (Task 8.1: Versioned JSON schema serialization; Task 8.2: Atomic disk write with `.tmp` and `.bak` backups; Task 8.3: Complete entity reconstruction without duplicate nodes; Task 8.4: Automated Save → Load → Save equivalence test suite).
 
+---
 
+## [2026-10-12] Milestone 11: Phase 8 — Robust Save/Load & Persistence Hardening ✅ COMPLETE
 
+### Context & Objective
+Phase 8 hardened world persistence: versioned JSON serialization, atomic disk writes, corruption recovery, fog of war persistence, daily autosave, Save/Load buttons wired into the in-game Pause Menu, and Load World enabled in the Main Menu when a valid save exists.
 
+### Completed Work
+1. **`scripts/persistence/save_manager.gd`** (created):
+   - `SAVE_SCHEMA_VERSION = 1` — versioned schema, forward-incompatible saves rejected.
+   - `serialize_world_state()` — serializes clock, resources, buildings (id/type/cell/size/state/health), citizens (id/name/role/cell/stats), research, factions, POIs, victory state, and fog-of-war explored cells.
+   - `save_to_file()` — atomic write: `.tmp` → `.json`; preserves `.bak` of prior save before replacement.
+   - `load_from_file()` — validates schema/sections; auto-falls-back to `.bak` on missing main file.
+   - `validate_save_data()` — rejects incompatible version and missing required sections.
+   - `apply_loaded_state_to_world()` — zero-duplication reconstruction: clears old nodes, restores clock, resources, buildings, citizens, research, factions, POIs, fog-of-war, and refreshes HUD.
+   - Save speed stored as previous_speed when paused to avoid saving speed=0.
+2. **`scenes/ui/hud.tscn`** — Added SaveGameBtn, LoadGameBtn, SaveStatusLabel to PauseMenuOverlay VBox.
+3. **`scripts/ui/hud.gd`** — `SaveManager` preloaded; `@onready` for new buttons; `_on_save_game_pressed()` and `_on_load_game_pressed()` handlers with success/error feedback label.
+4. **`scenes/ui/main_menu.tscn`** — Updated LoadWorldBtn text to "📂 Tải Thế Giới".
+5. **`scripts/ui/main_menu.gd`** — LoadWorldBtn dynamically enabled if save/bak exists; `_on_load_world()` loads save, instantiates WorldView from stored seed, and applies state after one frame.
+6. **`scripts/world/world_view.gd`** — `hud.world_view_ref = self` set on _ready; daily autosave added to `_on_simulation_day_passed`; `autosave_enabled` / `autosave_interval_days` variables exposed.
+7. **`scripts/test/test_save_load.gd`** — Updated with TC-8.3 UI workflow test (pause menu open, HUD save, file verified on disk, gold consumed, HUD load restores state, MainMenu LoadWorldBtn verified enabled).
+8. **`scripts/test/capture_screenshot_phase8.gd`** — Screenshot capture: pause menu with save feedback + main menu.
+
+### Validations Performed & Results
+- **TC-8.1 Save → Load → Save Canonical Equivalence:** **PASS** (Exit Code 0) — 24 citizens, 8 buildings, resources, research, victory, fog_of_war all preserved 100%.
+- **TC-8.2 Corruption Handling & Backup Recovery:** **PASS** (Exit Code 0) — Bad schema rejected; missing section rejected; malformed JSON rejected; .bak fallback verified.
+- **TC-8.3 UI Save/Load & Menu Integration:** **PASS** (Exit Code 0) — Pause menu opens; HUD "💾 Lưu Thế Giới" saves and shows "✅ Đã lưu thế giới thành công!"; file confirmed on disk; HUD "📂 Tải Bản Lưu" restores live world state (gold test verified); MainMenu LoadWorldBtn enabled.
+- **Phase 7 Regression (TC-7.1, TC-7.2, TC-7.3):** All PASS (Exit Code 0).
+- **Phase 5/6 Regression (TC-5.1–5.3, TC-6.1–6.2):** All PASS (Exit Code 0).
+- **Screenshots captured:** `screenshot_phase8_pause_menu.png` (pause menu with save buttons + success text), `screenshot_phase8_main_menu.png` (main menu with load button enabled).
+
+### Phase 8 Exit Gate Assessment
+- **Status: PASSED.** Save→Load→Save preserves canonical state; citizens, buildings, fog-of-war not duplicated; corrupt/incompatible saves fail gracefully with error messages; save/load works through actual UI (Pause Menu + Main Menu).
+
+### Next Exact Step
+- Create local Git checkpoint: `git add . ; git commit -m "Phase 8 Complete: Robust Save/Load, Versioned Schema, UI Wiring & Autosave"`.
+- Proceed to **Phase 9: Polish, Stress Test & Release Candidate**.
 
 
 

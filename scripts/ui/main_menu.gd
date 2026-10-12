@@ -24,14 +24,26 @@ extends Control
 @onready var close_settings_btn: Button = $SettingsOverlay/CenterContainer/SettingsPanel/MarginContainer/VBoxContainer/CloseSettingsBtn
 @onready var fullscreen_checkbox: CheckBox = $SettingsOverlay/CenterContainer/SettingsPanel/MarginContainer/VBoxContainer/FullscreenCheck
 
+const SaveManager = preload("res://scripts/persistence/save_manager.gd")
+
 func _ready() -> void:
 	new_world_overlay.visible = false
 	settings_overlay.visible = false
 	
 	# Main menu buttons
 	btn_new_world.pressed.connect(_on_open_new_world)
-	btn_load_world.disabled = true # Disabled until persistence phases
-	btn_load_world.tooltip_text = "Hệ thống lưu trữ sẽ mở ở Phase 6/8"
+	
+	# Check if save file exists to enable Load World
+	var save_file := "user://saves/world_save.json"
+	var bak_file := "user://saves/world_save.json.bak"
+	if FileAccess.file_exists(save_file) or FileAccess.file_exists(bak_file):
+		btn_load_world.disabled = false
+		btn_load_world.tooltip_text = "Tải thế giới đã lưu gần nhất"
+	else:
+		btn_load_world.disabled = true
+		btn_load_world.tooltip_text = "Chưa có bản lưu nào"
+	btn_load_world.pressed.connect(_on_load_world)
+
 	btn_settings.pressed.connect(_on_open_settings)
 	btn_quit.pressed.connect(_on_quit)
 	
@@ -82,6 +94,31 @@ func _on_start_game() -> void:
 	root.add_child(world_scene)
 	get_tree().current_scene = world_scene
 	queue_free()
+
+func _on_load_world() -> void:
+	var load_res: Dictionary = SaveManager.load_from_file()
+	if not load_res.get("success", false):
+		print("[MainMenu] Failed to load save file: %s" % load_res.get("error", ""))
+		return
+		
+	var save_data: Dictionary = load_res.get("data", {})
+	var meta: Dictionary = save_data.get("metadata", {})
+	var s_val: int = meta.get("world_seed", 12345)
+	
+	# Instantiates WorldView scene
+	var world_scene: Node = load("res://scenes/world/world_view.tscn").instantiate()
+	world_scene.set("world_seed", s_val)
+	
+	var root := get_tree().root
+	root.add_child(world_scene)
+	get_tree().current_scene = world_scene
+	queue_free()
+	
+	# Wait for child nodes to complete _ready()
+	await get_tree().process_frame
+	
+	# Apply loaded state to world
+	SaveManager.apply_loaded_state_to_world(world_scene, save_data)
 
 func _on_fullscreen_toggled(is_fullscreen: bool) -> void:
 	if is_fullscreen:

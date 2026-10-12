@@ -149,6 +149,21 @@ When Godot Editor is running with the MCP plugin:
 | 2026-10-12 | TC-7.1 | Immigration Pacing & Gating | **PASS** | Rejection on full housing, food, stability, morale; wave admitted; unique IDs & names in `test_victory_and_collapse.gd` |
 | 2026-10-12 | TC-7.2 | 5-Day Prosperity Victory Hold & Reset | **PASS** | 100h hold without early win; reset on lapse; 120h continuous win; duplicate claim prevention in `test_victory_and_collapse.gd` |
 | 2026-10-12 | TC-7.3 | Deterministic Collapse Triggers & Summaries | **PASS** | Pop 0 extinction; 72h town hall ruin; 72h anarchy; summary report with cause in `test_victory_and_collapse.gd` |
+| 2026-10-12 | TC-8.1 | Save→Load→Save Canonical Equivalence | **PASS** | 24 citizens, 8 buildings, resources, research, victory, fog_of_war 100% preserved across roundtrip in `test_save_load.gd` |
+| 2026-10-12 | TC-8.2 | Corruption Handling & Backup Recovery | **PASS** | Bad schema rejected; missing section rejected; malformed JSON rejected; .bak fallback succeeded in `test_save_load.gd` |
+| 2026-10-12 | TC-8.3 | UI Save/Load & Menu Integration | **PASS** | Pause menu opened; HUD save button saved and displayed "✅" feedback; HUD load button restored world state (gold verify); MainMenu LoadWorldBtn enabled in `test_save_load.gd` |
 
-
+### Phase 8: Save/Load Persistence
+- **TC-8.1: Save → Load → Save Canonical Equivalence**
+  - *Script:* `res://scripts/test/test_save_load.gd`
+  - *Acceptance Criteria:* Roundtrip from live world through save file and back preserves 100% canonical state; no entity or building duplication.
+  - *Status:* **PASSED** (2026-10-12, Exit Code 0).
+- **TC-8.2: Corruption Handling & Backup Recovery**
+  - *Script:* `res://scripts/test/test_save_load.gd`
+  - *Acceptance Criteria:* Incompatible schema, missing sections, and malformed JSON all rejected gracefully; automatic `.bak` fallback works.
+  - *Status:* **PASSED** (2026-10-12, Exit Code 0).
+- **TC-8.3: UI Save/Load & Menu Integration**
+  - *Script:* `res://scripts/test/test_save_load.gd`
+  - *Acceptance Criteria:* HUD save button writes file and shows success; HUD load button restores world state; MainMenu LoadWorldBtn enabled when save exists.
+  - *Status:* **PASSED** (2026-10-12, Exit Code 0).
 

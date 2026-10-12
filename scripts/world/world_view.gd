@@ -47,6 +47,9 @@ var faction_mgr: FactionManager
 var active_caravan: RefCounted = null
 var immigration_mgr: ImmigrationManager
 var victory_mgr: VictoryManager
+var autosave_enabled: bool = true
+var autosave_interval_days: int = 1
+const SaveManager = preload("res://scripts/persistence/save_manager.gd")
 
 var buildings_by_cell: Dictionary = {} # cell (Vector2i) -> building_type (String)
 var citizens_by_id: Dictionary = {}
@@ -66,6 +69,7 @@ func _ready() -> void:
 	
 	# Connect HUD signals
 	if hud:
+		hud.world_view_ref = self
 		hud.return_to_menu_requested.connect(_on_return_to_menu)
 		hud.build_requested.connect(_on_build_requested)
 		hud.citizen_role_changed.connect(_on_citizen_role_changed)
@@ -527,7 +531,7 @@ func _on_simulation_hour_passed(hour: int, day: int) -> void:
 	var current_pop: int = citizen_list.size()
 	var food_stock: int = rm.get_available_stock("food") if rm else 0
 	var gold_stock: int = rm.get_available_stock("gold") if rm else 0
-	var techs_count: int = research_mgr.unlocked_techs.size() if research_mgr else 0
+	var techs_count: int = research_mgr.get_unlocked_count() if research_mgr else 0
 	var buildings_count: int = world_data.buildings.size() if world_data else 0
 
 	var avg_morale: float = 70.0
@@ -573,3 +577,9 @@ func _on_simulation_day_passed(day: int, _season: String, _year: int) -> void:
 	if active_caravan != null and day >= active_caravan.get("departure_day"):
 		active_caravan.set("is_active", false)
 		active_caravan = null
+
+	# Daily Autosave
+	if autosave_enabled and (day % autosave_interval_days == 0):
+		var asave_res := SaveManager.save_to_file(self, SaveManager.DEFAULT_SAVE_PATH)
+		if asave_res.get("success", false) and em != null:
+			em.trigger_event("autosave", "Tự Động Lưu", "Đã tự động lưu thế giới an toàn (Ngày %d)." % day, true, {})

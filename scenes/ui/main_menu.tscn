@@ -76,7 +76,7 @@ text = "Thế Giới Mới"
 [node name="LoadWorldBtn" type="Button" parent="CenterContainer/MainPanel/MarginContainer/VBoxContainer/ActionButtons"]
 custom_minimum_size = Vector2(0, 42)
 layout_mode = 2
-text = "Tải Thế Giới (Phase 6/8)"
+text = "📂 Tải Thế Giới"
 
 [node name="SettingsBtn" type="Button" parent="CenterContainer/MainPanel/MarginContainer/VBoxContainer/ActionButtons"]
 custom_minimum_size = Vector2(0, 42)
