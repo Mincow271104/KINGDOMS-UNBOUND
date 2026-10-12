@@ -1,0 +1,13 @@
+[gd_scene load_steps=3 format=3 uid="uid://ccitizen001"]
+
+[ext_resource type="Script" path="res://scripts/entities/citizen_controller.gd" id="1_cit"]
+[ext_resource type="Texture2D" path="res://assets/entities/citizen.png" id="2_tex"]
+
+[node name="Citizen" type="Node2D"]
+y_sort_enabled = true
+script = ExtResource("1_cit")
+
+[node name="Sprite2D" type="Sprite2D" parent="."]
+texture = ExtResource("2_tex")
+centered = false
+offset = Vector2(-12, -30)

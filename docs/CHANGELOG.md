@@ -8,6 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### [0.4.0] - 2026-10-12
+#### Added
+- Phase 3 Citizens, Navigation & Real Jobs completed:
+  - Discrete 2D A* grid pathfinder `scripts/navigation/grid_navigation.gd` operating on 64×64 simulation grid with obstacle avoidance.
+  - Authoritative Job Manager `scripts/jobs/job_manager.gd` tracking workplace capacities and construction/production job lifecycles.
+  - Citizen controller `scripts/entities/citizen_controller.gd` and scene `scenes/entities/citizen.tscn` with ground-contact foot pivot at (12, 30) for Y-sorting.
+  - Instantiation of exactly 24 starter citizens with unique stable IDs and starter roles (5 Farmers, 4 Woodcutters, 3 Builders, 3 Haulers, 9 Idle).
+  - Hourly citizen need decay simulation (Hunger, Fatigue, Health, Morale).
+  - Citizen inspection UI panel integrated into HUD (`scenes/ui/hud.tscn` and `scripts/ui/hud.gd`) displaying citizen stats, state, job, and path.
+  - Automated headless test suite `scripts/test/test_citizens.gd` (TC-3.1 and TC-3.2 passed).
+
 ### [0.3.0] - 2026-10-12
 #### Added
 - Phase 2 Authoritative Economy & Building Systems completed:

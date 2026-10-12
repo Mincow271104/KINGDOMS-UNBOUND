@@ -3,7 +3,7 @@
 ## Session Status
 - **Date:** 2026-10-12
 - **Agent:** Antigravity Autonomous Pair Programmer
-- **Current Phase:** Phase 2 (Authoritative Economy) $\to$ Entering Phase 3 (Citizens & Jobs)
+- **Current Phase:** Phase 3 (Citizens & Jobs) $\to$ Entering Phase 4 (Logistics & Automation)
 - **Godot Version:** 4.7.stable.official.5b4e0cb0f
 - **MCP Bridge Status:** Live, healthy, connected on port 6505.
 
@@ -31,6 +31,14 @@
    - Implemented `scripts/economy/building_system.gd` with grid/terrain/occupancy placement checks and refunds.
    - Added interactive Build Menu and real-time ghost building preview in HUD and WorldView (`screenshot_3466.png`).
    - Automated economy test suite `scripts/test/test_economy.gd` (TC-2.1 and TC-2.2 passed).
+5. **Phase 3 Citizens, Navigation & Real Jobs Complete:**
+   - Implemented `scripts/navigation/grid_navigation.gd` with 2D discrete A* pathfinding and dynamic obstacle collision avoiding buildings and water.
+   - Implemented `scripts/jobs/job_manager.gd` tracking workplace capacities and dynamic building jobs.
+   - Implemented `scripts/entities/citizen_controller.gd` and `scenes/entities/citizen.tscn` with foot pivot $(12, 30)$ for Y-sorting, state machine, and hourly needs decay.
+   - Spawned 24 starter citizens in `world_view.gd` with assigned roles (5 Farmers, 4 Woodcutters, 3 Builders, 3 Haulers, 9 Idle).
+   - Added live Citizen Inspection Panel to HUD (`hud.tscn`, `hud.gd`).
+   - Automated headless test suite `scripts/test/test_citizens.gd` (TC-3.1 and TC-3.2 passed).
+   - Visually inspected live scene execution via MCP screenshot `screenshot_104607.png`.
 
 ---
 
@@ -43,10 +51,12 @@
 - `TC-1.4` TimeManager Simulation Clock: **PASS** (Pause halts time, speeds 0–3, calendar ticks).
 - `TC-2.1` Resource Conservation & Reservations: **PASS** (Atomic reservations, storage caps, double-spend prevention).
 - `TC-2.2` Building Placement & Single Deduction: **PASS** (Costs charged once, water & collision rejected).
-- Runtime Visual Inspection: Screenshots `screenshot_3162.png`, `screenshot_3547.png`, `screenshot_3466.png` inspected.
+- `TC-3.1` A* Pathfinding Walkability & Blocked Target: **PASS** (Obstacle avoidance & unreachable handling).
+- `TC-3.2` 24 Citizen Spawn & Job Allocation: **PASS** (24 citizens, exact roles, unique IDs).
+- Runtime Visual Inspection: Screenshots `screenshot_3162.png`, `screenshot_3547.png`, `screenshot_3466.png`, `screenshot_104607.png` inspected.
 
 ---
 
 ## 3. Next Exact Step
-- Execute Phase 2 Git checkpoint.
-- Proceed to **Phase 3: Citizens, Navigation & Real Jobs** (Task 3.1: CitizenController, grid A* navigation, and 24 citizens).
+- Execute Phase 3 Git checkpoint.
+- Proceed to **Phase 4: Working Logistics Loop & Basic Automation** (Task 4.1: workplace output buffers and physical hauling jobs).

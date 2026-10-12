@@ -8,13 +8,13 @@
 
 ---
 
-## Phase 0: Audit, Scaffold & Reproducibility (Current Phase)
+## Phase 0: Audit, Scaffold & Reproducibility (Completed)
 - [x] **TASK-0.1:** Perform live MCP bridge status check and diagnose connection.
 - [x] **TASK-0.2:** Isolate documentation folder via `docs/.gdignore` to prevent invalid asset import attempts.
 - [x] **TASK-0.3:** Verify `MCPRuntime` autoload configuration in `project.godot`.
 - [x] **TASK-0.4:** Author comprehensive documentation suite (`SCOPE_DECISIONS.md`, `GAME_RULES.md`, `ARCHITECTURE.md`, `IMPLEMENTATION_PLAN.md`, `TEST_PLAN.md`, `BACKLOG.md`, `KNOWN_ISSUES.md`, `CHANGELOG.md`, `NIGHTLY_REPORT.md`).
-- [ ] **TASK-0.5:** Run headless baseline validation command and record evidence in `TEST_PLAN.md` and `WORKLOG.md`.
-- [ ] **TASK-0.6:** Git checkpoint Phase 0.
+- [x] **TASK-0.5:** Run headless baseline validation command and record evidence in `TEST_PLAN.md` and `WORKLOG.md`.
+- [x] **TASK-0.6:** Git checkpoint Phase 0.
 
 ---
 
@@ -46,16 +46,16 @@
 
 ---
 
-## Phase 3: Citizens, Navigation & Real Jobs
-- [ ] **TASK-3.1:** Implement `CitizenController.gd` and scene (`Citizen.tscn`) with foot pivot at $(12, 30)$ for Y-sorting.
-- [ ] **TASK-3.2:** Spawn 24 citizens with unique stable IDs and starter job allocations (5 farmers, 4 woodcutters, 3 builders, 3 haulers, 9 idle).
-- [ ] **TASK-3.3:** Implement grid A* pathfinding (`GridNavigation.gd`) on the 64×64 simulation grid.
-- [ ] **TASK-3.4:** Implement citizen state machine (`Idle`, `Moving`, `Working`, `Hauling`, `Resting`, `SeekingFood`).
-- [ ] **TASK-3.5:** Implement `JobManager.gd` with job lifecycle (`Available` $\to$ `Reserved` $\to$ `InProgress` $\to$ `Completed`/`Cancelled`).
-- [ ] **TASK-3.6:** Implement citizen needs decay and hourly tick (Hunger, Fatigue, Health, Morale).
-- [ ] **TASK-3.7:** Implement citizen inspection UI panel displaying active job, current path, and status reasons.
-- [ ] **TASK-3.8:** Write headless unit tests for pathfinding, job claiming, and unreachability recovery.
-- [ ] **TASK-3.9:** Git checkpoint Phase 3.
+## Phase 3: Citizens, Navigation & Real Jobs (Completed)
+- [x] **TASK-3.1:** Implement `CitizenController.gd` and scene (`Citizen.tscn`) with foot pivot at $(12, 30)$ for Y-sorting.
+- [x] **TASK-3.2:** Spawn 24 citizens with unique stable IDs and starter job allocations (5 farmers, 4 woodcutters, 3 builders, 3 haulers, 9 idle).
+- [x] **TASK-3.3:** Implement grid A* pathfinding (`GridNavigation.gd`) on the 64×64 simulation grid.
+- [x] **TASK-3.4:** Implement citizen state machine (`Idle`, `Moving`, `Working`, `Hauling`, `Resting`, `SeekingFood`).
+- [x] **TASK-3.5:** Implement `JobManager.gd` with job lifecycle (`Available` $\to$ `Reserved` $\to$ `InProgress` $\to$ `Completed`/`Cancelled`).
+- [x] **TASK-3.6:** Implement citizen needs decay and hourly tick (Hunger, Fatigue, Health, Morale).
+- [x] **TASK-3.7:** Implement citizen inspection UI panel displaying active job, current path, and status reasons.
+- [x] **TASK-3.8:** Write headless unit tests for pathfinding, job claiming, and unreachability recovery.
+- [x] **TASK-3.9:** Git checkpoint Phase 3.
 
 ---
 

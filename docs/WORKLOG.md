@@ -218,5 +218,51 @@ Implement Phase 2 authoritative economy systems as mandated by `MASTER_PROMPT.md
 - Execute Phase 2 local Git checkpoint.
 - Proceed to **Phase 3: Citizens, Navigation & Real Jobs**.
 
+---
+
+## [2026-10-12] Milestone 6: Phase 3 Citizens, Navigation & Real Jobs (Completed)
+
+### Context & Objective
+Implement Phase 3 autonomous simulation layer as mandated by `MASTER_PROMPT.md` and `docs/GDD.md`:
+- Pure 2D discrete A* grid pathfinder (`scripts/navigation/grid_navigation.gd`) operating on 64×64 simulation grid with 4-way/diagonal movement and obstacle avoidance.
+- Shared job system (`scripts/jobs/job_manager.gd`) with lifecycle (`AVAILABLE` $\to$ `RESERVED` $\to$ `IN_PROGRESS` $\to$ `COMPLETED` / `CANCELLED`).
+- Citizen controller (`scripts/entities/citizen_controller.gd`) and scene (`scenes/entities/citizen.tscn`) with foot pivot at $(12, 30)$ for pixel-accurate Y-sorting.
+- Spawn exactly 24 starter citizens with unique stable IDs and jobs conforming to `docs/SCOPE_DECISIONS.md`: 5 Farmers, 4 Woodcutters, 3 Builders, 3 Haulers, 9 Idle.
+- Need decay simulation (Hunger, Fatigue, Health, Morale) ticking hourly.
+- In-game Citizen Inspection Panel in HUD showing citizen name, job, needs, active path, and state.
+- Automated headless test suite `scripts/test/test_citizens.gd` (TC-3.1 and TC-3.2).
+
+### Completed Work
+1. **Discrete Grid A* Pathfinding:**
+   - Implemented `scripts/navigation/grid_navigation.gd` using Manhattan distance heuristic, dynamic walkability evaluation (water, building footprint obstacles), and fail-safe recovery for unreachable destinations.
+2. **Authoritative Job Manager:**
+   - Implemented `scripts/jobs/job_manager.gd` tracking registered workplaces, workplace employee quotas, dynamic building construction jobs, and job reservation/progress/completion lifecycles.
+3. **Citizen Controller & State Machine:**
+   - Implemented `scripts/entities/citizen_controller.gd` with states: `IDLE`, `MOVING_TO_JOB`, `WORKING`, `SEEKING_FOOD`, `RESTING`.
+   - Wired hourly needs decay: Hunger (-2/hr), Fatigue (-1.5/hr).
+   - Autonomous job seeking, movement along A* waypoints, working at site, and returning to idle.
+4. **Starter Settlement Citizen Deployment:**
+   - Instantiated 24 starter citizens in `scripts/world/world_view.gd` with unique IDs (`cit_001` through `cit_024`) and starter professions: 5 Farmers assigned to Farm, 4 Woodcutters to Woodcutter Camp, 3 Builders, 3 Haulers, 9 Idle.
+   - Interactive citizen selection via mouse click in `world_view.gd`.
+5. **HUD Citizen Inspection Panel:**
+   - Added Citizen Info Panel in `scenes/ui/hud.tscn` and `scripts/ui/hud.gd` displaying Citizen Name, Role, Current State, Needs progress bars (Hunger, Fatigue, Health, Morale), and Current Destination.
+6. **Automated Test Suite:**
+   - Created `scripts/test/test_citizens.gd` validating: 24 citizen configuration & professions, unique IDs, A* path navigation, unreachable target safe handling, job claim & reservation, job progression, and completion back to IDLE.
+
+### Validations Performed & Results
+- **TC-3.1 A* Pathfinding & Reachability:** **PASS** (13-step path resolved around obstacles; unreachable target returns empty path cleanly without crashing or infinite looping).
+- **TC-3.2 24 Citizen Spawn & Job Allocation:** **PASS** (Exactly 24 citizens: 5 Farmers, 4 Woodcutters, 3 Builders, 3 Haulers, 9 Idle; 24 unique IDs).
+- **Job Lifecycle Execution:** **PASS** (Job reserved, progressed, completed; worker returns to IDLE).
+- **Full Regression Test:** TC-0.1, TC-0.2, TC-1.1, TC-1.2, TC-1.3, TC-1.4, TC-2.1, TC-2.2, TC-3.1, TC-3.2 all pass with 0 failures.
+- **Runtime Visual Inspection:** Screenshot `screenshot_104607.png` verified 24 moving citizens on 64×64 isometric world, hunger consumption over 5 game days, and 0 runtime errors.
+
+### Phase 3 Exit Gate Assessment
+- **Status: PASSED.** 24 citizens spawn with assigned jobs; pathfinding resolves paths around obstacles; job lifecycle transitions cleanly; citizen inspection panel renders live; scripted tests pass completely.
+
+### Next Exact Step
+- Execute Phase 3 local Git checkpoint.
+- Proceed to **Phase 4: Working Logistics Loop & Basic Automation**.
+
+
 
 

@@ -62,18 +62,18 @@ When Godot Editor is running with the MCP plugin:
 ### Phase 2: Authoritative Resource Ledger & Building Placement
 - **TC-2.1: Resource Ledger Conservation & Reservations**
   - *Acceptance Criteria:* Resources cannot be double-spent; reservations lock stock; cancelling releases stock.
-  - *Status:* Pending Phase 2.
+  - *Status:* **PASSED** (2026-10-12, verified in `test_economy.gd`).
 - **TC-2.2: Building Cost Deductions & Invalid Placement Rejection**
   - *Acceptance Criteria:* Placement on occupied or out-of-bounds tiles rejected; costs deducted exactly once.
-  - *Status:* Pending Phase 2.
+  - *Status:* **PASSED** (2026-10-12, verified in `test_economy.gd`).
 
 ### Phase 3: Citizens & Grid Navigation
 - **TC-3.1: A* Pathfinding Walkability & Blocked Target Recovery**
   - *Acceptance Criteria:* Citizens navigate around obstacles; unreachable targets fail gracefully without infinite loop.
-  - *Status:* Pending Phase 3.
+  - *Status:* **PASSED** (2026-10-12, verified in `test_citizens.gd`).
 - **TC-3.2: 24 Citizen Spawn & Job Distribution**
   - *Acceptance Criteria:* Exactly 24 unique citizen IDs; 5 Farmers, 4 Woodcutters, 3 Builders, 3 Haulers, 9 Idle.
-  - *Status:* Pending Phase 3.
+  - *Status:* **PASSED** (2026-10-12, verified in `test_citizens.gd`).
 
 ### Phase 4: Logistics & Automation Loop
 - **TC-4.1: Physical Hauling vs Teleportation**
@@ -133,3 +133,5 @@ When Godot Editor is running with the MCP plugin:
 | 2026-10-12 | TC-1.4 | TimeManager Clock & Pause Safety | **PASS** | Speeds 0–3, pause safety, seasonal modifiers passed in `test_time_manager.gd` |
 | 2026-10-12 | TC-2.1 | Resource Conservation & Atomic Reservations | **PASS** | Atomic cost locks, storage caps, double-spend prevention verified in `test_economy.gd` |
 | 2026-10-12 | TC-2.2 | Building Placement & Single-Cost Deduction | **PASS** | Footprint occupancy, water rejection, collision checks verified in `test_economy.gd` |
+| 2026-10-12 | TC-3.1 | A* Pathfinding Walkability & Blocked Target | **PASS** | Obstacle avoidance & unreachable handling verified in `test_citizens.gd` |
+| 2026-10-12 | TC-3.2 | 24 Citizen Spawn & Job Allocation | **PASS** | Exactly 24 citizens, starter roles, unique IDs verified in `test_citizens.gd` |

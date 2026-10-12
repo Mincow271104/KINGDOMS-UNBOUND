@@ -1,11 +1,12 @@
 class_name InGameHUD
 extends CanvasLayer
 ## In-Game HUD for KINGDOMS UNBOUND.
-## Provides time controls, date/season/clock display, resource summary, building menu, and pause menu.
+## Provides time controls, date/season/clock display, resource summary, building menu, citizen inspector, and pause menu.
 
 signal pause_menu_requested
 signal return_to_menu_requested
 signal build_requested(building_type: String)
+signal citizen_role_changed(citizen_id: String, new_role: String)
 
 @onready var clock_label: Label = $TopBar/PanelContainer/MarginContainer/HBoxContainer/TimeInfo/ClockLabel
 @onready var date_label: Label = $TopBar/PanelContainer/MarginContainer/HBoxContainer/TimeInfo/DateLabel
@@ -24,6 +25,20 @@ signal build_requested(building_type: String)
 @onready var open_build_btn: Button = $BottomBar/PanelContainer/MarginContainer/HBoxContainer/BuildBtn
 @onready var pause_menu_dialog: Control = $PauseMenuOverlay
 @onready var build_menu_panel: Control = $BuildMenuPanel
+
+# Citizen Inspection Panel
+@onready var citizen_panel: Control = $CitizenInspectPanel
+@onready var citizen_name_label: Label = $CitizenInspectPanel/MarginContainer/VBoxContainer/CitizenNameLabel
+@onready var citizen_role_label: Label = $CitizenInspectPanel/MarginContainer/VBoxContainer/CitizenRoleLabel
+@onready var citizen_reason_label: Label = $CitizenInspectPanel/MarginContainer/VBoxContainer/CitizenReasonLabel
+@onready var hunger_bar: ProgressBar = $CitizenInspectPanel/MarginContainer/VBoxContainer/NeedsGrid/HungerBar
+@onready var fatigue_bar: ProgressBar = $CitizenInspectPanel/MarginContainer/VBoxContainer/NeedsGrid/FatigueBar
+@onready var health_bar: ProgressBar = $CitizenInspectPanel/MarginContainer/VBoxContainer/NeedsGrid/HealthBar
+@onready var morale_bar: ProgressBar = $CitizenInspectPanel/MarginContainer/VBoxContainer/NeedsGrid/MoraleBar
+@onready var role_option_btn: OptionButton = $CitizenInspectPanel/MarginContainer/VBoxContainer/RoleHBox/RoleOptionBtn
+@onready var close_citizen_btn: Button = $CitizenInspectPanel/MarginContainer/VBoxContainer/CloseCitizenBtn
+
+var inspected_citizen: Node = null
 
 func _ready() -> void:
 	# Connect to TimeManager signals
@@ -72,11 +87,27 @@ func _ready() -> void:
 	btn_woodcutter.pressed.connect(func(): _select_building("woodcutter"))
 	btn_close_build.pressed.connect(func(): build_menu_panel.visible = false)
 
+	# Citizen inspector controls
+	citizen_panel.visible = false
+	close_citizen_btn.pressed.connect(func(): citizen_panel.visible = false)
+	_setup_role_options()
+	role_option_btn.item_selected.connect(_on_role_option_selected)
+
+func _setup_role_options() -> void:
+	role_option_btn.clear()
+	role_option_btn.add_item("Nông Dân (Farmer)", 0)
+	role_option_btn.add_item("Tiều Phu (Woodcutter)", 1)
+	role_option_btn.add_item("Thợ Xây (Builder)", 2)
+	role_option_btn.add_item("Khuân Vác (Hauler)", 3)
+	role_option_btn.add_item("Dân Tự Do (Idle)", 4)
+
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		var k: InputEventKey = event as InputEventKey
 		if k.keycode == KEY_ESCAPE:
-			if build_menu_panel.visible:
+			if citizen_panel.visible:
+				citizen_panel.visible = false
+			elif build_menu_panel.visible:
 				build_menu_panel.visible = false
 			else:
 				_toggle_pause_menu()
@@ -90,6 +121,50 @@ func _unhandled_input(event: InputEvent) -> void:
 			get_node("/root/TimeManager").set_speed(2)
 		elif k.keycode == KEY_3:
 			get_node("/root/TimeManager").set_speed(3)
+
+func _process(_delta: float) -> void:
+	if citizen_panel.visible and inspected_citizen != null:
+		_refresh_inspected_citizen()
+
+func show_citizen_inspector(cit: Node) -> void:
+	inspected_citizen = cit
+	citizen_panel.visible = true
+	_refresh_inspected_citizen()
+	
+	# Select current role in dropdown
+	var role_str: String = cit.get("role")
+	match role_str:
+		"farmer": role_option_btn.select(0)
+		"woodcutter": role_option_btn.select(1)
+		"builder": role_option_btn.select(2)
+		"hauler": role_option_btn.select(3)
+		_: role_option_btn.select(4)
+
+func _refresh_inspected_citizen() -> void:
+	if inspected_citizen == null:
+		return
+	citizen_name_label.text = "%s (%s)" % [inspected_citizen.get("citizen_name"), inspected_citizen.get("citizen_id")]
+	citizen_role_label.text = "Nghề nghiệp: %s | Vị trí: %s" % [inspected_citizen.get("role"), inspected_citizen.get("current_cell")]
+	citizen_reason_label.text = "Hành vi: %s" % [inspected_citizen.get("status_reason")]
+	
+	hunger_bar.value = inspected_citizen.get("hunger")
+	fatigue_bar.value = inspected_citizen.get("fatigue")
+	health_bar.value = inspected_citizen.get("health")
+	morale_bar.value = inspected_citizen.get("morale")
+
+func _on_role_option_selected(idx: int) -> void:
+	if inspected_citizen == null:
+		return
+	var new_role := "idle"
+	match idx:
+		0: new_role = "farmer"
+		1: new_role = "woodcutter"
+		2: new_role = "builder"
+		3: new_role = "hauler"
+		4: new_role = "idle"
+	inspected_citizen.call("set_role", new_role)
+	citizen_role_changed.emit(inspected_citizen.get("citizen_id"), new_role)
+	_refresh_inspected_citizen()
 
 func _toggle_build_menu() -> void:
 	build_menu_panel.visible = not build_menu_panel.visible

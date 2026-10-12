@@ -206,6 +206,110 @@ custom_minimum_size = Vector2(0, 30)
 layout_mode = 2
 text = "Đóng Menu Xây Dựng"
 
+[node name="CitizenInspectPanel" type="PanelContainer" parent="."]
+visible = false
+anchors_preset = 2
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 16.0
+offset_top = -290.0
+offset_right = 380.0
+offset_bottom = -56.0
+grow_vertical = 0
+
+[node name="MarginContainer" type="MarginContainer" parent="CitizenInspectPanel"]
+layout_mode = 2
+theme_override_constants/margin_left = 14
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 14
+theme_override_constants/margin_bottom = 10
+
+[node name="VBoxContainer" type="VBoxContainer" parent="CitizenInspectPanel/MarginContainer"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="Title" type="Label" parent="CitizenInspectPanel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.9, 0.72, 0.23, 1)
+text = "THÔNG TIN DÂN LÀNG"
+horizontal_alignment = 1
+
+[node name="CitizenNameLabel" type="Label" parent="CitizenInspectPanel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 15
+text = "Nguyễn An (citizen_1)"
+
+[node name="CitizenRoleLabel" type="Label" parent="CitizenInspectPanel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.4, 0.8, 1, 1)
+text = "Nghề nghiệp: Nông Dân | Vị trí: (32, 33)"
+
+[node name="CitizenReasonLabel" type="Label" parent="CitizenInspectPanel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+text = "Hành vi: Đang tích cực làm việc"
+
+[node name="RoleHBox" type="HBoxContainer" parent="CitizenInspectPanel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+
+[node name="Label" type="Label" parent="CitizenInspectPanel/MarginContainer/VBoxContainer/RoleHBox"]
+layout_mode = 2
+text = "Phân công lại:"
+
+[node name="RoleOptionBtn" type="OptionButton" parent="CitizenInspectPanel/MarginContainer/VBoxContainer/RoleHBox"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="NeedsGrid" type="GridContainer" parent="CitizenInspectPanel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme_override_constants/h_separation = 8
+theme_override_constants/v_separation = 4
+columns = 2
+
+[node name="HungerLabel" type="Label" parent="CitizenInspectPanel/MarginContainer/VBoxContainer/NeedsGrid"]
+layout_mode = 2
+text = "Cơn đói:"
+
+[node name="HungerBar" type="ProgressBar" parent="CitizenInspectPanel/MarginContainer/VBoxContainer/NeedsGrid"]
+custom_minimum_size = Vector2(160, 16)
+layout_mode = 2
+size_flags_horizontal = 3
+value = 10.0
+
+[node name="FatigueLabel" type="Label" parent="CitizenInspectPanel/MarginContainer/VBoxContainer/NeedsGrid"]
+layout_mode = 2
+text = "Mệt mỏi:"
+
+[node name="FatigueBar" type="ProgressBar" parent="CitizenInspectPanel/MarginContainer/VBoxContainer/NeedsGrid"]
+custom_minimum_size = Vector2(160, 16)
+layout_mode = 2
+size_flags_horizontal = 3
+value = 10.0
+
+[node name="HealthLabel" type="Label" parent="CitizenInspectPanel/MarginContainer/VBoxContainer/NeedsGrid"]
+layout_mode = 2
+text = "Sức khỏe:"
+
+[node name="HealthBar" type="ProgressBar" parent="CitizenInspectPanel/MarginContainer/VBoxContainer/NeedsGrid"]
+custom_minimum_size = Vector2(160, 16)
+layout_mode = 2
+size_flags_horizontal = 3
+value = 100.0
+
+[node name="MoraleLabel" type="Label" parent="CitizenInspectPanel/MarginContainer/VBoxContainer/NeedsGrid"]
+layout_mode = 2
+text = "Tinh thần:"
+
+[node name="MoraleBar" type="ProgressBar" parent="CitizenInspectPanel/MarginContainer/VBoxContainer/NeedsGrid"]
+custom_minimum_size = Vector2(160, 16)
+layout_mode = 2
+size_flags_horizontal = 3
+value = 70.0
+
+[node name="CloseCitizenBtn" type="Button" parent="CitizenInspectPanel/MarginContainer/VBoxContainer"]
+custom_minimum_size = Vector2(0, 26)
+layout_mode = 2
+text = "Đóng"
+
 [node name="PauseMenuOverlay" type="ColorRect" parent="."]
 visible = false
 anchors_preset = 15
