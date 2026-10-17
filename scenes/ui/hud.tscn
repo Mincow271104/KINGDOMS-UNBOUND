@@ -95,6 +95,10 @@ text = "🪵 Gỗ: 120"
 layout_mode = 2
 text = "🪨 Đá: 60"
 
+[node name="OreLabel" type="Label" parent="TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources"]
+layout_mode = 2
+text = "⛏️ Quặng: 0"
+
 [node name="GoldLabel" type="Label" parent="TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources"]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.9, 0.8, 0.3, 1)

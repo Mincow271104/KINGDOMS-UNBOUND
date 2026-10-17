@@ -1304,3 +1304,57 @@ Implement Package 1D: Dynamic Mine & Ore Production on feature branch `feature/p
 - Do NOT merge or push to `master`.
 - Keep `KINGDOMS_UNBOUND_STAGE11_FINAL.html` untracked.
 - Await independent review before Package 1E.
+
+---
+
+## [2026-10-18] Milestone 25: Package 1D Review Follow-Up — HUD Ore Resource Display & Verification ✅ VERIFIED
+
+### Context & Objective
+Address independent code review finding for Package 1D on branch `feature/package-1d-mine`: Mine produces Ore and the hauling pipeline deposits it into `ResourceManager`, but the primary HUD TopBar resource row previously only displayed Food, Wood, Stone, Gold, and Population. The player needs to see the current available Ore stock in the main HUD.
+
+### Completed Work
+1. **HUD Scene Integration (`scenes/ui/hud.tscn`):**
+   - Added `OreLabel` (`⛏️ Quặng: 0`) to `TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources` between `StoneLabel` and `GoldLabel`, preserving the established visual styling and naming conventions.
+2. **HUD Script Integration (`scripts/ui/hud.gd`):**
+   - Added `@onready var ore_label: Label = $TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources/OreLabel`.
+   - Updated `_refresh_all_resources()` to set `ore_label.text = "⛏️ Quặng: %d" % rm.get_available_stock("ore")`.
+   - Verified that `resource_changed` signal triggers `_on_resource_changed()` $\to$ `_refresh_all_resources()`, updating `ore_label` in real time.
+3. **Focused Regression Verification (`scripts/test/test_mine.gd`):**
+   - Extended **TC-M.1** to assert that `OreLabel` exists at the expected scene tree path, matches initial `ResourceManager` stock (`⛏️ Quặng: 0`), dynamically updates when stock changes (`⛏️ Quặng: 25`), restores on consumption, and that all existing HUD labels (`FoodLabel`, `WoodLabel`, `StoneLabel`, `GoldLabel`, `PopLabel`) remain intact.
+   - Extended **TC-M.4** to verify that `OreLabel` reflects the new stock immediately upon physical hauler deposit (`⛏️ Quặng: 8`).
+
+### Validations Performed & Results
+- **Dedicated Test Suite (`scripts/test/test_mine.gd`):** **PASS (Exit Code 0, 0 failures)**
+  - TC-M.1 (Blueprint, Costs, UI, Sprite & HUD Ore Display Verification): **PASS**
+  - TC-M.2 (Placement Legality, Inaccessible Rejection & Dynamic Registration): **PASS**
+  - TC-M.3 (Real Citizen Work & Local Buffer Production Integration): **PASS**
+  - TC-M.4 (Real Citizen Hauling Loop Integration & Live HUD Ore Update): **PASS**
+  - TC-M.5 (Save/Load Persistence, Buffer Restoration & Anti-Duplication): **PASS**
+  - TC-M.6 (Non-Regression of Farm, Woodcutter, Watchtower & Quarry Systems): **PASS**
+- **Focused Regression Tests (Godot 4.7 Headless):**
+  - `scripts/test/test_quarry.gd` (TC-Q.1 to TC-Q.6): **PASS (Exit Code 0)**
+  - `scripts/test/test_dynamic_workplaces.gd` (TC-DW.1 to TC-DW.5): **PASS (Exit Code 0)**
+  - `scripts/test/test_save_load.gd` (TC-8.1 to TC-8.3): **PASS (Exit Code 0)**
+- **Scene Instantiation Sanity:**
+  - `scenes/test/visual_validation_test.tscn`: **PASS (Exit Code 0)**
+  - `scenes/ui/main_menu.tscn`: **PASS (Exit Code 0)**
+  - `scenes/world/world_view.tscn`: **PASS (Exit Code 0)**
+- **Visual Validation / MCP Screenshot Status:**
+  - `NOT RUN` (Reason: Terminal/headless environment without interactive Godot editor display; all states validated via engine test scripts).
+- **Whitespace Check:**
+  - `git diff --check`: Clean (Exit Code 0, zero whitespace errors).
+
+### Files Created / Modified
+- `scenes/ui/hud.tscn` (Added `OreLabel` to `Resources` HBoxContainer)
+- `scripts/ui/hud.gd` (Added `ore_label` `@onready` reference and updated `_refresh_all_resources()`)
+- `scripts/test/test_mine.gd` (Added HUD OreLabel presence, initial value, dynamic update, and post-delivery verification)
+- `docs/WORKLOG.md` (Documented Milestone 25)
+
+### Next Exact Step
+- Stage modified files explicitly.
+- Commit with exact message: `Display ore stock in HUD` on `feature/package-1d-mine`.
+- Push branch `feature/package-1d-mine` to remote `origin`.
+- Verify remote commit SHA matches local `HEAD`.
+- Do NOT merge or push to `master`.
+- Keep `KINGDOMS_UNBOUND_STAGE11_FINAL.html` untracked.
+- Await independent review before Package 1E.

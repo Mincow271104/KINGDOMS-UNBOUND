@@ -144,6 +144,52 @@ func _test_tc_m_1_blueprint_and_ui() -> bool:
 				print("  [PASS] MineBtn triggered building placement for 'mine'.")
 			world_instance.call("_cancel_placement")
 
+		# 4. HUD Ore Resource Row Verification
+		var live_rm: Node = world_instance.get_node_or_null("/root/ResourceManager")
+		var ore_label = hud.get_node_or_null("TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources/OreLabel")
+		if ore_label == null:
+			printerr("  [FAIL] OreLabel not found in HUD Resources row!")
+			failures += 1
+		else:
+			print("  [PASS] OreLabel found at TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources/OreLabel.")
+
+			# Check initial ore text matches ResourceManager stock
+			var initial_ore: int = live_rm.get_available_stock("ore") if live_rm else 0
+			var expected_initial_text := "⛏️ Quặng: %d" % initial_ore
+			if ore_label.text != expected_initial_text:
+				printerr("  [FAIL] Initial OreLabel text '%s' != expected '%s'!" % [ore_label.text, expected_initial_text])
+				failures += 1
+			else:
+				print("  [PASS] Initial OreLabel accurately displays ResourceManager available stock: '%s'." % ore_label.text)
+
+			# Verify dynamic update on resource change
+			if live_rm != null:
+				live_rm.add_resource("ore", 25)
+				var expected_after_add := "⛏️ Quặng: %d" % live_rm.get_available_stock("ore")
+				if ore_label.text != expected_after_add:
+					printerr("  [FAIL] OreLabel text after add '%s' != expected '%s'!" % [ore_label.text, expected_after_add])
+					failures += 1
+				else:
+					print("  [PASS] OreLabel dynamically updated on resource_changed to: '%s'." % ore_label.text)
+
+				live_rm.consume_resource("ore", 25)
+				var expected_after_reset := "⛏️ Quặng: %d" % live_rm.get_available_stock("ore")
+				if ore_label.text != expected_after_reset:
+					printerr("  [FAIL] OreLabel text after reset '%s' != expected '%s'!" % [ore_label.text, expected_after_reset])
+					failures += 1
+				else:
+					print("  [PASS] OreLabel dynamically restored on resource_changed to: '%s'." % ore_label.text)
+
+		# Verify existing HUD resource and demographic labels remain intact
+		var expected_labels: Array[String] = ["FoodLabel", "WoodLabel", "StoneLabel", "GoldLabel", "PopLabel"]
+		for lbl_name in expected_labels:
+			var lbl = hud.get_node_or_null("TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources/" + lbl_name)
+			if lbl == null:
+				printerr("  [FAIL] Existing HUD label '%s' missing!" % lbl_name)
+				failures += 1
+			else:
+				print("  [PASS] Existing HUD label '%s' verified present: '%s'." % [lbl_name, lbl.text])
+
 	if failures == 0:
 		print("  [PASS] TC-M.1 PASSED.\n")
 		return true
@@ -560,6 +606,19 @@ func _test_tc_m_4_citizen_hauling_integration() -> bool:
 		printerr("  [FAIL] Buffer modified unexpectedly post-delivery!")
 		failures += 1
 	print("  [PASS] Job state COMPLETED, cargo cleared from citizen, buffer not double-deducted.")
+
+	# Verify HUD OreLabel accurately reflects the new central storage quantity
+	var hud_m4 = world_instance.get("hud")
+	if hud_m4 != null:
+		var ore_lbl_m4 = hud_m4.get_node_or_null("TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources/OreLabel")
+		if ore_lbl_m4 == null:
+			printerr("  [FAIL] HUD OreLabel not found in TC-M.4!")
+			failures += 1
+		elif ore_lbl_m4.text != "⛏️ Quặng: %d" % central_stock_post_delivery:
+			printerr("  [FAIL] HUD OreLabel '%s' did not update post-delivery to '⛏️ Quặng: %d'!" % [ore_lbl_m4.text, central_stock_post_delivery])
+			failures += 1
+		else:
+			print("  [PASS] HUD OreLabel dynamically updated upon hauler delivery to: '%s'." % ore_lbl_m4.text)
 
 	if hauler.get_parent():
 		hauler.get_parent().remove_child(hauler)

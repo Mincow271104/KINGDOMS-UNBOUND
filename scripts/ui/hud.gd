@@ -16,6 +16,7 @@ signal citizen_role_changed(citizen_id: String, new_role: String)
 @onready var food_label: Label = $TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources/FoodLabel
 @onready var wood_label: Label = $TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources/WoodLabel
 @onready var stone_label: Label = $TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources/StoneLabel
+@onready var ore_label: Label = $TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources/OreLabel
 @onready var gold_label: Label = $TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources/GoldLabel
 @onready var pop_label: Label = $TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources/PopLabel
 
@@ -694,6 +695,8 @@ func _refresh_all_resources() -> void:
 	food_label.text = "🌾 Lương thực: %d" % rm.get_available_stock("food")
 	wood_label.text = "🪵 Gỗ: %d" % rm.get_available_stock("wood")
 	stone_label.text = "🪨 Đá: %d" % rm.get_available_stock("stone")
+	if ore_label != null:
+		ore_label.text = "⛏️ Quặng: %d" % rm.get_available_stock("ore")
 	gold_label.text = "🪙 Vàng: %d" % rm.get_available_stock("gold")
 	pop_label.text = "👥 Dân số: %d/%d" % [rm.active_population, total_housing_cap]
 
