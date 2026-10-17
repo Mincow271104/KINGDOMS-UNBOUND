@@ -85,6 +85,10 @@ func _load_assets() -> void:
 	building_textures["storehouse"] = load("res://assets/buildings/bld_storehouse.png")
 	building_textures["woodcutter"] = load("res://assets/buildings/bld_woodcutter.png")
 	building_textures["watchtower"] = load("res://assets/buildings/bld_watchtower.png")
+	if ResourceLoader.exists("res://assets/buildings/bld_quarry.png"):
+		building_textures["quarry"] = load("res://assets/buildings/bld_quarry.png")
+	else:
+		building_textures["quarry"] = building_textures.get("storehouse", null)
 	
 	prop_textures["tree"] = load("res://assets/props/prop_tree.png")
 	prop_textures["rock"] = load("res://assets/props/prop_rock.png")
@@ -217,6 +221,7 @@ func _get_building_sprite_offset(type: String) -> Vector2:
 		"farm": return Vector2(-32.0, -28.0)
 		"woodcutter": return Vector2(-32.0, -36.0)
 		"watchtower": return Vector2(-16.0, -40.0)
+		"quarry": return Vector2(-32.0, -36.0)
 		_: return Vector2(-32.0, -32.0)
 
 func _spawn_props() -> void:
@@ -482,8 +487,8 @@ func _execute_placement(cell: Vector2i) -> Dictionary:
 		if hud:
 			hud.update_population_display(citizen_list.size(), housing_cap)
 
-		# If farm or woodcutter, register dynamic workplace and create jobs
-		if b_data["type"] in ["farm", "woodcutter"]:
+		# If farm, woodcutter, or quarry, register dynamic workplace and create jobs
+		if b_data["type"] in ["farm", "woodcutter", "quarry"]:
 			register_dynamic_workplace(b_data)
 
 		# If watchtower, reveal vision and update POI discovery immediately
@@ -511,7 +516,7 @@ func register_dynamic_workplace(b_data: Dictionary) -> WorkplaceManager.Workplac
 		return null
 
 	var b_type: String = b_data.get("type", "")
-	if not b_type in ["farm", "woodcutter"]:
+	if not b_type in ["farm", "woodcutter", "quarry"]:
 		return null
 
 	var origin: Vector2i = b_data.get("cell", Vector2i.ZERO)
@@ -545,7 +550,7 @@ func register_dynamic_workplace(b_data: Dictionary) -> WorkplaceManager.Workplac
 	# Create recurring jobs if not already present
 	var existing_jobs := job_mgr.get_jobs_for_building(b_id)
 	if existing_jobs.is_empty():
-		var desc: String = "Chăm sóc và thu hoạch nông sản" if b_type == "farm" else "Khai thác và chế biến gỗ"
+		var desc: String = "Chăm sóc và thu hoạch nông sản" if b_type == "farm" else ("Khai thác và chế biến gỗ" if b_type == "woodcutter" else "Khai thác đá tảng tại mỏ đá")
 		for i in range(max_workers):
 			job_mgr.create_job(job_type, access_cell, desc, b_id, 3.0, 1, true)
 
@@ -569,7 +574,7 @@ func sync_workplaces_after_load(saved_workplaces_data: Dictionary = {}) -> void:
 	# 2. Re-register dynamic workplaces from world_data.buildings
 	for b in world_data.buildings:
 		var b_type: String = b.get("type", "")
-		if b_type in ["farm", "woodcutter"]:
+		if b_type in ["farm", "woodcutter", "quarry"]:
 			var b_cell: Vector2i = b.get("cell", Vector2i.ZERO)
 			# Skip starter workplaces
 			if (b_type == "farm" and b_cell == Vector2i(36, 35)) or (b_type == "woodcutter" and b_cell == Vector2i(26, 30)) or b.get("id", "") in starter_ids:
@@ -614,6 +619,7 @@ func _get_building_display_name(key: String) -> String:
 		"storehouse": return "Kho Lương (2x2)"
 		"woodcutter": return "Trại Tiều Phu (2x2)"
 		"watchtower": return "Tháp Canh (1x1)"
+		"quarry": return "Mỏ Khai Thác Đá (2x2)"
 		_: return ""
 
 func _on_return_to_menu() -> void:

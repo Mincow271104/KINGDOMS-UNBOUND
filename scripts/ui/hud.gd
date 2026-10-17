@@ -133,6 +133,9 @@ func _ready() -> void:
 	var btn_watchtower = $BuildMenuPanel/MarginContainer/VBoxContainer/GridContainer.get_node_or_null("WatchtowerBtn")
 	if btn_watchtower:
 		btn_watchtower.pressed.connect(func(): _select_building("watchtower"))
+	var btn_quarry = $BuildMenuPanel/MarginContainer/VBoxContainer/GridContainer.get_node_or_null("QuarryBtn")
+	if btn_quarry:
+		btn_quarry.pressed.connect(func(): _select_building("quarry"))
 	btn_close_build.pressed.connect(func(): build_menu_panel.visible = false)
 
 	# Citizen inspector controls
@@ -189,7 +192,8 @@ func _setup_role_options() -> void:
 	role_option_btn.add_item("Tiều Phu (Woodcutter)", 1)
 	role_option_btn.add_item("Thợ Xây (Builder)", 2)
 	role_option_btn.add_item("Khuân Vác (Hauler)", 3)
-	role_option_btn.add_item("Dân Tự Do (Idle)", 4)
+	role_option_btn.add_item("Thợ Mỏ / Khai Thác Đá (Miner)", 4)
+	role_option_btn.add_item("Dân Tự Do (Idle)", 5)
 
 func set_research_manager(mgr: Object) -> void:
 	research_mgr = mgr
@@ -551,7 +555,8 @@ func show_citizen_inspector(cit: Node) -> void:
 		"woodcutter": role_option_btn.select(1)
 		"builder": role_option_btn.select(2)
 		"hauler": role_option_btn.select(3)
-		_: role_option_btn.select(4)
+		"miner", "quarryman": role_option_btn.select(4)
+		_: role_option_btn.select(5)
 
 func _refresh_inspected_citizen() -> void:
 	if inspected_citizen == null:
@@ -577,7 +582,8 @@ func _on_role_option_selected(idx: int) -> void:
 		1: new_role = "woodcutter"
 		2: new_role = "builder"
 		3: new_role = "hauler"
-		4: new_role = "idle"
+		4: new_role = "miner"
+		5: new_role = "idle"
 	inspected_citizen.call("set_role", new_role)
 	citizen_role_changed.emit(inspected_citizen.get("citizen_id"), new_role)
 	_refresh_inspected_citizen()

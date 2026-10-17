@@ -17,7 +17,7 @@ enum State {
 
 @export var citizen_id: String = ""
 @export var citizen_name: String = ""
-@export var role: String = "idle" # "farmer", "woodcutter", "builder", "hauler", "idle"
+@export var role: String = "idle" # "farmer", "woodcutter", "builder", "hauler", "miner", "idle"
 
 var current_cell: Vector2i = Vector2i(32, 32)
 var current_state: int = State.IDLE
@@ -234,9 +234,9 @@ func _process_working(delta: float) -> void:
 	if completed:
 		# Production at workplace deposits to buffer (not central storage)
 		if workplace_mgr != null and active_job != null:
-			if active_job.type == "farmer" or active_job.type == "woodcutter":
+			if active_job.type in ["farmer", "woodcutter", "miner", "quarryman"] or (workplace_mgr.has_method("has_workplace") and workplace_mgr.has_workplace(active_job.target_building_id)):
 				var season_mod := 1.0
-				if tm != null and tm.has_method("get_farm_efficiency_modifier"):
+				if tm != null and tm.has_method("get_farm_efficiency_modifier") and active_job.type == "farmer":
 					season_mod = tm.get_farm_efficiency_modifier()
 				workplace_mgr.produce_to_buffer(active_job.target_building_id, season_mod)
 		active_job = null

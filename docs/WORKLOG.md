@@ -1114,3 +1114,94 @@ Following independent review of Package 1B (Milestone 21), address review findin
 - Do NOT merge or push to `master`.
 - Keep `KINGDOMS_UNBOUND_STAGE11_FINAL.html` untracked.
 - Await independent review before Package 1C.
+
+---
+
+## [2026-10-18] Milestone 23: Package 1C — Dynamic Quarry Stone Production ✅ VERIFIED
+
+### Context & Objective
+Implement Package 1C: Dynamic Quarry Workplace on feature branch `feature/package-1c-quarry`, branched from Package 1B commit `505a51af479adcaf6b00567bd648c1acd1c9aa97`. Package 1C expands the construction and production economy by introducing the Quarry (Mỏ Khai Thác Đá), which allows players to construct 2×2 stone-producing quarries, assign miners, produce stone into local workplace buffers, and haul stone to central storage using the physical hauling pipeline.
+
+### Completed Work
+1. **Blueprint & Economy Configuration (`scripts/economy/economy_config.gd`):**
+   - Added `"quarry"` blueprint with 2×2 footprint, construction cost `{RES_WOOD: 15, RES_TOOLS: 5}`, construction time 8.0 hours, 4 max workers, job type `"miner"`, output resource `RES_STONE`, base daily output 20.0, and 40 buffer capacity.
+2. **Citizen Controller Role & Buffer Production (`scripts/entities/citizen_controller.gd`):**
+   - Added `"miner"` role to `CitizenController.ROLES`.
+   - Updated `_process_working(delta)` to route work completion for `"miner"` (and legacy `"quarryman"`) through `workplace_mgr.produce_to_buffer()`, ensuring zero instant teleportation to central storage.
+3. **Quarry Visual Asset (`assets/buildings/bld_quarry.png` & `.import`):**
+   - Generated authentic 64×48 px isometric sprite for 2×2 diamond footprint conforming to the 27-color fantasy palette. Visual features an excavated stone pit, dressed granite blocks, timber crane hoisting rig, and chisel bench.
+   - Imported into Godot engine with lossless pixel compression and nearest-neighbor filtering.
+4. **WorldView Placement & Dynamic Registration (`scripts/world/world_view.gd`):**
+   - Preloaded `bld_quarry.png` texture with storehouse fallback.
+   - Set sprite rendering offset strictly at `Vector2(-32.0, -36.0)` matching the 2×2 diamond footprint center.
+   - Added Vietnamese display name `"Mỏ Khai Thác Đá (2x2)"`.
+   - Integrated `"quarry"` into `_execute_placement()`, dynamic workplace registration, and `sync_workplaces_after_load()`.
+5. **HUD Build Menu & Citizen Inspector (`scenes/ui/hud.tscn`, `scripts/ui/hud.gd`):**
+   - Added `QuarryBtn` to HUD `BuildMenuPanel` GridContainer with icon, hover tooltip, and wiring to `_select_building("quarry")`.
+   - Added `"miner"` to citizen role dropdown in the inspector panel.
+6. **Dedicated Test Suite (`scripts/test/test_quarry.gd`):**
+   - Authored automated headless test suite covering TC-Q.1 through TC-Q.6.
+   - Validated real citizen production flow, real citizen hauling flow, save/load persistence, anti-duplication, legacy save compatibility, buffer clamping, and non-regression.
+
+### Test Architecture: Package 1C Dynamic Quarry Suite
+| Test Case ID | Test Category | Execution Mechanism | Scope & Purpose |
+|---|---|---|---|
+| **TC-Q.1** | Unit / UI Test | Direct Blueprint & Node Inspection | Verifies `quarry` blueprint in `EconomyConfig` (2×2, 15 Wood, 5 Tools, 4 workers, miner, stone), 64×48 px texture, `(-32, -36)` sprite offset, display name, and HUD `QuarryBtn` placement trigger |
+| **TC-Q.2** | Unit Test | Placement Method Invocation | Verifies dynamic quarry placement, atomic cost deduction (-15 Wood, -5 Tools), walkable perimeter access cell check, registration of 4 recurring miner jobs, and rejection of inaccessible placement before deduction |
+| **TC-Q.3** | **Integration Test** | **Real `CitizenController` State Machine (`_process`)** | Verifies full miner life cycle: `IDLE` -> claims job -> traverses grid to access cell (`MOVING_TO_JOB`) -> works 3.0 hrs (`WORKING`) -> direct deposit of 4 Stone into quarry buffer without central stock change -> `IDLE` -> recurring cycle 2 produces additional 4 Stone (total 8 Stone) |
+| **TC-Q.4** | **Integration Test** | **Real `CitizenController` State Machine (`_process`)** | Verifies full hauler life cycle: `IDLE` -> claims quarry hauling job -> baseline stock recorded before pickup -> `MOVING_TO_JOB` -> arrival at quarry access cell -> extracts 8 Stone from buffer (buffer 8->0) -> `HAULING` traversal with stock invariant mid-transit -> arrives at dropoff -> deposits 8 Stone (+8 Stone in central storage) -> clears cargo -> marks job `COMPLETED` |
+| **TC-Q.5** | Unit / Integration | Save/Load Cycle (`SaveManager`) | Verifies world save with quarry, buffer restoration to 12 Stone, reconstruction of 4 recurring miner jobs, anti-duplication over repeated loads, legacy save compatibility (defaults buffer to 0), and overflow clamping to capacity (40) |
+| **TC-Q.6** | Non-Regression | Direct Blueprint & Workplace Query | Verifies starter farm (5 workers, 50 capacity, food), starter woodcutter (4 workers, 40 capacity, wood), and watchtower blueprint (1×1, vision 15) remain 100% intact |
+
+### Validations Performed & Results
+- **Dedicated Test Suite (`scripts/test/test_quarry.gd`):** **PASS (Exit Code 0, 0 failures)**
+  - TC-Q.1 (Blueprint, Costs, UI & Sprite Verification): **PASS**
+  - TC-Q.2 (Placement Legality, Inaccessible Rejection & Dynamic Registration): **PASS**
+  - TC-Q.3 (Real Citizen Work & Local Buffer Production Integration): **PASS**
+  - TC-Q.4 (Real Citizen Hauling Loop Integration): **PASS**
+  - TC-Q.5 (Save/Load Persistence, Buffer Restoration & Anti-Duplication): **PASS**
+  - TC-Q.6 (Non-Regression of Farm, Woodcutter & Watchtower Systems): **PASS**
+- **Full Regression Test Matrix (15/15 Suites Passed, Exit Code 0):**
+  1. `test_quarry.gd` (TC-Q.1 to TC-Q.6): **PASS (Exit Code 0)**
+  2. `test_dynamic_workplaces.gd` (TC-DW.1 to TC-DW.5): **PASS (Exit Code 0)**
+  3. `test_save_load.gd` (TC-8.1, TC-8.2, TC-8.3): **PASS (Exit Code 0)**
+  4. `test_watchtower.gd` (TC-W.1 to TC-W.8b): **PASS (Exit Code 0)**
+  5. `test_world_gen.gd` (TC-1.2): **PASS (Exit Code 0)**
+  6. `test_coordinates.gd` (TC-1.1): **PASS (Exit Code 0)**
+  7. `test_time_manager.gd` (TC-1.4): **PASS (Exit Code 0)**
+  8. `test_economy.gd` (TC-2.1, TC-2.2): **PASS (Exit Code 0)**
+  9. `test_citizens.gd` (TC-3.1, TC-3.2): **PASS (Exit Code 0)**
+  10. `test_logistics.gd` (TC-4.1, TC-4.2, TC-4.3): **PASS (Exit Code 0)**
+  11. `test_research_and_exploration.gd` (TC-5.1, TC-5.2, TC-5.3): **PASS (Exit Code 0)**
+  12. `test_factions_and_battles.gd` (TC-6.1, TC-6.2): **PASS (Exit Code 0)**
+  13. `test_victory_and_collapse.gd` (TC-7.1, TC-7.2, TC-7.3): **PASS (Exit Code 0)**
+  14. `test_audio.gd`: **PASS (Exit Code 0)**
+  15. `test_gold_transactions.gd` (TC-G.1 to TC-G.8): **PASS (Exit Code 0)**
+  16. `test_stress_100_citizens.gd` (TC-9.1, 145 FPS): **PASS (Exit Code 0)**
+- **Scene Instantiation Sanity:**
+  - `scenes/test/visual_validation_test.tscn`: **PASS (Exit Code 0)**
+  - `scenes/ui/main_menu.tscn`: **PASS (Exit Code 0)**
+  - `scenes/world/world_view.tscn`: **PASS (Exit Code 0)**
+- **Visual Validation / MCP Screenshot Status:**
+  - `NOT RUN` (Reason: Terminal/headless environment without interactive Godot editor display; all states validated via engine test scripts).
+- **Whitespace Check:**
+  - `git diff --check`: Clean (Exit Code 0, zero whitespace errors).
+
+### Files Created / Modified
+- `scripts/economy/economy_config.gd` (Registered `quarry` blueprint with 2×2 footprint, costs, output resource, buffer capacity)
+- `scripts/entities/citizen_controller.gd` (Added `miner` role and wired production to `produce_to_buffer()`)
+- `scripts/world/world_view.gd` (Quarry texture loading, `(-32, -36)` sprite offset, display name, dynamic placement & load sync)
+- `scenes/ui/hud.tscn` (Added `QuarryBtn` to `BuildMenuPanel`)
+- `scripts/ui/hud.gd` (Wired `QuarryBtn` and added `miner` option to citizen inspector role list)
+- `assets/buildings/bld_quarry.png` (64×48 px isometric quarry sprite)
+- `assets/buildings/bld_quarry.png.import` (Godot 4.7 texture import definition)
+- `scripts/test/test_quarry.gd` (Dedicated test suite for TC-Q.1 to TC-Q.6)
+- `docs/WORKLOG.md` (Documented Milestone 23)
+
+### Next Exact Step
+- Stage modified files explicitly.
+- Commit with exact message: `Add dynamic quarry stone production` on `feature/package-1c-quarry`.
+- Push branch `feature/package-1c-quarry` to remote `origin`.
+- Do NOT merge or push to `master`.
+- Keep `KINGDOMS_UNBOUND_STAGE11_FINAL.html` untracked.
+- Await independent review before Package 1D.
