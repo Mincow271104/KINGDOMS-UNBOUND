@@ -158,6 +158,6 @@ static func is_research_hall_active(world_data: WorldGenerator.WorldData) -> boo
 	if world_data == null:
 		return false
 	for b in world_data.buildings:
-		if b.get("type", "") == "research_hall" and b.get("state", "active") != "destroyed":
+		if b.get("type", "") == "research_hall" and b.get("state", "active") == "active":
 			return true
 	return false

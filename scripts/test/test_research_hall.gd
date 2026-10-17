@@ -22,6 +22,8 @@ const IsoMathScript = preload("res://scripts/utils/iso_math.gd")
 class MockTestResourceManager extends Node:
 	var stock: Dictionary = {}
 	var capacities: Dictionary = {}
+	var reserve_calls: int = 0
+	var commit_calls: int = 0
 
 	func _init(initial: Dictionary = {}) -> void:
 		for r in EconomyConfig.ALL_RESOURCES:
@@ -38,9 +40,11 @@ class MockTestResourceManager extends Node:
 		return true
 
 	func reserve_cost(cost: Dictionary) -> bool:
+		reserve_calls += 1
 		return can_afford(cost)
 
 	func commit_cost(cost: Dictionary) -> void:
+		commit_calls += 1
 		for r in cost:
 			stock[r] = get_available_stock(r) - cost[r]
 
@@ -272,20 +276,57 @@ func _test_tc_rh_3_hall_detection() -> bool:
 		printerr("FAIL: is_research_hall_active should return true when active hall exists")
 		failures += 1
 
-	# Mark hall as destroyed
 	var b_data = place_res.get("building")
-	b_data["state"] = "destroyed"
-	if BuildingSystem.is_research_hall_active(world_data):
-		printerr("FAIL: is_research_hall_active should return false when hall is destroyed")
-		failures += 1
 
-	# Reactivate hall
+	# 1. State 'active' -> true
 	b_data["state"] = "active"
 	if not BuildingSystem.is_research_hall_active(world_data):
-		printerr("FAIL: is_research_hall_active should return true after hall is restored")
+		printerr("FAIL: is_research_hall_active should return true when state is 'active'")
 		failures += 1
 
-	# Null world_data safety
+	# 2. State 'paused' -> false
+	b_data["state"] = "paused"
+	if BuildingSystem.is_research_hall_active(world_data):
+		printerr("FAIL: is_research_hall_active should return false when state is 'paused'")
+		failures += 1
+
+	# 3. State 'damaged' -> false
+	b_data["state"] = "damaged"
+	if BuildingSystem.is_research_hall_active(world_data):
+		printerr("FAIL: is_research_hall_active should return false when state is 'damaged'")
+		failures += 1
+
+	# 4. State 'under_construction' -> false
+	b_data["state"] = "under_construction"
+	if BuildingSystem.is_research_hall_active(world_data):
+		printerr("FAIL: is_research_hall_active should return false when state is 'under_construction'")
+		failures += 1
+
+	# 5. State 'planned' -> false
+	b_data["state"] = "planned"
+	if BuildingSystem.is_research_hall_active(world_data):
+		printerr("FAIL: is_research_hall_active should return false when state is 'planned'")
+		failures += 1
+
+	# 6. State 'destroyed' -> false
+	b_data["state"] = "destroyed"
+	if BuildingSystem.is_research_hall_active(world_data):
+		printerr("FAIL: is_research_hall_active should return false when state is 'destroyed'")
+		failures += 1
+
+	# 7. Missing state field -> defaults to 'active' -> true
+	b_data.erase("state")
+	if not BuildingSystem.is_research_hall_active(world_data):
+		printerr("FAIL: is_research_hall_active should return true when state field is omitted (defaulting to active)")
+		failures += 1
+
+	# 8. No research hall in world -> false
+	world_data.buildings.clear()
+	if BuildingSystem.is_research_hall_active(world_data):
+		printerr("FAIL: is_research_hall_active should return false when no research hall exists in buildings")
+		failures += 1
+
+	# 9. Null world_data safety -> false
 	if BuildingSystem.is_research_hall_active(null):
 		printerr("FAIL: is_research_hall_active should return false for null world_data")
 		failures += 1
@@ -327,14 +368,73 @@ func _test_tc_rh_4_research_gating() -> bool:
 	if research_mgr.active_tech_id != "":
 		printerr("FAIL: active_tech_id must remain empty when start_research fails")
 		failures += 1
-	if rm.get_available_stock(EconomyConfig.RES_WOOD) != 100:
-		printerr("FAIL: No resources should be consumed when start_research is rejected")
+	if rm.get_available_stock(EconomyConfig.RES_WOOD) != 100 or rm.get_available_stock(EconomyConfig.RES_FOOD) != 100:
+		printerr("FAIL: No resources should be consumed when start_research is rejected (no hall)")
+		failures += 1
+	if rm.reserve_calls != 0 or rm.commit_calls != 0:
+		printerr("FAIL: reserve_calls and commit_calls must be 0 when no hall exists. Got reserve=%d, commit=%d" % [rm.reserve_calls, rm.commit_calls])
 		failures += 1
 
-	# Test 2: Hall checker returns true
-	var hall_dict := {"active": true}
+	# Test 2: Hall present but inactive (checker returns false)
+	var hall_dict := {"active": false}
 	research_mgr.set_hall_checker(func(): return hall_dict["active"])
 
+	if research_mgr.has_active_hall():
+		printerr("FAIL: has_active_hall should be false when checker returns false")
+		failures += 1
+
+	var check_inactive = research_mgr.can_research("crop_rotation", rm)
+	if check_inactive.get("valid", true):
+		printerr("FAIL: can_research should return valid: false when hall is inactive")
+		failures += 1
+
+	var start_inactive = research_mgr.start_research("crop_rotation", rm)
+	if start_inactive:
+		printerr("FAIL: start_research must return false when hall is inactive")
+		failures += 1
+	if research_mgr.active_tech_id != "":
+		printerr("FAIL: active_tech_id must remain empty when hall is inactive")
+		failures += 1
+	if rm.get_available_stock(EconomyConfig.RES_WOOD) != 100 or rm.get_available_stock(EconomyConfig.RES_FOOD) != 100:
+		printerr("FAIL: Resources altered when hall is inactive")
+		failures += 1
+	if rm.reserve_calls != 0 or rm.commit_calls != 0:
+		printerr("FAIL: reserve_calls and commit_calls must be 0 when hall is inactive. Got reserve=%d, commit=%d" % [rm.reserve_calls, rm.commit_calls])
+		failures += 1
+
+	# Test 3: Hall is active, but partial resource deficiency (20 Wood, 5 Food; crop_rotation requires 20 Wood, 10 Food)
+	hall_dict["active"] = true
+	var rm_partial = MockTestResourceManager.new({EconomyConfig.RES_WOOD: 20, EconomyConfig.RES_FOOD: 5})
+
+	var start_partial = research_mgr.start_research("crop_rotation", rm_partial)
+	if start_partial:
+		printerr("FAIL: start_research should fail on partial resource deficiency")
+		failures += 1
+	if research_mgr.active_tech_id != "":
+		printerr("FAIL: active_tech_id should remain empty when reserve fails")
+		failures += 1
+	if rm_partial.reserve_calls != 1:
+		printerr("FAIL: reserve_calls should be 1 on attempted reservation. Got: %d" % rm_partial.reserve_calls)
+		failures += 1
+	if rm_partial.commit_calls != 0:
+		printerr("FAIL: commit_calls must be 0 when reserve fails. Got: %d" % rm_partial.commit_calls)
+		failures += 1
+	if rm_partial.get_available_stock(EconomyConfig.RES_WOOD) != 20 or rm_partial.get_available_stock(EconomyConfig.RES_FOOD) != 5:
+		printerr("FAIL: Resources partially deducted on reserve failure. Wood=%d, Food=%d" % [rm_partial.get_available_stock(EconomyConfig.RES_WOOD), rm_partial.get_available_stock(EconomyConfig.RES_FOOD)])
+		failures += 1
+	rm_partial.queue_free()
+
+	# Test 4: Missing atomic API (resource_mgr lacking reserve_cost/commit_cost methods)
+	var dummy_rm = RefCounted.new()
+	var start_no_api = research_mgr.start_research("crop_rotation", dummy_rm)
+	if start_no_api:
+		printerr("FAIL: start_research should fail closed when resource_mgr lacks reserve_cost/commit_cost")
+		failures += 1
+	if research_mgr.active_tech_id != "":
+		printerr("FAIL: active_tech_id should remain empty when resource_mgr lacks atomic API")
+		failures += 1
+
+	# Test 5: Hall checker returns true, sufficient resources, atomic reserve & commit succeeds
 	if not research_mgr.has_active_hall():
 		printerr("FAIL: has_active_hall should return true when checker returns true")
 		failures += 1
@@ -344,6 +444,8 @@ func _test_tc_rh_4_research_gating() -> bool:
 		printerr("FAIL: can_research should return valid: true with active hall: %s" % check_with_hall.get("reason"))
 		failures += 1
 
+	rm.reserve_calls = 0
+	rm.commit_calls = 0
 	var start_with_hall = research_mgr.start_research("crop_rotation", rm)
 	if not start_with_hall:
 		printerr("FAIL: start_research should succeed with active hall and sufficient resources")
@@ -351,14 +453,20 @@ func _test_tc_rh_4_research_gating() -> bool:
 	if research_mgr.active_tech_id != "crop_rotation":
 		printerr("FAIL: Expected active_tech_id 'crop_rotation', got: %s" % research_mgr.active_tech_id)
 		failures += 1
+	if rm.reserve_calls != 1 or rm.commit_calls != 1:
+		printerr("FAIL: reserve_calls and commit_calls must each be 1 on success. Got reserve=%d, commit=%d" % [rm.reserve_calls, rm.commit_calls])
+		failures += 1
 	if rm.get_available_stock(EconomyConfig.RES_WOOD) != 80: # 20 wood deducted
 		printerr("FAIL: 20 wood should be deducted upon research start")
+		failures += 1
+	if rm.get_available_stock(EconomyConfig.RES_FOOD) != 90: # 10 food deducted
+		printerr("FAIL: 10 food should be deducted upon research start")
 		failures += 1
 
 	rm.queue_free()
 
 	if failures == 0:
-		print("PASS TC-RH.4: Research gating strictly prevents starting research without active hall")
+		print("PASS TC-RH.4: Research gating strictly prevents starting research without active hall and enforces atomic reservation/commit")
 		return true
 	return false
 
@@ -543,6 +651,23 @@ func _test_tc_rh_7_worldview_and_save_load() -> bool:
 		failures += 1
 		return false
 
+	# Verify exact count of research_hall records and visual nodes after placement
+	var count_placed_records: int = 0
+	for b in world_instance.world_data.buildings:
+		if b.get("type") == "research_hall":
+			count_placed_records += 1
+	if count_placed_records != 1:
+		printerr("FAIL: Expected exactly 1 research_hall record in world_data.buildings after placement, got: %d" % count_placed_records)
+		failures += 1
+
+	var count_placed_nodes: int = 0
+	for child in world_instance.buildings_container.get_children():
+		if "research_hall" in child.name:
+			count_placed_nodes += 1
+	if count_placed_nodes != 1:
+		printerr("FAIL: Expected exactly 1 visual research_hall node in buildings_container after placement, got: %d" % count_placed_nodes)
+		failures += 1
+
 	# Verify research hall is now active and recognized by research_mgr
 	if not BuildingSystem.is_research_hall_active(world_instance.world_data):
 		printerr("FAIL: is_research_hall_active should return true after WorldView placement")
@@ -594,6 +719,46 @@ func _test_tc_rh_7_worldview_and_save_load() -> bool:
 		printerr("FAIL: SaveManager.apply_loaded_state_to_world failed: %s" % apply_res.get("error"))
 		failures += 1
 		return false
+
+	# Verify exact count of research_hall records and visual nodes after first load
+	var count_loaded_records: int = 0
+	for b in world_instance.world_data.buildings:
+		if b.get("type") == "research_hall":
+			count_loaded_records += 1
+	if count_loaded_records != 1:
+		printerr("FAIL: Expected exactly 1 research_hall record in world_data.buildings after load, got: %d" % count_loaded_records)
+		failures += 1
+
+	var count_loaded_nodes: int = 0
+	for child in world_instance.buildings_container.get_children():
+		if "research_hall" in child.name:
+			count_loaded_nodes += 1
+	if count_loaded_nodes != 1:
+		printerr("FAIL: Expected exactly 1 visual research_hall node in buildings_container after load, got: %d" % count_loaded_nodes)
+		failures += 1
+
+	# Re-apply loaded state a second time to verify anti-duplication / idempotency
+	var reapply_res = SaveManagerScript.apply_loaded_state_to_world(world_instance, load_res["data"])
+	if not reapply_res.get("success", false):
+		printerr("FAIL: SaveManager second apply_loaded_state_to_world failed: %s" % reapply_res.get("error"))
+		failures += 1
+		return false
+
+	var count_reapplied_records: int = 0
+	for b in world_instance.world_data.buildings:
+		if b.get("type") == "research_hall":
+			count_reapplied_records += 1
+	if count_reapplied_records != 1:
+		printerr("FAIL: Anti-duplication failed: Expected exactly 1 research_hall record in world_data.buildings after re-applying load, got: %d" % count_reapplied_records)
+		failures += 1
+
+	var count_reapplied_nodes: int = 0
+	for child in world_instance.buildings_container.get_children():
+		if "research_hall" in child.name:
+			count_reapplied_nodes += 1
+	if count_reapplied_nodes != 1:
+		printerr("FAIL: Anti-duplication failed: Expected exactly 1 visual research_hall node in buildings_container after re-applying load, got: %d" % count_reapplied_nodes)
+		failures += 1
 
 	# Verify post-load state
 	if not BuildingSystem.is_research_hall_active(world_instance.world_data):

@@ -60,19 +60,24 @@ func can_research(tech_id: String, resource_mgr: Object) -> Dictionary:
 	return {"valid": true, "reason": "Hợp lệ"}
 
 func start_research(tech_id: String, resource_mgr: Object) -> bool:
-	var check: Dictionary = can_research(tech_id, resource_mgr)
+	var check: Dictionary = can_research(tech_id, null)
 	if not check["valid"]:
 		return false
 		
 	var def: Dictionary = TechTree.TECHNOLOGIES[tech_id]
 	var cost: Dictionary = def.get("cost", {})
 	
-	# Atomically consume resources
-	if resource_mgr != null:
-		for res_id in cost:
-			var amt: int = cost[res_id]
-			resource_mgr.call("consume_resource", res_id, amt)
-			
+	# Atomically reserve and commit resources
+	if resource_mgr != null and not cost.is_empty():
+		if not resource_mgr.has_method("reserve_cost") or not resource_mgr.has_method("commit_cost"):
+			return false
+
+		var reserved: bool = resource_mgr.call("reserve_cost", cost)
+		if not reserved:
+			return false
+
+		resource_mgr.call("commit_cost", cost)
+
 	active_tech_id = tech_id
 	active_progress_hours = 0.0
 	active_required_hours = def.get("duration_hours", 12.0)

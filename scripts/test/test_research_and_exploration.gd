@@ -146,6 +146,13 @@ class MockResourceManager extends RefCounted:
 			if get_available_stock(res) < cost[res]:
 				return false
 		return true
+
+	func reserve_cost(cost: Dictionary) -> bool:
+		return can_afford(cost)
+
+	func commit_cost(cost: Dictionary) -> void:
+		for res in cost:
+			consume_resource(res, cost[res])
 		
 	func get_available_stock(res: String) -> int:
 		match res:

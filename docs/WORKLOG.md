@@ -1768,3 +1768,77 @@ Implement Package 1F: Research Hall Integration on branch `feature/package-1f-re
 - Commit with exact mandated message: `Add buildable research hall and research gating`.
 - Push to origin on branch `feature/package-1f-research-hall`.
 - Await independent review. Keep untracked files (`KINGDOMS_UNBOUND_STAGE11_FINAL.html`, `docs/visual_validation/`, `scripts/test/visual_*.gd`, `.uid` files) intact.
+
+---
+
+## [2026-10-18] Milestone 31: Package 1F Review Fix — Research Hall State Hardening, Atomic Research Costs & Idempotent Persistence
+
+### Context & Objective
+Address code review findings for Package 1F:
+1. **Fix A — Active State Enforcement:** Research Hall only enables research when `state == "active"` (defaulting to `"active"` if state field is omitted). Damaged, paused, under construction, planned, or destroyed halls fail closed.
+2. **Fix B — Atomic Cost Reservation & Commit:** `ResearchManager.start_research()` fail-closed enforcement using `reserve_cost()` (all-or-nothing) and `commit_cost()`. Returns false safely if `reserve_cost`/`commit_cost` are missing or reservation fails; no partial deductions.
+3. **Fix C — Idempotent Persistence & Count Verification:** Assert exact record count in `world_data.buildings` (1) and visual node count in `buildings_container` (1) after placement and after load. Re-apply loaded state a second time to verify anti-duplication / idempotency.
+
+### Completed Work
+1. **Active State Filter (`scripts/economy/building_system.gd`):**
+   - Updated `is_research_hall_active()` to check `b.get("state", "active") == "active"`.
+2. **Atomic Research Cost Management (`scripts/research/research_manager.gd`):**
+   - In `start_research()`, verified presence of `reserve_cost` and `commit_cost` methods on `resource_mgr`.
+   - Executed atomic reservation via `reserve_cost(cost)` before committing with `commit_cost(cost)`.
+   - Set active project state only upon successful transaction commit.
+3. **Mock Resource Managers Updated:**
+   - Added `reserve_cost` and `commit_cost` to `MockResourceManager` in `scripts/test/test_research_and_exploration.gd`.
+   - Updated `MockTestResourceManager` in `scripts/test/test_research_hall.gd` with call counters `reserve_calls` and `commit_calls`.
+4. **Enhanced Test Coverage in `scripts/test/test_research_hall.gd`:**
+   - **TC-RH.3:** Exhaustively tested states (`active`, `paused`, `damaged`, `under_construction`, `planned`, `destroyed`, omitted state, no hall, `null` world data).
+   - **TC-RH.4:** Asserted zero reservation/commit calls and unchanged resources when hall is missing/inactive; verified partial resource deficiency results in reserve failure, zero commits, zero partial deductions, and empty active tech; verified missing atomic API fails closed safely; verified successful atomic reservation and commit.
+   - **TC-RH.7:** Asserted exactly 1 building record and 1 visual node after placement and after first load; called `apply_loaded_state_to_world` a second time to prove zero node/record duplication (idempotency); retained all post-load research progress assertions.
+
+### Validations Performed & Results
+- **Dedicated Test Suite (`scripts/test/test_research_hall.gd`):** **PASS (Exit Code 0, 7/7 passed)**
+  - TC-RH.1 (Blueprint Validation & Spec Integrity): **PASS**
+  - TC-RH.2 (Placement Rules, 3x3 Bounds, Water, Occupancy & Atomic Deduction): **PASS**
+  - TC-RH.3 (is_research_hall_active Detection & State Transitions): **PASS**
+  - TC-RH.4 (Research Gating & Atomic Reservation/Commit): **PASS**
+  - TC-RH.5 (Downtime Pause Safety & Progress Retention): **PASS**
+  - TC-RH.6 (HUD Integration, Build Button, Signal & UI Warning): **PASS**
+  - TC-RH.7 (WorldView Lifecycle, Node Count & Idempotent Persistence): **PASS**
+- **Full Core Regression Matrix (19 Test Suites, Godot 4.7 Headless):**
+  - `test_coordinates.gd`: **PASS (Exit Code 0)**
+  - `test_world_gen.gd`: **PASS (Exit Code 0)**
+  - `test_citizens.gd`: **PASS (Exit Code 0)**
+  - `test_economy.gd`: **PASS (Exit Code 0)**
+  - `test_time_manager.gd`: **PASS (Exit Code 0)**
+  - `test_logistics.gd`: **PASS (Exit Code 0)**
+  - `test_audio.gd`: **PASS (Exit Code 0)**
+  - `test_save_load.gd`: **PASS (Exit Code 0)**
+  - `test_research_and_exploration.gd`: **PASS (Exit Code 0)**
+  - `test_factions_and_battles.gd`: **PASS (Exit Code 0)**
+  - `test_victory_and_collapse.gd`: **PASS (Exit Code 0)**
+  - `test_stress_100_citizens.gd`: **PASS (Exit Code 0)**
+  - `test_gold_transactions.gd`: **PASS (Exit Code 0)**
+  - `test_quarry.gd`: **PASS (Exit Code 0)**
+  - `test_mine.gd`: **PASS (Exit Code 0)**
+  - `test_workshop.gd`: **PASS (Exit Code 0)**
+  - `test_watchtower.gd`: **PASS (Exit Code 0)**
+  - `test_dynamic_workplaces.gd`: **PASS (Exit Code 0)**
+  - `test_research_hall.gd`: **PASS (Exit Code 0)**
+- **Scene Smoke Tests:**
+  - `scenes/ui/main_menu.tscn`: **PASS (Exit Code 0)**
+  - `scenes/world/world_view.tscn`: **PASS (Exit Code 0)**
+  - `scenes/ui/hud.tscn`: **PASS (Exit Code 0)**
+- **Whitespace Check:**
+  - `git diff --check`: Clean (Exit Code 0, zero whitespace errors).
+
+### Files Created / Modified
+- `scripts/economy/building_system.gd` (Strict `active` state check in `is_research_hall_active`)
+- `scripts/research/research_manager.gd` (Atomic `reserve_cost` and `commit_cost` in `start_research`)
+- `scripts/test/test_research_and_exploration.gd` (Implemented atomic API on `MockResourceManager`)
+- `scripts/test/test_research_hall.gd` (Hardened TC-RH.3, TC-RH.4, and TC-RH.7 with fail-closed and idempotency tests)
+- `docs/WORKLOG.md` (Documented Milestone 31)
+
+### Next Exact Step
+- Explicitly stage modified files.
+- Commit with mandated message: `Harden research hall state and atomic research costs`.
+- Push to origin on branch `feature/package-1f-research-hall`.
+- Await independent review. Do not merge into master, do not start Package 1G.
