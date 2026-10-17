@@ -651,3 +651,46 @@ During exploratory manual playthrough testing via Godot runtime MCP controls, tw
   - Started "Luân Canh Nông Nghiệp" via UI click on `@Button@4432`.
   - Visual verification via `screenshot_3846308.png`: Research panel actively displayed `"Đang tiến hành: Luân Canh Nông Nghiệp [5.0 / 12.0 giờ] (42%)"` with yellow progress indicator and accurate prerequisite lock descriptions.
   - Verified Crisis Banner dismissed cleanly without blocking clicks.
+
+---
+
+## [2026-10-17] Milestone 16: Package 0 — HUD Compilation Blocker Verified & Fixed ✅ VERIFIED
+
+### Context & Objective
+Resolve the compilation blocker identified in the audit report at `scripts/ui/hud.gd:247` (`var cur_tech := tech_id`), which caused Godot 4.7 GDScript parse failure (`Cannot infer the type of "cur_tech" variable because the value doesn't have a set type`) and cascading failure in `world_view.gd` during scene loading and persistence testing.
+
+### Root Cause Discovered & Resolution
+- **Root Cause:** In GDScript 4, iterating a dictionary (`for tech_id in TechTree.TECHNOLOGIES:`) exposes loop variable `tech_id` as an untyped `Variant`. Using the static type-inference operator `:=` (`var cur_tech := tech_id`) is illegal when the RHS has no explicit static type hint, halting script compilation at engine boot and preventing HUD instantiation.
+- **Resolution:** Replaced `var cur_tech := tech_id` with `var cur_tech: String = str(tech_id)` at `scripts/ui/hud.gd:247`. This provides explicit typing, preserves local scope variable capture for button callbacks, and completely satisfies GDScript 4 compiler requirements with zero architectural side effects.
+
+### Files Changed / Modified
+- `scripts/ui/hud.gd` (Line 247: Minimal 1-line typing fix)
+
+### Validations Performed & Results
+- **Reproduction Verification:**
+  - Ran `test_save_load.gd` before fix -> Exact parse error reproduced at `scripts/ui/hud.gd:247`, cascading into `world_view.gd` compilation failure, TC-8.3 failure, Exit Code 1.
+- **Post-Fix Verification:**
+  - `test_save_load.gd` -> **PASS (TC-8.1, TC-8.2, TC-8.3), Exit Code 0**.
+- **Full Test Suite Regression Matrix (14/14 Suites Passed, Exit Code 0):**
+  1. `test_world_gen.gd` (TC-1.2): **PASS (Exit Code 0)**
+  2. `test_coordinates.gd` (TC-1.1): **PASS (Exit Code 0)**
+  3. `test_time_manager.gd` (TC-1.4): **PASS (Exit Code 0)**
+  4. `test_economy.gd` (TC-2.1, TC-2.2): **PASS (Exit Code 0)**
+  5. `test_citizens.gd` (TC-3.1, TC-3.2): **PASS (Exit Code 0)**
+  6. `test_logistics.gd` (TC-4.1, TC-4.2, TC-4.3): **PASS (Exit Code 0)**
+  7. `test_research_and_exploration.gd` (TC-5.1, TC-5.2, TC-5.3): **PASS (Exit Code 0)**
+  8. `test_factions_and_battles.gd` (TC-6.1, TC-6.2): **PASS (Exit Code 0)**
+  9. `test_victory_and_collapse.gd` (TC-7.1, TC-7.2, TC-7.3): **PASS (Exit Code 0)**
+  10. `test_save_load.gd` (TC-8.1, TC-8.2, TC-8.3): **PASS (Exit Code 0)**
+  11. `test_audio.gd`: **PASS (Exit Code 0)**
+  12. `test_gold_transactions.gd` (TC-G.1 to TC-G.8): **PASS (Exit Code 0)**
+  13. `test_stress_100_citizens.gd` (TC-9.1): **PASS (Exit Code 0)**
+  14. `scenes/test/visual_validation_test.tscn`: **PASS (Exit Code 0)**
+- **Scene Instantiation Sanity:**
+  - `res://scenes/ui/main_menu.tscn`: **PASS (Exit Code 0)**
+  - `res://scenes/world/world_view.tscn`: **PASS (Exit Code 0)**
+
+### Outstanding Issues & Next Step
+- Package 0 complete and verified.
+- Working tree preserved; no premature Git commit or push.
+- Awaiting user instruction before proceeding to Package 1.

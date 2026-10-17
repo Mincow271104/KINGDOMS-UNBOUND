@@ -244,7 +244,7 @@ func _refresh_research_ui() -> void:
 			btn.disabled = true
 			btn.modulate = Color(1.2, 1.2, 0.4)
 		else:
-			var cur_tech := tech_id
+			var cur_tech: String = str(tech_id)
 			var check: Dictionary = research_mgr.call("can_research", cur_tech, rm)
 			if check.get("valid", false):
 				btn.text = " 🔬 %s (%s) — Chi phí: %s(%.0f giờ)" % [def.get("name"), def.get("branch"), cost_str, def.get("duration_hours", 12.0)]
