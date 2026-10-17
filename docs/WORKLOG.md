@@ -820,7 +820,75 @@ Address code review feedback on feature branch `feature/package-1a-watchtower`:
 - `docs/WORKLOG.md` (Documented Milestone 18 review fixes)
 
 ### Next Exact Step
-- Commit review fixes to branch `feature/package-1a-watchtower`.
+- Milestone 18 review fixes committed at `6266edb`.
+
+---
+
+## [2026-10-17] Milestone 19: Package 1A Final Fix — Fog of War Save Restoration & True Roundtrip Test ✅ VERIFIED
+
+### Context & Objective
+Address code review feedback regarding Fog of War restoration cleanliness and test validity on branch `feature/package-1a-watchtower`:
+1. **Fog of War Clean Restoration:** In `scripts/persistence/save_manager.gd`, `apply_loaded_state_to_world()` previously applied saved fog coordinates without resetting the live instance's Fog of War grid first. If the live instance had cells explored that were not in the save, they remained explored.
+2. **True Roundtrip Testing (TC-W.8):** Previously, `test_watchtower.gd` tested save/load on an instance that already had the target cell explored and adjacent cells unexplored before loading. It did not prove that dirty states were wiped clean or that unexplored states were restored.
+3. **Fresh Instance Test (TC-W.8b):** Test applying the save file onto a newly instantiated `WorldViewScene` instance to confirm zero reliance on previous in-memory state.
+
+### Completed Work & Architecture Changes
+1. **Fog of War Clean Reset (`scripts/persistence/save_manager.gd`):**
+   - In `apply_loaded_state_to_world()` under Step 9, called `fow.reset_fog()` before restoring any saved coordinates. This resets all $64 \times 64$ cells to `State.UNEXPLORED` (`0`).
+   - Restored each valid in-bounds coordinate in `saved_fow` to `State.VISIBLE` (`2`).
+   - Under Step 8, ensured any live POIs not present in `saved_pois` reset their state to `POIState.UNDISCOVERED` (`0`).
+   - Preserved all other systems and retained exact restoration order (POIs $\to$ Fog of War $\to$ `refresh_poi_visibility()` $\to$ HUD refresh).
+2. **Save Format Exploration Limitation Note:**
+   - The current save schema serializes `fog_of_war` as an array of coordinate pairs `[[x, y], ...]` representing cells where `fow.is_explored(cell)` was true. It does not record separate integer levels for `EXPLORED` (1) vs `VISIBLE` (2).
+   - Upon loading, all saved coordinates are restored into the simulation grid as explored (`State.VISIBLE`), while all coordinates absent from the save strictly remain `State.UNEXPLORED` (`0`). Continuous simulation ticks subsequently update active observer sight circles as normal.
+3. **True Roundtrip Test Suite (`scripts/test/test_watchtower.gd`):**
+   - In TC-W.8, intentionally injected corrupted/dirty state before loading:
+     - Set `(20, 15)` (saved as explored) to `UNEXPLORED`.
+     - Set `(20, 16)` (saved as unexplored) to `VISIBLE`.
+     - Corrupted live POI states and visibilities.
+   - After `apply_loaded_state_to_world()`:
+     - Verified `(20, 15)` recovered from `UNEXPLORED` to `VISIBLE`.
+     - Verified `(20, 16)` was cleanly wiped from dirty `VISIBLE` back to `UNEXPLORED`.
+     - Verified POI discovered/undiscovered visibilities restored correctly.
+     - Verified watchtower visual node reconstructed with 1x1 footprint and zero duplicates.
+   - In TC-W.8b, instantiated a brand-new `WorldViewScene`, verified it started without a watchtower and with `(20, 15)` unexplored, applied the save file, and confirmed watchtower reconstruction, fog restoration, and POI visibilities on the fresh instance.
+
+### Validations Performed & Results
+- **Dedicated Watchtower Test Suite (`scripts/test/test_watchtower.gd`):**
+  - TC-W.1 to TC-W.8 and TC-W.8b: **PASS (Exit Code 0, 0 failures)**.
+  - Pre-load dirty fog injection confirmed: `(20, 15)` recovered, `(20, 16)` wiped clean back to `UNEXPLORED`.
+  - Fresh WorldView instance restoration confirmed.
+- **Full Regression Test Matrix (13/13 Suites Passed, Exit Code 0):**
+  1. `test_save_load.gd` (TC-8.1, TC-8.2, TC-8.3): **PASS (Exit Code 0)**
+  2. `test_world_gen.gd` (TC-1.2): **PASS (Exit Code 0)**
+  3. `test_coordinates.gd` (TC-1.1): **PASS (Exit Code 0)**
+  4. `test_time_manager.gd` (TC-1.4): **PASS (Exit Code 0)**
+  5. `test_economy.gd` (TC-2.1, TC-2.2): **PASS (Exit Code 0)**
+  6. `test_citizens.gd` (TC-3.1, TC-3.2): **PASS (Exit Code 0)**
+  7. `test_logistics.gd` (TC-4.1, TC-4.2, TC-4.3): **PASS (Exit Code 0)**
+  8. `test_research_and_exploration.gd` (TC-5.1, TC-5.2, TC-5.3): **PASS (Exit Code 0)**
+  9. `test_factions_and_battles.gd` (TC-6.1, TC-6.2): **PASS (Exit Code 0)**
+  10. `test_victory_and_collapse.gd` (TC-7.1, TC-7.2, TC-7.3): **PASS (Exit Code 0)**
+  11. `test_audio.gd`: **PASS (Exit Code 0)**
+  12. `test_gold_transactions.gd` (TC-G.1 to TC-G.8): **PASS (Exit Code 0)**
+  13. `test_stress_100_citizens.gd` (TC-9.1, 140-145 FPS): **PASS (Exit Code 0)**
+- **Scene Instantiation Sanity:**
+  - `scenes/test/visual_validation_test.tscn`: **PASS (Exit Code 0)**
+  - `scenes/ui/main_menu.tscn`: **PASS (Exit Code 0)**
+  - `scenes/world/world_view.tscn`: **PASS (Exit Code 0)**
+- **Visual Validation / MCP Screenshot Status:**
+  - `NOT RUN` (Reason: Godot Editor GUI is not running in this session; MCP server is in `waiting` mode on port 6505 without connected editor client; all visual nodes, textures, offsets, and visibility states were validated deterministically through Godot 4.7 engine console tests).
+- **Whitespace Check:**
+  - `git diff --check`: Clean (Exit Code 0, zero whitespace errors).
+
+### Files Created / Modified
+- `scripts/persistence/save_manager.gd` (Added `fow.reset_fog()` call and safe POI sync)
+- `scripts/test/test_watchtower.gd` (Added active pre-load corruption roundtrip test TC-W.8 and fresh instance test TC-W.8b)
+- `docs/WORKLOG.md` (Documented Milestone 19)
+
+### Next Exact Step
+- Commit changes to branch `feature/package-1a-watchtower`.
 - Push branch `feature/package-1a-watchtower` to remote `origin`.
 - Keep `KINGDOMS_UNBOUND_STAGE11_FINAL.html` untracked.
 - Do NOT merge or push to `master`.
+- Await independent code review before proceeding to Package 1B.

@@ -488,6 +488,33 @@ func _run_world_integration_checks() -> void:
 		else:
 			print("  [PASS] Saved poi_outside correctly serialized as UNDISCOVERED.")
 
+		# ---------------------------------------------------------------------
+		# Intentional pre-load dirty state injection:
+		# Actively corrupt the live world state before applying loaded data
+		# to ensure apply_loaded_state_to_world actually resets dirty state and restores canonical state.
+		# ---------------------------------------------------------------------
+		fow._grid[pt_dist_15.x][pt_dist_15.y] = FogOfWarScript.State.UNEXPLORED
+		fow._grid[pt_dist_16.x][pt_dist_16.y] = FogOfWarScript.State.VISIBLE
+
+		if fow.get_state(pt_dist_15) != FogOfWarScript.State.UNEXPLORED or fow.get_state(pt_dist_16) != FogOfWarScript.State.VISIBLE:
+			printerr("  [FAIL] Failed to inject pre-load dirty fog state!")
+			failures += 1
+		else:
+			print("  [PASS] Pre-load dirty fog state injected: (20, 15) -> UNEXPLORED, (20, 16) -> VISIBLE.")
+
+		# Also corrupt POI live state before loading
+		poi_inside.state = POIManagerScript.POIState.UNDISCOVERED
+		poi_outside.state = POIManagerScript.POIState.DISCOVERED
+		world_instance.call("refresh_poi_visibility")
+		var pre_inside = world_instance.poi_nodes_by_id.get(poi_inside.id)
+		var pre_outside = world_instance.poi_nodes_by_id.get(poi_outside.id)
+		if pre_inside != null and pre_inside.visible:
+			printerr("  [FAIL] Pre-load corrupted poi_inside should be invisible!")
+			failures += 1
+		if pre_outside != null and not pre_outside.visible:
+			printerr("  [FAIL] Pre-load corrupted poi_outside should be visible!")
+			failures += 1
+
 		# Apply loaded state to world
 		var apply_res: Dictionary = SaveManagerScript.apply_loaded_state_to_world(world_instance, loaded_data)
 		if not apply_res.get("success", false):
@@ -514,17 +541,18 @@ func _run_world_integration_checks() -> void:
 			else:
 				print("  [PASS] Watchtower visual node verified in scene tree with zero duplicates.")
 
-			# Check fog restoration
+			# Check fog restoration from dirty pre-load state
 			if not fow.is_visible(pt_dist_15):
-				printerr("  [FAIL] Restored fog dist 15 (20, 15) is not visible!")
+				printerr("  [FAIL] Restored fog dist 15 (20, 15) is not visible! State=%d" % fow.get_state(pt_dist_15))
 				failures += 1
 			else:
-				print("  [PASS] Restored fog dist 15 is VISIBLE.")
-			if fow.is_explored(pt_dist_16):
-				printerr("  [FAIL] Restored fog dist 16 (20, 16) was erroneously explored!")
+				print("  [PASS] Restored fog dist 15 (20, 15) recovered from UNEXPLORED to VISIBLE.")
+
+			if not fow.is_unexplored(pt_dist_16):
+				printerr("  [FAIL] Restored fog dist 16 (20, 16) was NOT reset to UNEXPLORED! State=%d" % fow.get_state(pt_dist_16))
 				failures += 1
 			else:
-				print("  [PASS] Restored fog dist 16 remains UNEXPLORED.")
+				print("  [PASS] Restored fog dist 16 (20, 16) successfully wiped from dirty VISIBLE back to UNEXPLORED.")
 
 			# Check POI node visibility restoration
 			var restored_inside_node = world_instance.poi_nodes_by_id.get(poi_inside.id)
@@ -533,12 +561,96 @@ func _run_world_integration_checks() -> void:
 				printerr("  [FAIL] Restored discovered POI node is not visible!")
 				failures += 1
 			else:
-				print("  [PASS] Restored discovered POI node is visible.")
+				print("  [PASS] Restored discovered POI node recovered to visible.")
 			if restored_outside_node == null or restored_outside_node.visible:
 				printerr("  [FAIL] Restored undiscovered POI node should not be visible!")
 				failures += 1
 			else:
-				print("  [PASS] Restored undiscovered POI node remains hidden without revealing.")
+				print("  [PASS] Restored undiscovered POI node recovered to hidden.")
+
+		# ---------------------------------------------------------------------
+		# Secondary Roundtrip: Apply save data onto a freshly initialized WorldView
+		# ---------------------------------------------------------------------
+		print("\n--- Running TC-W.8b: Fresh WorldView Instance Save Restoration ---")
+		var fresh_world = WorldViewScene.instantiate()
+		root.add_child(fresh_world)
+
+		var fresh_fow: FogOfWar = fresh_world.get("fog_of_war")
+		var fresh_wdata = fresh_world.get("world_data")
+
+		# Confirm fresh world does not have watchtower yet
+		var fresh_has_tower := false
+		for b in fresh_wdata.buildings:
+			if b.get("type") == "watchtower":
+				fresh_has_tower = true
+				break
+		if fresh_has_tower:
+			printerr("  [FAIL] Fresh world already has watchtower before load!")
+			failures += 1
+		else:
+			print("  [PASS] Fresh world confirmed without watchtower prior to load.")
+
+		# Confirm fresh world has (20, 15) unexplored initially
+		if not fresh_fow.is_unexplored(pt_dist_15):
+			printerr("  [FAIL] Fresh world cell (20, 15) should be UNEXPLORED initially!")
+			failures += 1
+		else:
+			print("  [PASS] Fresh world cell (20, 15) initially UNEXPLORED.")
+
+		# Apply save to fresh_world
+		var fresh_apply: Dictionary = SaveManagerScript.apply_loaded_state_to_world(fresh_world, loaded_data)
+		if not fresh_apply.get("success", false):
+			printerr("  [FAIL] Failed to apply loaded state to fresh WorldView: %s" % fresh_apply.get("error"))
+			failures += 1
+		else:
+			# Verify watchtower in fresh world
+			var fresh_tower_found := false
+			for b in fresh_wdata.buildings:
+				if b.get("type") == "watchtower" and b.get("cell") == tower_cell:
+					fresh_tower_found = true
+					break
+			if not fresh_tower_found:
+				printerr("  [FAIL] Watchtower not reconstructed in fresh WorldView!")
+				failures += 1
+			else:
+				print("  [PASS] Watchtower successfully restored in fresh WorldView at %s." % tower_cell)
+
+			var fresh_b_node = fresh_world.get("buildings_container").get_node_or_null("Building_watchtower_%d_%d" % [tower_cell.x, tower_cell.y])
+			if fresh_b_node == null:
+				printerr("  [FAIL] Visual watchtower node missing in fresh WorldView!")
+				failures += 1
+			else:
+				print("  [PASS] Visual watchtower node instantiated in fresh WorldView.")
+
+			# Verify Fog of War in fresh world
+			if not fresh_fow.is_visible(pt_dist_15):
+				printerr("  [FAIL] Cell (20, 15) is not visible in restored fresh WorldView!")
+				failures += 1
+			else:
+				print("  [PASS] Cell (20, 15) properly restored to VISIBLE in fresh WorldView.")
+
+			if not fresh_fow.is_unexplored(pt_dist_16):
+				printerr("  [FAIL] Cell (20, 16) is not unexplored in restored fresh WorldView!")
+				failures += 1
+			else:
+				print("  [PASS] Cell (20, 16) strictly UNEXPLORED in fresh WorldView.")
+
+			# Verify POI visibility in fresh world
+			var fresh_inside_node = fresh_world.poi_nodes_by_id.get(poi_inside.id)
+			var fresh_outside_node = fresh_world.poi_nodes_by_id.get(poi_outside.id)
+			if fresh_inside_node == null or not fresh_inside_node.visible:
+				printerr("  [FAIL] Discovered POI node not visible in fresh WorldView!")
+				failures += 1
+			else:
+				print("  [PASS] Discovered POI node visible in fresh WorldView.")
+
+			if fresh_outside_node == null or fresh_outside_node.visible:
+				printerr("  [FAIL] Undiscovered POI node should not be visible in fresh WorldView!")
+				failures += 1
+			else:
+				print("  [PASS] Undiscovered POI node hidden in fresh WorldView.")
+
+		fresh_world.queue_free()
 
 	# Clean up test save file
 	var dir := DirAccess.open("user://saves")

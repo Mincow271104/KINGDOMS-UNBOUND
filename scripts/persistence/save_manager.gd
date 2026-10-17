@@ -437,7 +437,9 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 	var poi_mgr = world_view.get("poi_mgr")
 	var saved_pois: Array = loaded_data.get("pois", [])
 	if poi_mgr != null and not saved_pois.is_empty():
+		var saved_poi_ids := {}
 		for p_data in saved_pois:
+			saved_poi_ids[p_data["id"]] = true
 			var p_obj = poi_mgr.call("get_poi", p_data["id"])
 			if p_obj == null:
 				p_obj = POIManager.POIData.new()
@@ -447,11 +449,15 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 				p_obj.rewards = p_data.get("reward", {}).duplicate()
 				poi_mgr._pois[p_obj.id] = p_obj
 			p_obj.state = int(p_data.get("state", 0))
+		for poi in poi_mgr.call("get_all_pois"):
+			if not saved_poi_ids.has(poi.id):
+				poi.state = 0 # POIState.UNDISCOVERED
 
 	# 9. Restore Fog of War
 	var fow = world_view.get("fog_of_war")
 	var saved_fow: Array = loaded_data.get("fog_of_war", [])
-	if fow != null and not saved_fow.is_empty():
+	if fow != null:
+		fow.reset_fog()
 		for coord in saved_fow:
 			if coord is Array and coord.size() >= 2:
 				var cx: int = int(coord[0])
