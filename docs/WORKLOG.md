@@ -750,6 +750,77 @@ Implement Package 1A adding the Watchtower (Tháp Canh) scouting building on fea
   - `scenes/world/world_view.tscn`: **PASS (Exit Code 0)**
 
 ### Outstanding Issues & Next Step
-- Package 1A complete and verified.
-- Ready for feature branch commit and push to `feature/package-1a-watchtower`.
-- Awaiting review before proceeding to Package 1B.
+- Package 1A initial implementation completed at commit `4fcb0c9`.
+
+---
+
+## [2026-10-17] Milestone 18: Package 1A Review Fixes — POI Visual Discovery, Manhattan Boundary & HUD Signals ✅ VERIFIED
+
+### Context & Objective
+Address code review feedback on feature branch `feature/package-1a-watchtower`:
+1. **Visual POI Discovery Effect:** Undiscovered POIs (`UNDISCOVERED`) must remain invisible (`visible = false`) in `world_view.gd`. When `POIManager.poi_revealed` is emitted, the corresponding POI node in `poi_nodes_by_id` must immediately become visible. When loading a saved game, POI node visibility must match the restored discovery state.
+2. **Exact Manhattan Boundary Verification:** Explicitly verify that cells at Manhattan distance 15 ($|dx| + |dy| = 15$) transition to `VISIBLE`, while cells at Manhattan distance 16 ($|dx| + |dy| = 16$) strictly remain `UNEXPLORED`.
+3. **HUD Integration Verification via Signals:** Verify `WatchtowerBtn` in `HUD/BuildMenuPanel/MarginContainer/VBoxContainer/GridContainer/WatchtowerBtn` by emitting its `pressed` signal, validating `placing_building_type == "watchtower"`, verifying ghost preview node visibility, texture, and offset `(-16, -40)`, and validating that canceling placement restores `placing_building_type == ""` without deducting resources.
+4. **Save/Load Fog & Watchtower Persistence:** Verify serialized save data includes 1x1 watchtower, explored fog coordinates at dist 15 (and excludes dist 16), and saved POI states; verify restored world has proper fog visibility, visual watchtower node, and POI node visibility.
+5. **Visual Validation / Screenshot Evidence:** Document MCP / GUI runtime status honestly.
+
+### Completed Work & Architecture Changes
+1. **WorldView POI Spawning & Signal Integration (`scripts/world/world_view.gd`):**
+   - Added `_spawn_single_poi_node(poi)` helper setting initial node visibility to `poi.state != POIManager.POIState.UNDISCOVERED`.
+   - Connected `poi_mgr.poi_revealed.connect(_on_poi_revealed)` in `_generate_and_build_world()`.
+   - Implemented `_on_poi_revealed(poi)` to dynamically display `poi_nodes_by_id[poi.id].visible = true` upon discovery.
+   - Implemented `refresh_poi_visibility()` to synchronize all visual POI nodes with current data states.
+2. **SaveManager POI Visibility Synchronization (`scripts/persistence/save_manager.gd`):**
+   - In `apply_loaded_state_to_world()`, ensured any saved POI data is properly registered and states restored.
+   - Called `world_view.call("refresh_poi_visibility")` after restoring POIs and Fog of War, ensuring discovered POIs are visible and undiscovered POIs remain hidden after loading.
+3. **Enhanced Watchtower Test Suite (`scripts/test/test_watchtower.gd`):**
+   - Added TC-W.5: HUD Integration & Signal Verification (tests `$HUD/.../WatchtowerBtn.pressed`, placement mode, ghost preview texture/offset/visibility, cancel placement with zero resource deduction).
+   - Added TC-W.6: Exact Manhattan Boundary Verification (cell at $(20, 15)$ [dist 15] is `VISIBLE`, cell at $(20, 16)$ [dist 16] strictly remains `UNEXPLORED`).
+   - Added TC-W.7: POI Discovery Visual Feedback & State Transition (undiscovered POI node starts invisible, transitions to visible on reveal, outside POI remains undiscovered and invisible, continuous hourly simulation maintains visibility).
+   - Added TC-W.8: Save/Load Fog, Watchtower & POI Persistence (checks save JSON for 1x1 watchtower, fog [20, 15] included, [20, 16] excluded, POI states saved; restores and checks visual node, fog states, discovered POI visible, undiscovered POI invisible).
+
+### Validations Performed & Results
+- **Dedicated Watchtower Test Suite (`scripts/test/test_watchtower.gd`):**
+  - TC-W.1: Blueprint & Cost Verification -> **PASS**
+  - TC-W.2: Placement Legality Validation (1x1 Footprint) -> **PASS**
+  - TC-W.3: Cost Deduction & Atomic Safety -> **PASS**
+  - TC-W.4: UI, Texture & Sprite Offset Validation -> **PASS**
+  - TC-W.5: HUD Integration & Signal Verification -> **PASS**
+  - TC-W.6: Exact Manhattan Boundary Verification (Dist 15 vs Dist 16) -> **PASS**
+  - TC-W.7: POI Discovery Visual Feedback -> **PASS**
+  - TC-W.8: Save/Load Fog, Watchtower & POI Persistence -> **PASS**
+  - **Overall: ALL 8 TEST SUITES PASSED (Exit Code 0).**
+- **Full Regression Test Matrix (13/13 Suites Passed, Exit Code 0):**
+  1. `test_save_load.gd` (TC-8.1, TC-8.2, TC-8.3): **PASS (Exit Code 0)**
+  2. `test_world_gen.gd` (TC-1.2): **PASS (Exit Code 0)**
+  3. `test_coordinates.gd` (TC-1.1): **PASS (Exit Code 0)**
+  4. `test_time_manager.gd` (TC-1.4): **PASS (Exit Code 0)**
+  5. `test_economy.gd` (TC-2.1, TC-2.2): **PASS (Exit Code 0)**
+  6. `test_citizens.gd` (TC-3.1, TC-3.2): **PASS (Exit Code 0)**
+  7. `test_logistics.gd` (TC-4.1, TC-4.2, TC-4.3): **PASS (Exit Code 0)**
+  8. `test_research_and_exploration.gd` (TC-5.1, TC-5.2, TC-5.3): **PASS (Exit Code 0)**
+  9. `test_factions_and_battles.gd` (TC-6.1, TC-6.2): **PASS (Exit Code 0)**
+  10. `test_victory_and_collapse.gd` (TC-7.1, TC-7.2, TC-7.3): **PASS (Exit Code 0)**
+  11. `test_audio.gd`: **PASS (Exit Code 0)**
+  12. `test_gold_transactions.gd` (TC-G.1 to TC-G.8): **PASS (Exit Code 0)**
+  13. `test_stress_100_citizens.gd` (TC-9.1, 142-145 FPS): **PASS (Exit Code 0)**
+- **Scene Instantiation Sanity:**
+  - `scenes/test/visual_validation_test.tscn`: **PASS (Exit Code 0)**
+  - `scenes/ui/main_menu.tscn`: **PASS (Exit Code 0)**
+  - `scenes/world/world_view.tscn`: **PASS (Exit Code 0)**
+- **Visual Validation / MCP Screenshot Status:**
+  - `NOT RUN` (Reason: Godot Editor GUI is not running in this session; MCP server is in `waiting` mode on port 6505 without connected editor client; all visual nodes, textures, offsets, and visibility states were validated deterministically through Godot 4.7 engine console tests).
+- **Whitespace Check:**
+  - `git diff --check`: Clean (Exit Code 0, zero whitespace errors).
+
+### Files Created / Modified
+- `scripts/world/world_view.gd` (Added `_spawn_single_poi_node`, `_on_poi_revealed`, `refresh_poi_visibility`, connected `poi_revealed`)
+- `scripts/persistence/save_manager.gd` (Added `refresh_poi_visibility` call and safe POI reconstruction)
+- `scripts/test/test_watchtower.gd` (Added TC-W.5 HUD signals, TC-W.6 exact Manhattan 15/16, TC-W.7 visual POI discovery, TC-W.8 fog & POI persistence)
+- `docs/WORKLOG.md` (Documented Milestone 18 review fixes)
+
+### Next Exact Step
+- Commit review fixes to branch `feature/package-1a-watchtower`.
+- Push branch `feature/package-1a-watchtower` to remote `origin`.
+- Keep `KINGDOMS_UNBOUND_STAGE11_FINAL.html` untracked.
+- Do NOT merge or push to `master`.

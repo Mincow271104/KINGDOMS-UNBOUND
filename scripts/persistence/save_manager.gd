@@ -439,8 +439,14 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 	if poi_mgr != null and not saved_pois.is_empty():
 		for p_data in saved_pois:
 			var p_obj = poi_mgr.call("get_poi", p_data["id"])
-			if p_obj != null:
-				p_obj.state = int(p_data.get("state", 0))
+			if p_obj == null:
+				p_obj = POIManager.POIData.new()
+				p_obj.id = p_data["id"]
+				p_obj.name = p_data.get("name", "")
+				p_obj.cell = Vector2i(p_data.get("cell_x", 0), p_data.get("cell_y", 0))
+				p_obj.rewards = p_data.get("reward", {}).duplicate()
+				poi_mgr._pois[p_obj.id] = p_obj
+			p_obj.state = int(p_data.get("state", 0))
 
 	# 9. Restore Fog of War
 	var fow = world_view.get("fog_of_war")
@@ -452,6 +458,10 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 				var cy: int = int(coord[1])
 				if IsoMath.is_in_bounds(Vector2i(cx, cy)):
 					fow._grid[cx][cy] = 2 # VISIBLE
+
+	# Refresh POI visibility based on restored discovery states
+	if world_view.has_method("refresh_poi_visibility"):
+		world_view.call("refresh_poi_visibility")
 
 	# Refresh HUD
 	var hud = world_view.get("hud")

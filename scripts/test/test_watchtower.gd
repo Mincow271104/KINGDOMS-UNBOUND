@@ -221,81 +221,204 @@ func _run_world_integration_checks() -> void:
 		print("  [PASS] Watchtower display name verified: '%s'" % dname)
 
 	# -------------------------------------------------------------------------
-	# TC-W.5: Vision Expansion (Radius 15) & POI Discovery Integration
+	# TC-W.5: HUD Integration & Signal Verification
 	# -------------------------------------------------------------------------
-	print("\n--- Running TC-W.5: Vision Expansion (Radius 15) & POI Discovery Integration ---")
+	print("\n--- Running TC-W.5: HUD Integration & Signal Verification ---")
+	var wt_btn = world_instance.get_node_or_null("HUD/BuildMenuPanel/MarginContainer/VBoxContainer/GridContainer/WatchtowerBtn")
+	if wt_btn == null:
+		printerr("  [FAIL] WatchtowerBtn not found in HUD BuildMenuPanel!")
+		failures += 1
+	else:
+		print("  [PASS] WatchtowerBtn found in HUD tree.")
+		var live_rm = world_instance.get_node_or_null("/root/ResourceManager")
+		if live_rm:
+			live_rm.reset_economy()
+			live_rm.add_resource("wood", 100)
+			live_rm.add_resource("stone", 100)
+		var wood_prior: int = live_rm.get_available_stock("wood") if live_rm else 0
+		var stone_prior: int = live_rm.get_available_stock("stone") if live_rm else 0
+
+		# Emit button pressed signal
+		wt_btn.pressed.emit()
+
+		# Verify world placing_building_type set
+		var placing_type: String = world_instance.get("placing_building_type")
+		if placing_type != "watchtower":
+			printerr("  [FAIL] After WatchtowerBtn pressed, placing_building_type is '%s', expected 'watchtower'" % placing_type)
+			failures += 1
+		else:
+			print("  [PASS] WatchtowerBtn pressed correctly set placing_building_type to 'watchtower'.")
+
+		# Verify ghost preview
+		var ghost_node: Node2D = world_instance.get("ghost_building_node")
+		var ghost_sprite: Sprite2D = world_instance.get("ghost_building_sprite")
+		if ghost_node == null or ghost_sprite == null:
+			printerr("  [FAIL] Ghost preview node or sprite missing!")
+			failures += 1
+		else:
+			if not ghost_node.visible:
+				printerr("  [FAIL] Ghost preview node is not visible!")
+				failures += 1
+			else:
+				print("  [PASS] Ghost preview node is visible.")
+			if ghost_sprite.texture == null:
+				printerr("  [FAIL] Ghost preview sprite texture is null!")
+				failures += 1
+			else:
+				print("  [PASS] Ghost preview sprite texture loaded.")
+			if ghost_sprite.offset != Vector2(-16.0, -40.0):
+				printerr("  [FAIL] Ghost preview sprite offset is %s, expected (-16, -40)" % ghost_sprite.offset)
+				failures += 1
+			else:
+				print("  [PASS] Ghost preview sprite offset verified (-16, -40).")
+
+		# Cancel placement and verify no deduction
+		world_instance.call("_cancel_placement")
+		if world_instance.get("placing_building_type") != "":
+			printerr("  [FAIL] placing_building_type should be empty after _cancel_placement()!")
+			failures += 1
+		else:
+			print("  [PASS] Placement canceled cleanly.")
+		if ghost_node != null and ghost_node.visible:
+			printerr("  [FAIL] Ghost preview should be hidden after cancel!")
+			failures += 1
+		else:
+			print("  [PASS] Ghost preview hidden after cancel.")
+
+		var wood_post: int = live_rm.get_available_stock("wood") if live_rm else 0
+		var stone_post: int = live_rm.get_available_stock("stone") if live_rm else 0
+		if wood_post != wood_prior or stone_post != stone_prior:
+			printerr("  [FAIL] Resources changed on canceled placement! Prior: (%d, %d), Post: (%d, %d)" % [wood_prior, stone_prior, wood_post, stone_post])
+			failures += 1
+		else:
+			print("  [PASS] Resources unaffected by canceling placement.")
+
+	# -------------------------------------------------------------------------
+	# TC-W.6: Exact Manhattan Boundary Verification (Dist 15 vs Dist 16)
+	# -------------------------------------------------------------------------
+	print("\n--- Running TC-W.6: Exact Manhattan Boundary Verification (Dist 15 vs Dist 16) ---")
 	var fow: FogOfWar = world_instance.get("fog_of_war")
 	var poi_mgr: POIManager = world_instance.get("poi_mgr")
 	var w_data = world_instance.get("world_data")
 
 	var tower_cell := Vector2i(10, 10)
-	# Clear terrain for tower placement
 	w_data.terrain[tower_cell.x][tower_cell.y] = WorldGeneratorScript.TerrainType.GRASS
 	w_data.occupancy[tower_cell.x][tower_cell.y] = false
 
-	# Cell at distance 12 Manhattan: (10 + 6, 10 + 6) -> dx=6, dy=6, dist=12 <= 15
-	var edge_cell := Vector2i(16, 16)
-	var far_cell := Vector2i(26, 26) # dist = 16 + 16 = 32 > 15
+	# Exact Manhattan distance 15: dx=10, dy=5 -> 10 + 5 = 15
+	var pt_dist_15 := Vector2i(20, 15)
+	# Exact Manhattan distance 16: dx=10, dy=6 -> 10 + 6 = 16
+	var pt_dist_16 := Vector2i(20, 16)
 
-	# Reset fog cell to unexplored for controlled test
-	fow._grid[edge_cell.x][edge_cell.y] = FogOfWarScript.State.UNEXPLORED
-	fow._grid[far_cell.x][far_cell.y] = FogOfWarScript.State.UNEXPLORED
+	fow._grid[pt_dist_15.x][pt_dist_15.y] = FogOfWarScript.State.UNEXPLORED
+	fow._grid[pt_dist_16.x][pt_dist_16.y] = FogOfWarScript.State.UNEXPLORED
 
-	if fow.get_state(edge_cell) != FogOfWarScript.State.UNEXPLORED:
-		printerr("  [FAIL] Edge cell was not UNEXPLORED before tower placement!")
+	if fow.get_state(pt_dist_15) != FogOfWarScript.State.UNEXPLORED or fow.get_state(pt_dist_16) != FogOfWarScript.State.UNEXPLORED:
+		printerr("  [FAIL] Test cells were not reset to UNEXPLORED!")
 		failures += 1
 
-	# Configure POI inside watchtower vision range (dist = 10 <= 15)
-	var poi_cell := Vector2i(15, 15) # dist = 10
-	var test_poi := POIManagerScript.POIData.new()
-	test_poi.id = "poi_watchtower_test"
-	test_poi.name = "Phế tích Đài Quan Sát"
-	test_poi.cell = poi_cell
-	test_poi.state = POIManagerScript.POIState.UNDISCOVERED
-	test_poi.rewards = {EconomyConfigScript.RES_GOLD: 50}
-	poi_mgr._pois[test_poi.id] = test_poi
+	# Setup two POIs: one inside vision (dist 10 <= 15), one outside vision (dist 30 > 15)
+	var poi_inside := POIManagerScript.POIData.new()
+	poi_inside.id = "poi_watchtower_test"
+	poi_inside.name = "Phế tích Đài Quan Sát"
+	poi_inside.cell = Vector2i(15, 15) # dist = 5 + 5 = 10 <= 15
+	poi_inside.state = POIManagerScript.POIState.UNDISCOVERED
+	poi_inside.rewards = {EconomyConfigScript.RES_GOLD: 50}
+	poi_mgr._pois[poi_inside.id] = poi_inside
+
+	var poi_outside := POIManagerScript.POIData.new()
+	poi_outside.id = "poi_distant_grove"
+	poi_outside.name = "Rừng Rậm Xa Xôi"
+	poi_outside.cell = Vector2i(25, 25) # dist = 15 + 15 = 30 > 15
+	poi_outside.state = POIManagerScript.POIState.UNDISCOVERED
+	poi_outside.rewards = {EconomyConfigScript.RES_HERBS: 20}
+	poi_mgr._pois[poi_outside.id] = poi_outside
+
+	# Spawn visual nodes for POIs
+	var node_inside = world_instance.call("_spawn_single_poi_node", poi_inside)
+	var node_outside = world_instance.call("_spawn_single_poi_node", poi_outside)
+
+	# Verify POI nodes are hidden while UNDISCOVERED
+	if node_inside.visible:
+		printerr("  [FAIL] Undiscovered POI node_inside should be invisible!")
+		failures += 1
+	else:
+		print("  [PASS] Undiscovered POI node_inside is correctly hidden.")
+
+	if node_outside.visible:
+		printerr("  [FAIL] Undiscovered POI node_outside should be invisible!")
+		failures += 1
+	else:
+		print("  [PASS] Undiscovered POI node_outside is correctly hidden.")
 
 	# Execute placement via WorldView
 	world_instance.set("placing_building_type", "watchtower")
-	var live_rm = world_instance.get_node_or_null("/root/ResourceManager")
-	if live_rm:
-		live_rm.reset_economy()
-		live_rm.add_resource("wood", 100)
-		live_rm.add_resource("stone", 100)
+	var live_rm2 = world_instance.get_node_or_null("/root/ResourceManager")
+	if live_rm2:
+		live_rm2.reset_economy()
+		live_rm2.add_resource("wood", 100)
+		live_rm2.add_resource("stone", 100)
 	world_instance.call("_execute_placement", tower_cell)
 
-	# Check vision expansion
-	if not fow.is_visible(edge_cell):
-		printerr("  [FAIL] Edge cell (16, 16) [dist=12] should be VISIBLE after Watchtower build! State=%d" % fow.get_state(edge_cell))
+	# Boundary check: dist 15 must be VISIBLE
+	if not fow.is_visible(pt_dist_15):
+		printerr("  [FAIL] Exact Manhattan boundary (dist=15) at (20, 15) should be VISIBLE! State=%d" % fow.get_state(pt_dist_15))
 		failures += 1
 	else:
-		print("  [PASS] 15-tile vision expansion confirmed: cell (16, 16) [dist=12] became VISIBLE.")
+		print("  [PASS] Exact Manhattan boundary (dist=15) at (20, 15) verified VISIBLE.")
 
-	if fow.is_explored(far_cell):
-		printerr("  [FAIL] Far cell (26, 26) [dist=32] should remain UNEXPLORED!")
+	# Boundary check: dist 16 must remain UNEXPLORED
+	if fow.is_explored(pt_dist_16):
+		printerr("  [FAIL] Exact Manhattan boundary (dist=16) at (20, 16) should remain UNEXPLORED! State=%d" % fow.get_state(pt_dist_16))
 		failures += 1
 	else:
-		print("  [PASS] Cells outside radius 15 strictly remained UNEXPLORED.")
+		print("  [PASS] Exact Manhattan boundary (dist=16) at (20, 16) strictly remained UNEXPLORED.")
 
-	# Check POI discovery
-	if test_poi.state != POIManagerScript.POIState.DISCOVERED:
-		printerr("  [FAIL] POI inside watchtower radius was not DISCOVERED! State=%d" % test_poi.state)
+	# -------------------------------------------------------------------------
+	# TC-W.7: POI Discovery Visual Feedback
+	# -------------------------------------------------------------------------
+	print("\n--- Running TC-W.7: POI Discovery Visual Feedback ---")
+	if poi_inside.state != POIManagerScript.POIState.DISCOVERED:
+		printerr("  [FAIL] POI inside vision should be DISCOVERED! State=%d" % poi_inside.state)
 		failures += 1
 	else:
-		print("  [PASS] POI in watchtower vision range automatically DISCOVERED.")
+		print("  [PASS] POI inside vision transitioned to DISCOVERED.")
+
+	if not node_inside.visible:
+		printerr("  [FAIL] POI visual node was not made visible upon discovery!")
+		failures += 1
+	else:
+		print("  [PASS] POI visual node became visible via poi_revealed signal.")
+
+	if poi_outside.state != POIManagerScript.POIState.UNDISCOVERED:
+		printerr("  [FAIL] POI outside vision should remain UNDISCOVERED! State=%d" % poi_outside.state)
+		failures += 1
+	else:
+		print("  [PASS] POI outside vision remained UNDISCOVERED.")
+
+	if node_outside.visible:
+		printerr("  [FAIL] POI outside vision became visible erroneously!")
+		failures += 1
+	else:
+		print("  [PASS] POI outside vision remained invisible.")
 
 	# Continuous vision test: simulate hour passed
 	world_instance.call("_on_simulation_hour_passed", 7, 1)
-	if not fow.is_visible(edge_cell):
-		printerr("  [FAIL] Continuous simulation hour failed to maintain watchtower vision!")
+	if not fow.is_visible(pt_dist_15):
+		printerr("  [FAIL] Continuous simulation hour failed to maintain watchtower vision at dist 15!")
 		failures += 1
 	else:
 		print("  [PASS] Watchtower continuous hourly simulation vision maintained cleanly.")
+	if not node_inside.visible or node_outside.visible:
+		printerr("  [FAIL] Continuous simulation corrupted POI node visibilities!")
+		failures += 1
+	else:
+		print("  [PASS] Continuous simulation maintained correct POI visibility states.")
 
 	# -------------------------------------------------------------------------
-	# TC-W.6: Save/Load Persistence
+	# TC-W.8: Save/Load Fog, Watchtower & POI Persistence
 	# -------------------------------------------------------------------------
-	print("\n--- Running TC-W.6: Save/Load Persistence ---")
+	print("\n--- Running TC-W.8: Save/Load Fog, Watchtower & POI Persistence ---")
 	var save_path := "user://saves/test_watchtower_save.json"
 	var save_res: Dictionary = SaveManagerScript.save_to_file(world_instance, save_path)
 	if not save_res.get("success", false):
@@ -324,6 +447,47 @@ func _run_world_integration_checks() -> void:
 		else:
 			print("  [PASS] Watchtower correctly serialized with 1x1 footprint.")
 
+		# Check fog coordinates in save data
+		var saved_fow_list: Array = loaded_data.get("fog_of_war", [])
+		var has_pt_15 := false
+		var has_pt_16 := false
+		for coord in saved_fow_list:
+			if coord is Array and coord.size() >= 2:
+				if coord[0] == pt_dist_15.x and coord[1] == pt_dist_15.y:
+					has_pt_15 = true
+				if coord[0] == pt_dist_16.x and coord[1] == pt_dist_16.y:
+					has_pt_16 = true
+		if not has_pt_15:
+			printerr("  [FAIL] Saved fog_of_war missing dist 15 coordinate (20, 15)!")
+			failures += 1
+		else:
+			print("  [PASS] Saved fog_of_war contains explored dist 15 coordinate.")
+		if has_pt_16:
+			printerr("  [FAIL] Saved fog_of_war erroneously contains dist 16 coordinate (20, 16)!")
+			failures += 1
+		else:
+			print("  [PASS] Saved fog_of_war strictly excludes unexplored dist 16 coordinate.")
+
+		# Check POI states in save data
+		var saved_pois_list: Array = loaded_data.get("pois", [])
+		var saved_poi_inside_state := -1
+		var saved_poi_outside_state := -1
+		for sp in saved_pois_list:
+			if sp.get("id") == poi_inside.id:
+				saved_poi_inside_state = int(sp.get("state", -1))
+			elif sp.get("id") == poi_outside.id:
+				saved_poi_outside_state = int(sp.get("state", -1))
+		if saved_poi_inside_state != POIManagerScript.POIState.DISCOVERED:
+			printerr("  [FAIL] Saved poi_inside state is %d, expected DISCOVERED (1)" % saved_poi_inside_state)
+			failures += 1
+		else:
+			print("  [PASS] Saved poi_inside correctly serialized as DISCOVERED.")
+		if saved_poi_outside_state != POIManagerScript.POIState.UNDISCOVERED:
+			printerr("  [FAIL] Saved poi_outside state is %d, expected UNDISCOVERED (0)" % saved_poi_outside_state)
+			failures += 1
+		else:
+			print("  [PASS] Saved poi_outside correctly serialized as UNDISCOVERED.")
+
 		# Apply loaded state to world
 		var apply_res: Dictionary = SaveManagerScript.apply_loaded_state_to_world(world_instance, loaded_data)
 		if not apply_res.get("success", false):
@@ -349,6 +513,32 @@ func _run_world_integration_checks() -> void:
 				failures += 1
 			else:
 				print("  [PASS] Watchtower visual node verified in scene tree with zero duplicates.")
+
+			# Check fog restoration
+			if not fow.is_visible(pt_dist_15):
+				printerr("  [FAIL] Restored fog dist 15 (20, 15) is not visible!")
+				failures += 1
+			else:
+				print("  [PASS] Restored fog dist 15 is VISIBLE.")
+			if fow.is_explored(pt_dist_16):
+				printerr("  [FAIL] Restored fog dist 16 (20, 16) was erroneously explored!")
+				failures += 1
+			else:
+				print("  [PASS] Restored fog dist 16 remains UNEXPLORED.")
+
+			# Check POI node visibility restoration
+			var restored_inside_node = world_instance.poi_nodes_by_id.get(poi_inside.id)
+			var restored_outside_node = world_instance.poi_nodes_by_id.get(poi_outside.id)
+			if restored_inside_node == null or not restored_inside_node.visible:
+				printerr("  [FAIL] Restored discovered POI node is not visible!")
+				failures += 1
+			else:
+				print("  [PASS] Restored discovered POI node is visible.")
+			if restored_outside_node == null or restored_outside_node.visible:
+				printerr("  [FAIL] Restored undiscovered POI node should not be visible!")
+				failures += 1
+			else:
+				print("  [PASS] Restored undiscovered POI node remains hidden without revealing.")
 
 	# Clean up test save file
 	var dir := DirAccess.open("user://saves")

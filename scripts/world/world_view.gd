@@ -124,6 +124,7 @@ func _generate_and_build_world() -> void:
 			if nav.is_walkable(cell):
 				walkable.append(cell)
 	poi_mgr.generate_pois(world_seed, walkable, 4)
+	poi_mgr.poi_revealed.connect(_on_poi_revealed)
 	
 	event_system = WorldEventSystem.new(world_seed)
 	faction_mgr = FactionManager.new()
@@ -238,24 +239,51 @@ func _spawn_props() -> void:
 		p_node.add_child(spr)
 		props_container.add_child(p_node)
 
+func _spawn_single_poi_node(poi: POIManager.POIData) -> Node2D:
+	if poi == null:
+		return null
+	var p_node := Node2D.new()
+	p_node.name = "POI_%s" % poi.id
+	p_node.position = IsoMath.map_to_local(poi.cell)
+	p_node.y_sort_enabled = true
+
+	var spr := Sprite2D.new()
+	spr.name = "Sprite2D"
+	spr.texture = prop_textures.get("poi_ruins")
+	spr.centered = false
+	spr.offset = Vector2(-16.0, -24.0)
+	p_node.add_child(spr)
+
+	p_node.visible = (poi.state != POIManager.POIState.UNDISCOVERED)
+
+	props_container.add_child(p_node)
+	poi_nodes_by_id[poi.id] = p_node
+	return p_node
+
 func _spawn_pois() -> void:
 	if poi_mgr == null:
 		return
 	for poi in poi_mgr.get_all_pois():
-		var p_node := Node2D.new()
-		p_node.name = "POI_%s" % poi.id
-		p_node.position = IsoMath.map_to_local(poi.cell)
-		p_node.y_sort_enabled = true
-		
-		var spr := Sprite2D.new()
-		spr.name = "Sprite2D"
-		spr.texture = prop_textures.get("poi_ruins")
-		spr.centered = false
-		spr.offset = Vector2(-16.0, -24.0)
-		p_node.add_child(spr)
-		
-		props_container.add_child(p_node)
-		poi_nodes_by_id[poi.id] = p_node
+		_spawn_single_poi_node(poi)
+
+func _on_poi_revealed(poi: POIManager.POIData) -> void:
+	if poi == null:
+		return
+	var p_node: CanvasItem = poi_nodes_by_id.get(poi.id)
+	if p_node == null:
+		p_node = _spawn_single_poi_node(poi)
+	if is_instance_valid(p_node):
+		p_node.visible = true
+
+func refresh_poi_visibility() -> void:
+	if poi_mgr == null:
+		return
+	for poi in poi_mgr.get_all_pois():
+		var p_node: CanvasItem = poi_nodes_by_id.get(poi.id)
+		if p_node == null:
+			p_node = _spawn_single_poi_node(poi)
+		if is_instance_valid(p_node):
+			p_node.visible = (poi.state != POIManager.POIState.UNDISCOVERED)
 
 func _spawn_starter_citizens() -> void:
 	var citizen_tex = load("res://assets/entities/citizen.png")
