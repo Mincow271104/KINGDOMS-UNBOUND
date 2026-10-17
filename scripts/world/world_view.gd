@@ -84,6 +84,7 @@ func _load_assets() -> void:
 	building_textures["farm"] = load("res://assets/buildings/bld_farm.png")
 	building_textures["storehouse"] = load("res://assets/buildings/bld_storehouse.png")
 	building_textures["woodcutter"] = load("res://assets/buildings/bld_woodcutter.png")
+	building_textures["watchtower"] = load("res://assets/buildings/bld_watchtower.png")
 	
 	prop_textures["tree"] = load("res://assets/props/prop_tree.png")
 	prop_textures["rock"] = load("res://assets/props/prop_rock.png")
@@ -214,6 +215,7 @@ func _get_building_sprite_offset(type: String) -> Vector2:
 		"storehouse": return Vector2(-32.0, -40.0)
 		"farm": return Vector2(-32.0, -28.0)
 		"woodcutter": return Vector2(-32.0, -36.0)
+		"watchtower": return Vector2(-16.0, -40.0)
 		_: return Vector2(-32.0, -32.0)
 
 func _spawn_props() -> void:
@@ -451,6 +453,15 @@ func _execute_placement(cell: Vector2i) -> void:
 		var housing_cap: int = BuildingSystem.get_total_housing_capacity(world_data)
 		if hud:
 			hud.update_population_display(citizen_list.size(), housing_cap)
+
+		# If watchtower, reveal vision and update POI discovery immediately
+		if b_data["type"] == "watchtower" and fog_of_war != null:
+			var bp: Dictionary = EconomyConfig.BLUEPRINTS.get("watchtower", {})
+			var v_rad: int = bp.get("vision_radius", 15)
+			fog_of_war.reveal_circle(cell, v_rad)
+			if poi_mgr != null:
+				poi_mgr.update_discovery(fog_of_war)
+
 		var am = get_node_or_null("/root/AudioManager")
 		if am:
 			am.play_build()
@@ -484,6 +495,7 @@ func _get_building_display_name(key: String) -> String:
 		"farm": return "Nông Trại (2x2)"
 		"storehouse": return "Kho Lương (2x2)"
 		"woodcutter": return "Trại Tiều Phu (2x2)"
+		"watchtower": return "Tháp Canh (1x1)"
 		_: return ""
 
 func _on_return_to_menu() -> void:
@@ -502,6 +514,15 @@ func _on_simulation_hour_passed(hour: int, day: int) -> void:
 			var c_cell: Vector2i = cit.get("current_cell")
 			fog_of_war.reveal_circle(c_cell, 4)
 			
+		# Maintain active watchtowers vision
+		if world_data != null and world_data.get("buildings") != null:
+			for b in world_data.buildings:
+				if b.get("type") == "watchtower" and b.get("state", "active") != "destroyed":
+					var b_cell: Vector2i = b.get("cell", Vector2i.ZERO)
+					var bp: Dictionary = EconomyConfig.BLUEPRINTS.get("watchtower", {})
+					var v_rad: int = bp.get("vision_radius", 15)
+					fog_of_war.reveal_circle(b_cell, v_rad)
+
 	# Update POI discovery
 	if poi_mgr != null and fog_of_war != null:
 		poi_mgr.update_discovery(fog_of_war)

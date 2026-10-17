@@ -693,4 +693,63 @@ Resolve the compilation blocker identified in the audit report at `scripts/ui/hu
 ### Outstanding Issues & Next Step
 - Package 0 complete and verified.
 - Working tree preserved; no premature Git commit or push.
-- Awaiting user instruction before proceeding to Package 1.
+- Package 0 committed as checkpoint: `34a8595c2dfdc4ae76ebf6d634db624f114c0003`.
+
+---
+
+## [2026-10-17] Milestone 17: Package 1A — Watchtower Scouting Building ✅ VERIFIED
+
+### Context & Objective
+Implement Package 1A adding the Watchtower (Tháp Canh) scouting building on feature branch `feature/package-1a-watchtower`. Enable building placement, procedural pixel art visual presentation, 1x1 diamond footprint collision, and active 15-tile Fog of War vision expansion integrated into gameplay.
+
+### Completed Work & Architecture Integration
+1. **Watchtower Blueprint (`scripts/economy/economy_config.gd`):**
+   - Added `watchtower` blueprint with footprint `Vector2i(1, 1)`, cost `{ wood: 20, stone: 15 }`, 6.0 construction hours, `vision_radius: 15`, `max_workers: 0`, and zero periodic upkeep in 1A.
+2. **Procedural Pixel Art Sprite (`scripts/tools/generate_pixel_assets.gd`):**
+   - Implemented `_generate_watchtower_building()` generating 32x48 px pixel art with 1x1 diamond base (32x16 px), stone shaft, wooden lookout balcony, crimson roof, NW lighting, and ground-contact pivot `Vector2(-16.0, -40.0)`.
+   - Generated `res://assets/buildings/bld_watchtower.png` and imported cleanly into Godot.
+3. **HUD Build Menu Integration (`scenes/ui/hud.tscn` & `scripts/ui/hud.gd`):**
+   - Added `WatchtowerBtn` ("🗼 Tháp Canh (20 Gỗ, 15 Đá)") in `BuildMenuPanel/GridContainer`.
+   - Wired button press to `_select_building("watchtower")` and `build_requested.emit("watchtower")`.
+4. **WorldView Placement & Simulation (`scripts/world/world_view.gd`):**
+   - Loaded texture in `building_textures["watchtower"]` for live placement and ghost preview.
+   - Configured sprite offset `Vector2(-16.0, -40.0)` matching the 1x1 diamond pivot.
+   - Connected display name `"Tháp Canh (1x1)"` in tile inspection.
+   - Immediate vision expansion: Called `fog_of_war.reveal_circle(cell, 15)` and `poi_mgr.update_discovery(fog_of_war)` on placement completion.
+   - Hourly continuous vision: Maintained active watchtower vision circles during `_on_simulation_hour_passed` to keep surrounding cells explored and discover incoming POIs/events.
+5. **Combat Defense Scope Note:**
+   - As specified in the Package 1A prompt, combat defense bonus integration is postponed to a future dedicated Combat Integration package to maintain strict mathematical decoupling from `fortification_level`.
+
+### Validations Performed & Results
+- **Dedicated Automated Test Suite (`scripts/test/test_watchtower.gd`):**
+  - TC-W.1 (Blueprint & Cost Verification): **PASS**
+  - TC-W.2 (1x1 Placement Legality: Grass valid, Water/Occupied/OOB/Insufficient rejected): **PASS**
+  - TC-W.3 (Atomic Cost Deduction: exactly 20 Wood and 15 Stone deducted, exact 1x1 occupancy): **PASS**
+  - TC-W.4 (UI, Texture & Sprite Offset Validation: 32x48 texture, (-16, -40) offset, display name): **PASS**
+  - TC-W.5 (Vision Expansion & POI Discovery: 15-tile Manhattan radius, POI discovered, hourly vision maintained): **PASS**
+  - TC-W.6 (Save/Load Persistence: 1x1 footprint preserved, visual node reconstructed without duplication): **PASS**
+  - **Results: ALL PACKAGE 1A TESTS PASSED (Exit Code 0).**
+- **Full Regression Test Matrix (14/14 Suites Passed, Exit Code 0):**
+  1. `test_watchtower.gd`: **PASS (Exit Code 0)**
+  2. `test_save_load.gd` (TC-8.1, TC-8.2, TC-8.3): **PASS (Exit Code 0)**
+  3. `test_world_gen.gd` (TC-1.2): **PASS (Exit Code 0)**
+  4. `test_coordinates.gd` (TC-1.1): **PASS (Exit Code 0)**
+  5. `test_time_manager.gd` (TC-1.4): **PASS (Exit Code 0)**
+  6. `test_economy.gd` (TC-2.1, TC-2.2): **PASS (Exit Code 0)**
+  7. `test_citizens.gd` (TC-3.1, TC-3.2): **PASS (Exit Code 0)**
+  8. `test_logistics.gd` (TC-4.1, TC-4.2, TC-4.3): **PASS (Exit Code 0)**
+  9. `test_research_and_exploration.gd` (TC-5.1, TC-5.2, TC-5.3): **PASS (Exit Code 0)**
+  10. `test_factions_and_battles.gd` (TC-6.1, TC-6.2): **PASS (Exit Code 0)**
+  11. `test_victory_and_collapse.gd` (TC-7.1, TC-7.2, TC-7.3): **PASS (Exit Code 0)**
+  12. `test_audio.gd`: **PASS (Exit Code 0)**
+  13. `test_gold_transactions.gd` (TC-G.1 to TC-G.8): **PASS (Exit Code 0)**
+  14. `test_stress_100_citizens.gd` (TC-9.1, 145 FPS benchmark): **PASS (Exit Code 0)**
+- **Scene Instantiation Sanity:**
+  - `scenes/test/visual_validation_test.tscn`: **PASS (Exit Code 0)**
+  - `scenes/ui/main_menu.tscn`: **PASS (Exit Code 0)**
+  - `scenes/world/world_view.tscn`: **PASS (Exit Code 0)**
+
+### Outstanding Issues & Next Step
+- Package 1A complete and verified.
+- Ready for feature branch commit and push to `feature/package-1a-watchtower`.
+- Awaiting review before proceeding to Package 1B.

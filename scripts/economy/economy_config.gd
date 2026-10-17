@@ -124,5 +124,17 @@ const BLUEPRINTS: Dictionary = {
 		},
 		"max_workers": 0,
 		"job_type": ""
+	},
+	"watchtower": {
+		"id": "watchtower",
+		"name_vi": "Tháp Canh",
+		"footprint": Vector2i(1, 1),
+		"cost": {RES_WOOD: 20, RES_STONE: 15},
+		"construction_hours": 6.0,
+		"housing_capacity": 0,
+		"storage_bonus": {},
+		"max_workers": 0,
+		"job_type": "",
+		"vision_radius": 15
 	}
 }

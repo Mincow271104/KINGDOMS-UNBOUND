@@ -130,6 +130,9 @@ func _ready() -> void:
 	btn_storehouse.pressed.connect(func(): _select_building("storehouse"))
 	btn_farm.pressed.connect(func(): _select_building("farm"))
 	btn_woodcutter.pressed.connect(func(): _select_building("woodcutter"))
+	var btn_watchtower = $BuildMenuPanel/MarginContainer/VBoxContainer/GridContainer.get_node_or_null("WatchtowerBtn")
+	if btn_watchtower:
+		btn_watchtower.pressed.connect(func(): _select_building("watchtower"))
 	btn_close_build.pressed.connect(func(): build_menu_panel.visible = false)
 
 	# Citizen inspector controls
