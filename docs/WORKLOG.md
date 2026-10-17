@@ -1034,3 +1034,82 @@ Package 1B implements dynamic production workplace registration and physical log
 - Commit with exact message: `Add dynamic production workplace registration` on `feature/package-1b-dynamic-workplaces`.
 - Push to remote `origin/feature/package-1b-dynamic-workplaces`.
 - Await independent review.
+
+---
+
+## [2026-10-18] Milestone 22: Package 1B Review Fix — Real Citizen Work & Hauling Flow Verification ✅ VERIFIED
+
+### Context & Objective
+Following independent review of Package 1B (Milestone 21), address review findings by adding end-to-end integration tests using real `CitizenController` instances to verify the complete citizen state machine life cycle for dynamic workplaces:
+1. **Real Citizen Production Flow (TC-DW.3b):** A real `CitizenController` with role `farmer` claims a dynamic farm job, traverses the grid path to the access cell (`MOVING_TO_JOB`), works 3.0 hours (`WORKING`), automatically calls `workplace_mgr.produce_to_buffer()` to deposit 5 Food into the dynamic workplace buffer without altering central stock or other buffers, and resumes recurring execution on Cycle 2 to produce an additional 5 Food (total 10 Food in buffer).
+2. **Real Citizen Hauling Flow (TC-DW.4b):** A real `CitizenController` with role `hauler` claims a dynamic hauling job, moves along discrete grid cells to the workplace access cell (`MOVING_TO_JOB`), extracts cargo via `_pickup_hauler_cargo()` reducing buffer from 10 to 0, travels in `HAULING` state with zero central stock change during transit, arrives at dropoff, deposits cargo into `ResourceManager` atomically (+10 Food), marks job `COMPLETED`, and clears citizen cargo.
+3. **Preservation of Existing Test Matrix:** All existing unit tests (TC-DW.1 through TC-DW.5) remain intact.
+4. **Access Cell Stacking & Multi-Worker Architectural Evaluation:** Documented in detail below.
+
+### Test Architecture: Unit Tests vs Integration Tests
+| Test Case ID | Test Category | Execution Mechanism | Scope & Purpose |
+|---|---|---|---|
+| **TC-DW.1** | Unit Test | Direct Manager Query | Verifies starter farm and woodcutter initial config, quotas, and 9 recurring starter jobs |
+| **TC-DW.2** | Unit Test | Method Invocation | Verifies dynamic workplace construction, cost deduction, walkable perimeter access cell resolution, and inaccessible placement rejection |
+| **TC-DW.3** | Unit Test | Direct Manager Call (`produce_to_buffer`) | Verifies isolated production into dynamic buffers, lack of central stock pollution, and zero buffer cross-contamination |
+| **TC-DW.3b** | **Integration Test** | **Real `CitizenController` State Machine (`_process`)** | Verifies full farmer life cycle: `IDLE` -> `MOVING_TO_JOB` (path traversal) -> `WORKING` (3.0 hrs) -> direct buffer deposit via citizen controller -> return to `IDLE` -> recurring cycle 2 execution |
+| **TC-DW.4** | Unit Test | Direct Manager Call (`pickup_from_buffer` & `add_resource`) | Verifies hauling job generation from buffer, manual cargo extraction, and manual central storage delivery |
+| **TC-DW.4b** | **Integration Test** | **Real `CitizenController` State Machine (`_process`)** | Verifies full hauler life cycle: `IDLE` -> `MOVING_TO_JOB` -> arrival at source -> automatic cargo extraction (`_pickup_hauler_cargo()`, buffer 10->0) -> `HAULING` traversal with mid-transit stock invariance -> arrival at dropoff -> automatic central deposit (`_deposit_hauler_cargo()`, +10 Food) -> `IDLE` |
+| **TC-DW.5** | Unit Test / Integration | Save/Load Cycle (`SaveManager`) | Verifies world state serialization, buffer restoration, dynamic workplace reconstruction, repeated load anti-duplication, fresh world restoration, legacy save compatibility, and buffer clamping |
+
+### Section 4: Architectural Evaluation — Access Cell Stacking & Worker Density
+1. **Current Access Cell Stacking:**
+   - Dynamic Farm currently assigns up to 5 workers to a single `access_cell` (e.g. `(28, 27)` for farm at `(29, 27)`).
+   - In Godot isometric navigation, pathfinding checks static terrain and building occupancy (`world_data.occupancy`), not citizen-to-citizen physics bodies. As a result, multiple citizens occupying the same access cell do not cause A* pathfinding deadlocks, collision clipping bugs, or physics glitches.
+   - Visually, Y-sorting (`y_sort_enabled = true`) layers citizens correctly at that cell depth.
+2. **Feasibility of Multiple Perimeter Work Positions:**
+   - A 2x2 farm has 8 adjacent perimeter tiles; a 2x3 camp has 10 perimeter tiles.
+   - While spreading worker target cells across distinct perimeter cells is technically feasible by extending `find_access_cell()` to return an array of valid perimeter tiles, it introduces edge-case failure modes: if a building is placed adjacent to water, cliffs, or other structures, fewer than `max_workers` perimeter tiles may be walkable. Forcing N distinct access tiles would cause placement to fail unnecessarily.
+3. **Impact on Hauler Access:**
+   - Haulers navigate to `job.source_cell` (which matches `wp.access_cell`). Because citizens do not block other citizens, a hauler can cleanly enter the access cell, pick up the cargo, and depart even if multiple farmers are currently working there.
+   - Conclusion: The single access cell pattern is consistent with the starter farm (`(35, 35)`) and starter woodcutter (`(25, 30)`), is robust against map constraints, and prevents unnecessary pathfinding complexity.
+
+### Validations Performed & Results
+- **Dedicated Test Suite (`scripts/test/test_dynamic_workplaces.gd`):** **PASS (Exit Code 0, 0 failures)**
+  - TC-DW.1 (Starter Integrity): **PASS**
+  - TC-DW.2 (Dynamic Registration): **PASS**
+  - TC-DW.3 (Production Unit Test): **PASS**
+  - TC-DW.3b (Real Citizen Work & Recurring Production Integration): **PASS**
+  - TC-DW.4 (Physical Hauling Unit Test): **PASS**
+  - TC-DW.4b (Real Citizen Hauling Loop Integration): **PASS**
+  - TC-DW.5 (Save/Load Persistence & Anti-Duplication): **PASS**
+- **Full Regression Test Matrix (15/15 Suites Passed, Exit Code 0):**
+  1. `test_dynamic_workplaces.gd` (TC-DW.1, TC-DW.2, TC-DW.3, TC-DW.3b, TC-DW.4, TC-DW.4b, TC-DW.5): **PASS (Exit Code 0)**
+  2. `test_save_load.gd` (TC-8.1, TC-8.2, TC-8.3): **PASS (Exit Code 0)**
+  3. `test_watchtower.gd` (TC-W.1 to TC-W.8b): **PASS (Exit Code 0)**
+  4. `test_world_gen.gd` (TC-1.2): **PASS (Exit Code 0)**
+  5. `test_coordinates.gd` (TC-1.1): **PASS (Exit Code 0)**
+  6. `test_time_manager.gd` (TC-1.4): **PASS (Exit Code 0)**
+  7. `test_economy.gd` (TC-2.1, TC-2.2): **PASS (Exit Code 0)**
+  8. `test_citizens.gd` (TC-3.1, TC-3.2): **PASS (Exit Code 0)**
+  9. `test_logistics.gd` (TC-4.1, TC-4.2, TC-4.3): **PASS (Exit Code 0)**
+  10. `test_research_and_exploration.gd` (TC-5.1, TC-5.2, TC-5.3): **PASS (Exit Code 0)**
+  11. `test_factions_and_battles.gd` (TC-6.1, TC-6.2): **PASS (Exit Code 0)**
+  12. `test_victory_and_collapse.gd` (TC-7.1, TC-7.2, TC-7.3): **PASS (Exit Code 0)**
+  13. `test_audio.gd`: **PASS (Exit Code 0)**
+  14. `test_gold_transactions.gd` (TC-G.1 to TC-G.8): **PASS (Exit Code 0)**
+  15. `test_stress_100_citizens.gd` (TC-9.1, 145 FPS): **PASS (Exit Code 0)**
+- **Scene Instantiation Sanity:**
+  - `scenes/test/visual_validation_test.tscn`: **PASS (Exit Code 0)**
+  - `scenes/ui/main_menu.tscn`: **PASS (Exit Code 0)**
+  - `scenes/world/world_view.tscn`: **PASS (Exit Code 0)**
+- **Visual Validation / MCP Screenshot Status:**
+  - `NOT RUN` (Reason: Terminal/headless environment without interactive Godot editor display; all states validated via engine test scripts).
+- **Whitespace Check:**
+  - `git diff --check`: Clean (Exit Code 0, zero whitespace errors).
+
+### Files Created / Modified
+- `scripts/test/test_dynamic_workplaces.gd` (Added TC-DW.3b and TC-DW.4b real citizen integration tests, verified recurring cycles and physical transit invariance)
+- `docs/WORKLOG.md` (Documented Milestone 22, unit vs integration comparison, and Section 4 evaluation)
+
+### Next Exact Step
+- Stage modified files explicitly (`scripts/test/test_dynamic_workplaces.gd`, `docs/WORKLOG.md`).
+- Commit with exact message: `Verify dynamic workplace citizen job flow` on `feature/package-1b-dynamic-workplaces`.
+- Push branch `feature/package-1b-dynamic-workplaces` to remote `origin`.
+- Do NOT merge or push to `master`.
+- Keep `KINGDOMS_UNBOUND_STAGE11_FINAL.html` untracked.

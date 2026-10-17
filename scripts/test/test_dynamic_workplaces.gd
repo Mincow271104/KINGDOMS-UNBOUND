@@ -3,8 +3,10 @@ extends SceneTree
 ## Validates TC-DW.1 through TC-DW.5:
 ## - TC-DW.1: Preserve starter workplaces & jobs
 ## - TC-DW.2: Dynamic workplace registration & cost deduction
-## - TC-DW.3: Jobs & production at correct workplace buffer
-## - TC-DW.4: Physical hauling without teleportation
+## - TC-DW.3: Jobs & production at correct workplace buffer (Unit Test)
+## - TC-DW.3b: Real Citizen Work & Recurring Production Flow (Integration Test)
+## - TC-DW.4: Physical hauling without teleportation (Unit Test)
+## - TC-DW.4b: Real Citizen Hauling Loop through State Machine (Integration Test)
 ## - TC-DW.5: Save/Load persistence, buffer restoration & anti-duplication
 
 const EconomyConfigScript = preload("res://scripts/economy/economy_config.gd")
@@ -16,6 +18,7 @@ const SaveManagerScript = preload("res://scripts/persistence/save_manager.gd")
 const IsoMathScript = preload("res://scripts/utils/iso_math.gd")
 const GridNavigationScript = preload("res://scripts/navigation/grid_navigation.gd")
 const ResourceManagerScript = preload("res://scripts/economy/resource_manager.gd")
+const CitizenControllerScript = preload("res://scripts/entities/citizen_controller.gd")
 
 const TEST_SAVE_PATH: String = "user://saves/test_dynamic_workplaces_save.json"
 
@@ -44,10 +47,12 @@ func _process(_delta: float) -> bool:
 		var pass_tc1 := _test_tc_dw_1_starter_workplaces()
 		var pass_tc2 := _test_tc_dw_2_dynamic_registration()
 		var pass_tc3 := _test_tc_dw_3_jobs_and_production()
+		var pass_tc3b := _test_tc_dw_3b_citizen_work_integration()
 		var pass_tc4 := _test_tc_dw_4_physical_hauling()
+		var pass_tc4b := _test_tc_dw_4b_citizen_hauling_integration()
 		var pass_tc5 := _test_tc_dw_5_save_load_and_deduplication()
 
-		all_passed = pass_tc1 and pass_tc2 and pass_tc3 and pass_tc4 and pass_tc5
+		all_passed = pass_tc1 and pass_tc2 and pass_tc3 and pass_tc3b and pass_tc4 and pass_tc4b and pass_tc5
 
 		print("\n--------------------------------------------------------")
 		if all_passed:
@@ -322,10 +327,10 @@ func _test_tc_dw_2_dynamic_registration() -> bool:
 		return false
 
 # -----------------------------------------------------------------------------
-# TC-DW.3: Jobs & Production at Correct Workplace
+# TC-DW.3: Jobs & Production at Correct Workplace (Unit Test)
 # -----------------------------------------------------------------------------
 func _test_tc_dw_3_jobs_and_production() -> bool:
-	print("--- Running TC-DW.3: Jobs & Production at Correct Workplace ---")
+	print("--- Running TC-DW.3: Jobs & Production at Correct Workplace (Unit Test) ---")
 	var failures: int = 0
 
 	var wp_mgr: WorkplaceManager = world_instance.get("workplace_mgr")
@@ -364,7 +369,7 @@ func _test_tc_dw_3_jobs_and_production() -> bool:
 				failures += 1
 		print("  [PASS] 4 recurring woodcutter jobs linked to bld_woodcutter_34_27 verified.")
 
-	# 3. Production to Buffer & Zero Central Teleportation
+	# 3. Manager Production to Buffer & Zero Central Teleportation
 	var central_food_prior: int = live_rm.get_available_stock("food") if live_rm else 0
 	var central_wood_prior: int = live_rm.get_available_stock("wood") if live_rm else 0
 
@@ -416,10 +421,168 @@ func _test_tc_dw_3_jobs_and_production() -> bool:
 		return false
 
 # -----------------------------------------------------------------------------
-# TC-DW.4: Physical Hauling Loop
+# TC-DW.3b: Real Citizen Work & Recurring Production Integration Test
+# -----------------------------------------------------------------------------
+func _test_tc_dw_3b_citizen_work_integration() -> bool:
+	print("--- Running TC-DW.3b: Real Citizen Work & Recurring Production Integration ---")
+	var failures: int = 0
+
+	var wp_mgr: WorkplaceManager = world_instance.get("workplace_mgr")
+	var job_mgr: JobManager = world_instance.get("job_mgr")
+	var nav: GridNavigation = world_instance.get("nav")
+	var live_rm: Node = world_instance.get_node_or_null("/root/ResourceManager")
+
+	# Save roles and temporarily set existing citizens to idle for isolated execution
+	var saved_roles: Dictionary = {}
+	for cit in world_instance.get("citizen_list"):
+		saved_roles[cit.citizen_id] = cit.role
+		cit.role = "idle"
+		if cit.active_job != null:
+			job_mgr.release_job(cit.active_job)
+			cit.active_job = null
+			cit.current_state = CitizenControllerScript.State.IDLE
+
+	# Clear buffer of dynamic farm before testing citizen production
+	var farm_wp: WorkplaceManager.WorkplaceData = wp_mgr.get_workplace("bld_farm_29_27")
+	if farm_wp == null:
+		printerr("  [FAIL] bld_farm_29_27 not found!")
+		return false
+	farm_wp.buffer_amount = 0
+
+	# 1. Create real CitizenController with role "farmer"
+	var farmer: CitizenController = CitizenControllerScript.new()
+	farmer.name = "integration_test_farmer"
+	world_instance.add_child(farmer)
+	farmer.init_citizen(
+		"integration_test_farmer",
+		"Trần Nông Dân",
+		"farmer",
+		Vector2i(28, 26), # 1 cell away from access cell (28, 27)
+		nav,
+		job_mgr,
+		wp_mgr
+	)
+
+	# 2. Cycle 1: Request job via state machine in IDLE
+	farmer._process(0.1)
+
+	if farmer.active_job == null:
+		printerr("  [FAIL] Real farmer citizen failed to claim a job!")
+		failures += 1
+		if farmer.get_parent():
+			farmer.get_parent().remove_child(farmer)
+		farmer.free()
+		return false
+
+	if farmer.active_job.target_building_id != "bld_farm_29_27":
+		printerr("  [FAIL] Claimed job target_building_id is '%s', expected 'bld_farm_29_27'" % farmer.active_job.target_building_id)
+		failures += 1
+	if farmer.active_job.worker_id != "integration_test_farmer":
+		printerr("  [FAIL] Job worker_id '%s' != 'integration_test_farmer'" % farmer.active_job.worker_id)
+		failures += 1
+	if farmer.active_job.state != JobManagerScript.JobState.RESERVED and farmer.active_job.state != JobManagerScript.JobState.IN_PROGRESS:
+		printerr("  [FAIL] Job state not RESERVED or IN_PROGRESS!")
+		failures += 1
+	print("  [PASS] Citizen correctly requested and reserved job for dynamic workplace 'bld_farm_29_27'.")
+
+	# 3. State machine movement to target access cell (28, 27)
+	var move_ticks := 0
+	while farmer.current_state == CitizenControllerScript.State.MOVING_TO_JOB and move_ticks < 30:
+		move_ticks += 1
+		farmer._process(0.2)
+
+	if farmer.current_cell != farm_wp.access_cell:
+		printerr("  [FAIL] Farmer current_cell %s != access_cell %s" % [farmer.current_cell, farm_wp.access_cell])
+		failures += 1
+	if farmer.current_state != CitizenControllerScript.State.WORKING:
+		printerr("  [FAIL] Farmer state not WORKING after arrival! State: %d" % farmer.current_state)
+		failures += 1
+	print("  [PASS] Citizen moved along discrete grid path and arrived at access cell %s (State: WORKING)." % farmer.current_cell)
+
+	# 4. State machine working cycle (required: 3.0 hours)
+	var food_before: int = live_rm.get_available_stock("food") if live_rm else 0
+
+	# 1 hour of work
+	farmer._process(1.0)
+	if farmer.current_state != CitizenControllerScript.State.WORKING:
+		printerr("  [FAIL] Citizen stopped working prematurely after 1 hour!")
+		failures += 1
+	if farm_wp.buffer_amount != 0:
+		printerr("  [FAIL] Buffer increased before work hours completed!")
+		failures += 1
+
+	# 2nd hour of work
+	farmer._process(1.0)
+	if farm_wp.buffer_amount != 0:
+		printerr("  [FAIL] Buffer increased before work hours completed!")
+		failures += 1
+
+	# 3rd hour of work (completes the 3.0 required hours)
+	farmer._process(1.0)
+
+	# Citizen state machine must have completed job and deposited to buffer
+	if farm_wp.buffer_amount != 5:
+		printerr("  [FAIL] Buffer amount after citizen work cycle is %d, expected 5" % farm_wp.buffer_amount)
+		failures += 1
+	else:
+		print("  [PASS] Citizen completed work cycle; produced 5 Food directly into bld_farm_29_27 buffer.")
+
+	# Buffer of other workplaces must not be affected
+	if wp_mgr.get_buffer_amount("farm_starter") != 0 or wp_mgr.get_buffer_amount("woodcutter_starter") != 0 or wp_mgr.get_buffer_amount("bld_woodcutter_34_27") != 4:
+		printerr("  [FAIL] Other workplace buffers polluted by citizen production!")
+		failures += 1
+
+	# Central stock must NOT have increased
+	var food_after_work: int = live_rm.get_available_stock("food") if live_rm else 0
+	if food_after_work != food_before:
+		printerr("  [FAIL] Central food stock changed during production! Expected %d, got %d" % [food_before, food_after_work])
+		failures += 1
+	else:
+		print("  [PASS] Central stock unchanged on citizen work completion (No instant teleportation).")
+
+	# 5. Cycle 2: Recurring job execution
+	# Citizen returned to IDLE; process next frame to pick up recurring job again
+	if farmer.current_state != CitizenControllerScript.State.IDLE:
+		printerr("  [FAIL] Citizen did not transition to IDLE after completing job! State: %d" % farmer.current_state)
+		failures += 1
+
+	farmer._process(0.1) # Re-evaluates idle and requests available recurring job
+	if farmer.current_state == CitizenControllerScript.State.MOVING_TO_JOB:
+		farmer._process(0.1)
+
+	if farmer.current_state != CitizenControllerScript.State.WORKING:
+		printerr("  [FAIL] Citizen failed to resume recurring job for Cycle 2! State: %d" % farmer.current_state)
+		failures += 1
+	else:
+		# Work full 3.0 hours for Cycle 2
+		farmer._process(3.0)
+		if farm_wp.buffer_amount != 10:
+			printerr("  [FAIL] Buffer amount after Cycle 2 is %d, expected 10" % farm_wp.buffer_amount)
+			failures += 1
+		else:
+			print("  [PASS] Recurring job verified on Cycle 2: Citizen produced additional 5 Food into buffer (Total: 10).")
+
+	if farmer.get_parent():
+		farmer.get_parent().remove_child(farmer)
+	farmer.free()
+
+	# Restore citizen roles
+	for cit in world_instance.get("citizen_list"):
+		if saved_roles.has(cit.citizen_id):
+			cit.role = saved_roles[cit.citizen_id]
+
+	if failures == 0:
+		print("  [PASS] TC-DW.3b PASSED.\n")
+		return true
+	else:
+		printerr("  [FAIL] TC-DW.3b had %d failures.\n" % failures)
+		return false
+
+# -----------------------------------------------------------------------------
+# TC-DW.4: Physical Hauling Loop (Unit Test)
 # -----------------------------------------------------------------------------
 func _test_tc_dw_4_physical_hauling() -> bool:
-	print("--- Running TC-DW.4: Physical Hauling Loop ---")
+	print("--- Running TC-DW.4: Physical Hauling Loop (Unit Test) ---")
 	var failures: int = 0
 
 	var wp_mgr: WorkplaceManager = world_instance.get("workplace_mgr")
@@ -433,7 +596,7 @@ func _test_tc_dw_4_physical_hauling() -> bool:
 		printerr("  [FAIL] Expected woodcutter buffer 8, got %d" % wc_buf)
 		failures += 1
 
-	# Both bld_farm_29_27 (buf: 5) and bld_woodcutter_34_27 (buf: 8) meet threshold >= 5
+	# Both bld_farm_29_27 (buf: 10) and bld_woodcutter_34_27 (buf: 8) meet threshold >= 5
 	var created_count := wp_mgr.update_hauling_jobs(job_mgr)
 	if created_count < 2:
 		printerr("  [FAIL] Expected at least 2 hauling jobs created, got %d" % created_count)
@@ -441,42 +604,42 @@ func _test_tc_dw_4_physical_hauling() -> bool:
 	else:
 		print("  [PASS] update_hauling_jobs created %d hauling jobs for dynamic workplaces." % created_count)
 
-	# Locate hauling job for bld_farm_29_27
-	var farm_haul_job: JobManager.JobData = null
+	# Locate hauling job for bld_woodcutter_34_27
+	var wc_haul_job: JobManager.JobData = null
 	for j in job_mgr.get_all_jobs():
-		if j.type == "hauler" and j.source_workplace_id == "bld_farm_29_27":
-			farm_haul_job = j
+		if j.type == "hauler" and j.source_workplace_id == "bld_woodcutter_34_27":
+			wc_haul_job = j
 			break
 
-	if farm_haul_job == null:
-		printerr("  [FAIL] Hauling job for bld_farm_29_27 was not created!")
+	if wc_haul_job == null:
+		printerr("  [FAIL] Hauling job for bld_woodcutter_34_27 was not created!")
 		failures += 1
 	else:
-		var wp_farm = wp_mgr.get_workplace("bld_farm_29_27")
-		if farm_haul_job.source_cell != wp_farm.access_cell:
-			printerr("  [FAIL] Hauling job source_cell %s != farm access_cell %s" % [farm_haul_job.source_cell, wp_farm.access_cell])
+		var wp_wc = wp_mgr.get_workplace("bld_woodcutter_34_27")
+		if wc_haul_job.source_cell != wp_wc.access_cell:
+			printerr("  [FAIL] Hauling job source_cell %s != woodcutter access_cell %s" % [wc_haul_job.source_cell, wp_wc.access_cell])
 			failures += 1
-		if farm_haul_job.cargo_resource != EconomyConfigScript.RES_FOOD:
-			printerr("  [FAIL] Hauling cargo_resource is '%s', expected 'food'" % farm_haul_job.cargo_resource)
+		if wc_haul_job.cargo_resource != EconomyConfigScript.RES_WOOD:
+			printerr("  [FAIL] Hauling cargo_resource is '%s', expected 'wood'" % wc_haul_job.cargo_resource)
 			failures += 1
-		if farm_haul_job.cargo_amount != 5:
-			printerr("  [FAIL] Hauling cargo_amount is %d, expected 5" % farm_haul_job.cargo_amount)
+		if wc_haul_job.cargo_amount != 8:
+			printerr("  [FAIL] Hauling cargo_amount is %d, expected 8" % wc_haul_job.cargo_amount)
 			failures += 1
-		print("  [PASS] Hauling job verified: source %s -> dest %s, 5 Food." % [farm_haul_job.source_cell, farm_haul_job.dest_cell])
+		print("  [PASS] Woodcutter hauling job verified: source %s -> dest %s, 8 Wood." % [wc_haul_job.source_cell, wc_haul_job.dest_cell])
 
 		# Simulate physical pickup
-		var central_food_prior: int = live_rm.get_available_stock("food") if live_rm else 0
-		var picked_up := wp_mgr.pickup_from_buffer("bld_farm_29_27", 10)
-		if picked_up != 5:
-			printerr("  [FAIL] Picked up %d food, expected 5" % picked_up)
+		var central_wood_prior: int = live_rm.get_available_stock("wood") if live_rm else 0
+		var picked_up := wp_mgr.pickup_from_buffer("bld_woodcutter_34_27", 10)
+		if picked_up != 8:
+			printerr("  [FAIL] Picked up %d wood, expected 8" % picked_up)
 			failures += 1
-		if wp_mgr.get_buffer_amount("bld_farm_29_27") != 0:
+		if wp_mgr.get_buffer_amount("bld_woodcutter_34_27") != 0:
 			printerr("  [FAIL] Workplace buffer was not emptied after pickup!")
 			failures += 1
 
 		# Still no central stock increase on pickup
-		var central_food_mid: int = live_rm.get_available_stock("food") if live_rm else 0
-		if central_food_mid != central_food_prior:
+		var central_wood_mid: int = live_rm.get_available_stock("wood") if live_rm else 0
+		if central_wood_mid != central_wood_prior:
 			printerr("  [FAIL] Central stock increased upon pickup!")
 			failures += 1
 		else:
@@ -484,21 +647,21 @@ func _test_tc_dw_4_physical_hauling() -> bool:
 
 		# Simulate delivery to dropoff
 		if live_rm:
-			live_rm.add_resource("food", picked_up)
-		job_mgr.complete_job(farm_haul_job)
+			live_rm.add_resource("wood", picked_up)
+		job_mgr.complete_job(wc_haul_job)
 
-		var central_food_post: int = live_rm.get_available_stock("food") if live_rm else 0
-		if central_food_post != central_food_prior + 5:
-			printerr("  [FAIL] Central food stock not credited after delivery! Prior: %d, Post: %d" % [central_food_prior, central_food_post])
+		var central_wood_post: int = live_rm.get_available_stock("wood") if live_rm else 0
+		if central_wood_post != central_wood_prior + 8:
+			printerr("  [FAIL] Central wood stock not credited after delivery! Prior: %d, Post: %d" % [central_wood_prior, central_wood_post])
 			failures += 1
-		if farm_haul_job.state != JobManager.JobState.COMPLETED:
+		if wc_haul_job.state != JobManager.JobState.COMPLETED:
 			printerr("  [FAIL] Hauling job state not COMPLETED!")
 			failures += 1
-		print("  [PASS] Central stock increased only upon delivery completion (+5 Food).")
+		print("  [PASS] Central stock increased only upon delivery completion (+8 Wood).")
 
-	# Clean up remaining woodcutter haul job to leave clean state
+	# Clean up any pending jobs for farm to avoid interference with TC-DW.4b
 	for j in job_mgr.get_all_jobs():
-		if j.type == "hauler" and j.source_workplace_id == "bld_woodcutter_34_27":
+		if j.type == "hauler" and j.source_workplace_id == "bld_farm_29_27":
 			job_mgr.complete_job(j)
 
 	if failures == 0:
@@ -506,6 +669,150 @@ func _test_tc_dw_4_physical_hauling() -> bool:
 		return true
 	else:
 		printerr("  [FAIL] TC-DW.4 had %d failures.\n" % failures)
+		return false
+
+# -----------------------------------------------------------------------------
+# TC-DW.4b: Real Citizen Hauling Loop Integration Test
+# -----------------------------------------------------------------------------
+func _test_tc_dw_4b_citizen_hauling_integration() -> bool:
+	print("--- Running TC-DW.4b: Real Citizen Hauling Loop Integration ---")
+	var failures: int = 0
+
+	var wp_mgr: WorkplaceManager = world_instance.get("workplace_mgr")
+	var job_mgr: JobManager = world_instance.get("job_mgr")
+	var nav: GridNavigation = world_instance.get("nav")
+	var live_rm: Node = world_instance.get_node_or_null("/root/ResourceManager")
+
+	# Save roles and temporarily set existing citizens to idle for isolated execution
+	var saved_roles: Dictionary = {}
+	for cit in world_instance.get("citizen_list"):
+		saved_roles[cit.citizen_id] = cit.role
+		cit.role = "idle"
+		if cit.active_job != null:
+			job_mgr.release_job(cit.active_job)
+			cit.active_job = null
+			cit.current_state = CitizenControllerScript.State.IDLE
+
+	# bld_farm_29_27 has 10 Food produced by citizen in TC-DW.3b
+	var farm_wp: WorkplaceManager.WorkplaceData = wp_mgr.get_workplace("bld_farm_29_27")
+	if farm_wp == null or farm_wp.buffer_amount < 5:
+		printerr("  [FAIL] bld_farm_29_27 buffer is %d, expected >= 5" % (farm_wp.buffer_amount if farm_wp else -1))
+		return false
+
+	# 1. Update hauling jobs to generate hauling job from dynamic workplace buffer
+	var _created := wp_mgr.update_hauling_jobs(job_mgr)
+	var haul_job: JobManager.JobData = null
+	for j in job_mgr.get_all_jobs():
+		if j.type == "hauler" and j.source_workplace_id == "bld_farm_29_27" and j.state == JobManagerScript.JobState.AVAILABLE:
+			haul_job = j
+			break
+
+	if haul_job == null:
+		printerr("  [FAIL] No available hauling job generated for bld_farm_29_27!")
+		return false
+	print("  [PASS] Hauling job generated: source %s -> dest %s, amount %d %s." % [haul_job.source_cell, haul_job.dest_cell, haul_job.cargo_amount, haul_job.cargo_resource])
+
+	# 2. Create real CitizenController with role "hauler"
+	var hauler: CitizenController = CitizenControllerScript.new()
+	hauler.name = "integration_test_hauler"
+	world_instance.add_child(hauler)
+	hauler.init_citizen(
+		"integration_test_hauler",
+		"Trần Vận Chuyển",
+		"hauler",
+		Vector2i(28, 28), # 1 cell away from source cell (28, 27)
+		nav,
+		job_mgr,
+		wp_mgr
+	)
+
+	# 3. Hauler requests job in IDLE state via state machine
+	hauler._process(0.1)
+
+	if hauler.active_job != haul_job:
+		printerr("  [FAIL] Hauler did not claim the dynamic workplace hauling job!")
+		failures += 1
+		if hauler.get_parent():
+			hauler.get_parent().remove_child(hauler)
+		hauler.free()
+		return false
+	if hauler.current_state != CitizenControllerScript.State.MOVING_TO_JOB:
+		printerr("  [FAIL] Hauler state not MOVING_TO_JOB!")
+		failures += 1
+	print("  [PASS] Hauler citizen claimed hauling job and entered MOVING_TO_JOB state.")
+
+	# 4. Hauler moves along grid path to source access cell (28, 27)
+	var move_to_source := 0
+	while hauler.current_state == CitizenControllerScript.State.MOVING_TO_JOB and move_to_source < 30:
+		move_to_source += 1
+		hauler._process(0.2)
+
+	# Arrival triggers _pickup_hauler_cargo() automatically via _arrive_at_destination()
+	if hauler.current_state != CitizenControllerScript.State.HAULING:
+		printerr("  [FAIL] Hauler did not transition to HAULING state upon arriving at source! State: %d" % hauler.current_state)
+		failures += 1
+
+	# Verify cargo extracted from buffer
+	if hauler.carrying_resource != "food" or hauler.carrying_amount != 10:
+		printerr("  [FAIL] Hauler cargo incorrect! Resource: '%s', Amount: %d (expected 'food', 10)" % [hauler.carrying_resource, hauler.carrying_amount])
+		failures += 1
+	if farm_wp.buffer_amount != 0:
+		printerr("  [FAIL] Buffer was not decremented! Amount: %d, expected 0" % farm_wp.buffer_amount)
+		failures += 1
+	print("  [PASS] Hauler arrived at source %s, extracted 10 Food into cargo, buffer reduced 10->0." % farm_wp.access_cell)
+
+	# 5. Verify central storage has NOT increased while hauler is traveling
+	var food_prior_delivery: int = live_rm.get_available_stock("food") if live_rm else 0
+
+	# 6. Hauler travels along discrete path to destination dropoff cell
+	var haul_steps := 0
+	while hauler.current_state == CitizenControllerScript.State.HAULING and haul_steps < 60:
+		haul_steps += 1
+		hauler._process(0.2)
+
+		# Verify mid-transit: stock unchanged while still traveling in HAULING state
+		if hauler.current_state == CitizenControllerScript.State.HAULING:
+			if live_rm and live_rm.get_available_stock("food") != food_prior_delivery:
+				printerr("  [FAIL] Central stock increased during transit before reaching destination!")
+				failures += 1
+
+	if hauler.current_state != CitizenControllerScript.State.IDLE:
+		printerr("  [FAIL] Hauler did not complete delivery to IDLE state! Final state: %d" % hauler.current_state)
+		failures += 1
+
+	# 7. Verify post-delivery state
+	var food_post_delivery: int = live_rm.get_available_stock("food") if live_rm else 0
+	if food_post_delivery != food_prior_delivery + 10:
+		printerr("  [FAIL] Central food stock not credited! Prior: %d, Post: %d, Expected: %d" % [food_prior_delivery, food_post_delivery, food_prior_delivery + 10])
+		failures += 1
+	else:
+		print("  [PASS] Hauler delivered 10 Food to dropoff %s; Central storage credited atomically (+10 Food)." % haul_job.dest_cell)
+
+	if hauler.carrying_amount != 0 or hauler.carrying_resource != "":
+		printerr("  [FAIL] Hauler cargo was not cleared after deposit!")
+		failures += 1
+	if haul_job.state != JobManagerScript.JobState.COMPLETED:
+		printerr("  [FAIL] Hauling job state is not COMPLETED!")
+		failures += 1
+	if farm_wp.buffer_amount != 0:
+		printerr("  [FAIL] Buffer modified unexpectedly post-delivery!")
+		failures += 1
+	print("  [PASS] Job state COMPLETED, cargo cleared from citizen, buffer not double-deducted.")
+
+	if hauler.get_parent():
+		hauler.get_parent().remove_child(hauler)
+	hauler.free()
+
+	# Restore citizen roles
+	for cit in world_instance.get("citizen_list"):
+		if saved_roles.has(cit.citizen_id):
+			cit.role = saved_roles[cit.citizen_id]
+
+	if failures == 0:
+		print("  [PASS] TC-DW.4b PASSED.\n")
+		return true
+	else:
+		printerr("  [FAIL] TC-DW.4b had %d failures.\n" % failures)
 		return false
 
 # -----------------------------------------------------------------------------
