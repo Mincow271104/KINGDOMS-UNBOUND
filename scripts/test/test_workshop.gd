@@ -1036,6 +1036,48 @@ func _test_tc_ws_6_save_load_persistence() -> bool:
 	else:
 		print("  [PASS] Backward compatibility verified: legacy single-buffer format restored to primary channel.")
 
+	# 7. Backward compatibility with legacy nested dictionary format by parent building ID
+	var nested_state = saved_state.duplicate(true)
+	nested_state["workplaces"].erase("bld_workshop_26_23_smelt")
+	nested_state["workplaces"].erase("bld_workshop_26_23_craft")
+	nested_state["workplaces"]["bld_workshop_26_23"] = {
+		"metal": 14,
+		"tools": 9
+	}
+	SaveManagerScript.apply_loaded_state_to_world(world_instance, nested_state)
+	var nested_smelt = wp_mgr.get_workplace("bld_workshop_26_23_smelt")
+	var nested_craft = wp_mgr.get_workplace("bld_workshop_26_23_craft")
+
+	if nested_smelt == null or nested_smelt.buffer_amount != 14:
+		printerr("  [FAIL] Legacy nested save restoration: smelt buffer is %s, expected 14!" % (nested_smelt.buffer_amount if nested_smelt else "null"))
+		failures += 1
+	elif nested_craft == null or nested_craft.buffer_amount != 9:
+		printerr("  [FAIL] Legacy nested save restoration: craft buffer is %s, expected 9!" % (nested_craft.buffer_amount if nested_craft else "null"))
+		failures += 1
+	else:
+		print("  [PASS] Legacy nested dictionary format restored independently to both channels (Smelt: 14, Craft: 9).")
+
+	# 7b. Independent clamping for legacy nested dictionary format
+	var nested_clamp_state = saved_state.duplicate(true)
+	nested_clamp_state["workplaces"].erase("bld_workshop_26_23_smelt")
+	nested_clamp_state["workplaces"].erase("bld_workshop_26_23_craft")
+	nested_clamp_state["workplaces"]["bld_workshop_26_23"] = {
+		"metal": 888,
+		"tools": 999
+	}
+	SaveManagerScript.apply_loaded_state_to_world(world_instance, nested_clamp_state)
+	var clamped_nested_smelt = wp_mgr.get_workplace("bld_workshop_26_23_smelt")
+	var clamped_nested_craft = wp_mgr.get_workplace("bld_workshop_26_23_craft")
+
+	if clamped_nested_smelt == null or clamped_nested_smelt.buffer_amount != clamped_nested_smelt.buffer_capacity:
+		printerr("  [FAIL] Legacy nested smelt overflow not clamped! Amount: %s, expected %d" % [(clamped_nested_smelt.buffer_amount if clamped_nested_smelt else "null"), (clamped_nested_smelt.buffer_capacity if clamped_nested_smelt else 40)])
+		failures += 1
+	elif clamped_nested_craft == null or clamped_nested_craft.buffer_amount != clamped_nested_craft.buffer_capacity:
+		printerr("  [FAIL] Legacy nested craft overflow not clamped! Amount: %s, expected %d" % [(clamped_nested_craft.buffer_amount if clamped_nested_craft else "null"), (clamped_nested_craft.buffer_capacity if clamped_nested_craft else 40)])
+		failures += 1
+	else:
+		print("  [PASS] Legacy nested dictionary buffer overflow clamped independently to channel capacities (Smelt: %d, Craft: %d)." % [clamped_nested_smelt.buffer_capacity, clamped_nested_craft.buffer_capacity])
+
 	if failures == 0:
 		print("  [PASS] TC-WS.6 PASSED.\n")
 		return true

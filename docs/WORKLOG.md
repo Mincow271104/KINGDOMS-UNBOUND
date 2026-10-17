@@ -1586,3 +1586,76 @@ Address independent code review findings for Package 1E:
 - Verify remote commit SHA matches local `HEAD`.
 - Keep untracked files (`KINGDOMS_UNBOUND_STAGE11_FINAL.html`, `.uid` files) untouched.
 - Await independent review (do NOT merge to `master`, do NOT start Package 1F).
+
+---
+
+## [2026-10-18] Milestone 29: Package 1E Final Review Fix — Legacy Nested Save Restoration ✅ VERIFIED
+
+### Context & Objective
+Address final independent review finding for Package 1E:
+In `scripts/world/world_view.gd`, `sync_workplaces_after_load()` previously called `workplace_mgr.get_workplace(wp_id)`. When `wp_id` matched a parent building ID (e.g. `bld_workshop_26_23`), `get_workplace()` returned the first associated channel (`bld_workshop_26_23_smelt`). Consequently, `if wp != null:` executed instead of the nested dictionary fallback, attempting to read `buffer_amount` (evaluating to 0) and completely dropping `tools`.
+
+Refactor `sync_workplaces_after_load()` to cleanly and unambiguously support all three workplace save formats:
+1. **Current channel-by-channel format:** each channel ID (`_smelt`, `_craft`) contains `buffer_amount`.
+2. **Legacy integer format by parent ID:** integer restored into primary smelt channel.
+3. **Legacy nested dictionary format by parent ID:** dictionary containing `metal` and `tools` restored independently into `_smelt` and `_craft` channels, clamped to each channel's dynamic `buffer_capacity`, emitting `buffer_changed`.
+
+### Completed Work
+1. **Unambiguous Save Format Resolution (`scripts/world/world_view.gd`):**
+   - Added prioritized detection for Format 3 (`entry is Dictionary and (entry.has("metal") or entry.has("tools"))`).
+   - Restored `entry["metal"]` to `smelt_ch` and `entry["tools"]` to `craft_ch`, clamping strictly to `ch.buffer_capacity`.
+   - Emitted `buffer_changed(ch.id, ch.buffer_amount, ch.buffer_capacity)` for each restored channel.
+   - Constrained Format 1 to exact channel matching (`wp != null and wp.id == wp_id`), ensuring parent IDs correctly fall into Format 2 for legacy single-buffer restoration.
+2. **Comprehensive Test Verification (`scripts/test/test_workshop.gd`):**
+   - Added TC-WS.6 Step 7: Erased channel entries and saved `{ "bld_workshop_26_23": { "metal": 14, "tools": 9 } }`. Verified independent restoration of Smelt to 14 and Craft to 9.
+   - Added TC-WS.6 Step 7b: Tested overflow `{ "metal": 888, "tools": 999 }` and verified independent clamping to each channel's capacity (40).
+   - Preserved existing checks for channel format, legacy integer format, repeated load anti-duplication, and clamping.
+
+### Validations Performed & Results
+- **Dedicated Test Suite (`scripts/test/test_workshop.gd`):** **PASS (Exit Code 0, 7/7 passed)**
+  - TC-WS.1 (Blueprint, Build Button, Sprite & HUD Verification): **PASS**
+  - TC-WS.2 (Placement, Access Cell & Authoritative Recipe Registration): **PASS**
+  - TC-WS.3 (Real Citizen Metal Smelting Integration & Genuine Rejection Execution): **PASS**
+  - TC-WS.4 (Real Citizen Tool Crafting Integration & Genuine Atomic Rejection Execution): **PASS**
+  - TC-WS.5 (Physical Hauling with Transit Checks for Metal & Tools): **PASS**
+  - TC-WS.6 (Save/Load, Buffer Restoration & Clamping Integrity with Nested Save Verification): **PASS**
+  - TC-WS.7 (Package Non-Regression Verification): **PASS**
+- **Full Core Regression Matrix (Godot 4.7 Headless):**
+  - `test_watchtower.gd` (TC-W.1 to TC-W.8b): **PASS (Exit Code 0)**
+  - `test_dynamic_workplaces.gd` (TC-DW.1 to TC-DW.5): **PASS (Exit Code 0)**
+  - `test_quarry.gd` (TC-Q.1 to TC-Q.6): **PASS (Exit Code 0)**
+  - `test_mine.gd` (TC-M.1 to TC-M.6): **PASS (Exit Code 0)**
+  - `test_save_load.gd` (TC-8.1 to TC-8.3): **PASS (Exit Code 0)**
+  - `test_economy.gd` (TC-2.1, TC-2.2): **PASS (Exit Code 0)**
+  - `test_citizens.gd` (TC-3.1, TC-3.2): **PASS (Exit Code 0)**
+  - `test_logistics.gd` (TC-4.1 to TC-4.3): **PASS (Exit Code 0)**
+  - `test_world_gen.gd` (TC-1.2): **PASS (Exit Code 0)**
+  - `test_coordinates.gd` (TC-1.1): **PASS (Exit Code 0)**
+  - `test_time_manager.gd` (TC-1.4): **PASS (Exit Code 0)**
+  - `test_research_and_exploration.gd` (TC-5.1 to TC-5.3): **PASS (Exit Code 0)**
+  - `test_factions_and_battles.gd` (TC-6.1, TC-6.2): **PASS (Exit Code 0)**
+  - `test_victory_and_collapse.gd` (TC-7.1 to TC-7.3): **PASS (Exit Code 0)**
+  - `test_audio.gd`: **PASS (Exit Code 0)**
+  - `test_gold_transactions.gd` (TC-G.1 to TC-G.8): **PASS (Exit Code 0)**
+  - `test_stress_100_citizens.gd` (TC-9.1): **PASS (Exit Code 0)**
+- **Scene Instantiation Sanity:**
+  - `scenes/test/visual_validation_test.tscn`: **PASS (Exit Code 0)**
+  - `scenes/ui/main_menu.tscn`: **PASS (Exit Code 0)**
+  - `scenes/world/world_view.tscn`: **PASS (Exit Code 0)**
+- **Visual Validation / MCP Screenshot Status:**
+  - `GUI NOT RUN` (Reason: Headless testing environment without interactive display server; visual fitting not verified via GUI display).
+- **Whitespace Check:**
+  - `git diff --check`: Clean (Exit Code 0, zero whitespace errors).
+
+### Files Created / Modified
+- `scripts/world/world_view.gd` (Robust 3-format save/load restoration in `sync_workplaces_after_load`)
+- `scripts/test/test_workshop.gd` (Added steps 7 & 7b in TC-WS.6 for legacy nested save restoration & clamping)
+- `docs/WORKLOG.md` (Documented Milestone 29)
+
+### Next Exact Step
+- Stage modified files explicitly (`scripts/world/world_view.gd`, `scripts/test/test_workshop.gd`, `docs/WORKLOG.md`).
+- Commit with exact message: `Fix workshop legacy nested save restoration` on `feature/package-1e-workshop`.
+- Push branch `feature/package-1e-workshop` to `origin`.
+- Verify remote commit SHA matches local `HEAD`.
+- Keep untracked files (`KINGDOMS_UNBOUND_STAGE11_FINAL.html`, `.uid` files) untouched.
+- Await independent review (do NOT merge to `master`, do NOT start Package 1F).

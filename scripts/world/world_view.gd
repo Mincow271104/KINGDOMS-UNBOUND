@@ -651,9 +651,28 @@ func sync_workplaces_after_load(saved_workplaces_data: Dictionary = {}) -> void:
 	# 3. Restore buffer amounts
 	if saved_workplaces_data is Dictionary and not saved_workplaces_data.is_empty():
 		for wp_id in saved_workplaces_data:
+			var entry = saved_workplaces_data[wp_id]
+
+			# Format 3: Nested dictionary by parent building ID (e.g. {"metal": 14, "tools": 9})
+			if entry is Dictionary and (entry.has("metal") or entry.has("tools")):
+				var smelt_ch = workplace_mgr.get_workplace(wp_id + "_smelt")
+				if smelt_ch == null:
+					smelt_ch = workplace_mgr.get_workplace_channel(wp_id, "smelt_metal")
+				if smelt_ch != null and entry.has("metal"):
+					smelt_ch.buffer_amount = clampi(int(entry["metal"]), 0, smelt_ch.buffer_capacity)
+					workplace_mgr.buffer_changed.emit(smelt_ch.id, smelt_ch.buffer_amount, smelt_ch.buffer_capacity)
+
+				var craft_ch = workplace_mgr.get_workplace(wp_id + "_craft")
+				if craft_ch == null:
+					craft_ch = workplace_mgr.get_workplace_channel(wp_id, "craft_tools")
+				if craft_ch != null and entry.has("tools"):
+					craft_ch.buffer_amount = clampi(int(entry["tools"]), 0, craft_ch.buffer_capacity)
+					workplace_mgr.buffer_changed.emit(craft_ch.id, craft_ch.buffer_amount, craft_ch.buffer_capacity)
+				continue
+
+			# Format 1: Exact channel ID or single-workplace building ID
 			var wp = workplace_mgr.get_workplace(wp_id)
-			if wp != null:
-				var entry = saved_workplaces_data[wp_id]
+			if wp != null and wp.id == wp_id:
 				var saved_buf: int = 0
 				if entry is Dictionary:
 					saved_buf = int(entry.get("buffer_amount", 0))
@@ -662,22 +681,17 @@ func sync_workplaces_after_load(saved_workplaces_data: Dictionary = {}) -> void:
 				wp.buffer_amount = clampi(saved_buf, 0, wp.buffer_capacity)
 				workplace_mgr.buffer_changed.emit(wp.id, wp.buffer_amount, wp.buffer_capacity)
 			else:
-				# Backward compatibility: handle if saved as parent building ID with nested dictionary
-				var entry = saved_workplaces_data[wp_id]
+				# Format 2: Backward compatibility for parent building ID with integer or single buffer_amount
 				var smelt_ch = workplace_mgr.get_workplace(wp_id + "_smelt")
-				var craft_ch = workplace_mgr.get_workplace(wp_id + "_craft")
-				if entry is Dictionary:
-					if entry.has("metal") and smelt_ch != null:
-						smelt_ch.buffer_amount = clampi(int(entry["metal"]), 0, smelt_ch.buffer_capacity)
-						workplace_mgr.buffer_changed.emit(smelt_ch.id, smelt_ch.buffer_amount, smelt_ch.buffer_capacity)
-					if entry.has("tools") and craft_ch != null:
-						craft_ch.buffer_amount = clampi(int(entry["tools"]), 0, craft_ch.buffer_capacity)
-						workplace_mgr.buffer_changed.emit(craft_ch.id, craft_ch.buffer_amount, craft_ch.buffer_capacity)
-					if not entry.has("metal") and not entry.has("tools") and entry.has("buffer_amount") and smelt_ch != null:
-						smelt_ch.buffer_amount = clampi(int(entry["buffer_amount"]), 0, smelt_ch.buffer_capacity)
-						workplace_mgr.buffer_changed.emit(smelt_ch.id, smelt_ch.buffer_amount, smelt_ch.buffer_capacity)
-				elif (entry is int or entry is float) and smelt_ch != null:
-					smelt_ch.buffer_amount = clampi(int(entry), 0, smelt_ch.buffer_capacity)
+				if smelt_ch == null:
+					smelt_ch = workplace_mgr.get_workplace_channel(wp_id, "smelt_metal")
+				if smelt_ch != null:
+					var saved_buf: int = 0
+					if entry is Dictionary:
+						saved_buf = int(entry.get("buffer_amount", 0))
+					elif entry is int or entry is float:
+						saved_buf = int(entry)
+					smelt_ch.buffer_amount = clampi(saved_buf, 0, smelt_ch.buffer_capacity)
 					workplace_mgr.buffer_changed.emit(smelt_ch.id, smelt_ch.buffer_amount, smelt_ch.buffer_capacity)
 
 func _cancel_placement() -> void:
