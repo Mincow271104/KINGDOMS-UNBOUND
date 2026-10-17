@@ -164,9 +164,12 @@ func _ready() -> void:
 	if return_menu_collapse_btn:
 		return_menu_collapse_btn.pressed.connect(func(): return_to_menu_requested.emit())
 
-	# Event Banner controls
+	# Event & Crisis Banner controls
 	if event_banner:
 		event_banner.visible = false
+	if crisis_banner:
+		crisis_banner.visible = false
+		crisis_banner.mouse_filter = Control.MOUSE_FILTER_IGNORE
 
 	# Connect EventManager signals
 	var loop = Engine.get_main_loop()
@@ -241,11 +244,15 @@ func _refresh_research_ui() -> void:
 			btn.disabled = true
 			btn.modulate = Color(1.2, 1.2, 0.4)
 		else:
-			var check: Dictionary = research_mgr.call("can_research", tech_id, rm)
+			var cur_tech := tech_id
+			var check: Dictionary = research_mgr.call("can_research", cur_tech, rm)
 			if check.get("valid", false):
 				btn.text = " 🔬 %s (%s) — Chi phí: %s(%.0f giờ)" % [def.get("name"), def.get("branch"), cost_str, def.get("duration_hours", 12.0)]
 				btn.pressed.connect(func():
-					research_mgr.call("start_research", tech_id, rm)
+					var ok: bool = research_mgr.call("start_research", cur_tech, rm)
+					var am = get_node_or_null("/root/AudioManager")
+					if ok and am:
+						am.play_click()
 					_refresh_research_ui()
 				)
 			else:
@@ -687,7 +694,13 @@ func show_crisis_warning(data: Dictionary) -> void:
 		return
 	crisis_title.text = "⚠️ " + data.get("title", "CẢNH BÁO NGUY CƠ")
 	crisis_desc.text = "%s\nKhuyến nghị: %s" % [data.get("message", ""), data.get("recommended_action", "")]
+	crisis_banner.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	crisis_banner.visible = true
+	var timer := get_tree().create_timer(7.0)
+	timer.timeout.connect(func():
+		if is_instance_valid(crisis_banner):
+			crisis_banner.visible = false
+	)
 
 func hide_crisis_warning() -> void:
 	if crisis_banner:

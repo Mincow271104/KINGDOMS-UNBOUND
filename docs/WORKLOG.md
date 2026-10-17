@@ -628,6 +628,26 @@ Investigate and resolve reported manual gameplay failures regarding spending gol
 - **Live Visual Verification:**
   - Captured `screenshot_trade_active.png` showing live caravan trading, gold deductions, opinion boost banner, and updated HUD balances.
 
+---
 
+## [2026-10-17] Milestone 15: Tech Research Closure Capture Fix & Crisis Banner Non-Blocking UI Pass ✅ VERIFIED
 
+### Context & Objective
+During exploratory manual playthrough testing via Godot runtime MCP controls, two UX/functional defects were identified and resolved:
+1. Research tech button clicks in the Royal Research Academy (`ResearchMenuPanel`) did not initiate the selected project because `tech_id` was captured by reference in a `for` loop closure, causing every button to point to the last item in the dictionary. Additionally, the callback expected a `Dictionary` return value when `ResearchManager.start_research` returns a typed `bool`.
+2. The `CrisisBanner` ("LƯƠNG THỰC BÁO ĐỘNG") stayed permanently visible with default `mouse_filter = MOUSE_FILTER_STOP`, absorbing mouse clicks meant for underlying HUD menus (Research, Diplomacy, Building).
 
+### Resolutions Implemented
+1. **Tech Research Button Wiring (`scripts/ui/hud.gd`):**
+   - Bound `cur_tech := tech_id` locally within the loop scope.
+   - Fixed return value handling from `var res: Dictionary` to `var ok: bool = research_mgr.call("start_research", cur_tech, rm)`.
+   - Added audio feedback click on successful start.
+2. **Crisis Banner Non-Blocking Pass-Through (`scripts/ui/hud.gd`):**
+   - Added `crisis_banner.mouse_filter = Control.MOUSE_FILTER_IGNORE` in `_ready()` and `show_crisis_warning()`.
+   - Added automatic 7.0-second dismissal timer so warnings do not linger permanently on screen.
+
+### Validations Performed
+- **Live MCP UI Playthrough:**
+  - Started "Luân Canh Nông Nghiệp" via UI click on `@Button@4432`.
+  - Visual verification via `screenshot_3846308.png`: Research panel actively displayed `"Đang tiến hành: Luân Canh Nông Nghiệp [5.0 / 12.0 giờ] (42%)"` with yellow progress indicator and accurate prerequisite lock descriptions.
+  - Verified Crisis Banner dismissed cleanly without blocking clicks.
