@@ -188,6 +188,19 @@ static func serialize_world_state(world_view: Node) -> Dictionary:
 					revealed.append([x, y])
 		data["fog_of_war"] = revealed
 
+	# 11. Workplaces (Logistics Buffers)
+	var wp_mgr = world_view.get("workplace_mgr")
+	if wp_mgr != null:
+		var wp_dict: Dictionary = {}
+		for wp in wp_mgr.call("get_all_workplaces"):
+			wp_dict[wp.id] = {
+				"id": wp.id,
+				"building_type": wp.building_type,
+				"buffer_amount": wp.buffer_amount,
+				"buffer_capacity": wp.buffer_capacity
+			}
+		data["workplaces"] = wp_dict
+
 	return data
 
 static func save_to_file(world_view: Node, filepath: String = DEFAULT_SAVE_PATH) -> Dictionary:
@@ -348,6 +361,11 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 						world_view.get("buildings_by_cell")[Vector2i(cx, cy)] = b_type
 						
 			world_view.call("_instantiate_building_node", b_type, b_origin, b_size)
+
+	# 3b. Sync Workplaces & Logistics Buffers
+	if world_view.has_method("sync_workplaces_after_load"):
+		var saved_wp_dict: Dictionary = loaded_data.get("workplaces", {})
+		world_view.call("sync_workplaces_after_load", saved_wp_dict)
 
 	# 4. Clean and Reconstruct Citizens (Zero Node Duplication)
 	var citizens_container = world_view.get("citizens_container")

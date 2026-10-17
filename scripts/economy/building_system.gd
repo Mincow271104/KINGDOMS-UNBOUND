@@ -33,7 +33,43 @@ static func can_place_building(type: String, origin: Vector2i, world_data: World
 			if world_data.occupancy[cell.x][cell.y]:
 				return {"valid": false, "reason": "Vị trí đã bị chiếm dụng bởi công trình hoặc chướng ngại vật"}
 				
+	# 3. Accessibility check for production workplaces
+	if bp.get("output_resource", "") != "":
+		var access_cell := find_access_cell(origin, size, world_data)
+		if access_cell == Vector2i(-1, -1):
+			return {"valid": false, "reason": "Không có vị trí tiếp cận khả dụng"}
+
 	return {"valid": true, "reason": ""}
+
+static func find_access_cell(origin: Vector2i, size: Vector2i, world_data: WorldGenerator.WorldData) -> Vector2i:
+	if world_data == null:
+		return Vector2i(-1, -1)
+
+	var candidates: Array[Vector2i] = []
+	# Perimeter adjacent cells outside footprint (cardinal edges)
+	# 1. Left edge: (origin.x - 1, origin.y + oy)
+	for oy in range(size.y):
+		candidates.append(Vector2i(origin.x - 1, origin.y + oy))
+	# 2. Top edge: (origin.x + ox, origin.y - 1)
+	for ox in range(size.x):
+		candidates.append(Vector2i(origin.x + ox, origin.y - 1))
+	# 3. Right edge: (origin.x + size.x, origin.y + oy)
+	for oy in range(size.y):
+		candidates.append(Vector2i(origin.x + size.x, origin.y + oy))
+	# 4. Bottom edge: (origin.x + ox, origin.y + size.y)
+	for ox in range(size.x):
+		candidates.append(Vector2i(origin.x + ox, origin.y + size.y))
+
+	for cell in candidates:
+		if not IsoMath.is_in_bounds(cell):
+			continue
+		if world_data.terrain[cell.x][cell.y] == WorldGenerator.TerrainType.WATER:
+			continue
+		if world_data.occupancy[cell.x][cell.y]:
+			continue
+		return cell
+
+	return Vector2i(-1, -1)
 
 static func place_building(type: String, origin: Vector2i, world_data: WorldGenerator.WorldData, resource_mgr: Node) -> Dictionary:
 	var check := can_place_building(type, origin, world_data, resource_mgr)

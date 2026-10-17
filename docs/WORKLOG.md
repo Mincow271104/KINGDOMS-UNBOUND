@@ -953,3 +953,84 @@ Address code review finding regarding node lifecycle during building reconstruct
 - Keep `KINGDOMS_UNBOUND_STAGE11_FINAL.html` untracked.
 - Do NOT merge or push to `master`.
 - Await independent code review before proceeding to Package 1B.
+
+---
+
+## [2026-10-18] Milestone 21: Package 1B — Dynamic Production Workplaces ✅ VERIFIED
+
+### Context & Objective
+Package 1B implements dynamic production workplace registration and physical logistics integration for player-constructed Farm and Woodcutter Camp buildings:
+1. Dynamic registration of workplaces upon construction via `WorldView` and `BuildingSystem`.
+2. Automatic creation of recurring role-specific jobs matching blueprint `max_workers` (`farmer` for farms, `woodcutter` for camps) with non-footprint walkable access points.
+3. Inaccessible building rejection prior to resource deduction.
+4. Physical production and hauling pipeline: production deposits directly to local workplace buffer (zero instant teleportation to central storage), threshold-triggered hauling jobs, hauler extraction and dropoff deposit.
+5. Save/load synchronization: dynamic workplace reconstruction from `world_data.buildings`, buffer amount persistence and restoration with capacity clamping, anti-duplication on repeated loads, and legacy save compatibility.
+
+### Completed Work & Architecture Changes
+1. **Building Placement & Access Point Resolution (`scripts/economy/building_system.gd`):**
+   - Implemented `find_access_cell(origin, size, world_data) -> Vector2i` scanning perimeter adjacent cardinal cells for in-bounds, walkable, unoccupied tiles.
+   - Updated `can_place_building()`: if building has `output_resource != ""`, verifies a valid access cell exists. Rejects placement prior to cost deduction if inaccessible.
+2. **Workplace Manager Extensions (`scripts/economy/workplace_manager.gd`):**
+   - Added `has_workplace(id: String) -> bool`.
+   - Added `unregister_workplace(id: String) -> void`.
+   - Added `clear_dynamic_workplaces(preserve_ids: Array = ["farm_starter", "woodcutter_starter"]) -> void`.
+3. **Job Manager Extensions (`scripts/jobs/job_manager.gd`):**
+   - Added `get_jobs_for_building(building_id: String) -> Array[JobData]`.
+   - Added `remove_jobs_for_building(building_id: String) -> void`.
+   - Added `clear_dynamic_jobs(preserve_building_ids: Array = ["farm_starter", "woodcutter_starter"]) -> void` to purge dynamic building jobs while resetting recurring starter jobs to `AVAILABLE`.
+4. **WorldView Dynamic Registration & Synchronization (`scripts/world/world_view.gd`):**
+   - In `_execute_placement(cell: Vector2i)`: on successful placement of `farm` or `woodcutter`, calls `register_dynamic_workplace(b_data)`. Returns placement result dictionary.
+   - Implemented `register_dynamic_workplace(b_data: Dictionary) -> WorkplaceData`: assigns deterministic ID (`bld_%s_%d_%d`), registers workplace with capacity and output resource, and spawns recurring jobs at the access cell.
+   - Implemented `sync_workplaces_after_load(saved_workplaces_data: Dictionary = {}) -> void`: purges old dynamic workplaces/jobs, resets workplace buffers to 0 (legacy save support), reconstructs dynamic workplaces from `world_data.buildings`, and restores saved buffer quantities with clamping.
+5. **Persistence & Buffer Serialization (`scripts/persistence/save_manager.gd`):**
+   - In `serialize_world_state()`: serialized `workplaces` dictionary containing `id`, `building_type`, `buffer_amount`, and `buffer_capacity`.
+   - In `apply_loaded_state_to_world()`: invokes `world_view.sync_workplaces_after_load(loaded_data.get("workplaces", {}))` immediately after building reconstruction.
+6. **Comprehensive Automated Test Suite (`scripts/test/test_dynamic_workplaces.gd`):**
+   - Implemented tests TC-DW.1 through TC-DW.5 covering starter integrity, dynamic registration, inaccessible placement rejection, production buffering without teleportation, physical hauling, save/load buffer restoration, repeated load anti-duplication, fresh world restoration, legacy save compatibility, and buffer clamping.
+
+### Validations Performed & Results
+- **Dedicated Test Suite (`scripts/test/test_dynamic_workplaces.gd`):** **PASS (Exit Code 0, 0 failures)**
+  - TC-DW.1 (Starter Workplaces & Jobs Integrity): **PASS**
+  - TC-DW.2 (Dynamic Registration & Cost Deduction): **PASS**
+  - TC-DW.3 (Jobs & Production at Correct Workplace): **PASS**
+  - TC-DW.4 (Physical Hauling Loop): **PASS**
+  - TC-DW.5 (Save/Load Persistence & Anti-Duplication): **PASS**
+- **Full Regression Test Matrix (15/15 Suites Passed, Exit Code 0):**
+  1. `test_dynamic_workplaces.gd` (TC-DW.1 to TC-DW.5): **PASS (Exit Code 0)**
+  2. `test_save_load.gd` (TC-8.1, TC-8.2, TC-8.3): **PASS (Exit Code 0)**
+  3. `test_watchtower.gd` (TC-W.1 to TC-W.8b): **PASS (Exit Code 0)**
+  4. `test_world_gen.gd` (TC-1.2): **PASS (Exit Code 0)**
+  5. `test_coordinates.gd` (TC-1.1): **PASS (Exit Code 0)**
+  6. `test_time_manager.gd` (TC-1.4): **PASS (Exit Code 0)**
+  7. `test_economy.gd` (TC-2.1, TC-2.2): **PASS (Exit Code 0)**
+  8. `test_citizens.gd` (TC-3.1, TC-3.2): **PASS (Exit Code 0)**
+  9. `test_logistics.gd` (TC-4.1, TC-4.2, TC-4.3): **PASS (Exit Code 0)**
+  10. `test_research_and_exploration.gd` (TC-5.1, TC-5.2, TC-5.3): **PASS (Exit Code 0)**
+  11. `test_factions_and_battles.gd` (TC-6.1, TC-6.2): **PASS (Exit Code 0)**
+  12. `test_victory_and_collapse.gd` (TC-7.1, TC-7.2, TC-7.3): **PASS (Exit Code 0)**
+  13. `test_audio.gd`: **PASS (Exit Code 0)**
+  14. `test_gold_transactions.gd` (TC-G.1 to TC-G.8): **PASS (Exit Code 0)**
+  15. `test_stress_100_citizens.gd` (TC-9.1, 145 FPS): **PASS (Exit Code 0)**
+- **Scene Instantiation Sanity:**
+  - `scenes/test/visual_validation_test.tscn`: **PASS (Exit Code 0)**
+  - `scenes/ui/main_menu.tscn`: **PASS (Exit Code 0)**
+  - `scenes/world/world_view.tscn`: **PASS (Exit Code 0)**
+- **Visual Validation / MCP Screenshot Status:**
+  - `NOT RUN` (Reason: Terminal/headless environment without interactive Godot editor display; all states validated via engine test scripts).
+- **Whitespace Check:**
+  - `git diff --check`: Clean (Exit Code 0, zero whitespace errors).
+
+### Files Created / Modified
+- `scripts/economy/building_system.gd` (Added `find_access_cell()` and accessibility validation in `can_place_building()`)
+- `scripts/economy/workplace_manager.gd` (Added `has_workplace()`, `unregister_workplace()`, and `clear_dynamic_workplaces()`)
+- `scripts/jobs/job_manager.gd` (Added `get_jobs_for_building()`, `remove_jobs_for_building()`, and `clear_dynamic_jobs()`)
+- `scripts/world/world_view.gd` (Integrated dynamic registration in `_execute_placement()`, added `register_dynamic_workplace()` and `sync_workplaces_after_load()`)
+- `scripts/persistence/save_manager.gd` (Added workplace buffer serialization and load synchronization hook)
+- `scripts/test/test_dynamic_workplaces.gd` (Automated unit/integration test suite)
+- `docs/WORKLOG.md` (Documented Milestone 21)
+
+### Next Exact Step
+- Stage modified files explicitly.
+- Commit with exact message: `Add dynamic production workplace registration` on `feature/package-1b-dynamic-workplaces`.
+- Push to remote `origin/feature/package-1b-dynamic-workplaces`.
+- Await independent review.

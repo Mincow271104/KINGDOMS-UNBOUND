@@ -111,6 +111,34 @@ func boost_jobs_priority(job_type: String, boost_delta: int) -> int:
 func get_all_jobs() -> Array[JobData]:
 	return _jobs
 
+func get_jobs_for_building(building_id: String) -> Array[JobData]:
+	var result: Array[JobData] = []
+	for job in _jobs:
+		if job.target_building_id == building_id:
+			result.append(job)
+	return result
+
+func remove_jobs_for_building(building_id: String) -> void:
+	var remaining: Array[JobData] = []
+	for job in _jobs:
+		if job.target_building_id != building_id and job.source_workplace_id != building_id:
+			remaining.append(job)
+	_jobs = remaining
+
+func clear_dynamic_jobs(preserve_building_ids: Array = ["farm_starter", "woodcutter_starter"]) -> void:
+	var remaining: Array[JobData] = []
+	for job in _jobs:
+		# Preserve recurring starter jobs and reset transient runtime state
+		if job.target_building_id in preserve_building_ids and job.is_recurring:
+			job.state = JobState.AVAILABLE
+			job.worker_id = ""
+			job.work_hours_done = 0.0
+			remaining.append(job)
+		# Preserve non-building jobs if any
+		elif job.target_building_id == "" and job.source_workplace_id == "":
+			remaining.append(job)
+	_jobs = remaining
+
 func progress_job(job: JobData, delta_hours: float) -> bool:
 	if job == null or job.state != JobState.IN_PROGRESS:
 		return false

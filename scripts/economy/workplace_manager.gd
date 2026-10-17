@@ -62,6 +62,20 @@ func register_dropoff(id: String, type: String, access: Vector2i) -> DropoffData
 func get_workplace(id: String) -> WorkplaceData:
 	return _workplaces.get(id, null)
 
+func has_workplace(id: String) -> bool:
+	return _workplaces.has(id)
+
+func unregister_workplace(id: String) -> void:
+	_workplaces.erase(id)
+
+func clear_dynamic_workplaces(preserve_ids: Array = ["farm_starter", "woodcutter_starter"]) -> void:
+	var to_remove: Array[String] = []
+	for id in _workplaces:
+		if not id in preserve_ids:
+			to_remove.append(id)
+	for id in to_remove:
+		_workplaces.erase(id)
+
 func get_all_workplaces() -> Array:
 	return _workplaces.values()
 

@@ -470,7 +470,7 @@ func _on_build_requested(type: String) -> void:
 		ghost_building_sprite.offset = _get_building_sprite_offset(type)
 		ghost_building_node.visible = true
 
-func _execute_placement(cell: Vector2i) -> void:
+func _execute_placement(cell: Vector2i) -> Dictionary:
 	var rm := get_node_or_null("/root/ResourceManager")
 	var res: Dictionary = BuildingSystem.place_building(placing_building_type, cell, world_data, rm)
 	
@@ -481,6 +481,10 @@ func _execute_placement(cell: Vector2i) -> void:
 		var housing_cap: int = BuildingSystem.get_total_housing_capacity(world_data)
 		if hud:
 			hud.update_population_display(citizen_list.size(), housing_cap)
+
+		# If farm or woodcutter, register dynamic workplace and create jobs
+		if b_data["type"] in ["farm", "woodcutter"]:
+			register_dynamic_workplace(b_data)
 
 		# If watchtower, reveal vision and update POI discovery immediately
 		if b_data["type"] == "watchtower" and fog_of_war != null:
@@ -499,6 +503,92 @@ func _execute_placement(cell: Vector2i) -> void:
 		var am = get_node_or_null("/root/AudioManager")
 		if am:
 			am.play_error()
+
+	return res
+
+func register_dynamic_workplace(b_data: Dictionary) -> WorkplaceManager.WorkplaceData:
+	if workplace_mgr == null or job_mgr == null or world_data == null:
+		return null
+
+	var b_type: String = b_data.get("type", "")
+	if not b_type in ["farm", "woodcutter"]:
+		return null
+
+	var origin: Vector2i = b_data.get("cell", Vector2i.ZERO)
+	var size: Vector2i = b_data.get("size", Vector2i(2, 2))
+	var b_id: String = b_data.get("id", "")
+	if b_id == "":
+		b_id = "bld_%s_%d_%d" % [b_type, origin.x, origin.y]
+		b_data["id"] = b_id
+
+	# Prevent duplicate workplace registration
+	var existing: WorkplaceManager.WorkplaceData = workplace_mgr.get_workplace(b_id)
+	if existing != null:
+		return existing
+
+	var access_cell: Vector2i = BuildingSystem.find_access_cell(origin, size, world_data)
+	if access_cell == Vector2i(-1, -1):
+		printerr("[WorldView] Cannot register workplace for %s: no valid access cell" % b_id)
+		return null
+
+	var bp: Dictionary = EconomyConfig.BLUEPRINTS.get(b_type, {})
+	var max_workers: int = bp.get("max_workers", 1)
+	var job_type: String = bp.get("job_type", "")
+	var out_res: String = bp.get("output_resource", "")
+	var capacity: int = 50 if b_type == "farm" else 40
+	var base_prod: float = 5.0 if b_type == "farm" else 4.0
+
+	var wp: WorkplaceManager.WorkplaceData = workplace_mgr.register_workplace(
+		b_id, b_type, origin, size, access_cell, out_res, capacity, base_prod, max_workers
+	)
+
+	# Create recurring jobs if not already present
+	var existing_jobs := job_mgr.get_jobs_for_building(b_id)
+	if existing_jobs.is_empty():
+		var desc: String = "Chăm sóc và thu hoạch nông sản" if b_type == "farm" else "Khai thác và chế biến gỗ"
+		for i in range(max_workers):
+			job_mgr.create_job(job_type, access_cell, desc, b_id, 3.0, 1, true)
+
+	print("[WorldView] Registered dynamic workplace '%s' (%s) with %d jobs at %s" % [b_id, b_type, max_workers, access_cell])
+	return wp
+
+func sync_workplaces_after_load(saved_workplaces_data: Dictionary = {}) -> void:
+	if workplace_mgr == null or job_mgr == null or world_data == null:
+		return
+
+	var starter_ids: Array[String] = ["farm_starter", "woodcutter_starter"]
+
+	# 1. Clear dynamic workplaces and dynamic jobs
+	workplace_mgr.clear_dynamic_workplaces(starter_ids)
+	job_mgr.clear_dynamic_jobs(starter_ids)
+
+	# Reset all existing workplace buffers to 0 first (ensures legacy saves default to 0)
+	for wp in workplace_mgr.get_all_workplaces():
+		wp.buffer_amount = 0
+
+	# 2. Re-register dynamic workplaces from world_data.buildings
+	for b in world_data.buildings:
+		var b_type: String = b.get("type", "")
+		if b_type in ["farm", "woodcutter"]:
+			var b_cell: Vector2i = b.get("cell", Vector2i.ZERO)
+			# Skip starter workplaces
+			if (b_type == "farm" and b_cell == Vector2i(36, 35)) or (b_type == "woodcutter" and b_cell == Vector2i(26, 30)) or b.get("id", "") in starter_ids:
+				continue
+			register_dynamic_workplace(b)
+
+	# 3. Restore buffer amounts
+	if saved_workplaces_data is Dictionary and not saved_workplaces_data.is_empty():
+		for wp_id in saved_workplaces_data:
+			var wp = workplace_mgr.get_workplace(wp_id)
+			if wp != null:
+				var entry = saved_workplaces_data[wp_id]
+				var saved_buf: int = 0
+				if entry is Dictionary:
+					saved_buf = int(entry.get("buffer_amount", 0))
+				elif entry is int or entry is float:
+					saved_buf = int(entry)
+				wp.buffer_amount = clampi(saved_buf, 0, wp.buffer_capacity)
+				workplace_mgr.buffer_changed.emit(wp.id, wp.buffer_amount, wp.buffer_capacity)
 
 func _cancel_placement() -> void:
 	placing_building_type = ""
