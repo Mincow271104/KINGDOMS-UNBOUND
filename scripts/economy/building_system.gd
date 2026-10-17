@@ -34,7 +34,7 @@ static func can_place_building(type: String, origin: Vector2i, world_data: World
 				return {"valid": false, "reason": "Vị trí đã bị chiếm dụng bởi công trình hoặc chướng ngại vật"}
 				
 	# 3. Accessibility check for production workplaces
-	if bp.get("output_resource", "") != "":
+	if bp.get("output_resource", "") != "" or bp.has("recipes") or type == "workshop":
 		var access_cell := find_access_cell(origin, size, world_data)
 		if access_cell == Vector2i(-1, -1):
 			return {"valid": false, "reason": "Không có vị trí tiếp cận khả dụng"}

@@ -81,7 +81,7 @@ layout_mode = 2
 
 [node name="Resources" type="HBoxContainer" parent="TopBar/PanelContainer/MarginContainer/HBoxContainer"]
 layout_mode = 2
-theme_override_constants/separation = 18
+theme_override_constants/separation = 12
 
 [node name="FoodLabel" type="Label" parent="TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources"]
 layout_mode = 2
@@ -98,6 +98,14 @@ text = "🪨 Đá: 60"
 [node name="OreLabel" type="Label" parent="TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources"]
 layout_mode = 2
 text = "⛏️ Quặng: 0"
+
+[node name="MetalLabel" type="Label" parent="TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources"]
+layout_mode = 2
+text = "⚔️ Kim loại: 20"
+
+[node name="ToolsLabel" type="Label" parent="TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources"]
+layout_mode = 2
+text = "🛠️ Công cụ: 15"
 
 [node name="GoldLabel" type="Label" parent="TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources"]
 layout_mode = 2
@@ -168,7 +176,7 @@ anchor_top = 1.0
 anchor_right = 0.5
 anchor_bottom = 1.0
 offset_left = -280.0
-offset_top = -220.0
+offset_top = -270.0
 offset_right = 280.0
 offset_bottom = -56.0
 grow_horizontal = 2
@@ -231,6 +239,11 @@ text = "⛏️ Mỏ Đá (15 Gỗ, 5 Công Cụ)"
 custom_minimum_size = Vector2(250, 40)
 layout_mode = 2
 text = "⛰️ Mỏ Quặng (20 Gỗ, 10 Đá)"
+
+[node name="WorkshopBtn" type="Button" parent="BuildMenuPanel/MarginContainer/VBoxContainer/GridContainer"]
+custom_minimum_size = Vector2(250, 40)
+layout_mode = 2
+text = "🔨 Xưởng Chế Tác (20 Gỗ, 15 Đá, 5 Kim Loại)"
 
 [node name="CloseBuildBtn" type="Button" parent="BuildMenuPanel/MarginContainer/VBoxContainer"]
 custom_minimum_size = Vector2(0, 30)

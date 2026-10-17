@@ -28,11 +28,23 @@ class JobData:
 	var dest_cell: Vector2i = Vector2i.ZERO
 	var cargo_resource: String = ""
 	var cargo_amount: int = 0
+	var recipe_id: String = ""
+	var workplace_channel_id: String = ""
 
 var _jobs: Array[JobData] = []
 var _next_job_id: int = 1
 
-func create_job(type: String, target_cell: Vector2i, desc: String = "", building_id: String = "", duration_hours: float = 2.0, priority: int = 1, recurring: bool = false) -> JobData:
+func create_job(
+	type: String,
+	target_cell: Vector2i,
+	desc: String = "",
+	building_id: String = "",
+	duration_hours: float = 2.0,
+	priority: int = 1,
+	recurring: bool = false,
+	recipe: String = "",
+	channel_id: String = ""
+) -> JobData:
 	var job := JobData.new()
 	job.id = "job_%d" % _next_job_id
 	_next_job_id += 1
@@ -45,6 +57,8 @@ func create_job(type: String, target_cell: Vector2i, desc: String = "", building
 	job.state = JobState.AVAILABLE
 	job.priority = priority
 	job.is_recurring = recurring
+	job.recipe_id = recipe
+	job.workplace_channel_id = channel_id
 	_jobs.append(job)
 	return job
 
@@ -67,8 +81,28 @@ func create_hauling_job(workplace_id: String, source: Vector2i, dest: Vector2i, 
 	_jobs.append(job)
 	return job
 
+func _is_job_executable(job: JobData, wp_mgr: Object, resource_mgr: Node) -> bool:
+	if job.type != "smith" or job.recipe_id == "":
+		return true
+	if wp_mgr == null or resource_mgr == null:
+		return true
+	var channel_id := job.workplace_channel_id
+	if channel_id == "":
+		channel_id = job.target_building_id
+	var wp = wp_mgr.get_workplace(channel_id)
+	if wp == null:
+		return true
+	# Check output buffer capacity
+	if wp.buffer_amount >= wp.buffer_capacity:
+		return false
+	# Check input resources
+	for in_res in wp.required_inputs:
+		if resource_mgr.get_available_stock(in_res) < wp.required_inputs[in_res]:
+			return false
+	return true
+
 ## Finds the best reachable job matching the citizen's role, prioritized by priority score.
-func request_job(citizen_id: String, role: String, citizen_cell: Vector2i, nav: GridNavigation) -> JobData:
+func request_job(citizen_id: String, role: String, citizen_cell: Vector2i, nav: GridNavigation, wp_mgr: Object = null, resource_mgr: Node = null) -> JobData:
 	if role == "idle":
 		return null
 		
@@ -81,6 +115,10 @@ func request_job(citizen_id: String, role: String, citizen_cell: Vector2i, nav: 
 		if job.type != role:
 			continue
 			
+		# Check executability for crafting jobs
+		if not _is_job_executable(job, wp_mgr, resource_mgr):
+			continue
+
 		# Check reachability
 		var check_target: Vector2i = job.source_cell if job.type == "hauler" else job.target_cell
 		var path := nav.find_path(citizen_cell, check_target)
@@ -114,14 +152,15 @@ func get_all_jobs() -> Array[JobData]:
 func get_jobs_for_building(building_id: String) -> Array[JobData]:
 	var result: Array[JobData] = []
 	for job in _jobs:
-		if job.target_building_id == building_id:
+		if job.target_building_id == building_id or job.source_workplace_id == building_id or job.workplace_channel_id == building_id or (job.target_building_id != "" and job.target_building_id.begins_with(building_id)) or (job.workplace_channel_id != "" and job.workplace_channel_id.begins_with(building_id)):
 			result.append(job)
 	return result
 
 func remove_jobs_for_building(building_id: String) -> void:
 	var remaining: Array[JobData] = []
 	for job in _jobs:
-		if job.target_building_id != building_id and job.source_workplace_id != building_id:
+		var matches_bld := (job.target_building_id == building_id or job.source_workplace_id == building_id or job.workplace_channel_id == building_id or (job.target_building_id != "" and job.target_building_id.begins_with(building_id)) or (job.workplace_channel_id != "" and job.workplace_channel_id.begins_with(building_id)))
+		if not matches_bld:
 			remaining.append(job)
 	_jobs = remaining
 

@@ -17,7 +17,7 @@ enum State {
 
 @export var citizen_id: String = ""
 @export var citizen_name: String = ""
-@export var role: String = "idle" # "farmer", "woodcutter", "builder", "hauler", "miner", "idle"
+@export var role: String = "idle" # "farmer", "woodcutter", "builder", "hauler", "miner", "smith", "idle"
 
 var current_cell: Vector2i = Vector2i(32, 32)
 var current_state: int = State.IDLE
@@ -110,7 +110,8 @@ func _process_idle() -> void:
 		
 	# Request work
 	if role != "idle":
-		var job = job_mgr.request_job(citizen_id, role, current_cell, nav)
+		var rm_node: Node = get_node_or_null("/root/ResourceManager") if (is_inside_tree() and has_node("/root/ResourceManager")) else null
+		var job = job_mgr.request_job(citizen_id, role, current_cell, nav, workplace_mgr, rm_node)
 		if job != null:
 			active_job = job
 			var target_dest: Vector2i = job.source_cell if job.type == "hauler" else job.target_cell
@@ -124,7 +125,10 @@ func _process_idle() -> void:
 				active_job = null
 				status_reason = "Không thể tiếp cận nơi làm việc (bị chặn đường)"
 		else:
-			status_reason = "Chờ công việc phù hợp với vai trò: " + role
+			if role == "smith":
+				status_reason = "Chờ nguyên liệu chế tác hoặc kho đệm xưởng giải phóng"
+			else:
+				status_reason = "Chờ công việc phù hợp với vai trò: " + role
 	else:
 		status_reason = "Dân tự do (Chưa được phân công việc)"
 
@@ -234,14 +238,30 @@ func _process_working(delta: float) -> void:
 	if completed:
 		# Production at workplace deposits to buffer (not central storage)
 		if workplace_mgr != null and active_job != null:
-			if active_job.type in ["farmer", "woodcutter", "miner", "quarryman"] or (workplace_mgr.has_method("has_workplace") and workplace_mgr.has_workplace(active_job.target_building_id)):
+			var target_wp_id: String = active_job.target_building_id
+			if active_job.get("workplace_channel_id") != null and active_job.get("workplace_channel_id") != "":
+				target_wp_id = active_job.get("workplace_channel_id")
+			elif workplace_mgr.has_method("get_workplace_channel") and active_job.get("recipe_id") != null and active_job.get("recipe_id") != "":
+				var ch = workplace_mgr.get_workplace_channel(target_wp_id, active_job.get("recipe_id"))
+				if ch:
+					target_wp_id = ch.id
+
+			if active_job.type in ["farmer", "woodcutter", "miner", "quarryman", "smith"] or (workplace_mgr.has_method("has_workplace") and workplace_mgr.has_workplace(target_wp_id)):
 				var season_mod := 1.0
 				if tm != null and tm.has_method("get_farm_efficiency_modifier") and active_job.type == "farmer":
 					season_mod = tm.get_farm_efficiency_modifier()
-				workplace_mgr.produce_to_buffer(active_job.target_building_id, season_mod)
+				var rm_node: Node = get_node_or_null("/root/ResourceManager") if (is_inside_tree() and has_node("/root/ResourceManager")) else null
+				var produced_qty: int = workplace_mgr.produce_to_buffer(target_wp_id, season_mod, rm_node)
+				if produced_qty > 0:
+					status_reason = "Hoàn thành công việc, chuẩn bị việc mới"
+				else:
+					var wp_obj = workplace_mgr.get_workplace(target_wp_id)
+					if wp_obj and wp_obj.buffer_amount >= wp_obj.buffer_capacity:
+						status_reason = "Kho đệm xưởng đã đầy, chờ vận chuyển"
+					else:
+						status_reason = "Thiếu nguyên liệu chế tác tại xưởng"
 		active_job = null
 		current_state = State.IDLE
-		status_reason = "Hoàn thành công việc, chuẩn bị việc mới"
 
 func _process_resting(delta: float) -> void:
 	var delta_hours := delta
@@ -329,7 +349,10 @@ func _update_reason() -> void:
 		State.MOVING_TO_JOB:
 			status_reason = "Đang di chuyển đến vị trí làm việc"
 		State.WORKING:
-			status_reason = "Đang tích cực lao động sản xuất"
+			if active_job != null and active_job.type == "smith":
+				status_reason = "Đang luyện kim hoặc rèn công cụ tại xưởng"
+			else:
+				status_reason = "Đang tích cực lao động sản xuất"
 		State.HAULING:
 			status_reason = "Đang vận chuyển %d %s về kho" % [carrying_amount, carrying_resource]
 		State.SEEKING_FOOD:

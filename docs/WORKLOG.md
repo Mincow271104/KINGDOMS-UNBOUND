@@ -1410,3 +1410,104 @@ Address independent code review finding for Package 1D: in `scripts/test/test_mi
 - Do NOT merge or push to `master`.
 - Keep `KINGDOMS_UNBOUND_STAGE11_FINAL.html` untracked.
 - Await independent review before Package 1E.
+
+---
+
+## [2026-10-18] Milestone 27: Package 1E — Dynamic Workshop: Metal Smelting, Tool Crafting & Physical Logistics ✅ VERIFIED
+
+### Context & Objective
+Implement Package 1E: Dynamic Workshop on dedicated branch `feature/package-1e-workshop` created from reviewed Package 1D base commit `86fb44bc479b95af3183dd254802e0862f31ee0c`.
+Package 1E introduces the dynamic Workshop (`Xưởng Chế Tác`), featuring two distinct recipe channels (`smelt_metal`: 2 Ore $\to$ 1 Metal, and `craft_tools`: 2 Metal + 1 Wood $\to$ 1 Tool), local buffer capacities (40 each), 4 smith worker quotas, atomic input consumption without partial expenditure, zero-teleportation production, physical hauling loop, HUD integration for Metal and Tools stocks, and save/load persistence with backward compatibility.
+
+### Completed Work
+1. **Economy Configuration & Blueprint (`scripts/economy/economy_config.gd`):**
+   - Registered `workshop` blueprint: 2×2 footprint, cost (20 Wood, 15 Stone, 5 Metal), 4 workers, role `smith`.
+   - Defined recipe channels: `smelt_metal` (2 Ore $\to$ 1 Metal, 3.0h) and `craft_tools` (2 Metal + 1 Wood $\to$ 1 Tool, 3.0h).
+2. **Access Cell Validation (`scripts/economy/building_system.gd`):**
+   - Updated `can_place_building` to compute and require valid walkable perimeter access cells for multi-recipe workplaces.
+3. **Multi-Channel Workplace Architecture (`scripts/economy/workplace_manager.gd`):**
+   - Extended `WorkplaceData` with `parent_building_id`, `recipe_id`, `required_inputs`, and `output_amount`.
+   - Added channel lookup helpers: `get_workplace_channel`, `get_workplaces_for_building`, and recipe alias matching (`_smelt`/`_craft`).
+   - Implemented atomic input consumption in `produce_to_buffer` via `ResourceManager.reserve_cost` and `commit_cost`.
+4. **Recipe-Aware Job Dispatching (`scripts/jobs/job_manager.gd`):**
+   - Added `recipe_id` and `workplace_channel_id` fields to `JobData` and `create_job`.
+   - Added `_is_job_executable` check in `request_job` to skip crafting jobs when inputs are insufficient or local buffer is full.
+   - Updated building job query and cleanup helpers to match channel IDs and parent building prefixes.
+5. **Real Citizen Controller (`scripts/entities/citizen_controller.gd`):**
+   - Registered `"smith"` in `@export var role`.
+   - Passed `workplace_mgr` and `ResourceManager` to `request_job` during idle state.
+   - Wired production execution to target recipe channels and updated Vietnamese status reasons for smiths.
+6. **WorldView Integration (`scripts/world/world_view.gd`):**
+   - Loaded `bld_workshop.png` with pivot offset `Vector2(-32.0, -36.0)` and Vietnamese name `"Xưởng Chế Tác (2x2)"`.
+   - In `register_dynamic_workplace`, registered dual channels (`b_id + "_smelt"`, `b_id + "_craft"`) with 4 recurring smith jobs.
+   - In `sync_workplaces_after_load`, restored independent channel buffer amounts with legacy single-buffer fallback and 40-capacity clamping.
+7. **HUD Integration (`scenes/ui/hud.tscn`, `scripts/ui/hud.gd`):**
+   - Added `MetalLabel` (`⚔️ Kim loại: %d`) and `ToolsLabel` (`🛠️ Công cụ: %d`) to HUD `Resources` container.
+   - Added `WorkshopBtn` to `BuildMenuPanel` and expanded panel bounds.
+   - Added `Thợ Xưởng (Smith)` option (index 6) to citizen inspector role dropdown.
+8. **Pixel Art Asset:**
+   - Generated 64×48 RGBA `bld_workshop.png` and `.import` metadata conforming to 2:1 dimetric perspective and project palette.
+9. **Automated Test Suite (`scripts/test/test_workshop.gd`):**
+   - Implemented TC-WS.1 through TC-WS.7 verifying blueprint, build button, sprite, HUD, placement, real citizen smelting, real citizen crafting, real physical hauling, save/load persistence, buffer clamping, backward compatibility, and non-regression.
+10. **Game Rules Documentation (`docs/GAME_RULES.md`):**
+    - Documented Workshop storage capacities, building parameters, and dual recipes.
+
+### Validations Performed & Results
+- **Dedicated Test Suite (`scripts/test/test_workshop.gd`):** **PASS (Exit Code 0, 7/7 passed)**
+  - TC-WS.1 (Blueprint, Build Button, Sprite & HUD Verification): **PASS**
+  - TC-WS.2 (Placement, Access Cell & Dynamic Registration): **PASS**
+  - TC-WS.3 (Real Citizen Metal Smelting Integration): **PASS**
+  - TC-WS.4 (Real Citizen Tool Crafting Integration): **PASS**
+  - TC-WS.5 (Real Physical Hauling for Metal & Tools Independently): **PASS**
+  - TC-WS.6 (Save/Load, Buffer Restoration & Clamping Integrity): **PASS**
+  - TC-WS.7 (Package Non-Regression Verification): **PASS**
+- **Full Core Regression Matrix (Godot 4.7 Headless):**
+  - `test_watchtower.gd` (TC-W.1 to TC-W.8b): **PASS (Exit Code 0)**
+  - `test_dynamic_workplaces.gd` (TC-DW.1 to TC-DW.5): **PASS (Exit Code 0)**
+  - `test_quarry.gd` (TC-Q.1 to TC-Q.6): **PASS (Exit Code 0)**
+  - `test_mine.gd` (TC-M.1 to TC-M.6): **PASS (Exit Code 0)**
+  - `test_save_load.gd` (TC-8.1 to TC-8.3): **PASS (Exit Code 0)**
+  - `test_economy.gd` (TC-2.1, TC-2.2): **PASS (Exit Code 0)**
+  - `test_citizens.gd` (TC-3.1, TC-3.2): **PASS (Exit Code 0)**
+  - `test_logistics.gd` (TC-4.1 to TC-4.3): **PASS (Exit Code 0)**
+  - `test_world_gen.gd` (TC-1.2): **PASS (Exit Code 0)**
+  - `test_coordinates.gd` (TC-1.1): **PASS (Exit Code 0)**
+  - `test_time_manager.gd` (TC-1.4): **PASS (Exit Code 0)**
+  - `test_research_and_exploration.gd` (TC-5.1 to TC-5.3): **PASS (Exit Code 0)**
+  - `test_factions_and_battles.gd` (TC-6.1, TC-6.2): **PASS (Exit Code 0)**
+  - `test_victory_and_collapse.gd` (TC-7.1 to TC-7.3): **PASS (Exit Code 0)**
+  - `test_audio.gd`: **PASS (Exit Code 0)**
+  - `test_gold_transactions.gd` (TC-G.1 to TC-G.8): **PASS (Exit Code 0)**
+  - `test_stress_100_citizens.gd` (TC-9.1): **PASS (Exit Code 0)**
+- **Scene Instantiation Sanity:**
+  - `scenes/test/visual_validation_test.tscn`: **PASS (Exit Code 0)**
+  - `scenes/ui/main_menu.tscn`: **PASS (Exit Code 0)**
+  - `scenes/world/world_view.tscn`: **PASS (Exit Code 0)**
+- **Visual Validation / MCP Screenshot Status:**
+  - `GUI NOT RUN` (Reason: Headless testing environment without interactive display server; layout fitting not verified via GUI display).
+- **Whitespace Check:**
+  - `git diff --check`: Clean (Exit Code 0, zero whitespace errors).
+
+### Files Created / Modified
+- `scripts/economy/economy_config.gd` (Added workshop blueprint and recipe definitions)
+- `scripts/economy/building_system.gd` (Access cell check for multi-recipe buildings)
+- `scripts/economy/workplace_manager.gd` (Multi-channel workplace support & atomic input consumption)
+- `scripts/jobs/job_manager.gd` (Recipe/channel job tracking and `_is_job_executable`)
+- `scripts/entities/citizen_controller.gd` (Smith role support and recipe routing)
+- `scripts/world/world_view.gd` (Workshop texture loading, dual channel registration, save sync)
+- `scenes/ui/hud.tscn` (Added MetalLabel, ToolsLabel, and WorkshopBtn)
+- `scripts/ui/hud.gd` (Labels, button handlers, smith role dropdown option)
+- `assets/buildings/bld_workshop.png` (New 64x48 pixel art texture)
+- `assets/buildings/bld_workshop.png.import` (Import metadata)
+- `scripts/test/test_workshop.gd` (New comprehensive Package 1E test suite)
+- `docs/GAME_RULES.md` (Updated storage capacities, building specs, and recipes)
+- `docs/WORKLOG.md` (Documented Milestone 27)
+
+### Next Exact Step
+- Stage Package 1E files explicitly.
+- Commit with exact message: `Add dynamic workshop metal and tool production`.
+- Push branch `feature/package-1e-workshop` to `origin`.
+- Verify remote commit SHA matches local `HEAD`.
+- Keep untracked files (`KINGDOMS_UNBOUND_STAGE11_FINAL.html`, `.uid` files) untouched.
+- Await independent review (do NOT merge to `master`, do NOT start Package 1F).
+

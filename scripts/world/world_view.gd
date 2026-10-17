@@ -93,6 +93,10 @@ func _load_assets() -> void:
 		building_textures["mine"] = load("res://assets/buildings/bld_mine.png")
 	else:
 		building_textures["mine"] = building_textures.get("storehouse", null)
+	if ResourceLoader.exists("res://assets/buildings/bld_workshop.png"):
+		building_textures["workshop"] = load("res://assets/buildings/bld_workshop.png")
+	else:
+		building_textures["workshop"] = building_textures.get("storehouse", null)
 	
 	prop_textures["tree"] = load("res://assets/props/prop_tree.png")
 	prop_textures["rock"] = load("res://assets/props/prop_rock.png")
@@ -227,6 +231,7 @@ func _get_building_sprite_offset(type: String) -> Vector2:
 		"watchtower": return Vector2(-16.0, -40.0)
 		"quarry": return Vector2(-32.0, -36.0)
 		"mine": return Vector2(-32.0, -36.0)
+		"workshop": return Vector2(-32.0, -36.0)
 		_: return Vector2(-32.0, -32.0)
 
 func _spawn_props() -> void:
@@ -492,8 +497,8 @@ func _execute_placement(cell: Vector2i) -> Dictionary:
 		if hud:
 			hud.update_population_display(citizen_list.size(), housing_cap)
 
-		# If farm, woodcutter, quarry, or mine, register dynamic workplace and create jobs
-		if b_data["type"] in ["farm", "woodcutter", "quarry", "mine"]:
+		# If farm, woodcutter, quarry, mine, or workshop, register dynamic workplace and create jobs
+		if b_data["type"] in ["farm", "woodcutter", "quarry", "mine", "workshop"]:
 			register_dynamic_workplace(b_data)
 
 		# If watchtower, reveal vision and update POI discovery immediately
@@ -521,7 +526,7 @@ func register_dynamic_workplace(b_data: Dictionary) -> WorkplaceManager.Workplac
 		return null
 
 	var b_type: String = b_data.get("type", "")
-	if not b_type in ["farm", "woodcutter", "quarry", "mine"]:
+	if not b_type in ["farm", "woodcutter", "quarry", "mine", "workshop"]:
 		return null
 
 	var origin: Vector2i = b_data.get("cell", Vector2i.ZERO)
@@ -540,6 +545,50 @@ func register_dynamic_workplace(b_data: Dictionary) -> WorkplaceManager.Workplac
 	if access_cell == Vector2i(-1, -1):
 		printerr("[WorldView] Cannot register workplace for %s: no valid access cell" % b_id)
 		return null
+
+	if b_type == "workshop":
+		# Register two independent recipe channels: Smelt Metal & Craft Tools
+		var wp_smelt: WorkplaceManager.WorkplaceData = workplace_mgr.register_workplace(
+			b_id + "_smelt",
+			b_type,
+			origin,
+			size,
+			access_cell,
+			EconomyConfig.RES_METAL,
+			40, # capacity
+			1.0, # base prod
+			2, # worker quota
+			b_id, # parent_id
+			"smelt_metal", # recipe
+			{EconomyConfig.RES_ORE: 2}, # inputs
+			1 # output amount
+		)
+		var wp_craft: WorkplaceManager.WorkplaceData = workplace_mgr.register_workplace(
+			b_id + "_craft",
+			b_type,
+			origin,
+			size,
+			access_cell,
+			EconomyConfig.RES_TOOLS,
+			40, # capacity
+			1.0, # base prod
+			2, # worker quota
+			b_id, # parent_id
+			"craft_tools", # recipe
+			{EconomyConfig.RES_METAL: 2, EconomyConfig.RES_WOOD: 1}, # inputs
+			1 # output amount
+		)
+
+		# Create recurring smith jobs if not already present
+		var existing_jobs := job_mgr.get_jobs_for_building(b_id)
+		if existing_jobs.is_empty():
+			for i in range(2):
+				job_mgr.create_job("smith", access_cell, "Luyện kim loại từ quặng thô", b_id, 3.0, 1, true, "smelt_metal", b_id + "_smelt")
+			for i in range(2):
+				job_mgr.create_job("smith", access_cell, "Rèn công cụ từ kim loại và gỗ", b_id, 3.0, 1, true, "craft_tools", b_id + "_craft")
+
+		print("[WorldView] Registered dynamic workshop '%s' with 2 recipe channels and 4 jobs at %s" % [b_id, access_cell])
+		return wp_smelt
 
 	var bp: Dictionary = EconomyConfig.BLUEPRINTS.get(b_type, {})
 	var max_workers: int = bp.get("max_workers", 1)
@@ -579,7 +628,7 @@ func sync_workplaces_after_load(saved_workplaces_data: Dictionary = {}) -> void:
 	# 2. Re-register dynamic workplaces from world_data.buildings
 	for b in world_data.buildings:
 		var b_type: String = b.get("type", "")
-		if b_type in ["farm", "woodcutter", "quarry", "mine"]:
+		if b_type in ["farm", "woodcutter", "quarry", "mine", "workshop"]:
 			var b_cell: Vector2i = b.get("cell", Vector2i.ZERO)
 			# Skip starter workplaces
 			if (b_type == "farm" and b_cell == Vector2i(36, 35)) or (b_type == "woodcutter" and b_cell == Vector2i(26, 30)) or b.get("id", "") in starter_ids:
@@ -599,6 +648,24 @@ func sync_workplaces_after_load(saved_workplaces_data: Dictionary = {}) -> void:
 					saved_buf = int(entry)
 				wp.buffer_amount = clampi(saved_buf, 0, wp.buffer_capacity)
 				workplace_mgr.buffer_changed.emit(wp.id, wp.buffer_amount, wp.buffer_capacity)
+			else:
+				# Backward compatibility: handle if saved as parent building ID with nested dictionary
+				var entry = saved_workplaces_data[wp_id]
+				var smelt_ch = workplace_mgr.get_workplace(wp_id + "_smelt")
+				var craft_ch = workplace_mgr.get_workplace(wp_id + "_craft")
+				if entry is Dictionary:
+					if entry.has("metal") and smelt_ch != null:
+						smelt_ch.buffer_amount = clampi(int(entry["metal"]), 0, smelt_ch.buffer_capacity)
+						workplace_mgr.buffer_changed.emit(smelt_ch.id, smelt_ch.buffer_amount, smelt_ch.buffer_capacity)
+					if entry.has("tools") and craft_ch != null:
+						craft_ch.buffer_amount = clampi(int(entry["tools"]), 0, craft_ch.buffer_capacity)
+						workplace_mgr.buffer_changed.emit(craft_ch.id, craft_ch.buffer_amount, craft_ch.buffer_capacity)
+					if not entry.has("metal") and not entry.has("tools") and entry.has("buffer_amount") and smelt_ch != null:
+						smelt_ch.buffer_amount = clampi(int(entry["buffer_amount"]), 0, smelt_ch.buffer_capacity)
+						workplace_mgr.buffer_changed.emit(smelt_ch.id, smelt_ch.buffer_amount, smelt_ch.buffer_capacity)
+				elif (entry is int or entry is float) and smelt_ch != null:
+					smelt_ch.buffer_amount = clampi(int(entry), 0, smelt_ch.buffer_capacity)
+					workplace_mgr.buffer_changed.emit(smelt_ch.id, smelt_ch.buffer_amount, smelt_ch.buffer_capacity)
 
 func _cancel_placement() -> void:
 	placing_building_type = ""
@@ -626,6 +693,7 @@ func _get_building_display_name(key: String) -> String:
 		"watchtower": return "Tháp Canh (1x1)"
 		"quarry": return "Mỏ Khai Thác Đá (2x2)"
 		"mine": return "Mỏ Khai Thác Quặng (2x2)"
+		"workshop": return "Xưởng Chế Tác (2x2)"
 		_: return ""
 
 func _on_return_to_menu() -> void:

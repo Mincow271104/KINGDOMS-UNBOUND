@@ -17,6 +17,8 @@ signal citizen_role_changed(citizen_id: String, new_role: String)
 @onready var wood_label: Label = $TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources/WoodLabel
 @onready var stone_label: Label = $TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources/StoneLabel
 @onready var ore_label: Label = $TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources/OreLabel
+@onready var metal_label: Label = $TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources/MetalLabel
+@onready var tools_label: Label = $TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources/ToolsLabel
 @onready var gold_label: Label = $TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources/GoldLabel
 @onready var pop_label: Label = $TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources/PopLabel
 
@@ -140,6 +142,9 @@ func _ready() -> void:
 	var btn_mine = $BuildMenuPanel/MarginContainer/VBoxContainer/GridContainer.get_node_or_null("MineBtn")
 	if btn_mine:
 		btn_mine.pressed.connect(func(): _select_building("mine"))
+	var btn_workshop = $BuildMenuPanel/MarginContainer/VBoxContainer/GridContainer.get_node_or_null("WorkshopBtn")
+	if btn_workshop:
+		btn_workshop.pressed.connect(func(): _select_building("workshop"))
 	btn_close_build.pressed.connect(func(): build_menu_panel.visible = false)
 
 	# Citizen inspector controls
@@ -198,6 +203,7 @@ func _setup_role_options() -> void:
 	role_option_btn.add_item("Khuân Vác (Hauler)", 3)
 	role_option_btn.add_item("Thợ Mỏ / Khai Thác Đá & Quặng (Miner)", 4)
 	role_option_btn.add_item("Dân Tự Do (Idle)", 5)
+	role_option_btn.add_item("Thợ Xưởng (Smith)", 6)
 
 func set_research_manager(mgr: Object) -> void:
 	research_mgr = mgr
@@ -560,6 +566,7 @@ func show_citizen_inspector(cit: Node) -> void:
 		"builder": role_option_btn.select(2)
 		"hauler": role_option_btn.select(3)
 		"miner", "quarryman": role_option_btn.select(4)
+		"smith": role_option_btn.select(6)
 		_: role_option_btn.select(5)
 
 func _refresh_inspected_citizen() -> void:
@@ -588,6 +595,7 @@ func _on_role_option_selected(idx: int) -> void:
 		3: new_role = "hauler"
 		4: new_role = "miner"
 		5: new_role = "idle"
+		6: new_role = "smith"
 	inspected_citizen.call("set_role", new_role)
 	citizen_role_changed.emit(inspected_citizen.get("citizen_id"), new_role)
 	_refresh_inspected_citizen()
@@ -697,6 +705,10 @@ func _refresh_all_resources() -> void:
 	stone_label.text = "🪨 Đá: %d" % rm.get_available_stock("stone")
 	if ore_label != null:
 		ore_label.text = "⛏️ Quặng: %d" % rm.get_available_stock("ore")
+	if metal_label != null:
+		metal_label.text = "⚔️ Kim loại: %d" % rm.get_available_stock("metal")
+	if tools_label != null:
+		tools_label.text = "🛠️ Công cụ: %d" % rm.get_available_stock("tools")
 	gold_label.text = "🪙 Vàng: %d" % rm.get_available_stock("gold")
 	pop_label.text = "👥 Dân số: %d/%d" % [rm.active_population, total_housing_cap]
 

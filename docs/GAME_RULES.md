@@ -89,6 +89,9 @@ Configured centrally in `EconomyConfig`:
 - **Local Workplace Buffers:**
   - Farm: Input $0$, Output buffer $50$ food.
   - Woodcutter Camp: Input $0$, Output buffer $40$ wood.
+  - Quarry: Input $0$, Output buffer $40$ stone.
+  - Mine: Input $0$, Output buffer $40$ ore.
+  - Workshop: Input buffers from central stock (atomic check); Dual output buffers: $40$ metal, $40$ tools.
 - **Storage Conservation Rule:** Items in local workplace buffers do not count toward central construction availability until physically transported by Haulers to a Storehouse or Town Hall.
 - **Atomic Reservation:** `ResourceManager.reserve_resource(id, amount) -> bool` guarantees materials cannot be double-spent across competing build or crafting orders.
 
@@ -96,7 +99,7 @@ Configured centrally in `EconomyConfig`:
 
 ## 4. Buildings & Footprints
 
-### 4.1 Initial Settlement Structures
+### 4.1 Settlement Structures
 | Building | Footprint (Grid) | Footprint (Local Diamond) | Starting Count | Function & Capacity |
 |---|---|---|---|---|
 | **Town Hall** | $3 \times 3$ cells | $96 \times 48$ px base | 1 | Settlement hub, $500$ storage, immigration focal point |
@@ -104,8 +107,16 @@ Configured centrally in `EconomyConfig`:
 | **Farm** | $2 \times 2$ cells | $64 \times 32$ px base | 1 | Base output $5.0$ Food/farmer/day, max 5 workers |
 | **Woodcutter Camp** | $2 \times 2$ cells | $64 \times 32$ px base | 1 | Base output $5.0$ Wood/worker/day, max 4 workers |
 | **Storehouse** | $2 \times 2$ cells | $64 \times 32$ px base | 1 | $1000$ item general resource storage |
+| **Watchtower** | $1 \times 1$ cell | $32 \times 16$ px base | 0 | 20 Wood + 15 Stone, vision radius 15, scouting/defense |
+| **Quarry** | $2 \times 2$ cells | $64 \times 32$ px base | 0 | 15 Wood + 5 Tools, max 4 miners, output stone |
+| **Mine** | $2 \times 2$ cells | $64 \times 32$ px base | 0 | 20 Wood + 10 Stone, max 4 miners, output ore |
+| **Workshop** | $2 \times 2$ cells | $64 \times 32$ px base | 0 | 20 Wood + 15 Stone + 5 Metal, max 4 smiths (2 smelt, 2 craft) |
 
-### 4.2 Building Costs & Construction States
+### 4.2 Workshop Recipes
+- **Smelt Metal (Luyện Kim Loại):** 2 Ore $\to$ 1 Metal (3.0h duration, buffer capacity 40).
+- **Craft Tools (Rèn Công Cụ):** 2 Metal + 1 Wood $\to$ 1 Tool (3.0h duration, buffer capacity 40).
+
+### 4.3 Building Costs & Construction States
 - **Construction States:** `Unbuilt` $\to$ `Placing` $\to$ `UnderConstruction` $\to$ `Active` $\to$ `Paused` $\to$ `Damaged` $\to$ `Destroyed`.
 - **Occupancy Rule:** A building footprint of size $W \times H$ occupies cells $(gx + i, gy + j)$ for $0 \le i < W$ and $0 \le j < H$. All footprint cells must be buildable, walkable terrain, and unreserved.
 

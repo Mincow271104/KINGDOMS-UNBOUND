@@ -162,5 +162,39 @@ const BLUEPRINTS: Dictionary = {
 		"job_type": "miner",
 		"output_resource": RES_ORE,
 		"base_daily_output": 20.0
+	},
+	"workshop": {
+		"id": "workshop",
+		"name_vi": "Xưởng Chế Tác",
+		"footprint": Vector2i(2, 2),
+		"cost": {RES_WOOD: 20, RES_STONE: 15, RES_METAL: 5},
+		"construction_hours": 8.0,
+		"housing_capacity": 0,
+		"storage_bonus": {},
+		"max_workers": 4,
+		"job_type": "smith",
+		"output_resource": RES_METAL,
+		"recipes": {
+			"smelt_metal": {
+				"id": "smelt_metal",
+				"name_vi": "Luyện Kim Loại",
+				"inputs": {RES_ORE: 2},
+				"output": RES_METAL,
+				"output_amount": 1,
+				"duration_hours": 3.0,
+				"buffer_capacity": 40,
+				"worker_quota": 2
+			},
+			"craft_tools": {
+				"id": "craft_tools",
+				"name_vi": "Rèn Công Cụ",
+				"inputs": {RES_METAL: 2, RES_WOOD: 1},
+				"output": RES_TOOLS,
+				"output_amount": 1,
+				"duration_hours": 3.0,
+				"buffer_capacity": 40,
+				"worker_quota": 2
+			}
+		}
 	}
 }
