@@ -149,5 +149,18 @@ const BLUEPRINTS: Dictionary = {
 		"job_type": "miner",
 		"output_resource": RES_STONE,
 		"base_daily_output": 20.0
+	},
+	"mine": {
+		"id": "mine",
+		"name_vi": "Mỏ Khai Thác Quặng",
+		"footprint": Vector2i(2, 2),
+		"cost": {RES_WOOD: 20, RES_STONE: 10},
+		"construction_hours": 8.0,
+		"housing_capacity": 0,
+		"storage_bonus": {},
+		"max_workers": 4,
+		"job_type": "miner",
+		"output_resource": RES_ORE,
+		"base_daily_output": 20.0
 	}
 }

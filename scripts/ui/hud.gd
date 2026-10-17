@@ -136,6 +136,9 @@ func _ready() -> void:
 	var btn_quarry = $BuildMenuPanel/MarginContainer/VBoxContainer/GridContainer.get_node_or_null("QuarryBtn")
 	if btn_quarry:
 		btn_quarry.pressed.connect(func(): _select_building("quarry"))
+	var btn_mine = $BuildMenuPanel/MarginContainer/VBoxContainer/GridContainer.get_node_or_null("MineBtn")
+	if btn_mine:
+		btn_mine.pressed.connect(func(): _select_building("mine"))
 	btn_close_build.pressed.connect(func(): build_menu_panel.visible = false)
 
 	# Citizen inspector controls
@@ -192,7 +195,7 @@ func _setup_role_options() -> void:
 	role_option_btn.add_item("Tiều Phu (Woodcutter)", 1)
 	role_option_btn.add_item("Thợ Xây (Builder)", 2)
 	role_option_btn.add_item("Khuân Vác (Hauler)", 3)
-	role_option_btn.add_item("Thợ Mỏ / Khai Thác Đá (Miner)", 4)
+	role_option_btn.add_item("Thợ Mỏ / Khai Thác Đá & Quặng (Miner)", 4)
 	role_option_btn.add_item("Dân Tự Do (Idle)", 5)
 
 func set_research_manager(mgr: Object) -> void:

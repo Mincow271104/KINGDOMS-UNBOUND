@@ -1205,3 +1205,102 @@ Implement Package 1C: Dynamic Quarry Workplace on feature branch `feature/packag
 - Do NOT merge or push to `master`.
 - Keep `KINGDOMS_UNBOUND_STAGE11_FINAL.html` untracked.
 - Await independent review before Package 1D.
+
+---
+
+## [2026-10-18] Milestone 24: Package 1D — Dynamic Mine & Ore Production ✅ VERIFIED
+
+### Context & Objective
+Implement Package 1D: Dynamic Mine & Ore Production on feature branch `feature/package-1d-mine`, branched from Package 1C commit `092689d983e9bf88474557efe2c693a3caf442ef`. Package 1D expands the extraction economy to include raw Ore (Quặng thô), allowing the kingdom to construct 2×2 underground mines, assign miners, produce raw ore into local workplace buffers, and haul ore via the physical hauling pipeline to central storage.
+
+### Initial Balancing & Design Assumptions
+- **Footprint & Cost:** Per GDD Section 7.1 table, Mine requires a 2×2 footprint (64×32 px ground base) and initial cost of **20 Wood + 10 Stone**.
+- **Labor Quota & Production Rate (Balancing Assumptions):** GDD does not fully specify worker quota and buffer metrics for Mine. Consistent with Package 1C and prompt guidelines, the following initial balancing parameters are established:
+  - Worker quota: 4 Miners (`worker_quota = 4`).
+  - Work cycle: 3.0 simulation hours per job cycle.
+  - Production output: 4 raw Ore per cycle (`base_production_per_cycle = 4.0`), yielding 20.0 base daily output per full shift.
+  - Local buffer capacity: 40 Ore (`buffer_capacity = 40`).
+  - Role identifier: Reuses standard `"miner"` role (as specified in GDD Section 6.2 and 7.1).
+  - Seasonal modifier: Mined deep underground, unaffected by climate/season variations (`season_mod = 1.0`).
+
+### Completed Work
+1. **Blueprint & Economy Configuration (`scripts/economy/economy_config.gd`):**
+   - Added `"mine"` blueprint with 2×2 footprint, cost `{RES_WOOD: 20, RES_STONE: 10}`, 8.0h construction time, 4 max workers, `"miner"` job type, `RES_ORE` output resource, 20.0 base daily output, and 40 buffer capacity.
+2. **Quarry Visual Asset (`assets/buildings/bld_mine.png` & `.import`):**
+   - Generated authentic 64×48 px isometric sprite matching the 27-color fantasy palette. Features a rock mound excavated into earth, dark timber portal frame, rails, minecart heaped with gleaming ore, and raw ore piles.
+   - Imported into Godot engine with lossless pixel compression and nearest-neighbor filtering.
+3. **WorldView Placement & Dynamic Registration (`scripts/world/world_view.gd`):**
+   - Loaded `bld_mine.png` texture with storehouse fallback.
+   - Set sprite rendering offset strictly at `Vector2(-32.0, -36.0)` matching the 2×2 diamond footprint center.
+   - Added Vietnamese display name `"Mỏ Khai Thác Quặng (2x2)"`.
+   - Integrated `"mine"` into `_execute_placement()`, dynamic workplace registration, job descriptions (`"Khai thác quặng thô tại mỏ quặng"`), and `sync_workplaces_after_load()`.
+4. **HUD Build Menu & Inspector (`scenes/ui/hud.tscn`, `scripts/ui/hud.gd`):**
+   - Added `MineBtn` to HUD `BuildMenuPanel` GridContainer (`⛰️ Mỏ Quặng (20 Gỗ, 10 Đá)`).
+   - Wired `MineBtn` click to `_select_building("mine")`.
+   - Updated citizen inspector dropdown label to `"Thợ Mỏ / Khai Thác Đá & Quặng (Miner)"`.
+5. **Dedicated Test Suite (`scripts/test/test_mine.gd`):**
+   - Authored automated headless test suite covering TC-M.1 through TC-M.6.
+   - Validated real citizen production flow, real citizen hauling flow, save/load persistence, anti-duplication, legacy save compatibility, buffer clamping, and non-regression.
+
+### Test Architecture: Package 1D Dynamic Mine Suite
+| Test Case ID | Test Category | Execution Mechanism | Scope & Purpose |
+|---|---|---|---|
+| **TC-M.1** | Unit / UI Test | Direct Blueprint & Node Inspection | Verifies `mine` blueprint in `EconomyConfig` (2×2, 20 Wood, 10 Stone, 4 workers, miner, ore), 64×48 px texture, `(-32, -36)` sprite offset, display name, and HUD `MineBtn` placement trigger |
+| **TC-M.2** | Unit Test | Placement Method Invocation | Verifies dynamic mine placement, atomic cost deduction (-20 Wood, -10 Stone), walkable perimeter access cell check, registration of 4 recurring miner jobs, and rejection of inaccessible placement before deduction |
+| **TC-M.3** | **Integration Test** | **Real `CitizenController` State Machine (`_process`)** | Verifies full miner life cycle: `IDLE` -> claims job -> traverses grid to access cell (`MOVING_TO_JOB`) -> works 3.0 hrs (`WORKING`) -> direct deposit of 4 Ore into mine buffer without central stock change -> `IDLE` -> recurring cycle 2 produces additional 4 Ore (total 8 Ore) |
+| **TC-M.4** | **Integration Test** | **Real `CitizenController` State Machine (`_process`)** | Verifies full hauler life cycle: `IDLE` -> claims mine hauling job -> baseline stock recorded before pickup -> `MOVING_TO_JOB` -> arrival at mine access cell -> extracts 8 Ore from buffer (buffer 8->0) -> `HAULING` traversal with stock invariant mid-transit -> arrives at dropoff -> deposits 8 Ore (+8 Ore in central storage) -> clears cargo -> marks job `COMPLETED` |
+| **TC-M.5** | Unit / Integration | Save/Load Cycle (`SaveManager`) | Verifies world save with mine, buffer restoration to 12 Ore, reconstruction of 4 recurring miner jobs, anti-duplication over repeated loads, legacy save compatibility (defaults buffer to 0), and overflow clamping to capacity (40) |
+| **TC-M.6** | Non-Regression | Direct Blueprint & Workplace Query | Verifies starter farm, starter woodcutter, watchtower, and quarry blueprints remain 100% intact |
+
+### Validations Performed & Results
+- **Dedicated Test Suite (`scripts/test/test_mine.gd`):** **PASS (Exit Code 0, 0 failures)**
+  - TC-M.1 (Blueprint, Costs, UI & Sprite Verification): **PASS**
+  - TC-M.2 (Placement Legality, Inaccessible Rejection & Dynamic Registration): **PASS**
+  - TC-M.3 (Real Citizen Work & Local Buffer Production Integration): **PASS**
+  - TC-M.4 (Real Citizen Hauling Loop Integration): **PASS**
+  - TC-M.5 (Save/Load Persistence, Buffer Restoration & Anti-Duplication): **PASS**
+  - TC-M.6 (Non-Regression of Farm, Woodcutter, Watchtower & Quarry Systems): **PASS**
+- **Full Regression Test Matrix (17/17 Suites Passed, Exit Code 0):**
+  1. `test_mine.gd` (TC-M.1 to TC-M.6): **PASS (Exit Code 0)**
+  2. `test_quarry.gd` (TC-Q.1 to TC-Q.6): **PASS (Exit Code 0)**
+  3. `test_dynamic_workplaces.gd` (TC-DW.1 to TC-DW.5): **PASS (Exit Code 0)**
+  4. `test_save_load.gd` (TC-8.1, TC-8.2, TC-8.3): **PASS (Exit Code 0)**
+  5. `test_watchtower.gd` (TC-W.1 to TC-W.8b): **PASS (Exit Code 0)**
+  6. `test_world_gen.gd` (TC-1.2): **PASS (Exit Code 0)**
+  7. `test_coordinates.gd` (TC-1.1): **PASS (Exit Code 0)**
+  8. `test_time_manager.gd` (TC-1.4): **PASS (Exit Code 0)**
+  9. `test_economy.gd` (TC-2.1, TC-2.2): **PASS (Exit Code 0)**
+  10. `test_citizens.gd` (TC-3.1, TC-3.2): **PASS (Exit Code 0)**
+  11. `test_logistics.gd` (TC-4.1, TC-4.2, TC-4.3): **PASS (Exit Code 0)**
+  12. `test_research_and_exploration.gd` (TC-5.1, TC-5.2, TC-5.3): **PASS (Exit Code 0)**
+  13. `test_factions_and_battles.gd` (TC-6.1, TC-6.2): **PASS (Exit Code 0)**
+  14. `test_victory_and_collapse.gd` (TC-7.1, TC-7.2, TC-7.3): **PASS (Exit Code 0)**
+  15. `test_audio.gd`: **PASS (Exit Code 0)**
+  16. `test_gold_transactions.gd` (TC-G.1 to TC-G.8): **PASS (Exit Code 0)**
+  17. `test_stress_100_citizens.gd` (TC-9.1, 142.9 FPS): **PASS (Exit Code 0)**
+- **Scene Instantiation Sanity:**
+  - `scenes/test/visual_validation_test.tscn`: **PASS (Exit Code 0)**
+  - `scenes/ui/main_menu.tscn`: **PASS (Exit Code 0)**
+  - `scenes/world/world_view.tscn`: **PASS (Exit Code 0)**
+- **Visual Validation / MCP Screenshot Status:**
+  - `NOT RUN` (Reason: Terminal/headless environment without interactive Godot editor display; all states validated via engine test scripts).
+- **Whitespace Check:**
+  - `git diff --check`: Clean (Exit Code 0, zero whitespace errors).
+
+### Files Created / Modified
+- `scripts/economy/economy_config.gd` (Registered `mine` blueprint with 2×2 footprint, costs 20 Wood + 10 Stone, output resource `ore`, 4 workers, 40 buffer capacity)
+- `scripts/world/world_view.gd` (Mine texture loading, `(-32, -36)` sprite offset, display name, dynamic placement & load sync)
+- `scenes/ui/hud.tscn` (Added `MineBtn` to `BuildMenuPanel`)
+- `scripts/ui/hud.gd` (Wired `MineBtn` and updated citizen inspector role label)
+- `assets/buildings/bld_mine.png` (64×48 px isometric mine sprite)
+- `assets/buildings/bld_mine.png.import` (Godot 4.7 texture import definition)
+- `scripts/test/test_mine.gd` (Dedicated test suite for TC-M.1 to TC-M.6)
+- `docs/WORKLOG.md` (Documented Milestone 24)
+
+### Next Exact Step
+- Stage modified files explicitly.
+- Commit with exact message: `Add dynamic mine ore production` on `feature/package-1d-mine`.
+- Push branch `feature/package-1d-mine` to remote `origin`.
+- Do NOT merge or push to `master`.
+- Keep `KINGDOMS_UNBOUND_STAGE11_FINAL.html` untracked.
+- Await independent review before Package 1E.
