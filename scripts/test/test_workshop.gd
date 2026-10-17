@@ -287,8 +287,13 @@ func _test_tc_ws_2_placement_and_registration() -> bool:
 	else:
 		print("  [PASS] Workshop costs deducted atomically (-20 Wood, -15 Stone, -5 Metal).")
 
-	# 3. Verify Dynamic Workplace channels registration
+	# 3. Verify Dynamic Workplace channels registration against EconomyConfig recipe definitions
 	var b_id := "bld_workshop_26_23"
+	var ws_bp: Dictionary = EconomyConfigScript.BLUEPRINTS.get("workshop", {})
+	var ws_recipes: Dictionary = ws_bp.get("recipes", {})
+	var cfg_smelt: Dictionary = ws_recipes.get("smelt_metal", {})
+	var cfg_craft: Dictionary = ws_recipes.get("craft_tools", {})
+
 	var smelt_wp: WorkplaceManager.WorkplaceData = wp_mgr.get_workplace(b_id + "_smelt")
 	var craft_wp: WorkplaceManager.WorkplaceData = wp_mgr.get_workplace(b_id + "_craft")
 
@@ -301,12 +306,19 @@ func _test_tc_ws_2_placement_and_registration() -> bool:
 		failures += 1
 		return false
 
-	if smelt_wp.output_resource != EconomyConfigScript.RES_METAL or smelt_wp.buffer_capacity != 40 or smelt_wp.worker_quota != 2:
-		printerr("  [FAIL] Smelt channel config mismatch! Out: %s, Cap: %d, Quota: %d" % [smelt_wp.output_resource, smelt_wp.buffer_capacity, smelt_wp.worker_quota])
+	# Validate smelt_wp against cfg_smelt
+	if smelt_wp.output_resource != cfg_smelt.get("output", "") or smelt_wp.buffer_capacity != cfg_smelt.get("buffer_capacity", 0) or smelt_wp.worker_quota != cfg_smelt.get("worker_quota", 0) or smelt_wp.recipe_id != "smelt_metal" or smelt_wp.output_amount != cfg_smelt.get("output_amount", 0) or smelt_wp.required_inputs != cfg_smelt.get("inputs", {}):
+		printerr("  [FAIL] Smelt channel does not match EconomyConfig recipe! Wp: out=%s cap=%d quota=%d inputs=%s, Cfg: %s" % [smelt_wp.output_resource, smelt_wp.buffer_capacity, smelt_wp.worker_quota, smelt_wp.required_inputs, cfg_smelt])
 		failures += 1
-	if craft_wp.output_resource != EconomyConfigScript.RES_TOOLS or craft_wp.buffer_capacity != 40 or craft_wp.worker_quota != 2:
-		printerr("  [FAIL] Craft channel config mismatch! Out: %s, Cap: %d, Quota: %d" % [craft_wp.output_resource, craft_wp.buffer_capacity, craft_wp.worker_quota])
+	else:
+		print("  [PASS] Smelt channel registered strictly from EconomyConfig recipe (out: %s, cap: %d, quota: %d, inputs: %s)." % [smelt_wp.output_resource, smelt_wp.buffer_capacity, smelt_wp.worker_quota, smelt_wp.required_inputs])
+
+	# Validate craft_wp against cfg_craft
+	if craft_wp.output_resource != cfg_craft.get("output", "") or craft_wp.buffer_capacity != cfg_craft.get("buffer_capacity", 0) or craft_wp.worker_quota != cfg_craft.get("worker_quota", 0) or craft_wp.recipe_id != "craft_tools" or craft_wp.output_amount != cfg_craft.get("output_amount", 0) or craft_wp.required_inputs != cfg_craft.get("inputs", {}):
+		printerr("  [FAIL] Craft channel does not match EconomyConfig recipe! Wp: out=%s cap=%d quota=%d inputs=%s, Cfg: %s" % [craft_wp.output_resource, craft_wp.buffer_capacity, craft_wp.worker_quota, craft_wp.required_inputs, cfg_craft])
 		failures += 1
+	else:
+		print("  [PASS] Craft channel registered strictly from EconomyConfig recipe (out: %s, cap: %d, quota: %d, inputs: %s)." % [craft_wp.output_resource, craft_wp.buffer_capacity, craft_wp.worker_quota, craft_wp.required_inputs])
 
 	# Check access cell
 	var acc: Vector2i = smelt_wp.access_cell
@@ -324,25 +336,28 @@ func _test_tc_ws_2_placement_and_registration() -> bool:
 		else:
 			print("  [PASS] Workshop registered with valid walkable perimeter access cell: %s" % acc)
 
-	# 4. Verify recurring jobs
+	# 4. Verify recurring jobs against configured recipe quotas and durations
 	var ws_jobs := job_mgr.get_jobs_for_building(b_id)
-	if ws_jobs.size() != 4:
-		printerr("  [FAIL] Expected 4 jobs for '%s', got %d" % [b_id, ws_jobs.size()])
+	var expected_total_jobs: int = int(cfg_smelt.get("worker_quota", 2)) + int(cfg_craft.get("worker_quota", 2))
+	if ws_jobs.size() != expected_total_jobs:
+		printerr("  [FAIL] Expected %d jobs for '%s', got %d" % [expected_total_jobs, b_id, ws_jobs.size()])
 		failures += 1
 	else:
 		var smelt_jobs := 0
 		var craft_jobs := 0
+		var expected_smelt_duration: float = float(cfg_smelt.get("duration_hours", 3.0))
+		var expected_craft_duration: float = float(cfg_craft.get("duration_hours", 3.0))
 		for j in ws_jobs:
-			if j.type == "smith" and j.is_recurring and j.target_cell == acc:
-				if j.recipe_id == "smelt_metal":
+			if j.type == ws_bp.get("job_type", "smith") and j.is_recurring and j.target_cell == acc:
+				if j.recipe_id == "smelt_metal" and is_equal_approx(j.work_hours_required, expected_smelt_duration) and j.workplace_channel_id == b_id + "_smelt":
 					smelt_jobs += 1
-				elif j.recipe_id == "craft_tools":
+				elif j.recipe_id == "craft_tools" and is_equal_approx(j.work_hours_required, expected_craft_duration) and j.workplace_channel_id == b_id + "_craft":
 					craft_jobs += 1
-		if smelt_jobs != 2 or craft_jobs != 2:
-			printerr("  [FAIL] Job channel distribution mismatch: %d smelt, %d craft (expected 2, 2)!" % [smelt_jobs, craft_jobs])
+		if smelt_jobs != cfg_smelt.get("worker_quota", 2) or craft_jobs != cfg_craft.get("worker_quota", 2):
+			printerr("  [FAIL] Job channel distribution mismatch: %d smelt, %d craft (expected %d, %d)!" % [smelt_jobs, craft_jobs, cfg_smelt.get("worker_quota", 2), cfg_craft.get("worker_quota", 2)])
 			failures += 1
 		else:
-			print("  [PASS] 4 recurring 'smith' jobs registered: 2 Smelt Metal + 2 Craft Tools at %s." % acc)
+			print("  [PASS] Recurring jobs match recipe config: %d Smelt Metal (%s h) + %d Craft Tools (%s h) at %s." % [smelt_jobs, expected_smelt_duration, craft_jobs, expected_craft_duration, acc])
 
 	# 5. Inaccessible Workshop placement rejection before cost deduction
 	var walled_origin := Vector2i(14, 14)
@@ -500,48 +515,66 @@ func _test_tc_ws_3_citizen_metal_smelting() -> bool:
 		else:
 			print("  [PASS] Smelt job correctly marked non-executable when Ore is 0.")
 
-		# Test that even if citizen attempts working on smelt job with 0 ore, production is rejected
-		smelt_job.state = JobManager.JobState.RESERVED
+		# Test genuine completion and rejection when citizen works on smelt job with 0 ore
+		smelt_job.state = JobManager.JobState.IN_PROGRESS
+		smelt_job.work_hours_done = 0.0
 		smelt_job.worker_id = smith.citizen_id
 		smith.active_job = smelt_job
 		smith.current_state = CitizenControllerScript.State.WORKING
+		smith.current_cell = smelt_wp.access_cell
 		var ore_before_no_ore = live_rm.get_available_stock("ore")
 		var buf_before_no_ore = smelt_wp.buffer_amount
+		var metal_before_no_ore = live_rm.get_available_stock("metal")
+
 		smith._process(3.0)
-		if live_rm.get_available_stock("ore") != ore_before_no_ore or smelt_wp.buffer_amount != buf_before_no_ore:
-			printerr("  [FAIL] Production occurred with 0 Ore!")
+
+		# Verify completion cycle was genuinely executed through CitizenController._process_working:
+		if smith.current_state != CitizenControllerScript.State.IDLE or smith.active_job != null:
+			printerr("  [FAIL] Smith did not complete 0-ore work cycle to IDLE! State: %d, job: %s" % [smith.current_state, smith.active_job])
+			failures += 1
+		if not ("Thiếu nguyên liệu" in smith.status_reason):
+			printerr("  [FAIL] Smith status_reason '%s' did not report missing ingredients!" % smith.status_reason)
+			failures += 1
+		if live_rm.get_available_stock("ore") != ore_before_no_ore or smelt_wp.buffer_amount != buf_before_no_ore or live_rm.get_available_stock("metal") != metal_before_no_ore:
+			printerr("  [FAIL] Production occurred with 0 Ore! Ore: %d->%d, Buf: %d->%d" % [ore_before_no_ore, live_rm.get_available_stock("ore"), buf_before_no_ore, smelt_wp.buffer_amount])
 			failures += 1
 		else:
-			print("  [PASS] Insufficient Ore handled safely: 0 Ore consumed, 0 Metal produced, no looping.")
-		job_mgr.release_job(smelt_job)
-		smith.active_job = null
-		smith.current_state = CitizenControllerScript.State.IDLE
+			print("  [PASS] Insufficient Ore work cycle genuinely executed and rejected: 0 Ore consumed, 0 Metal produced, reason: '%s'." % smith.status_reason)
 
-	# 6. Test full buffer: restore Ore, fill buffer to 40
+	# 6. Test full buffer: restore Ore, fill buffer to capacity (40)
 	live_rm.add_resource("ore", 20)
-	smelt_wp.buffer_amount = 40
+	smelt_wp.buffer_amount = smelt_wp.buffer_capacity
 	if smelt_job != null:
 		var can_exec_full := job_mgr._is_job_executable(smelt_job, wp_mgr, live_rm)
 		if can_exec_full:
-			printerr("  [FAIL] Smelt job reported executable when buffer is full (40)!")
+			printerr("  [FAIL] Smelt job reported executable when buffer is full (%d)!" % smelt_wp.buffer_capacity)
 			failures += 1
 		else:
-			print("  [PASS] Smelt job correctly marked non-executable when buffer is full (40).")
+			print("  [PASS] Smelt job correctly marked non-executable when buffer is full (%d)." % smelt_wp.buffer_capacity)
 
-		smelt_job.state = JobManager.JobState.RESERVED
+		# Real citizen working execution with full buffer
+		smelt_job.state = JobManager.JobState.IN_PROGRESS
+		smelt_job.work_hours_done = 0.0
 		smelt_job.worker_id = smith.citizen_id
 		smith.active_job = smelt_job
 		smith.current_state = CitizenControllerScript.State.WORKING
+		smith.current_cell = smelt_wp.access_cell
 		var ore_before_full = live_rm.get_available_stock("ore")
+
 		smith._process(3.0)
-		if smelt_wp.buffer_amount != 40 or live_rm.get_available_stock("ore") != ore_before_full:
-			printerr("  [FAIL] Full buffer violated or inputs consumed on full buffer!")
+
+		# Verify completion cycle was genuinely executed through CitizenController._process_working:
+		if smith.current_state != CitizenControllerScript.State.IDLE or smith.active_job != null:
+			printerr("  [FAIL] Smith did not complete full-buffer work cycle to IDLE! State: %d, job: %s" % [smith.current_state, smith.active_job])
+			failures += 1
+		if not ("đầy" in smith.status_reason):
+			printerr("  [FAIL] Smith status_reason '%s' did not report full buffer!" % smith.status_reason)
+			failures += 1
+		if smelt_wp.buffer_amount != smelt_wp.buffer_capacity or live_rm.get_available_stock("ore") != ore_before_full:
+			printerr("  [FAIL] Full buffer violated or inputs consumed on full buffer! Buf: %d, Ore: %d->%d" % [smelt_wp.buffer_amount, ore_before_full, live_rm.get_available_stock("ore")])
 			failures += 1
 		else:
-			print("  [PASS] Full buffer (40) handled safely: 0 Ore consumed, buffer not overflowed.")
-		job_mgr.release_job(smelt_job)
-		smith.active_job = null
-		smith.current_state = CitizenControllerScript.State.IDLE
+			print("  [PASS] Full buffer (%d) work cycle genuinely executed and clamped safely: 0 Ore consumed, buffer at capacity, reason: '%s'." % [smelt_wp.buffer_capacity, smith.status_reason])
 
 	# Clean up
 	if smith.active_job != null:
@@ -663,21 +696,41 @@ func _test_tc_ws_4_citizen_tool_crafting() -> bool:
 	else:
 		print("  [PASS] Central tools stock strictly unchanged on production (Zero Teleportation verified).")
 
-	# 2. Test missing ingredient: 0 Wood
+	# 2. Test missing ingredient: 0 Wood (Atomic rejection on genuine work cycle completion)
 	live_rm.consume_resource("wood", live_rm.get_available_stock("wood"))
-	craft_job.state = JobManager.JobState.RESERVED
+	craft_job.state = JobManager.JobState.IN_PROGRESS
+	craft_job.work_hours_done = 0.0
 	craft_job.worker_id = smith.citizen_id
 	smith.active_job = craft_job
 	smith.current_state = CitizenControllerScript.State.WORKING
+	smith.current_cell = craft_wp.access_cell
 
 	var metal_before_no_wood = live_rm.get_available_stock("metal")
+	var tools_before_no_wood = live_rm.get_available_stock("tools")
+	var craft_buf_before = craft_wp.buffer_amount
+
 	smith._process(3.0)
 
-	if live_rm.get_available_stock("metal") != metal_before_no_wood or craft_wp.buffer_amount != 1:
-		printerr("  [FAIL] Partial ingredient consumption occurred when Wood was missing!")
+	# Verify work cycle genuinely completed and reached atomic rejection path:
+	if smith.current_state != CitizenControllerScript.State.IDLE or smith.active_job != null:
+		printerr("  [FAIL] Smith did not complete missing wood work cycle to IDLE! State: %d, job: %s" % [smith.current_state, smith.active_job])
+		failures += 1
+
+	if not ("Thiếu nguyên liệu" in smith.status_reason):
+		printerr("  [FAIL] Smith status_reason '%s' did not report missing ingredients!" % smith.status_reason)
+		failures += 1
+
+	if live_rm.get_available_stock("metal") != metal_before_no_wood:
+		printerr("  [FAIL] Partial ingredient consumption: Metal changed from %d to %d when Wood was 0!" % [metal_before_no_wood, live_rm.get_available_stock("metal")])
+		failures += 1
+	elif craft_wp.buffer_amount != craft_buf_before:
+		printerr("  [FAIL] Tools buffer changed from %d to %d without Wood!" % [craft_buf_before, craft_wp.buffer_amount])
+		failures += 1
+	elif live_rm.get_available_stock("tools") != tools_before_no_wood:
+		printerr("  [FAIL] Central tools stock changed without Wood!")
 		failures += 1
 	else:
-		print("  [PASS] Atomic rejection verified: 0 Metal consumed when Wood is missing.")
+		print("  [PASS] Atomic rejection verified on completed cycle: 0 Metal consumed when Wood is missing (Buffer: %d, reason: '%s')." % [craft_wp.buffer_amount, smith.status_reason])
 
 	# Clean up
 	live_rm.add_resource("wood", 20)
@@ -828,18 +881,38 @@ func _test_tc_ws_5_physical_hauling() -> bool:
 		steps += 1
 		hauler_tools._process(0.2)
 
+	# Verify post-pickup
 	if craft_wp.buffer_amount != buf_tools_before_pickup - 6:
-		printerr("  [FAIL] Tools buffer not decremented! Amount: %d, expected %d" % [craft_wp.buffer_amount, buf_tools_before_pickup - 6])
+		printerr("  [FAIL] Tools buffer not decremented upon pickup! Amount: %d, expected %d" % [craft_wp.buffer_amount, buf_tools_before_pickup - 6])
 		failures += 1
 	if hauler_tools.carrying_resource != "tools" or hauler_tools.carrying_amount != 6:
 		printerr("  [FAIL] Tools cargo mismatch! Carrying: %d %s" % [hauler_tools.carrying_amount, hauler_tools.carrying_resource])
 		failures += 1
+	if live_rm.get_available_stock("tools") != tools_central_before_pickup:
+		printerr("  [FAIL] Central tools stock changed upon pickup! Prior: %d, current: %d" % [tools_central_before_pickup, live_rm.get_available_stock("tools")])
+		failures += 1
+	else:
+		print("  [PASS] Tools cargo (6) picked up: buffer decremented, central stock strictly unchanged.")
 
-	# Travel to dropoff
+	# Travel to dropoff (assert central tools remains strictly unchanged during transit)
 	steps = 0
 	while hauler_tools.current_state == CitizenControllerScript.State.HAULING and steps < 60:
 		steps += 1
 		hauler_tools._process(0.2)
+		if hauler_tools.current_state == CitizenControllerScript.State.HAULING:
+			if live_rm.get_available_stock("tools") != tools_central_before_pickup:
+				printerr("  [FAIL] Central tools stock changed during transit! Expected %d, got %d" % [tools_central_before_pickup, live_rm.get_available_stock("tools")])
+				failures += 1
+
+	# Post-delivery verification
+	if hauler_tools.carrying_amount != 0 or hauler_tools.carrying_resource != "":
+		printerr("  [FAIL] Tools cargo not cleared from hauler after delivery! Remaining: %d %s" % [hauler_tools.carrying_amount, hauler_tools.carrying_resource])
+		failures += 1
+	if tools_haul_job.state != JobManager.JobState.COMPLETED:
+		printerr("  [FAIL] Tools hauling job not marked COMPLETED! Current state: %d" % tools_haul_job.state)
+		failures += 1
+	else:
+		print("  [PASS] Tools cargo cleanly cleared and hauling job marked COMPLETED.")
 
 	var tools_central_post_delivery: int = live_rm.get_available_stock("tools")
 	if tools_central_post_delivery != tools_central_before_pickup + 6:

@@ -547,48 +547,61 @@ func register_dynamic_workplace(b_data: Dictionary) -> WorkplaceManager.Workplac
 		return null
 
 	if b_type == "workshop":
-		# Register two independent recipe channels: Smelt Metal & Craft Tools
-		var wp_smelt: WorkplaceManager.WorkplaceData = workplace_mgr.register_workplace(
-			b_id + "_smelt",
-			b_type,
-			origin,
-			size,
-			access_cell,
-			EconomyConfig.RES_METAL,
-			40, # capacity
-			1.0, # base prod
-			2, # worker quota
-			b_id, # parent_id
-			"smelt_metal", # recipe
-			{EconomyConfig.RES_ORE: 2}, # inputs
-			1 # output amount
-		)
-		var wp_craft: WorkplaceManager.WorkplaceData = workplace_mgr.register_workplace(
-			b_id + "_craft",
-			b_type,
-			origin,
-			size,
-			access_cell,
-			EconomyConfig.RES_TOOLS,
-			40, # capacity
-			1.0, # base prod
-			2, # worker quota
-			b_id, # parent_id
-			"craft_tools", # recipe
-			{EconomyConfig.RES_METAL: 2, EconomyConfig.RES_WOOD: 1}, # inputs
-			1 # output amount
-		)
+		var bp: Dictionary = EconomyConfig.BLUEPRINTS.get("workshop", {})
+		var recipes: Dictionary = bp.get("recipes", {})
+		var job_type: String = bp.get("job_type", "smith")
 
-		# Create recurring smith jobs if not already present
+		var primary_wp: WorkplaceManager.WorkplaceData = null
+
+		# Register independent recipe channels directly from EconomyConfig recipe definitions
+		for r_key in recipes:
+			var r_data: Dictionary = recipes[r_key]
+			var r_id: String = r_data.get("id", r_key)
+			var r_inputs: Dictionary = r_data.get("inputs", {})
+			var r_output: String = r_data.get("output", "")
+			var r_output_amount: int = int(r_data.get("output_amount", 1))
+			var r_capacity: int = int(r_data.get("buffer_capacity", 40))
+			var r_quota: int = int(r_data.get("worker_quota", 2))
+
+			# Preserve stable channel IDs ending in _smelt and _craft
+			var ch_suffix := "_smelt" if r_id == "smelt_metal" else ("_craft" if r_id == "craft_tools" else "_" + r_id)
+			var ch_id := b_id + ch_suffix
+
+			var wp_ch: WorkplaceManager.WorkplaceData = workplace_mgr.register_workplace(
+				ch_id,
+				b_type,
+				origin,
+				size,
+				access_cell,
+				r_output,
+				r_capacity,
+				1.0, # base prod
+				r_quota,
+				b_id, # parent_id
+				r_id,
+				r_inputs,
+				r_output_amount
+			)
+			if primary_wp == null:
+				primary_wp = wp_ch
+
+		# Create recurring smith jobs from configured recipes if not already present
 		var existing_jobs := job_mgr.get_jobs_for_building(b_id)
 		if existing_jobs.is_empty():
-			for i in range(2):
-				job_mgr.create_job("smith", access_cell, "Luyện kim loại từ quặng thô", b_id, 3.0, 1, true, "smelt_metal", b_id + "_smelt")
-			for i in range(2):
-				job_mgr.create_job("smith", access_cell, "Rèn công cụ từ kim loại và gỗ", b_id, 3.0, 1, true, "craft_tools", b_id + "_craft")
+			for r_key in recipes:
+				var r_data: Dictionary = recipes[r_key]
+				var r_id: String = r_data.get("id", r_key)
+				var r_name: String = r_data.get("name_vi", "")
+				var r_duration: float = float(r_data.get("duration_hours", 3.0))
+				var r_quota: int = int(r_data.get("worker_quota", 2))
+				var ch_suffix := "_smelt" if r_id == "smelt_metal" else ("_craft" if r_id == "craft_tools" else "_" + r_id)
+				var ch_id := b_id + ch_suffix
+				var desc: String = "Luyện kim loại từ quặng thô" if r_id == "smelt_metal" else ("Rèn công cụ từ kim loại và gỗ" if r_id == "craft_tools" else ("Chế tác: " + r_name))
+				for i in range(r_quota):
+					job_mgr.create_job(job_type, access_cell, desc, b_id, r_duration, 1, true, r_id, ch_id)
 
-		print("[WorldView] Registered dynamic workshop '%s' with 2 recipe channels and 4 jobs at %s" % [b_id, access_cell])
-		return wp_smelt
+		print("[WorldView] Registered dynamic workshop '%s' with %d recipe channels at %s" % [b_id, recipes.size(), access_cell])
+		return primary_wp
 
 	var bp: Dictionary = EconomyConfig.BLUEPRINTS.get(b_type, {})
 	var max_workers: int = bp.get("max_workers", 1)

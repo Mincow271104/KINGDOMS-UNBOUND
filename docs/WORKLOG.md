@@ -1511,3 +1511,78 @@ Package 1E introduces the dynamic Workshop (`Xưởng Chế Tác`), featuring tw
 - Keep untracked files (`KINGDOMS_UNBOUND_STAGE11_FINAL.html`, `.uid` files) untouched.
 - Await independent review (do NOT merge to `master`, do NOT start Package 1F).
 
+---
+
+## [2026-10-18] Milestone 28: Package 1E Review Fix — Authoritative Recipe Config & Hardened Tests ✅ VERIFIED
+
+### Context & Objective
+Address independent code review findings for Package 1E:
+1. **Fix A — Authoritative Recipe Configuration:** In `scripts/world/world_view.gd`, recipe channel registration and recurring smith job creation previously duplicated literal values rather than reading directly from `EconomyConfig.BLUEPRINTS["workshop"]["recipes"]`. Refactor `register_dynamic_workplace` to derive all channel parameters (inputs, outputs, output amounts, capacities, quotas, job durations) from the recipe configuration.
+2. **Fix B — Non-Vacuous Blocked-Recipe Tests:** In `scripts/test/test_workshop.gd` (TC-WS.3 and TC-WS.4), insufficient-input and full-buffer test scenarios previously set `job.state = JobState.RESERVED` before calling `_process(3.0)`, causing `JobManager.progress_job` to return false without advancing work or calling production. Refactor tests to set `JobState.IN_PROGRESS` with zero initial work, execute the genuine 3.0h completion cycle, and assert proper transition to `IDLE`, explainable `status_reason`, and zero resource consumption/overflow.
+3. **Fix C — Strengthened Tools Hauling Transit Checks:** In TC-WS.5, add comprehensive assertions that central Tools stock remains unchanged upon pickup and at every simulation step while in `HAULING`, verify correct cargo clearance from the citizen, and assert hauling job transitions to `COMPLETED`.
+
+### Completed Work
+1. **Authoritative Recipe Channel Registration (`scripts/world/world_view.gd`):**
+   - Refactored `register_dynamic_workplace()` for the `workshop` building type to iterate over `EconomyConfig.BLUEPRINTS["workshop"]["recipes"]`.
+   - Read `output`, `buffer_capacity`, `worker_quota`, `inputs`, `output_amount`, and `duration_hours` directly from configuration.
+   - Maintained stable channel IDs ending in `_smelt` and `_craft` for backward compatibility.
+   - Generated recurring smith jobs dynamically based on configured recipe `worker_quota` and `duration_hours`.
+2. **Hardened Recipe Channel & Job Assertions (`scripts/test/test_workshop.gd`):**
+   - Updated TC-WS.2 to compare actual registered channel data (`output_resource`, `buffer_capacity`, `worker_quota`, `output_amount`, `required_inputs`) and job parameters (`work_hours_required`, `worker_quota`, `channel_id`) directly against `EconomyConfig.BLUEPRINTS["workshop"]["recipes"]`.
+3. **Genuine Work Completion & Rejection Testing (`scripts/test/test_workshop.gd`):**
+   - In TC-WS.3 (Smelting 0 Ore): Set `smelt_job.state = JobState.IN_PROGRESS`, executed `_process(3.0)`, verified citizen returned to `IDLE` with `active_job = null`, `status_reason` reporting missing ingredients (`"Thiếu nguyên liệu"`), 0 Ore consumed, and 0 Metal produced.
+   - In TC-WS.3 (Full Smelting Buffer): Set `smelt_job.state = JobState.IN_PROGRESS`, executed `_process(3.0)`, verified citizen returned to `IDLE` with `status_reason` reporting full buffer (`"đầy"`), buffer clamped at capacity 40, and 0 Ore consumed.
+   - In TC-WS.4 (Crafting Missing Wood): Set `craft_job.state = JobState.IN_PROGRESS`, executed `_process(3.0)`, verified citizen returned to `IDLE` with `status_reason` reporting missing ingredients (`"Thiếu nguyên liệu"`), atomic cost rejection (0 Metal consumed when Wood is 0), and 0 Tools produced.
+4. **Strengthened Tools Hauling Checks (`scripts/test/test_workshop.gd`):**
+   - Added assertion that central Tools stock is unchanged immediately upon pickup.
+   - Added assertion at every movement step while in `HAULING` verifying central stock remains strictly unchanged.
+   - Verified that after dropoff, `hauler_tools.carrying_amount == 0`, `hauler_tools.carrying_resource == ""`, and `tools_haul_job.state == JobState.COMPLETED`.
+
+### Validations Performed & Results
+- **Hardened Workshop Test Suite (`scripts/test/test_workshop.gd`):** **PASS (Exit Code 0, 7/7 passed)**
+  - TC-WS.1 (Blueprint, Build Button, Sprite & HUD Verification): **PASS**
+  - TC-WS.2 (Placement, Access Cell & Authoritative Recipe Registration): **PASS**
+  - TC-WS.3 (Real Citizen Metal Smelting Integration & Genuine Rejection Execution): **PASS**
+  - TC-WS.4 (Real Citizen Tool Crafting Integration & Genuine Atomic Rejection Execution): **PASS**
+  - TC-WS.5 (Physical Hauling with Transit Checks for Metal & Tools): **PASS**
+  - TC-WS.6 (Save/Load, Buffer Restoration & Clamping Integrity): **PASS**
+  - TC-WS.7 (Package Non-Regression Verification): **PASS**
+- **Full Core Regression Matrix (Godot 4.7 Headless):**
+  - `test_watchtower.gd` (TC-W.1 to TC-W.8b): **PASS (Exit Code 0)**
+  - `test_dynamic_workplaces.gd` (TC-DW.1 to TC-DW.5): **PASS (Exit Code 0)**
+  - `test_quarry.gd` (TC-Q.1 to TC-Q.6): **PASS (Exit Code 0)**
+  - `test_mine.gd` (TC-M.1 to TC-M.6): **PASS (Exit Code 0)**
+  - `test_save_load.gd` (TC-8.1 to TC-8.3): **PASS (Exit Code 0)**
+  - `test_economy.gd` (TC-2.1, TC-2.2): **PASS (Exit Code 0)**
+  - `test_citizens.gd` (TC-3.1, TC-3.2): **PASS (Exit Code 0)**
+  - `test_logistics.gd` (TC-4.1 to TC-4.3): **PASS (Exit Code 0)**
+  - `test_world_gen.gd` (TC-1.2): **PASS (Exit Code 0)**
+  - `test_coordinates.gd` (TC-1.1): **PASS (Exit Code 0)**
+  - `test_time_manager.gd` (TC-1.4): **PASS (Exit Code 0)**
+  - `test_research_and_exploration.gd` (TC-5.1 to TC-5.3): **PASS (Exit Code 0)**
+  - `test_factions_and_battles.gd` (TC-6.1, TC-6.2): **PASS (Exit Code 0)**
+  - `test_victory_and_collapse.gd` (TC-7.1 to TC-7.3): **PASS (Exit Code 0)**
+  - `test_audio.gd`: **PASS (Exit Code 0)**
+  - `test_gold_transactions.gd` (TC-G.1 to TC-G.8): **PASS (Exit Code 0)**
+  - `test_stress_100_citizens.gd` (TC-9.1): **PASS (Exit Code 0)**
+- **Scene Instantiation Sanity:**
+  - `scenes/test/visual_validation_test.tscn`: **PASS (Exit Code 0)**
+  - `scenes/ui/main_menu.tscn`: **PASS (Exit Code 0)**
+  - `scenes/world/world_view.tscn`: **PASS (Exit Code 0)**
+- **Visual Validation / MCP Screenshot Status:**
+  - `GUI NOT RUN` (Reason: Headless testing environment without interactive display server; visual fitting not verified via GUI display).
+- **Whitespace Check:**
+  - `git diff --check`: Clean (Exit Code 0, zero whitespace errors).
+
+### Files Created / Modified
+- `scripts/world/world_view.gd` (Authoritative recipe channel and job creation from EconomyConfig)
+- `scripts/test/test_workshop.gd` (Data-driven TC-WS.2 checks, non-vacuous TC-WS.3/4 completion paths, strengthened TC-WS.5 Tools transit assertions)
+- `docs/WORKLOG.md` (Documented Milestone 28)
+
+### Next Exact Step
+- Stage modified files explicitly (`scripts/world/world_view.gd`, `scripts/test/test_workshop.gd`, `docs/WORKLOG.md`).
+- Commit with exact message: `Harden workshop recipe configuration and tests` on `feature/package-1e-workshop`.
+- Push branch `feature/package-1e-workshop` to `origin`.
+- Verify remote commit SHA matches local `HEAD`.
+- Keep untracked files (`KINGDOMS_UNBOUND_STAGE11_FINAL.html`, `.uid` files) untouched.
+- Await independent review (do NOT merge to `master`, do NOT start Package 1F).
