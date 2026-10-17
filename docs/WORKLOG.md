@@ -1358,3 +1358,55 @@ Address independent code review finding for Package 1D on branch `feature/packag
 - Do NOT merge or push to `master`.
 - Keep `KINGDOMS_UNBOUND_STAGE11_FINAL.html` untracked.
 - Await independent review before Package 1E.
+
+---
+
+## [2026-10-18] Milestone 26: Harden Package 1D HUD Tests (Fail Closed) ✅ VERIFIED
+
+### Context & Objective
+Address independent code review finding for Package 1D: in `scripts/test/test_mine.gd`, HUD and ResourceManager checks were nested under `if hud != null` and `if hud_m4 != null` without `else` branches. If the HUD or ResourceManager singleton were missing or disconnected, assertions could be silently bypassed. The test suite is hardened to fail closed on any missing node or singleton.
+
+### Completed Work
+1. **TC-M.1 Fail-Closed Hardening (`scripts/test/test_mine.gd`):**
+   - Added explicit `else: printerr("  [FAIL] HUD instance not found on WorldView!"); failures += 1` if `hud == null`.
+   - Added explicit `if live_rm == null: printerr("  [FAIL] ResourceManager singleton unavailable in TC-M.1!"); failures += 1` instead of falling back to 0.
+   - Strictly asserted `OreLabel` presence, initial displayed stock against `ResourceManager.get_available_stock("ore")`, dynamic update on `add_resource("ore", 25)`, and dynamic restoration on `consume_resource("ore", 25)`.
+   - Verified that existing labels (`FoodLabel`, `WoodLabel`, `StoneLabel`, `GoldLabel`, `PopLabel`) remain intact.
+2. **TC-M.4 Fail-Closed Hardening (`scripts/test/test_mine.gd`):**
+   - Added explicit `else: printerr("  [FAIL] HUD instance not found in TC-M.4!"); failures += 1` if `hud_m4 == null`.
+   - Added explicit `if ore_lbl_m4 == null: printerr("  [FAIL] HUD OreLabel not found in TC-M.4!"); failures += 1`.
+   - Asserted that `ore_lbl_m4.text` exactly equals `"⛏️ Quặng: %d" % central_stock_post_delivery` and matches current live stock in `ResourceManager`.
+
+### Validations Performed & Results
+- **Hardened Test Suite (`scripts/test/test_mine.gd`):** **PASS (Exit Code 0, 0 failures)**
+  - TC-M.1 (Fail-Closed Blueprint, Costs, UI, Sprite & HUD Ore Display Verification): **PASS**
+  - TC-M.2 (Placement Legality, Inaccessible Rejection & Dynamic Registration): **PASS**
+  - TC-M.3 (Real Citizen Work & Local Buffer Production Integration): **PASS**
+  - TC-M.4 (Real Citizen Hauling Loop Integration & Fail-Closed Live HUD Ore Update): **PASS**
+  - TC-M.5 (Save/Load Persistence, Buffer Restoration & Anti-Duplication): **PASS**
+  - TC-M.6 (Non-Regression of Farm, Woodcutter, Watchtower & Quarry Systems): **PASS**
+- **Regression Suites (Godot 4.7 Headless):**
+  - `scripts/test/test_quarry.gd` (TC-Q.1 to TC-Q.6): **PASS (Exit Code 0)**
+  - `scripts/test/test_dynamic_workplaces.gd` (TC-DW.1 to TC-DW.5): **PASS (Exit Code 0)**
+  - `scripts/test/test_save_load.gd` (TC-8.1 to TC-8.3): **PASS (Exit Code 0)**
+- **Scene Instantiation Sanity:**
+  - `scenes/test/visual_validation_test.tscn`: **PASS (Exit Code 0)**
+  - `scenes/ui/main_menu.tscn`: **PASS (Exit Code 0)**
+  - `scenes/world/world_view.tscn`: **PASS (Exit Code 0)**
+- **Visual Validation / MCP Screenshot Status:**
+  - `GUI NOT RUN` (Reason: Terminal/headless environment without interactive Godot editor display server; layout fitting not verified via GUI display).
+- **Whitespace Check:**
+  - `git diff --check`: Clean (Exit Code 0, zero whitespace errors).
+
+### Files Created / Modified
+- `scripts/test/test_mine.gd` (Hardened TC-M.1 and TC-M.4 HUD assertions to fail closed)
+- `docs/WORKLOG.md` (Documented Milestone 26)
+
+### Next Exact Step
+- Stage modified files explicitly (`scripts/test/test_mine.gd`, `docs/WORKLOG.md`).
+- Commit with exact message: `Harden mine HUD regression assertions` on `feature/package-1d-mine`.
+- Push branch `feature/package-1d-mine` to remote `origin`.
+- Verify remote commit SHA matches local `HEAD`.
+- Do NOT merge or push to `master`.
+- Keep `KINGDOMS_UNBOUND_STAGE11_FINAL.html` untracked.
+- Await independent review before Package 1E.
