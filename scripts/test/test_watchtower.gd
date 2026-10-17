@@ -17,6 +17,7 @@ const SaveManagerScript = preload("res://scripts/persistence/save_manager.gd")
 var frame_count: int = 0
 var world_instance: Node = null
 var failures: int = 0
+var old_tower_ref_for_next_frame: WeakRef = null
 
 func _init() -> void:
 	print("\n========================================================")
@@ -35,6 +36,16 @@ func _process(_delta: float) -> bool:
 	# Allow world_instance._ready() to initialize terrain, HUD and systems
 	if frame_count == 3:
 		_run_world_integration_checks()
+
+	# In frame 4, verify that queued-for-deletion nodes have been completely freed by engine
+	if frame_count == 4:
+		print("\n--- Verifying Deferred Node Deletion Lifecycle (Frame 4) ---")
+		if old_tower_ref_for_next_frame != null:
+			if old_tower_ref_for_next_frame.get_ref() != null:
+				printerr("  [FAIL] Old watchtower node was NOT freed by engine after frame step!")
+				failures += 1
+			else:
+				print("  [PASS] Old watchtower node completely freed from memory by engine on next frame.")
 
 		print("\n--------------------------------------------------------")
 		if failures == 0:
@@ -488,6 +499,16 @@ func _run_world_integration_checks() -> void:
 		else:
 			print("  [PASS] Saved poi_outside correctly serialized as UNDISCOVERED.")
 
+		# Capture pre-existing watchtower node before reloading
+		var b_container: Node2D = world_instance.get("buildings_container")
+		var old_tower_node: Node = b_container.get_node_or_null("Building_watchtower_%d_%d" % [tower_cell.x, tower_cell.y])
+		if old_tower_node == null:
+			printerr("  [FAIL] Pre-existing watchtower node missing before save load test!")
+			failures += 1
+		else:
+			print("  [PASS] Pre-existing watchtower node tracked before reload: %s" % old_tower_node.name)
+			old_tower_ref_for_next_frame = weakref(old_tower_node)
+
 		# ---------------------------------------------------------------------
 		# Intentional pre-load dirty state injection:
 		# Actively corrupt the live world state before applying loaded data
@@ -532,14 +553,78 @@ func _run_world_integration_checks() -> void:
 			else:
 				print("  [PASS] Watchtower reconstructed in live world at %s." % tower_cell)
 
-			# Check node existence in buildings_container
-			var b_container = world_instance.get("buildings_container")
-			var b_node = b_container.get_node_or_null("Building_watchtower_%d_%d" % [tower_cell.x, tower_cell.y])
-			if b_node == null:
-				printerr("  [FAIL] Watchtower visual node not found in scene tree!")
+			# 1. Old building node is no longer under buildings_container
+			if old_tower_node != null:
+				if old_tower_node.get_parent() == b_container:
+					printerr("  [FAIL] Old watchtower node is still a child of buildings_container!")
+					failures += 1
+				else:
+					print("  [PASS] Old watchtower node successfully detached from buildings_container.")
+				if not old_tower_node.is_queued_for_deletion():
+					printerr("  [FAIL] Old watchtower node was not queued for deletion!")
+					failures += 1
+				else:
+					print("  [PASS] Old watchtower node is queued for deletion.")
+
+			# 2 & 3 & 4. Reconstructed node verification
+			var new_tower_node: Node = b_container.get_node_or_null("Building_watchtower_%d_%d" % [tower_cell.x, tower_cell.y])
+			if new_tower_node == null:
+				printerr("  [FAIL] Reconstructed watchtower node not found in buildings_container!")
 				failures += 1
 			else:
-				print("  [PASS] Watchtower visual node verified in scene tree with zero duplicates.")
+				if new_tower_node == old_tower_node:
+					printerr("  [FAIL] Reconstructed watchtower node is identical to the old node instance!")
+					failures += 1
+				else:
+					print("  [PASS] Reconstructed watchtower is a distinct new node instance.")
+
+				if new_tower_node.name != ("Building_watchtower_%d_%d" % [tower_cell.x, tower_cell.y]):
+					printerr("  [FAIL] Reconstructed watchtower node name is '%s', expected canonical name" % new_tower_node.name)
+					failures += 1
+				else:
+					print("  [PASS] Reconstructed watchtower node has exact canonical name 'Building_watchtower_%d_%d'." % [tower_cell.x, tower_cell.y])
+
+				if new_tower_node.is_queued_for_deletion():
+					printerr("  [FAIL] Reconstructed watchtower node is unexpectedly queued for deletion!")
+					failures += 1
+				else:
+					print("  [PASS] Reconstructed watchtower node is active (not queued for deletion).")
+
+				if new_tower_node.get_parent() != b_container:
+					printerr("  [FAIL] Reconstructed watchtower node parent is not buildings_container!")
+					failures += 1
+				else:
+					print("  [PASS] Reconstructed watchtower node parent is strictly buildings_container.")
+
+				var sprite_found := false
+				for ch in new_tower_node.get_children():
+					if ch is Sprite2D and ch.texture != null and ch.texture == wt_tex:
+						sprite_found = true
+						break
+				if not sprite_found:
+					printerr("  [FAIL] Reconstructed watchtower node missing valid Sprite2D with watchtower texture!")
+					failures += 1
+				else:
+					print("  [PASS] Reconstructed watchtower node contains valid Sprite2D texture.")
+
+			# 5. Ensure NO duplicate active or lingering watchtower nodes at this cell
+			var active_tower_count := 0
+			var all_tower_nodes: Array = []
+			for child in b_container.get_children():
+				if ("watchtower_%d_%d" % [tower_cell.x, tower_cell.y]) in child.name:
+					all_tower_nodes.append(child)
+					if not child.is_queued_for_deletion():
+						active_tower_count += 1
+			if active_tower_count != 1:
+				printerr("  [FAIL] Expected exactly 1 active watchtower node at (%d, %d), found %d!" % [tower_cell.x, tower_cell.y, active_tower_count])
+				failures += 1
+			else:
+				print("  [PASS] Exactly 1 active watchtower node present under buildings_container (zero duplicates).")
+			if all_tower_nodes.size() != 1:
+				printerr("  [FAIL] buildings_container contains lingering duplicate tower nodes: %s" % str(all_tower_nodes))
+				failures += 1
+			else:
+				print("  [PASS] buildings_container child list strictly contains only the new watchtower node.")
 
 			# Check fog restoration from dirty pre-load state
 			if not fow.is_visible(pt_dist_15):

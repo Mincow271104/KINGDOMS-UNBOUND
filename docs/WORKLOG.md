@@ -887,6 +887,67 @@ Address code review feedback regarding Fog of War restoration cleanliness and te
 - `docs/WORKLOG.md` (Documented Milestone 19)
 
 ### Next Exact Step
+- Milestone 19 committed at `7de63ef`.
+
+---
+
+## [2026-10-17] Milestone 20: Package 1A Final Review — Safe Building Node Reconstruction & Zero Duplication ✅ VERIFIED
+
+### Context & Objective
+Address code review finding regarding node lifecycle during building reconstruction in `SaveManager.apply_loaded_state_to_world()`:
+1. **Deferred Deletion Collision Issue:** Previously, calling `queue_free()` on building container children left nodes in the scene tree until the end of the frame. Adding newly reconstructed nodes immediately could trigger Godot node auto-renaming, temporary names, or test lookups matching old nodes awaiting deletion.
+2. **Immediate Detachment Solution:** In `scripts/persistence/save_manager.gd`, call `buildings_container.remove_child(child)` before `child.queue_free()` to immediately detach old nodes from the scene tree prior to adding reconstructed nodes.
+3. **Rigorous Test Validation:** Enhance `test_watchtower.gd` to verify node detachment, instance uniqueness, canonical naming, active lifecycle state, parentage, texture, zero duplicate nodes, and engine memory cleanup across frames via `WeakRef`.
+
+### Completed Work & Architecture Changes
+1. **Production Code Fix (`scripts/persistence/save_manager.gd`):**
+   - In `apply_loaded_state_to_world()` under Step 3, explicitly detached each existing building node via `buildings_container.remove_child(child)` before `child.queue_free()`.
+   - Preserved all surrounding logic: clearing `buildings_by_cell`, rebuilding `world_data.buildings`, resetting and updating occupancy, and calling `_instantiate_building_node()`.
+2. **Enhanced Test Suite (`scripts/test/test_watchtower.gd`):**
+   - Tracked pre-existing watchtower node before reload and stored a `weakref` to it.
+   - After reload, verified:
+     1. Old node is detached (`get_parent() != buildings_container`) and `is_queued_for_deletion() == true`.
+     2. New node is a distinct instance with exact canonical name `Building_watchtower_<x>_<y>`.
+     3. New node is active (`not is_queued_for_deletion()`).
+     4. New node has parent `buildings_container` and valid `Sprite2D` texture.
+     5. Exactly 1 active watchtower node exists at `(10, 10)`, and `buildings_container` contains zero lingering/duplicate nodes.
+   - In frame 4 of `_process`, verified via `WeakRef` that the engine completely freed the old node from memory.
+
+### Validations Performed & Results
+- **Dedicated Watchtower Test Suite (`scripts/test/test_watchtower.gd`):**
+  - TC-W.1 to TC-W.8, TC-W.8b, and Frame 4 lifecycle check: **PASS (Exit Code 0, 0 failures)**.
+  - Old node detachment, instance distinction, canonical naming, active status, texture, and frame 4 memory cleanup verified.
+- **Persistence Test Suite (`scripts/test/test_save_load.gd`):**
+  - TC-8.1, TC-8.2, TC-8.3: **PASS (Exit Code 0)**.
+- **Full Regression Test Matrix (13/13 Suites Passed, Exit Code 0):**
+  1. `test_save_load.gd` (TC-8.1, TC-8.2, TC-8.3): **PASS (Exit Code 0)**
+  2. `test_world_gen.gd` (TC-1.2): **PASS (Exit Code 0)**
+  3. `test_coordinates.gd` (TC-1.1): **PASS (Exit Code 0)**
+  4. `test_time_manager.gd` (TC-1.4): **PASS (Exit Code 0)**
+  5. `test_economy.gd` (TC-2.1, TC-2.2): **PASS (Exit Code 0)**
+  6. `test_citizens.gd` (TC-3.1, TC-3.2): **PASS (Exit Code 0)**
+  7. `test_logistics.gd` (TC-4.1, TC-4.2, TC-4.3): **PASS (Exit Code 0)**
+  8. `test_research_and_exploration.gd` (TC-5.1, TC-5.2, TC-5.3): **PASS (Exit Code 0)**
+  9. `test_factions_and_battles.gd` (TC-6.1, TC-6.2): **PASS (Exit Code 0)**
+  10. `test_victory_and_collapse.gd` (TC-7.1, TC-7.2, TC-7.3): **PASS (Exit Code 0)**
+  11. `test_audio.gd`: **PASS (Exit Code 0)**
+  12. `test_gold_transactions.gd` (TC-G.1 to TC-G.8): **PASS (Exit Code 0)**
+  13. `test_stress_100_citizens.gd` (TC-9.1, 145 FPS): **PASS (Exit Code 0)**
+- **Scene Instantiation Sanity:**
+  - `scenes/test/visual_validation_test.tscn`: **PASS (Exit Code 0)**
+  - `scenes/ui/main_menu.tscn`: **PASS (Exit Code 0)**
+  - `scenes/world/world_view.tscn`: **PASS (Exit Code 0)**
+- **Visual Validation / MCP Screenshot Status:**
+  - `NOT RUN` (Reason: Godot Editor GUI is not running in this session; MCP server is in `waiting` mode on port 6505 without connected editor client; all visual nodes, textures, offsets, and visibility states were validated deterministically through Godot 4.7 engine console tests).
+- **Whitespace Check:**
+  - `git diff --check`: Clean (Exit Code 0, zero whitespace errors).
+
+### Files Created / Modified
+- `scripts/persistence/save_manager.gd` (Added `buildings_container.remove_child(child)` before `child.queue_free()`)
+- `scripts/test/test_watchtower.gd` (Added old node tracking, detachment assertions, instance uniqueness, canonical naming, zero duplicates, and frame 4 memory cleanup check)
+- `docs/WORKLOG.md` (Documented Milestone 20)
+
+### Next Exact Step
 - Commit changes to branch `feature/package-1a-watchtower`.
 - Push branch `feature/package-1a-watchtower` to remote `origin`.
 - Keep `KINGDOMS_UNBOUND_STAGE11_FINAL.html` untracked.

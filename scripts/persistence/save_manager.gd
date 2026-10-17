@@ -307,6 +307,7 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 	var buildings_container = world_view.get("buildings_container")
 	if buildings_container:
 		for child in buildings_container.get_children():
+			buildings_container.remove_child(child)
 			child.queue_free()
 	world_view.get("buildings_by_cell").clear()
 	
