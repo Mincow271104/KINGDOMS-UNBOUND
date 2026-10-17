@@ -741,7 +741,12 @@ func _test_tc_dw_4b_citizen_hauling_integration() -> bool:
 		failures += 1
 	print("  [PASS] Hauler citizen claimed hauling job and entered MOVING_TO_JOB state.")
 
-	# 4. Hauler moves along grid path to source access cell (28, 27)
+	# 4. Record baseline before pickup
+	var cargo_res: String = haul_job.cargo_resource
+	var buffer_before_pickup: int = farm_wp.buffer_amount
+	var central_stock_before_pickup: int = live_rm.get_available_stock(cargo_res) if live_rm else 0
+
+	# 5. Hauler moves along grid path to source access cell (28, 27)
 	var move_to_source := 0
 	while hauler.current_state == CitizenControllerScript.State.MOVING_TO_JOB and move_to_source < 30:
 		move_to_source += 1
@@ -752,17 +757,24 @@ func _test_tc_dw_4b_citizen_hauling_integration() -> bool:
 		printerr("  [FAIL] Hauler did not transition to HAULING state upon arriving at source! State: %d" % hauler.current_state)
 		failures += 1
 
-	# Verify cargo extracted from buffer
-	if hauler.carrying_resource != "food" or hauler.carrying_amount != 10:
-		printerr("  [FAIL] Hauler cargo incorrect! Resource: '%s', Amount: %d (expected 'food', 10)" % [hauler.carrying_resource, hauler.carrying_amount])
+	# Post-pickup assertions:
+	# - Workplace buffer decreased by the amount picked up
+	if farm_wp.buffer_amount != buffer_before_pickup - 10:
+		printerr("  [FAIL] Buffer was not decremented! Amount: %d, expected %d" % [farm_wp.buffer_amount, buffer_before_pickup - 10])
 		failures += 1
-	if farm_wp.buffer_amount != 0:
-		printerr("  [FAIL] Buffer was not decremented! Amount: %d, expected 0" % farm_wp.buffer_amount)
-		failures += 1
-	print("  [PASS] Hauler arrived at source %s, extracted 10 Food into cargo, buffer reduced 10->0." % farm_wp.access_cell)
 
-	# 5. Verify central storage has NOT increased while hauler is traveling
-	var food_prior_delivery: int = live_rm.get_available_stock("food") if live_rm else 0
+	# - Hauler cargo has correct resource and quantity
+	if hauler.carrying_resource != cargo_res or hauler.carrying_amount != 10:
+		printerr("  [FAIL] Hauler cargo incorrect! Resource: '%s', Amount: %d (expected '%s', 10)" % [hauler.carrying_resource, hauler.carrying_amount, cargo_res])
+		failures += 1
+
+	# - Central stock STILL equals central_stock_before_pickup (No instant teleportation or premature deposit)
+	var central_stock_after_pickup: int = live_rm.get_available_stock(cargo_res) if live_rm else 0
+	if central_stock_after_pickup != central_stock_before_pickup:
+		printerr("  [FAIL] Central stock changed upon cargo pickup! Before: %d, After: %d" % [central_stock_before_pickup, central_stock_after_pickup])
+		failures += 1
+	else:
+		print("  [PASS] Hauler arrived at source %s, extracted 10 %s; buffer reduced %d->%d; central stock strictly unchanged (%d)." % [farm_wp.access_cell, cargo_res, buffer_before_pickup, farm_wp.buffer_amount, central_stock_after_pickup])
 
 	# 6. Hauler travels along discrete path to destination dropoff cell
 	var haul_steps := 0
@@ -772,7 +784,7 @@ func _test_tc_dw_4b_citizen_hauling_integration() -> bool:
 
 		# Verify mid-transit: stock unchanged while still traveling in HAULING state
 		if hauler.current_state == CitizenControllerScript.State.HAULING:
-			if live_rm and live_rm.get_available_stock("food") != food_prior_delivery:
+			if live_rm and live_rm.get_available_stock(cargo_res) != central_stock_before_pickup:
 				printerr("  [FAIL] Central stock increased during transit before reaching destination!")
 				failures += 1
 
@@ -780,20 +792,26 @@ func _test_tc_dw_4b_citizen_hauling_integration() -> bool:
 		printerr("  [FAIL] Hauler did not complete delivery to IDLE state! Final state: %d" % hauler.current_state)
 		failures += 1
 
-	# 7. Verify post-delivery state
-	var food_post_delivery: int = live_rm.get_available_stock("food") if live_rm else 0
-	if food_post_delivery != food_prior_delivery + 10:
-		printerr("  [FAIL] Central food stock not credited! Prior: %d, Post: %d, Expected: %d" % [food_prior_delivery, food_post_delivery, food_prior_delivery + 10])
+	# 7. Post-delivery assertions:
+	# - Central stock credited exactly once by the cargo amount delivered
+	var central_stock_post_delivery: int = live_rm.get_available_stock(cargo_res) if live_rm else 0
+	if central_stock_post_delivery != central_stock_before_pickup + 10:
+		printerr("  [FAIL] Central %s stock not credited properly! Prior: %d, Post: %d, Expected: %d" % [cargo_res, central_stock_before_pickup, central_stock_post_delivery, central_stock_before_pickup + 10])
 		failures += 1
 	else:
-		print("  [PASS] Hauler delivered 10 Food to dropoff %s; Central storage credited atomically (+10 Food)." % haul_job.dest_cell)
+		print("  [PASS] Hauler delivered 10 %s to dropoff %s; Central storage credited atomically (+10 %s, total %d)." % [cargo_res, haul_job.dest_cell, cargo_res, central_stock_post_delivery])
 
+	# - Cargo cleared from citizen
 	if hauler.carrying_amount != 0 or hauler.carrying_resource != "":
 		printerr("  [FAIL] Hauler cargo was not cleared after deposit!")
 		failures += 1
+
+	# - Job marked completed
 	if haul_job.state != JobManagerScript.JobState.COMPLETED:
 		printerr("  [FAIL] Hauling job state is not COMPLETED!")
 		failures += 1
+
+	# - Buffer not double-deducted
 	if farm_wp.buffer_amount != 0:
 		printerr("  [FAIL] Buffer modified unexpectedly post-delivery!")
 		failures += 1

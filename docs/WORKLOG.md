@@ -1054,7 +1054,7 @@ Following independent review of Package 1B (Milestone 21), address review findin
 | **TC-DW.3** | Unit Test | Direct Manager Call (`produce_to_buffer`) | Verifies isolated production into dynamic buffers, lack of central stock pollution, and zero buffer cross-contamination |
 | **TC-DW.3b** | **Integration Test** | **Real `CitizenController` State Machine (`_process`)** | Verifies full farmer life cycle: `IDLE` -> `MOVING_TO_JOB` (path traversal) -> `WORKING` (3.0 hrs) -> direct buffer deposit via citizen controller -> return to `IDLE` -> recurring cycle 2 execution |
 | **TC-DW.4** | Unit Test | Direct Manager Call (`pickup_from_buffer` & `add_resource`) | Verifies hauling job generation from buffer, manual cargo extraction, and manual central storage delivery |
-| **TC-DW.4b** | **Integration Test** | **Real `CitizenController` State Machine (`_process`)** | Verifies full hauler life cycle: `IDLE` -> `MOVING_TO_JOB` -> arrival at source -> automatic cargo extraction (`_pickup_hauler_cargo()`, buffer 10->0) -> `HAULING` traversal with mid-transit stock invariance -> arrival at dropoff -> automatic central deposit (`_deposit_hauler_cargo()`, +10 Food) -> `IDLE` |
+| **TC-DW.4b** | **Integration Test** | **Real `CitizenController` State Machine (`_process`)** | Verifies full hauler life cycle: `IDLE` -> baseline stock recorded before pickup -> `MOVING_TO_JOB` -> arrival at source -> automatic cargo extraction (`_pickup_hauler_cargo()`, buffer 10->0) -> immediate assertion of stock invariance post-pickup -> `HAULING` traversal with mid-transit stock invariance -> arrival at dropoff -> automatic central deposit (`_deposit_hauler_cargo()`, +10 Food) -> `IDLE` -> post-delivery assertion of atomic credit (+10) and cargo clearing |
 | **TC-DW.5** | Unit Test / Integration | Save/Load Cycle (`SaveManager`) | Verifies world state serialization, buffer restoration, dynamic workplace reconstruction, repeated load anti-duplication, fresh world restoration, legacy save compatibility, and buffer clamping |
 
 ### Section 4: Architectural Evaluation — Access Cell Stacking & Worker Density
@@ -1076,7 +1076,7 @@ Following independent review of Package 1B (Milestone 21), address review findin
   - TC-DW.3 (Production Unit Test): **PASS**
   - TC-DW.3b (Real Citizen Work & Recurring Production Integration): **PASS**
   - TC-DW.4 (Physical Hauling Unit Test): **PASS**
-  - TC-DW.4b (Real Citizen Hauling Loop Integration): **PASS**
+  - TC-DW.4b (Real Citizen Hauling Loop Integration with Pre-Pickup Baseline & Transit Invariance): **PASS**
   - TC-DW.5 (Save/Load Persistence & Anti-Duplication): **PASS**
 - **Full Regression Test Matrix (15/15 Suites Passed, Exit Code 0):**
   1. `test_dynamic_workplaces.gd` (TC-DW.1, TC-DW.2, TC-DW.3, TC-DW.3b, TC-DW.4, TC-DW.4b, TC-DW.5): **PASS (Exit Code 0)**
@@ -1104,12 +1104,13 @@ Following independent review of Package 1B (Milestone 21), address review findin
   - `git diff --check`: Clean (Exit Code 0, zero whitespace errors).
 
 ### Files Created / Modified
-- `scripts/test/test_dynamic_workplaces.gd` (Added TC-DW.3b and TC-DW.4b real citizen integration tests, verified recurring cycles and physical transit invariance)
+- `scripts/test/test_dynamic_workplaces.gd` (Added TC-DW.3b and TC-DW.4b real citizen integration tests, verified recurring cycles, pre-pickup baseline, and physical transit invariance)
 - `docs/WORKLOG.md` (Documented Milestone 22, unit vs integration comparison, and Section 4 evaluation)
 
 ### Next Exact Step
 - Stage modified files explicitly (`scripts/test/test_dynamic_workplaces.gd`, `docs/WORKLOG.md`).
-- Commit with exact message: `Verify dynamic workplace citizen job flow` on `feature/package-1b-dynamic-workplaces`.
+- Commit with exact message: `Fix dynamic workplace hauling stock assertion` on `feature/package-1b-dynamic-workplaces`.
 - Push branch `feature/package-1b-dynamic-workplaces` to remote `origin`.
 - Do NOT merge or push to `master`.
 - Keep `KINGDOMS_UNBOUND_STAGE11_FINAL.html` untracked.
+- Await independent review before Package 1C.
