@@ -97,6 +97,10 @@ func _load_assets() -> void:
 		building_textures["workshop"] = load("res://assets/buildings/bld_workshop.png")
 	else:
 		building_textures["workshop"] = building_textures.get("storehouse", null)
+	if ResourceLoader.exists("res://assets/buildings/bld_research_hall.png"):
+		building_textures["research_hall"] = load("res://assets/buildings/bld_research_hall.png")
+	else:
+		building_textures["research_hall"] = building_textures.get("townhall", null)
 	
 	prop_textures["tree"] = load("res://assets/props/prop_tree.png")
 	prop_textures["rock"] = load("res://assets/props/prop_rock.png")
@@ -125,6 +129,7 @@ func _generate_and_build_world() -> void:
 	automation_mgr = AutomationManager.new()
 	
 	research_mgr = ResearchManager.new()
+	research_mgr.set_hall_checker(func(): return BuildingSystem.is_research_hall_active(world_data))
 	fog_of_war = FogOfWar.new(IsoMath.MAP_SIZE)
 	fog_of_war.reveal_circle(Vector2i(32, 32), 10)
 	
@@ -224,6 +229,7 @@ func _instantiate_building_node(type: String, origin: Vector2i, size: Vector2i) 
 func _get_building_sprite_offset(type: String) -> Vector2:
 	match type:
 		"townhall": return Vector2(-48.0, -56.0)
+		"research_hall": return Vector2(-48.0, -56.0)
 		"house": return Vector2(-32.0, -40.0)
 		"storehouse": return Vector2(-32.0, -40.0)
 		"farm": return Vector2(-32.0, -28.0)
@@ -509,6 +515,10 @@ func _execute_placement(cell: Vector2i) -> Dictionary:
 			if poi_mgr != null:
 				poi_mgr.update_discovery(fog_of_war)
 
+		# If research_hall, refresh research UI in hud
+		if b_data["type"] == "research_hall" and hud != null:
+			hud.call("_refresh_research_ui")
+
 		var am = get_node_or_null("/root/AudioManager")
 		if am:
 			am.play_build()
@@ -721,6 +731,7 @@ func _get_building_display_name(key: String) -> String:
 		"quarry": return "Mỏ Khai Thác Đá (2x2)"
 		"mine": return "Mỏ Khai Thác Quặng (2x2)"
 		"workshop": return "Xưởng Chế Tác (2x2)"
+		"research_hall": return "Viện Nghiên Cứu Hoàng Gia (3x3)"
 		_: return ""
 
 func _on_return_to_menu() -> void:

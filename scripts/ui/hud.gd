@@ -145,6 +145,9 @@ func _ready() -> void:
 	var btn_workshop = $BuildMenuPanel/MarginContainer/VBoxContainer/GridContainer.get_node_or_null("WorkshopBtn")
 	if btn_workshop:
 		btn_workshop.pressed.connect(func(): _select_building("workshop"))
+	var btn_research_hall = $BuildMenuPanel/MarginContainer/VBoxContainer/GridContainer.get_node_or_null("ResearchHallBtn")
+	if btn_research_hall:
+		btn_research_hall.pressed.connect(func(): _select_building("research_hall"))
 	btn_close_build.pressed.connect(func(): build_menu_panel.visible = false)
 
 	# Citizen inspector controls
@@ -206,12 +209,15 @@ func _setup_role_options() -> void:
 	role_option_btn.add_item("Thợ Xưởng (Smith)", 6)
 
 func set_research_manager(mgr: Object) -> void:
+	if research_mgr == mgr and mgr != null:
+		return
 	research_mgr = mgr
 	if research_mgr:
-		research_mgr.tech_started.connect(func(_id): _refresh_research_ui())
-		research_mgr.tech_progress_updated.connect(_on_tech_progress_updated)
-		research_mgr.tech_completed.connect(func(_id): _refresh_research_ui())
-		research_mgr.tech_cancelled.connect(func(_id, _r): _refresh_research_ui())
+		if not research_mgr.tech_progress_updated.is_connected(_on_tech_progress_updated):
+			research_mgr.tech_started.connect(func(_id): _refresh_research_ui())
+			research_mgr.tech_progress_updated.connect(_on_tech_progress_updated)
+			research_mgr.tech_completed.connect(func(_id): _refresh_research_ui())
+			research_mgr.tech_cancelled.connect(func(_id, _r): _refresh_research_ui())
 
 func _toggle_research_menu() -> void:
 	research_menu_panel.visible = not research_menu_panel.visible
@@ -223,7 +229,18 @@ func _refresh_research_ui() -> void:
 		return
 		
 	var active_id: String = research_mgr.get("active_tech_id")
-	if active_id != "":
+	var has_hall: bool = research_mgr.call("has_active_hall") if research_mgr.has_method("has_active_hall") else true
+
+	if not has_hall:
+		if active_id != "":
+			var def: Dictionary = TechTree.TECHNOLOGIES.get(active_id, {})
+			var t_name: String = def.get("name", active_id)
+			var prog: float = research_mgr.get("active_progress_hours")
+			var req: float = research_mgr.get("active_required_hours")
+			tech_status_label.text = "⏸️ Tạm dừng: %s [%.1f / %.1f giờ] (Cần Viện Nghiên Cứu hoạt động)" % [t_name, prog, req]
+		else:
+			tech_status_label.text = "⚠️ Cần xây dựng Viện Nghiên Cứu Hoàng Gia để bắt đầu nghiên cứu"
+	elif active_id != "":
 		var def: Dictionary = TechTree.TECHNOLOGIES.get(active_id, {})
 		var t_name: String = def.get("name", active_id)
 		var prog: float = research_mgr.get("active_progress_hours")
@@ -281,10 +298,14 @@ func _refresh_research_ui() -> void:
 
 func _on_tech_progress_updated(tech_id: String, progress_hours: float, total_hours: float) -> void:
 	if research_menu_panel.visible:
+		var has_hall: bool = research_mgr.call("has_active_hall") if (research_mgr and research_mgr.has_method("has_active_hall")) else true
 		var def: Dictionary = TechTree.TECHNOLOGIES.get(tech_id, {})
 		var t_name: String = def.get("name", tech_id)
-		var pct: float = (progress_hours / maxf(total_hours, 0.001)) * 100.0
-		tech_status_label.text = "Đang tiến hành: %s [%.1f / %.1f giờ] (%.0f%%)" % [t_name, progress_hours, total_hours, pct]
+		if not has_hall:
+			tech_status_label.text = "⏸️ Tạm dừng: %s [%.1f / %.1f giờ] (Cần Viện Nghiên Cứu hoạt động)" % [t_name, progress_hours, total_hours]
+		else:
+			var pct: float = (progress_hours / maxf(total_hours, 0.001)) * 100.0
+			tech_status_label.text = "Đang tiến hành: %s [%.1f / %.1f giờ] (%.0f%%)" % [t_name, progress_hours, total_hours, pct]
 
 func show_event_banner(title: String, desc: String, is_positive: bool = true, duration: float = 6.0) -> void:
 	if not event_banner:

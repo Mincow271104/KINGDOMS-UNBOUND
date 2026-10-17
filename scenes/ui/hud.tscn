@@ -176,7 +176,7 @@ anchor_top = 1.0
 anchor_right = 0.5
 anchor_bottom = 1.0
 offset_left = -280.0
-offset_top = -270.0
+offset_top = -320.0
 offset_right = 280.0
 offset_bottom = -56.0
 grow_horizontal = 2
@@ -244,6 +244,11 @@ text = "⛰️ Mỏ Quặng (20 Gỗ, 10 Đá)"
 custom_minimum_size = Vector2(250, 40)
 layout_mode = 2
 text = "🔨 Xưởng Chế Tác (20 Gỗ, 15 Đá, 5 Kim Loại)"
+
+[node name="ResearchHallBtn" type="Button" parent="BuildMenuPanel/MarginContainer/VBoxContainer/GridContainer"]
+custom_minimum_size = Vector2(250, 40)
+layout_mode = 2
+text = "🏛️ Viện Nghiên Cứu (25 Gỗ, 10 Đá)"
 
 [node name="CloseBuildBtn" type="Button" parent="BuildMenuPanel/MarginContainer/VBoxContainer"]
 custom_minimum_size = Vector2(0, 30)

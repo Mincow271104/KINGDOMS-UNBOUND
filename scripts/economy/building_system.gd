@@ -153,3 +153,11 @@ static func is_town_hall_active(world_data: WorldGenerator.WorldData) -> bool:
 		if b.get("type", "") == "townhall" and b.get("state", "active") != "destroyed":
 			return true
 	return false
+
+static func is_research_hall_active(world_data: WorldGenerator.WorldData) -> bool:
+	if world_data == null:
+		return false
+	for b in world_data.buildings:
+		if b.get("type", "") == "research_hall" and b.get("state", "active") != "destroyed":
+			return true
+	return false

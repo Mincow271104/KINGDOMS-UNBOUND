@@ -18,6 +18,7 @@ func _init() -> void:
 func test_research_system_and_bonuses() -> void:
 	var res_mgr := MockResourceManager.new(100, 100, 100)
 	var research := ResearchManager.new()
+	research.set_hall_checker(func(): return true)
 	
 	# 1. Prerequisite verification: Cannot start food_preservation without crop_rotation
 	var check_prereq := research.can_research("food_preservation", res_mgr)

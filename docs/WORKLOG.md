@@ -1659,3 +1659,112 @@ Refactor `sync_workplaces_after_load()` to cleanly and unambiguously support all
 - Verify remote commit SHA matches local `HEAD`.
 - Keep untracked files (`KINGDOMS_UNBOUND_STAGE11_FINAL.html`, `.uid` files) untouched.
 - Await independent review (do NOT merge to `master`, do NOT start Package 1F).
+
+---
+
+## [2026-10-18] Milestone 30: Package 1F — Research Hall Integration (Completed)
+
+### Context & Objective
+Implement Package 1F: Research Hall Integration on branch `feature/package-1f-research-hall` based on approved commit `9c670251f394754ae561e4817f16906880b2dfe3`:
+- Central blueprint `research_hall` in `scripts/economy/economy_config.gd`: footprint `Vector2i(3, 3)`, cost `{wood: 25, stone: 10}`, housing 0, storage bonus empty, max_workers 0, job_type `""`.
+- Placement validation through `BuildingSystem.place_building()`: 3×3 bounds, water prohibition, 9-cell occupancy collision, atomic cost deduction.
+- Helper `BuildingSystem.is_research_hall_active(world_data) -> bool` detecting non-destroyed Research Hall.
+- Research gating in `scripts/research/research_manager.gd`: `hall_checker: Callable`, `has_active_hall() -> bool`, `can_research()` returning `"Cần có Viện Nghiên Cứu Hoàng Gia đang hoạt động"`, `start_research()` gated, `progress_research()` paused during downtime without reset.
+- HUD integration: `ResearchHallBtn` ("🏛️ Viện Nghiên Cứu (25 Gỗ, 10 Đá)") added to `BuildMenuPanel` GridContainer, wired to `_select_building("research_hall")`; research UI displays warning notice when hall is missing, and status pauses when hall is down.
+- Sprite asset: created `assets/buildings/bld_research_hall.png` (96×80 px, 3×3 dimetric isometric sprite with royal observatory dome, brass astrolabe spire, library entrance, and banners). Offset `Vector2(-48.0, -56.0)` anchored at base vertex `(origin + Vector2i(2, 2))`.
+- Automated test suite `scripts/test/test_research_hall.gd` covering TC-RH.1 through TC-RH.7.
+- Updated `scripts/test/test_research_and_exploration.gd` test fixture with active hall checker.
+- Full regression matrix (17 test suites), 3 scene smoke tests, and live D3D12 GUI visual validation saving 7 screenshots into `docs/visual_validation/`.
+
+### Completed Work
+1. **Blueprint & Configuration (`scripts/economy/economy_config.gd`):**
+   - Added `research_hall` blueprint with footprint `Vector2i(3, 3)`, cost `{RES_WOOD: 25, RES_STONE: 10}`, construction hours `12.0`, housing capacity 0, empty storage bonus, max workers 0, job type `""`.
+2. **Placement & Active Detection (`scripts/economy/building_system.gd`):**
+   - Implemented `BuildingSystem.is_research_hall_active(world_data: WorldGenerator.WorldData) -> bool` returning true only when a research hall exists and is not destroyed.
+3. **Research Gating System (`scripts/research/research_manager.gd`):**
+   - Added `hall_checker: Callable = Callable()`, `set_hall_checker(checker: Callable) -> void`, and `has_active_hall() -> bool`.
+   - In `can_research()`: gated execution; if `not has_active_hall()`, returns `{"valid": false, "reason": "Cần có Viện Nghiên Cứu Hoàng Gia đang hoạt động"}`.
+   - In `progress_research()`: gated execution; if `not has_active_hall()`, returns `false` before modifying `active_progress_hours`, preserving accumulated progress during downtime and resuming upon restoration.
+4. **WorldView Integration (`scripts/world/world_view.gd`):**
+   - Registered `research_hall` texture with fallback to `townhall`.
+   - Added sprite offset `Vector2(-48.0, -56.0)` for 3×3 footprint.
+   - Added display name `"Viện Nghiên Cứu Hoàng Gia (3x3)"`.
+   - Wired `research_mgr.set_hall_checker(func(): return BuildingSystem.is_research_hall_active(world_data))` during world initialization.
+   - Refreshed HUD research UI upon `research_hall` placement.
+5. **HUD UI Integration (`scenes/ui/hud.tscn`, `scripts/ui/hud.gd`):**
+   - Added `ResearchHallBtn` ("🏛️ Viện Nghiên Cứu (25 Gỗ, 10 Đá)") to `BuildMenuPanel` GridContainer.
+   - Connected `ResearchHallBtn` pressed signal to `_select_building("research_hall")`.
+   - Updated `_refresh_research_ui()` and `_on_tech_progress_updated()` to display `"⚠️ Cần xây dựng Viện Nghiên Cứu Hoàng Gia để bắt đầu nghiên cứu"` or `"⏸️ Tạm dừng: ... (Cần Viện Nghiên Cứu hoạt động)"`.
+   - Made `set_research_manager` idempotent against duplicate connections.
+6. **Pixel Art Sprite Asset:**
+   - Authored `assets/buildings/bld_research_hall.png` (96×80 px) adhering strictly to `docs/ASSET_STYLE_GUIDE.md` 27-color fantasy palette with royal observatory dome, telescope slit, celestial astrolabe, grand library arched entrance, and banners.
+7. **Automated Unit & Regression Tests:**
+   - Created `scripts/test/test_research_hall.gd` covering TC-RH.1 through TC-RH.7 with fail-closed assertions.
+   - Updated `scripts/test/test_research_and_exploration.gd` fixture with active hall checker.
+8. **GUI Visual Validation (`scripts/test/visual_research_hall_validation.gd`):**
+   - Executed live D3D12 hardware-accelerated GUI validation, capturing 7 screenshots to `docs/visual_validation/`:
+     - `rh_01_initial_world_and_hud.png`
+     - `rh_02_build_menu_research_hall_btn.png`
+     - `rh_03_research_menu_gated_no_hall.png`
+     - `rh_04_ghost_placement_preview.png`
+     - `rh_05_research_hall_constructed.png`
+     - `rh_06_research_menu_active_project.png`
+     - `rh_07_research_progressing_live.png`
+
+### Validations Performed & Results
+- **Dedicated Test Suite (`scripts/test/test_research_hall.gd`):** **PASS (Exit Code 0, 7/7 passed)**
+  - TC-RH.1 (Blueprint Validation & Spec Integrity): **PASS**
+  - TC-RH.2 (Placement Rules, 3x3 Bounds, Water, Occupancy & Atomic Deduction): **PASS**
+  - TC-RH.3 (is_research_hall_active Detection & State Transitions): **PASS**
+  - TC-RH.4 (Research Gating & can_research/start_research Lock): **PASS**
+  - TC-RH.5 (Downtime Pause Safety & Progress Retention): **PASS**
+  - TC-RH.6 (HUD Integration, Build Button, Signal & UI Warning): **PASS**
+  - TC-RH.7 (WorldView Lifecycle, Placement & Save/Load Persistence): **PASS**
+- **Full Core Regression Matrix (Godot 4.7 Headless):**
+  - `test_research_and_exploration.gd` (TC-5.1 to TC-5.3): **PASS (Exit Code 0)**
+  - `test_workshop.gd` (TC-WS.1 to TC-WS.7): **PASS (Exit Code 0)**
+  - `test_mine.gd` (TC-M.1 to TC-M.6): **PASS (Exit Code 0)**
+  - `test_quarry.gd` (TC-Q.1 to TC-Q.6): **PASS (Exit Code 0)**
+  - `test_watchtower.gd` (TC-W.1 to TC-W.8b): **PASS (Exit Code 0)**
+  - `test_dynamic_workplaces.gd` (TC-DW.1 to TC-DW.5): **PASS (Exit Code 0)**
+  - `test_save_load.gd` (TC-8.1 to TC-8.3): **PASS (Exit Code 0)**
+  - `test_economy.gd` (TC-2.1, TC-2.2): **PASS (Exit Code 0)**
+  - `test_citizens.gd` (TC-3.1, TC-3.2): **PASS (Exit Code 0)**
+  - `test_logistics.gd` (TC-4.1 to TC-4.3): **PASS (Exit Code 0)**
+  - `test_world_gen.gd` (TC-1.2): **PASS (Exit Code 0)**
+  - `test_coordinates.gd` (TC-1.1): **PASS (Exit Code 0)**
+  - `test_time_manager.gd` (TC-1.4): **PASS (Exit Code 0)**
+  - `test_factions_and_battles.gd` (TC-6.1, TC-6.2): **PASS (Exit Code 0)**
+  - `test_victory_and_collapse.gd` (TC-7.1 to TC-7.3): **PASS (Exit Code 0)**
+  - `test_audio.gd`: **PASS (Exit Code 0)**
+  - `test_gold_transactions.gd` (TC-G.1 to TC-G.8): **PASS (Exit Code 0)**
+  - `test_stress_100_citizens.gd` (TC-9.1): **PASS (Exit Code 0)**
+- **Scene Smoke Tests:**
+  - `scenes/ui/main_menu.tscn`: **PASS (Exit Code 0)**
+  - `scenes/world/world_view.tscn`: **PASS (Exit Code 0)**
+  - `scenes/ui/hud.tscn`: **PASS (Exit Code 0)**
+- **GUI Visual Validation:**
+  - `scripts/test/visual_research_hall_validation.gd`: **PASS (Exit Code 0, Windows DisplayServer, D3D12 hardware rendering)**
+  - 7 screenshots verified and saved to `docs/visual_validation/`.
+- **Whitespace Check:**
+  - `git diff --check`: Clean (Exit Code 0, zero whitespace errors).
+
+### Files Created / Modified
+- `assets/buildings/bld_research_hall.png` (96×80 px dimetric isometric sprite)
+- `assets/buildings/bld_research_hall.png.import` (Godot texture import metadata)
+- `scenes/ui/hud.tscn` (Added ResearchHallBtn, adjusted BuildMenuPanel height)
+- `scripts/economy/economy_config.gd` (Added research_hall blueprint)
+- `scripts/economy/building_system.gd` (Added is_research_hall_active helper)
+- `scripts/research/research_manager.gd` (Added hall gating to can_research and progress_research)
+- `scripts/ui/hud.gd` (Wired ResearchHallBtn, added research UI missing hall notices, protected set_research_manager)
+- `scripts/world/world_view.gd` (Registered texture, offset, display name, hall checker wiring, placement refresh)
+- `scripts/test/test_research_and_exploration.gd` (Configured active hall checker in test fixture)
+- `scripts/test/test_research_hall.gd` (Automated unit and regression test suite TC-RH.1 to TC-RH.7)
+- `docs/visual_validation/rh_01_initial_world_and_hud.png` through `rh_07_research_progressing_live.png` (Visual validation screenshots)
+- `docs/WORKLOG.md` (Documented Milestone 30)
+
+### Next Exact Step
+- Stage Package 1F files explicitly (no `git add -A`).
+- Commit with exact mandated message: `Add buildable research hall and research gating`.
+- Push to origin on branch `feature/package-1f-research-hall`.
+- Await independent review. Keep untracked files (`KINGDOMS_UNBOUND_STAGE11_FINAL.html`, `docs/visual_validation/`, `scripts/test/visual_*.gd`, `.uid` files) intact.

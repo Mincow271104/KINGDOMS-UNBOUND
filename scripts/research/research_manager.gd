@@ -13,6 +13,15 @@ var _unlocked_techs: Dictionary = {} # tech_id -> bool
 var active_tech_id: String = ""
 var active_progress_hours: float = 0.0
 var active_required_hours: float = 0.0
+var hall_checker: Callable = Callable()
+
+func set_hall_checker(checker: Callable) -> void:
+	hall_checker = checker
+
+func has_active_hall() -> bool:
+	if hall_checker.is_valid():
+		return bool(hall_checker.call())
+	return false
 
 func is_unlocked(tech_id: String) -> bool:
 	return _unlocked_techs.get(tech_id, false)
@@ -34,6 +43,9 @@ func can_research(tech_id: String, resource_mgr: Object) -> Dictionary:
 	if active_tech_id != "":
 		return {"valid": false, "reason": "Đang có dự án nghiên cứu khác: %s" % active_tech_id}
 		
+	if not has_active_hall():
+		return {"valid": false, "reason": "Cần có Viện Nghiên Cứu Hoàng Gia đang hoạt động"}
+
 	for prereq in def.get("prereqs", []):
 		if not is_unlocked(prereq):
 			var prereq_def = TechTree.TECHNOLOGIES.get(prereq, {})
@@ -72,6 +84,9 @@ func progress_research(delta_hours: float, resource_mgr: Object = null) -> bool:
 	if active_tech_id == "":
 		return false
 		
+	if not has_active_hall():
+		return false
+
 	# Crystal Resonance bonus (+25% research speed)
 	var speed_mult := 1.0
 	if is_unlocked("crystal_resonance"):

@@ -196,5 +196,16 @@ const BLUEPRINTS: Dictionary = {
 				"worker_quota": 2
 			}
 		}
+	},
+	"research_hall": {
+		"id": "research_hall",
+		"name_vi": "Viện Nghiên Cứu Hoàng Gia",
+		"footprint": Vector2i(3, 3),
+		"cost": {RES_WOOD: 25, RES_STONE: 10},
+		"construction_hours": 12.0,
+		"housing_capacity": 0,
+		"storage_bonus": {},
+		"max_workers": 0,
+		"job_type": ""
 	}
 }
