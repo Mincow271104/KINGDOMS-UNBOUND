@@ -243,6 +243,13 @@ func remove_jobs_for_building(building_id: String) -> void:
 			remaining.append(job)
 	_jobs = remaining
 
+func remove_job(job_id: String) -> bool:
+	for i in range(_jobs.size()):
+		if _jobs[i].id == job_id:
+			_jobs.remove_at(i)
+			return true
+	return false
+
 func clear_dynamic_jobs(preserve_building_ids: Array = ["farm_starter", "woodcutter_starter"]) -> void:
 	var remaining: Array[JobData] = []
 	for job in _jobs:

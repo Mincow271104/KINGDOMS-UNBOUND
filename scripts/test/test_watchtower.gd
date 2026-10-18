@@ -372,12 +372,16 @@ func _run_world_integration_checks() -> void:
 	world_instance.call("_execute_placement", tower_cell)
 	var tower_id := "bld_watchtower_%d_%d" % [tower_cell.x, tower_cell.y]
 
-	# Requirement 1 & 2: Demonstrate under_construction watchtower does NOT grant vision
-	if fow.is_visible(pt_dist_15):
-		printerr("  [FAIL] Under-construction watchtower should NOT grant vision!")
+	# Step 1-5: While Watchtower is under_construction:
+	# Select cell pt_dist_15: outside citizen individual vision radius but within watchtower radius
+	fow.set_state(pt_dist_15, FogOfWarScript.State.UNEXPLORED)
+	# Invoke _on_simulation_hour_passed while watchtower is under construction
+	world_instance.call("_on_simulation_hour_passed", 6, 1)
+	if fow.get_state(pt_dist_15) != FogOfWarScript.State.UNEXPLORED:
+		printerr("  [FAIL] Cell should remain UNEXPLORED during hourly simulation tick while watchtower is under construction!")
 		failures += 1
 	else:
-		print("  [PASS] Under-construction watchtower does not grant tower vision.")
+		print("  [PASS] Watchtower under construction does not grant vision during hourly simulation tick.")
 
 	# Demonstrate premature complete_construction is rejected at 0%
 	var premature_ok: bool = world_instance.call("complete_construction", tower_id)
@@ -387,7 +391,7 @@ func _run_world_integration_checks() -> void:
 	else:
 		print("  [PASS] Premature complete_construction at 0% rejected.")
 
-	# Advance progress through legitimate construction path to completion (6.0 hours)
+	# Step 6: Advance progress through legitimate construction path to completion (6.0 hours)
 	var adv_res: Dictionary = world_instance.call("advance_construction_work", tower_id, 6.0)
 	if not adv_res.get("completed", false):
 		printerr("  [FAIL] Construction advancement failed for watchtower!")
@@ -395,12 +399,13 @@ func _run_world_integration_checks() -> void:
 	else:
 		print("  [PASS] Watchtower construction completed legitimately.")
 
-	# Boundary check: dist 15 must be VISIBLE
+	# Step 7: Invoke the hourly update and confirm the same cell becomes VISIBLE
+	world_instance.call("_on_simulation_hour_passed", 7, 1)
 	if not fow.is_visible(pt_dist_15):
 		printerr("  [FAIL] Exact Manhattan boundary (dist=15) at (20, 15) should be VISIBLE! State=%d" % fow.get_state(pt_dist_15))
 		failures += 1
 	else:
-		print("  [PASS] Exact Manhattan boundary (dist=15) at (20, 15) verified VISIBLE.")
+		print("  [PASS] Exact Manhattan boundary (dist=15) at (20, 15) verified VISIBLE after hourly simulation.")
 
 	# Boundary check: dist 16 must remain UNEXPLORED
 	if fow.is_explored(pt_dist_16):

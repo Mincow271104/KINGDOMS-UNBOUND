@@ -551,16 +551,65 @@ func register_construction_jobs(b_data: Dictionary) -> Array[JobManager.JobData]
 		return result
 
 	var b_id: String = b_data.get("id", "")
+	if b_id == "":
+		return result
+
+	var b_state: String = b_data.get("state", "")
+	if b_state != "under_construction":
+		return result
+
 	var b_type: String = b_data.get("type", "")
 	var origin: Vector2i = b_data.get("cell", Vector2i.ZERO)
 	var size: Vector2i = b_data.get("size", Vector2i(1, 1))
 
 	var capacity: int = BuildingSystem.get_construction_worker_capacity(b_type)
 	var perimeter: Array[Vector2i] = BuildingSystem.find_perimeter_cells(origin, size, world_data, capacity)
-	var job_count: int = mini(capacity, perimeter.size())
+	var max_jobs: int = mini(capacity, perimeter.size())
 
-	for i in range(job_count):
-		var target_cell: Vector2i = perimeter[i]
+	# Collect existing builder jobs specifically matching this building
+	var existing_jobs := job_mgr.get_jobs_for_building(b_id)
+	var valid_existing: Array[JobManager.JobData] = []
+	var stale_jobs: Array[JobManager.JobData] = []
+
+	for j in existing_jobs:
+		if j.type == "builder":
+			var is_valid_state: bool = (j.state == JobManager.JobState.AVAILABLE or j.state == JobManager.JobState.RESERVED or j.state == JobManager.JobState.IN_PROGRESS)
+			var is_valid_cell: bool = IsoMath.is_in_bounds(j.target_cell) and (nav == null or nav.is_walkable(j.target_cell))
+			if is_valid_state and is_valid_cell:
+				valid_existing.append(j)
+			else:
+				stale_jobs.append(j)
+
+	# Clean up any stale or invalid jobs for this project without touching other projects
+	for sj in stale_jobs:
+		job_mgr.remove_job(sj.id)
+
+	# If we already have the required valid jobs, preserve and return them
+	if valid_existing.size() >= max_jobs:
+		if valid_existing.size() > max_jobs:
+			var kept: Array[JobManager.JobData] = []
+			for j in valid_existing:
+				if kept.size() < max_jobs:
+					kept.append(j)
+				elif j.state == JobManager.JobState.AVAILABLE:
+					job_mgr.remove_job(j.id)
+				else:
+					kept.append(j)
+			return kept
+		return valid_existing
+
+	result.append_array(valid_existing)
+
+	# Avoid duplicate positions among newly spawned jobs
+	var used_cells: Array[Vector2i] = []
+	for vj in valid_existing:
+		used_cells.append(vj.target_cell)
+
+	for target_cell in perimeter:
+		if result.size() >= max_jobs:
+			break
+		if target_cell in used_cells:
+			continue
 		var job = job_mgr.create_job(
 			"builder",
 			target_cell,
@@ -571,6 +620,7 @@ func register_construction_jobs(b_data: Dictionary) -> Array[JobManager.JobData]
 			false
 		)
 		result.append(job)
+		used_cells.append(target_cell)
 
 	return result
 

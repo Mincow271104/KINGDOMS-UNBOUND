@@ -120,14 +120,22 @@ static func place_building(type: String, origin: Vector2i, world_data: WorldGene
 	
 	return {"success": true, "building": b_data}
 
-static func apply_completion_effects(b_data: Dictionary, resource_mgr: Node) -> void:
+static func apply_completion_effects(b_data: Dictionary, resource_mgr: Object) -> bool:
 	if resource_mgr == null or b_data.is_empty():
-		return
+		return false
+	if b_data.get("storage_applied", false):
+		return false # Guard against duplicating storage capacity
 	var type: String = b_data.get("type", "")
 	var bp: Dictionary = EconomyConfig.BLUEPRINTS.get(type, {})
 	var storage_bonus: Dictionary = bp.get("storage_bonus", {})
+	if storage_bonus.is_empty():
+		return true
+	if not resource_mgr.has_method("add_storage_capacity"):
+		return false
 	for res_id in storage_bonus:
 		resource_mgr.add_storage_capacity(res_id, storage_bonus[res_id])
+	b_data["storage_applied"] = true
+	return true
 
 static func advance_construction(b_data_or_id, delta_hours: float, world_data: WorldGenerator.WorldData) -> Dictionary:
 	var b_data: Dictionary = {}
@@ -197,6 +205,14 @@ static func complete_building(b_data_or_id, world_data: WorldGenerator.WorldData
 	const PROGRESS_TOLERANCE: float = 0.001
 	if cur_prog < (total_hours - PROGRESS_TOLERANCE):
 		return false # Refuse premature activation at 0% or partial progress
+
+	# Fail safely before changing construction state if required storage effects cannot be applied
+	var type: String = b_data.get("type", "")
+	var bp: Dictionary = EconomyConfig.BLUEPRINTS.get(type, {})
+	var storage_bonus: Dictionary = bp.get("storage_bonus", {})
+	if not storage_bonus.is_empty():
+		if resource_mgr == null or not resource_mgr.has_method("add_storage_capacity"):
+			return false
 
 	b_data["state"] = "active"
 	b_data["construction_progress"] = total_hours

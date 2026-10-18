@@ -27,6 +27,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Job prefix collision immunity: `JobManager.job_matches_building()` enforces exact match or separator-aware prefix matching (`building_id + "_"`), preventing false-positive cancellation/cleanup collisions between neighboring buildings (e.g., `bld_house_28_28` vs `bld_house_28_280`).
 - Safe cancellation refund storage guarantee: `BuildingSystem.cancel_construction()` performs all-or-nothing capacity validation before modifying world state, refusing cancellation if central storage cannot hold the full 50% refund.
 - Save/load schema integrity: `SaveManager.validate_save_data()` validates building array types, blueprint names, coordinate bounds, positive finite hours, progress ranges, and valid state enums before world state deserialization begins.
+- Idempotent construction job registration: `WorldView.register_construction_jobs()` verifies `state == "under_construction"`, preserves existing valid builder jobs on repeated calls up to concurrent worker capacity, handles stale jobs safely, and isolates overlapping textual prefix IDs.
+- Blueprint footprint & integer validation: `SaveManager.validate_save_data()` strictly requires saved building footprints to match authoritative blueprints (rejecting mismatched sizes like 3x3 houses), requires grid coordinates and dimensions to be valid integers (rejecting fractional values), and gracefully handles legacy saves omitting size fields.
+- Fail-closed storage effects on completion: `BuildingSystem.complete_building()` refuses activation if blueprint grants storage capacity but `ResourceManager` is missing, and guards against duplicate storage bonuses via `storage_applied`.
 
 ### [Package 1G] - 2026-10-18
 #### Added

@@ -301,6 +301,77 @@ func _test_tc_con_2_builder_jobs_and_concurrency() -> bool:
 			failures += 1
 		b_house["state"] = "under_construction"
 
+	# 4. Idempotent registration tests
+	# Call register_construction_jobs a second time on b_house
+	var second_call_jobs = world_instance.call("register_construction_jobs", b_house)
+	var house_jobs_now = jm.get_jobs_for_building("bld_house_15_15")
+	if house_jobs_now.size() != 3:
+		printerr("  [FAIL] Calling register_construction_jobs twice created duplicate jobs! Total: %d, expected 3" % house_jobs_now.size())
+		failures += 1
+	else:
+		print("  [PASS] Calling register_construction_jobs twice on same project is idempotent (count remained 3).")
+
+	# Verify count does not exceed worker capacity or available perimeter cells
+	var expected_house_cap: int = BuildingSystemScript.get_construction_worker_capacity("house")
+	if house_jobs_now.size() > expected_house_cap:
+		printerr("  [FAIL] Job count exceeds worker capacity!")
+		failures += 1
+	else:
+		print("  [PASS] Job count adheres to concurrent capacity.")
+
+	# Register a second building with an overlapping textual ID prefix: bld_house_15_150
+	var b_house_overlapping := {
+		"id": "bld_house_15_150",
+		"type": "house",
+		"cell": Vector2i(25, 25),
+		"size": Vector2i(2, 2),
+		"state": "under_construction",
+		"construction_progress": 0.0,
+		"construction_hours": 8.0
+	}
+	world_data.buildings.append(b_house_overlapping)
+	for dx in range(-1, 3):
+		for dy in range(-1, 3):
+			var c := Vector2i(25 + dx, 25 + dy)
+			world_data.terrain[c.x][c.y] = WorldGeneratorScript.TerrainType.GRASS
+			world_data.occupancy[c.x][c.y] = (dx >= 0 and dx < 2 and dy >= 0 and dy < 2)
+
+	var overlapping_jobs = world_instance.call("register_construction_jobs", b_house_overlapping)
+	var house_15_15_jobs = jm.get_jobs_for_building("bld_house_15_15")
+	var house_15_150_jobs = jm.get_jobs_for_building("bld_house_15_150")
+
+	if house_15_15_jobs.size() != 3 or house_15_150_jobs.size() != 3:
+		printerr("  [FAIL] Prefix overlap corrupted job separation! bld_house_15_15 has %d, bld_house_15_150 has %d" % [house_15_15_jobs.size(), house_15_150_jobs.size()])
+		failures += 1
+	else:
+		print("  [PASS] Overlapping textual prefix ID jobs remain strictly isolated.")
+
+	# Confirm Builders can still claim valid construction jobs through JobManager.request_job()
+	var citizen_mock = CitizenControllerScript.new()
+	citizen_mock.set("citizen_id", "builder_test_cit")
+	citizen_mock.set("role", "builder")
+	citizen_mock.set("current_cell", Vector2i(15, 13))
+	var claimed_job = jm.request_job("builder_test_cit", "builder", Vector2i(15, 13), nav)
+	if claimed_job == null:
+		printerr("  [FAIL] Builder could not claim construction job via request_job()!")
+		failures += 1
+	else:
+		if claimed_job.type != "builder" or (claimed_job.target_building_id != "bld_house_15_15" and claimed_job.target_building_id != "bld_house_15_150"):
+			printerr("  [FAIL] Claimed job mismatch: type=%s, target=%s" % [claimed_job.type, claimed_job.target_building_id])
+			failures += 1
+		else:
+			print("  [PASS] Builder claimed valid construction job through JobManager.request_job().")
+		jm.release_job(claimed_job)
+	citizen_mock.free()
+
+	# Confirm completion and cancellation continue cleaning up only jobs associated with the correct project
+	jm.remove_jobs_for_building("bld_house_15_150")
+	if jm.get_jobs_for_building("bld_house_15_15").size() != 3:
+		printerr("  [FAIL] Removing jobs for bld_house_15_150 corrupted jobs for bld_house_15_15!")
+		failures += 1
+	else:
+		print("  [PASS] Cleaning up bld_house_15_150 preserved all jobs for bld_house_15_15.")
+
 	world_instance.set("job_mgr", old_jm)
 
 	if failures == 0:
@@ -556,6 +627,60 @@ func _test_tc_con_4_completion_transition_and_idempotency() -> bool:
 		failures += 1
 	else:
 		print("  [PASS] Repeated completion call returned false without side effects.")
+
+	# 7. Fail-closed completion test when required storage effects cannot be applied
+	var b_storehouse := {
+		"id": "bld_storehouse_35_35",
+		"type": "storehouse",
+		"cell": Vector2i(35, 35),
+		"size": Vector2i(2, 2),
+		"state": "under_construction",
+		"construction_progress": 10.0,
+		"construction_hours": 10.0
+	}
+	world_data.buildings.append(b_storehouse)
+
+	# A: Attempt complete_building with resource_mgr == null -> MUST return false
+	var no_rm_comp = BuildingSystemScript.complete_building(b_storehouse, world_data, null)
+	if no_rm_comp:
+		printerr("  [FAIL] complete_building succeeded for storehouse with null ResourceManager!")
+		failures += 1
+	if b_storehouse.get("state") != "under_construction":
+		printerr("  [FAIL] Storehouse state changed to '%s' despite missing ResourceManager!" % b_storehouse.get("state"))
+		failures += 1
+	if absf(float(b_storehouse.get("construction_progress", 0.0)) - 10.0) > 0.01:
+		printerr("  [FAIL] Storehouse progress was modified on failed completion!")
+		failures += 1
+	print("  [PASS] Storehouse completion safely rejected when ResourceManager is missing; state remained under_construction.")
+
+	# B: Complete with valid MockResourceManager -> MUST succeed and apply storage
+	var test_rm := MockResourceManager.new()
+	var wood_cap_before = test_rm._capacities.get("wood", 500)
+	var with_rm_comp = BuildingSystemScript.complete_building(b_storehouse, world_data, test_rm)
+	if not with_rm_comp:
+		printerr("  [FAIL] complete_building failed for storehouse with valid ResourceManager!")
+		failures += 1
+	if b_storehouse.get("state") != "active":
+		printerr("  [FAIL] Storehouse state not active after valid completion!")
+		failures += 1
+	var wood_cap_after = test_rm._capacities.get("wood", 500)
+	if wood_cap_after != wood_cap_before + 500:
+		printerr("  [FAIL] Storehouse storage bonus (+500) not applied! Before=%d, After=%d" % [wood_cap_before, wood_cap_after])
+		failures += 1
+	else:
+		print("  [PASS] Storehouse completion succeeded with ResourceManager and applied storage capacity bonus.")
+
+	# C: Repeated completion attempt -> MUST return false, capacity not duplicated
+	var repeat_comp = BuildingSystemScript.complete_building(b_storehouse, world_data, test_rm)
+	if repeat_comp:
+		printerr("  [FAIL] Repeated complete_building returned true for already active storehouse!")
+		failures += 1
+	if test_rm._capacities.get("wood", 500) != wood_cap_after:
+		printerr("  [FAIL] Repeated completion duplicated storage capacity!")
+		failures += 1
+	else:
+		print("  [PASS] Repeated completion safely rejected without duplicating storage capacity.")
+	test_rm.free()
 
 	if failures == 0:
 		print("  [PASS] TC-CON.4 PASSED.\n")
@@ -906,6 +1031,59 @@ func _test_tc_con_6_save_load_persistence_and_visual_clarity() -> bool:
 		failures += 1
 	else:
 		print("  [PASS] Malformed save data safely rejected before destructive reconstruction begins.")
+
+	# Check G: House with mismatched footprint (3x3 instead of 2x2 configured blueprint)
+	var bad_data_footprint = load_res["data"].duplicate(true)
+	for b in bad_data_footprint["buildings"]:
+		if b.get("type") == "house":
+			b["size_x"] = 3
+			b["size_y"] = 3
+			break
+	var val_fp = SaveManagerScript.validate_save_data(bad_data_footprint)
+	if val_fp.get("valid", true):
+		printerr("  [FAIL] validate_save_data passed mismatched blueprint footprint (3x3 house)!")
+		failures += 1
+	else:
+		print("  [PASS] Mismatched blueprint footprint (3x3 house) correctly rejected.")
+
+	# Check H: Fractional grid coordinate (10.5)
+	var bad_data_frac_coord = load_res["data"].duplicate(true)
+	bad_data_frac_coord["buildings"][0]["cell_x"] = 10.5
+	var val_frac_coord = SaveManagerScript.validate_save_data(bad_data_frac_coord)
+	if val_frac_coord.get("valid", true):
+		printerr("  [FAIL] validate_save_data passed fractional grid coordinate (10.5)!")
+		failures += 1
+	else:
+		print("  [PASS] Fractional grid coordinate correctly rejected.")
+
+	# Check I: Fractional footprint dimension (2.5)
+	var bad_data_frac_dim = load_res["data"].duplicate(true)
+	bad_data_frac_dim["buildings"][0]["size_x"] = 2.5
+	var val_frac_dim = SaveManagerScript.validate_save_data(bad_data_frac_dim)
+	if val_frac_dim.get("valid", true):
+		printerr("  [FAIL] validate_save_data passed fractional footprint dimension (2.5)!")
+		failures += 1
+	else:
+		print("  [PASS] Fractional footprint dimension correctly rejected.")
+
+	# Check J: Legacy save legitimately omitting size fields resolves cleanly from blueprint
+	var legacy_data = load_res["data"].duplicate(true)
+	for b in legacy_data["buildings"]:
+		b.erase("size_x")
+		b.erase("size_y")
+	var val_legacy = SaveManagerScript.validate_save_data(legacy_data)
+	if not val_legacy.get("valid", false):
+		printerr("  [FAIL] validate_save_data rejected legacy save omitting size fields: %s" % val_legacy.get("error"))
+		failures += 1
+	else:
+		print("  [PASS] Legacy save omitting size fields validated cleanly using blueprint footprint.")
+
+	var apply_legacy = SaveManagerScript.apply_loaded_state_to_world(world_instance, legacy_data)
+	if not apply_legacy.get("success", false):
+		printerr("  [FAIL] apply_loaded_state_to_world failed for legacy save: %s" % apply_legacy.get("error"))
+		failures += 1
+	else:
+		print("  [PASS] Legacy save successfully restored world state.")
 
 	# Clean up test save file
 	DirAccess.remove_absolute(save_path)

@@ -247,6 +247,13 @@ static func save_to_file(world_view: Node, filepath: String = DEFAULT_SAVE_PATH)
 			
 	return {"success": true, "path": filepath, "bytes": json_string.length()}
 
+static func _is_valid_integer_val(val: Variant) -> bool:
+	if val is int:
+		return true
+	if val is float:
+		return not is_nan(val) and not is_inf(val) and floor(val) == val
+	return false
+
 static func validate_save_data(json_dict: Variant) -> Dictionary:
 	if not (json_dict is Dictionary):
 		return {"valid": false, "error": "Dữ liệu JSON không đúng định dạng Dictionary gốc."}
@@ -274,20 +281,36 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 			return {"valid": false, "error": "Loại công trình không hợp lệ: '%s'." % str(b_type)}
 
 		var bp: Dictionary = EconomyConfig.BLUEPRINTS[b_type]
-		var default_size: Vector2i = bp.get("footprint", Vector2i(1, 1))
+		var expected_size: Vector2i = bp.get("footprint", Vector2i(1, 1))
 
 		var cell_x = b.get("cell_x")
 		var cell_y = b.get("cell_y")
-		if cell_x == null or cell_y == null or not (cell_x is int or cell_x is float) or not (cell_y is int or cell_y is float):
-			return {"valid": false, "error": "Tọa độ công trình '%s' không hợp lệ." % b_type}
+		if cell_x == null or cell_y == null:
+			return {"valid": false, "error": "Tọa độ công trình '%s' thiếu cell_x hoặc cell_y." % b_type}
+		if not _is_valid_integer_val(cell_x) or not _is_valid_integer_val(cell_y):
+			return {"valid": false, "error": "Tọa độ công trình '%s' phải là số nguyên hợp lệ: (%s, %s)." % [b_type, str(cell_x), str(cell_y)]}
 
-		var size_x = b.get("size_x", default_size.x)
-		var size_y = b.get("size_y", default_size.y)
-		if not (size_x is int or size_x is float) or not (size_y is int or size_y is float) or int(size_x) <= 0 or int(size_y) <= 0:
-			return {"valid": false, "error": "Kích thước công trình '%s' không hợp lệ." % b_type}
+		var size_x = b.get("size_x")
+		var size_y = b.get("size_y")
+		var resolved_size_x: int = expected_size.x
+		var resolved_size_y: int = expected_size.y
+
+		if size_x != null:
+			if not _is_valid_integer_val(size_x):
+				return {"valid": false, "error": "Kích thước size_x của công trình '%s' phải là số nguyên hợp lệ: %s." % [b_type, str(size_x)]}
+			if int(size_x) != expected_size.x:
+				return {"valid": false, "error": "Kích thước size_x của công trình '%s' (%d) không khớp blueprint (%d)." % [b_type, int(size_x), expected_size.x]}
+			resolved_size_x = int(size_x)
+
+		if size_y != null:
+			if not _is_valid_integer_val(size_y):
+				return {"valid": false, "error": "Kích thước size_y của công trình '%s' phải là số nguyên hợp lệ: %s." % [b_type, str(size_y)]}
+			if int(size_y) != expected_size.y:
+				return {"valid": false, "error": "Kích thước size_y của công trình '%s' (%d) không khớp blueprint (%d)." % [b_type, int(size_y), expected_size.y]}
+			resolved_size_y = int(size_y)
 
 		var origin := Vector2i(int(cell_x), int(cell_y))
-		var size := Vector2i(int(size_x), int(size_y))
+		var size := Vector2i(resolved_size_x, resolved_size_y)
 		if not IsoMath.is_in_bounds(origin) or not IsoMath.is_in_bounds(origin + size - Vector2i(1, 1)):
 			return {"valid": false, "error": "Vị trí hoặc kích thước công trình '%s' vượt quá giới hạn bản đồ: %s (%s)." % [b_type, origin, size]}
 
@@ -405,12 +428,13 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 
 		var saved_buildings: Array = loaded_data.get("buildings", [])
 		for b in saved_buildings:
-			var b_origin := Vector2i(b["cell_x"], b["cell_y"])
-			var b_size := Vector2i(b["size_x"], b["size_y"])
 			var b_type: String = b["type"]
+			var bp: Dictionary = EconomyConfig.BLUEPRINTS.get(b_type, {})
+			var default_size: Vector2i = bp.get("footprint", Vector2i(1, 1))
+			var b_origin := Vector2i(int(b["cell_x"]), int(b["cell_y"]))
+			var b_size := Vector2i(int(b.get("size_x", default_size.x)), int(b.get("size_y", default_size.y)))
 			var b_id: String = b["id"]
 			var b_state: String = b.get("state", "active")
-			var bp: Dictionary = EconomyConfig.BLUEPRINTS.get(b_type, {})
 			var default_hours: float = float(bp.get("construction_hours", 12.0))
 			var b_hours: float = float(b.get("construction_hours", default_hours))
 			var b_prog: float = float(b.get("construction_progress", b_hours if b_state == "active" else 0.0))

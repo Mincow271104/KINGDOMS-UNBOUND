@@ -2361,7 +2361,123 @@ Address independent review findings for Package 1H on branch `feature/package-1h
 - `docs/WORKLOG.md`
 
 ### Next Exact Step
+- Review fixes complete. Proceed to Milestone 38 (Package 1H Final Review Fix).
+
+---
+
+## [2026-10-18] Milestone 38: Package 1H Final Review Fix — Idempotent Construction Registration, Footprint Validation, Watchtower Hourly Tick & Fail-Closed Storage Effects (Completed)
+
+### Context & Objective
+Execute the focused Package 1H Final Review Fix on branch `feature/package-1h-construction` (base: `804fcd069b3645392091395e812b1de87ec12639`):
+1. **Idempotent Construction Job Registration (`scripts/world/world_view.gd`, `scripts/jobs/job_manager.gd`):**
+   - Ensure `WorldView.register_construction_jobs(b_data)` only registers jobs for valid buildings with `state == "under_construction"` and non-empty `id`.
+   - Repeated calls for the same construction site must not create duplicate jobs or exceed concurrent capacity.
+   - Reuse existing valid builder jobs; remove stale/invalid jobs via `JobManager.remove_job(job_id)`.
+   - Ensure clean isolation between overlapping prefix building IDs (e.g. `bld_house_15_15` vs `bld_house_15_150`).
+2. **Save Validation Enforces Blueprint Footprint & Integers (`scripts/persistence/save_manager.gd`):**
+   - In `SaveManager.validate_save_data()`, resolve expected footprint from `EconomyConfig.BLUEPRINTS[b_type]`.
+   - Require saved `size_x` and `size_y` to match blueprint dimensions when present, rejecting mismatched footprints (e.g., 3x3 House).
+   - Legitimate legacy saves that omit size fields are supported by defaulting to blueprint footprint dimensions.
+   - Enforce integer validation across JSON boundaries: reject fractional numbers for coordinates (`grid_x`, `grid_y`) and dimensions (`size_x`, `size_y`).
+   - Abort load validation before clearing or mutating the live world state.
+3. **Watchtower Unfinished State Through Hourly Tick Regression (`scripts/test/test_watchtower.gd`):**
+   - In TC-W.6, place watchtower in `under_construction`, set cell `pt_dist_15 = (20, 15)` to `UNEXPLORED`, invoke `_on_simulation_hour_passed(6, 1)`, and assert cell remains `UNEXPLORED`.
+   - Complete construction legitimately (6.0h), invoke `_on_simulation_hour_passed(7, 1)`, and assert cell transitions to `VISIBLE`.
+   - Retain full regression coverage for `paused`, `damaged`, and `active` states.
+4. **Fail-Closed Building Completion on Missing Storage Effects (`scripts/economy/building_system.gd`):**
+   - In `complete_building()`, if blueprint defines `storage_bonus` (e.g. storehouse) and `resource_mgr` is null or missing `add_storage_capacity`, fail closed before state transition.
+   - Buildings without storage effects proceed normally.
+   - Add `storage_applied` guard in `apply_completion_effects()` preventing duplicate storage capacity on repeated calls.
+5. **Documentation & Testing:**
+   - Update `docs/BACKLOG.md` (TASK-1H.11), `docs/CHANGELOG.md`, `docs/TEST_PLAN.md`, and `docs/WORKLOG.md`.
+   - Execute full regression test suites and 4 headless scene smoke checks; verify clean git diff.
+
+### Completed Work
+1. **Idempotent Job Registration & Cleanup Helper (`scripts/jobs/job_manager.gd`, `scripts/world/world_view.gd`):**
+   - Added `JobManager.remove_job(job_id: String) -> bool` to remove specific jobs safely from queues.
+   - Refactored `WorldView.register_construction_jobs()` to:
+     - Return empty array immediately if `b_id == ""` or `b_data.get("state") != "under_construction"`.
+     - Query existing jobs via `job_mgr.get_jobs_for_building(b_id)`.
+     - Remove stale jobs (cells outside valid perimeter or duplicate positions) via `job_mgr.remove_job()`.
+     - Cap jobs at `mini(capacity, perimeter.size())` and only create new jobs for unoccupied perimeter cells.
+     - Return existing valid jobs if already at capacity without re-registering duplicates.
+2. **Save Validation Footprint & Integer Hardening (`scripts/persistence/save_manager.gd`):**
+   - Implemented `_is_valid_integer_val(val)` helper to distinguish true integers from fractional floats (`floor(val) == val` and not NaN/inf).
+   - In `validate_save_data()`:
+     - Validated that `grid_x` and `grid_y` are valid integers.
+     - Looked up blueprint `EconomyConfig.BLUEPRINTS[b_type]` for expected footprint dimensions.
+     - If `size_x` or `size_y` are provided, verified they are valid integers and strictly equal to blueprint dimensions.
+     - If omitted (legacy save format), supported by defaulting to blueprint footprint in `apply_loaded_state_to_world()`.
+     - Validated that `construction_progress` and `construction_hours` are non-negative finite numbers.
+     - Ensured invalid saves return `false` before `apply_loaded_state_to_world()` clears existing live entities.
+3. **Watchtower Hourly Simulation Tick Regression (`scripts/test/test_watchtower.gd`):**
+   - Strengthened TC-W.6 to verify an `under_construction` watchtower does not reveal distant cell `pt_dist_15 = (20, 15)` after `_on_simulation_hour_passed(6, 1)` (remains `UNEXPLORED`).
+   - Verified that after legitimate completion (6.0h advancement), `_on_simulation_hour_passed(7, 1)` reveals `pt_dist_15` to `VISIBLE`.
+   - Verified that subsequent damage or pause does not grant vision, while repairing/unpausing restores vision.
+4. **Fail-Closed Storage Effects on Completion (`scripts/economy/building_system.gd`):**
+   - In `BuildingSystem.complete_building()`:
+     - Pre-checked `storage_bonus`: if non-empty, requires `resource_mgr != null` and `resource_mgr.has_method("add_storage_capacity")`. Fails closed (`return false`) before changing state to `active`.
+     - Non-storage buildings (houses, farms, woodcutter camps, watchtowers, workshops, barracks, research halls) complete normally without requiring storage methods.
+   - In `BuildingSystem.apply_completion_effects()`:
+     - Added `storage_applied` flag to `b_data` preventing duplicate capacity additions if called multiple times.
+5. **Comprehensive Test Suite Updates (`scripts/test/test_construction.gd`):**
+   - Updated TC-CON.2: Added tests for double call of `register_construction_jobs` (idempotent, no duplicate jobs), capacity limits, overlapping prefix isolation (`bld_house_15_15` vs `bld_house_15_150`), builder `request_job()` claim, and cleanup isolation.
+   - Updated TC-CON.4: Added tests for storehouse completion fail-closed on missing `resource_mgr` (state stays `under_construction`), valid completion with `MockResourceManager` applying +500 capacity, and repeated completion returning `false` without duplicate capacity.
+   - Updated TC-CON.6: Added Checks G, H, I, J for mismatched footprint (3x3 house) rejection, fractional coordinate (10.5) rejection, fractional dimension (2.5) rejection, legacy save omission resolution from blueprint, and non-corruption of live world.
+
+### Validations Performed & Results
+- **Dedicated Test Suite (`scripts/test/test_construction.gd`):** **PASS (Exit Code 0, 6/6 passed)**
+  - TC-CON.1: Blueprint Verification & Placement Lifecycle: **PASS**
+  - TC-CON.2: Construction Jobs, Capacity & Idempotent Registration: **PASS**
+  - TC-CON.3: Builder Work Loop, Real TimeManager Scaling & Progress: **PASS**
+  - TC-CON.4: Completion Threshold & Fail-Closed Storage Effects: **PASS**
+  - TC-CON.5: Cancellation Policy, 50% Refund & Storage Capacity: **PASS**
+  - TC-CON.6: Save/Load Persistence, Footprint Validation & Integer Checks: **PASS**
+- **Watchtower Test Suite (`scripts/test/test_watchtower.gd`):** **PASS (Exit Code 0, all passed)**
+  - TC-W.6: Watchtower Under-Construction & Operational State Vision: **PASS**
+- **All 19 Other Core Regression Suites (Godot 4.7 Headless):**
+  - `test_barracks.gd`: **PASS (Exit Code 0)**
+  - `test_workshop.gd`: **PASS (Exit Code 0)**
+  - `test_research_hall.gd`: **PASS (Exit Code 0)**
+  - `test_dynamic_workplaces.gd`: **PASS (Exit Code 0)**
+  - `test_mine.gd`: **PASS (Exit Code 0)**
+  - `test_quarry.gd`: **PASS (Exit Code 0)**
+  - `test_save_load.gd`: **PASS (Exit Code 0)**
+  - `test_citizens.gd`: **PASS (Exit Code 0)**
+  - `test_economy.gd`: **PASS (Exit Code 0)**
+  - `test_logistics.gd`: **PASS (Exit Code 0)**
+  - `test_research_and_exploration.gd`: **PASS (Exit Code 0)**
+  - `test_factions_and_battles.gd`: **PASS (Exit Code 0)**
+  - `test_gold_transactions.gd`: **PASS (Exit Code 0)**
+  - `test_time_manager.gd`: **PASS (Exit Code 0)**
+  - `test_victory_and_collapse.gd`: **PASS (Exit Code 0)**
+  - `test_world_gen.gd`: **PASS (Exit Code 0)**
+  - `test_coordinates.gd`: **PASS (Exit Code 0)**
+  - `test_stress_100_citizens.gd`: **PASS (Exit Code 0)**
+  - `test_audio.gd`: **PASS (Exit Code 0)**
+- **Headless Scene Smoke Checks:**
+  - `scenes/ui/main_menu.tscn`: **PASS (Exit Code 0)**
+  - `scenes/world/world_view.tscn`: **PASS (Exit Code 0)**
+  - `scenes/ui/hud.tscn`: **PASS (Exit Code 0)**
+  - `scenes/test/visual_validation_test.tscn`: **PASS (Exit Code 0)**
+  *(Note: All scene smoke validations were executed via Godot 4.7 headless console; no manual visual GUI inspection was performed).*
+- **Whitespace Check:**
+  - `git diff --check`: Clean (Exit Code 0, zero whitespace errors).
+
+### Files Created / Modified
+- `scripts/economy/building_system.gd` (Fail-closed storage completion check, duplicate storage prevention flag)
+- `scripts/jobs/job_manager.gd` (Added `remove_job()` helper for individual job cleanup)
+- `scripts/persistence/save_manager.gd` (Integer coordinate/dimension enforcement, blueprint footprint validation, legacy omission resolution)
+- `scripts/world/world_view.gd` (Idempotent `register_construction_jobs`, stale job cleanup, capacity adherence)
+- `scripts/test/test_construction.gd` (TC-CON.2 idempotent registration tests, TC-CON.4 fail-closed storage tests, TC-CON.6 footprint/integer save validation tests)
+- `scripts/test/test_watchtower.gd` (TC-W.6 under-construction hourly simulation tick regression)
+- `docs/BACKLOG.md` (Added TASK-1H.11 completion)
+- `docs/CHANGELOG.md` (Documented Package 1H final review fix details)
+- `docs/TEST_PLAN.md` (Updated test plan specifications for TC-CON.1–TC-CON.6 and TC-W.6)
+- `docs/WORKLOG.md` (Documented Milestone 38)
+
+### Next Exact Step
 - Stage modified files explicitly (do NOT use `git add -A`; preserve untracked files).
-- Commit with exact mandated message: `Harden construction completion and job cleanup`.
+- Commit with exact mandated message: `Make construction registration idempotent`.
 - Push to `origin/feature/package-1h-construction`.
 - Await independent review. Do not merge into master, do not start Package 1I.
