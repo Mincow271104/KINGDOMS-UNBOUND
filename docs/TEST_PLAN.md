@@ -1,4 +1,4 @@
-﻿# KINGDOMS UNBOUND â€” Master Test Plan & Verification Strategy
+# KINGDOMS UNBOUND â€” Master Test Plan & Verification Strategy
 
 ## Document Overview
 - **Status:** Active (Phase 0 Baseline)
@@ -227,9 +227,9 @@ When Godot Editor is running with the MCP plugin:
   - *Status:* **PASSED** (2026-10-18, Exit Code 0).
 - **TC-PA.6: Settlement Fortification & Battle Integration**
   - *Script:* `res://scripts/test/test_palisade.gd`
-  - *Acceptance Criteria:* `BuildingSystem.calculate_fortification_level` and `BattleResolver.calculate_settlement_fortification_level` strictly ignore under-construction and damaged palisades. Duplicate records at same cell deduplicated. Threshold scaling verified (0 palisades: 0, 1â€“4: 1, 5â€“9: 2, 10+: 3). BattleResolver applies correct fortification combat score bonus (+90% for level 3).
+  - *Acceptance Criteria:* `BuildingSystem.calculate_fortification_level` and `BattleResolver.calculate_settlement_fortification_level` strictly ignore under-construction and damaged palisades. Duplicate records at same cell deduplicated. Threshold scaling verified (0 palisades: 0, 1–4: 1, 5–9: 2, 10+: 3). BattleResolver applies correct fortification combat score bonus (+90% for level 3).
   - *Status:* **PASSED** (2026-10-18, Exit Code 0).
-- **TC-PA.7: HUD Integration & Visual Presentation**
+- **TC-PA.7: HUD Integration, BuildMenuPanel Layout & Visual Presentation**
   - *Script:* `res://scripts/test/test_palisade.gd`
-  - *Acceptance Criteria:* `PalisadeBtn` present in HUD BuildMenuPanel. Pressing sets `placing_building_type` to `palisade` and activates ghost preview with correct sprite texture and offset `Vector2(-16.0, -28.0)`. Canceling hides ghost cleanly. WorldView Vietnamese display name is `"TÆ°á»ng RÃ o PhÃ²ng Ngá»± (1x1)"`.
-  - *Status:* **PASSED** (2026-10-18, Exit Code 0).
+  - *Acceptance Criteria:* All 11 building buttons present in `GridContainer`. `BuildMenuPanel` height (410.0 px) accommodates combined minimum content size (378.0 px) with zero clipping. `BuildMenuPanel` positioned above `BottomBar` with 8.0 px clearance (zero overlap) and horizontally centered on viewport. Final grid row (`PalisadeBtn`) and `CloseBuildBtn` lie strictly within panel boundaries. `CloseBuildBtn` cleanly dismisses build menu. Pressing `PalisadeBtn` initiates placement mode, displaying ghost preview with correct texture and offset `Vector2(-16.0, -28.0)`. Canceling hides ghost cleanly. WorldView Vietnamese display name verified: `"Tường Rào Phòng Ngự (1x1)"`.
+  - *Status:* **PASSED** (2026-10-19, Exit Code 0: Subchecks A–G passed).

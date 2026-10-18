@@ -20,6 +20,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - HUD Build Menu integration: Added dedicated `PalisadeBtn` under `scenes/ui/hud.tscn` with Vietnamese label `🛡️ Tường Rào (4W 2S)` and ghost placement preview with proper texture and offset `Vector2(-16.0, -28.0)`.
   - Save/load persistence: Full serialization and deserialization of active and under-construction palisades without duplicate nodes, duplicate jobs, or secondary resource deductions.
   - Automated test suite `scripts/test/test_palisade.gd` covering TC-PA.1 through TC-PA.7 (PASS, Exit Code 0).
+#### Changed / Hardened
+- Build Menu Panel Geometry Fix: Adjusted `BuildMenuPanel` layout in `scenes/ui/hud.tscn` (`offset_top = -466.0`, `offset_bottom = -56.0`, height 410 px; `offset_left = -340.0`, `offset_right = 340.0`, width 680 px), ensuring all 6 grid rows (11 building buttons) and `CloseBuildBtn` are fully enclosed without clipping, maintaining 8 px vertical clearance above `BottomBar` and horizontal viewport centering. Added automated geometry regression assertions in `test_palisade.gd` TC-PA.7 verifying enclosing rects, clearance, and close button dismissal.
 
 ### [Package 1H] - 2026-10-18
 #### Added

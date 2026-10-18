@@ -1,4 +1,4 @@
-﻿# KINGDOMS UNBOUND â€” DEVELOPMENT WORKLOG
+# KINGDOMS UNBOUND â€” DEVELOPMENT WORKLOG
 
 ## [2026-10-12] Milestone 1: Visual Design & Projection Alignment (Documentation Only)
 
@@ -2776,3 +2776,73 @@ Implement Package 1I as the next vertical slice: a buildable Palisade defensive 
 - Commit with exact mandated message: `Add palisade fortification structure`.
 - Push to `origin/feature/package-1i-palisade`.
 - Await independent review. Do not merge into master, do not start Package 1J.
+
+---
+
+## [2026-10-19] Milestone 42: Package 1I — Final Build Menu Layout Hardening ✅ VERIFIED
+
+### Context & Objective
+Address the Build Menu layout issue found during independent review on branch `feature/package-1i-palisade`:
+- Adding Palisade expanded the two-column building button grid from 5 rows to 6 rows (11 buttons total).
+- The minimum content height (378.0 px) exceeded the panel's previously configured fixed height (334.0 px, `offset_top = -390.0`, `offset_bottom = -56.0`), risking overflow of the 6th row (`PalisadeBtn`) and `CloseBuildBtn` into the `BottomBar` area.
+- Required: Fix `BuildMenuPanel` geometry in `scenes/ui/hud.tscn` without hiding controls or shrinking buttons, keeping the 2-column layout horizontally centered above `BottomBar`, and add rigorous regression tests inspecting actual Control geometry in `test_palisade.gd`.
+
+### Implementation Summary
+1. **BuildMenuPanel Geometry Correction (`scenes/ui/hud.tscn`):**
+   - Configured `offset_top = -466.0` and `offset_bottom = -56.0` (panel height 410.0 px, comfortably exceeding combined minimum size of 378.0 px).
+   - Configured `offset_left = -340.0` and `offset_right = 340.0` (panel width 680.0 px, accommodating 2 columns of 250 px buttons + 12 px separation + 32 px margins).
+   - Maintained `grow_horizontal = 2` (both directions, horizontally centered) and `grow_vertical = 0` (anchored to bottom, growing upward).
+   - Preserved exact 8.0 px vertical clearance above `BottomBar` (`offset_bottom = -56.0` vs BottomBar `offset_top = -48.0`).
+2. **Automated Layout Regression Checks (`scripts/test/test_palisade.gd`):**
+   - Scheduled `BuildMenuPanel.visible = true` on frame 2 to ensure full container sort pass completes before frame 3 inspection.
+   - Extended TC-PA.7 with 7 comprehensive subchecks:
+     - Subcheck A: Confirmed all 11 building buttons remain present and active in `GridContainer`.
+     - Subcheck B: Asserted `build_panel.size.y >= min_size.y` (410.0 px >= 378.0 px).
+     - Subcheck C: Asserted `not panel_rect.intersects(bottom_bar_rect)` and confirmed exact 8.0 px clearance above `BottomBar`.
+     - Subcheck C2: Asserted horizontal viewport centering (`abs(panel_center_x - vp_center_x) < 1.0`).
+     - Subcheck D: Asserted `panel_rect.encloses(palisade_rect)` (6th row completely inside panel).
+     - Subcheck E: Asserted `panel_rect.encloses(close_rect)` and `close_btn.visible == true`.
+     - Subcheck F: Asserted `close_btn.pressed.emit()` cleanly closes `BuildMenuPanel`.
+     - Subcheck G: Preserved existing PalisadeBtn wiring, placement mode initiation, ghost preview texture/offset, placement cancellation, and display name checks.
+
+### Validations Performed & Results
+- **Dedicated Palisade Test Suite (`scripts/test/test_palisade.gd`):** **PASS (Exit Code 0, 7/7 tests passed)**
+  - TC-PA.1: Blueprint & Placement Legality: **PASS**
+  - TC-PA.2: Construction Lifecycle: **PASS**
+  - TC-PA.3: Cancellation and Cleanup: **PASS**
+  - TC-PA.4: Navigation and Occupancy: **PASS**
+  - TC-PA.5: Save/Load Persistence: **PASS**
+  - TC-PA.6: Defensive Fortification Integration: **PASS**
+  - TC-PA.7: HUD BuildMenuPanel Layout & Palisade Wiring: **PASS (Subchecks A–G all passed)**
+- **Targeted Regression Suites:**
+  - `test_construction.gd`: **PASS (Exit Code 0)**
+  - `test_watchtower.gd`: **PASS (Exit Code 0)**
+  - `test_barracks.gd`: **PASS (Exit Code 0)**
+  - `test_workshop.gd`: **PASS (Exit Code 0)**
+  - `test_research_hall.gd`: **PASS (Exit Code 0)**
+- **Full Test Matrix (All 22 Test Suites in `scripts/test/test_*.gd`):** **PASS (22/22 suites passed, Exit Code 0)**
+- **Headless Scene Smoke Checks:**
+  - `scenes/ui/main_menu.tscn`: **PASS (Exit Code 0)**
+  - `scenes/world/world_view.tscn`: **PASS (Exit Code 0)**
+  - `scenes/ui/hud.tscn`: **PASS (Exit Code 0)**
+  - `scenes/test/visual_validation_test.tscn`: **PASS (Exit Code 0)**
+- **Whitespace & Formatting Check:**
+  - `git diff --check`: Clean (Exit Code 0, zero whitespace errors).
+- **Graphical Inspection Status:**
+  - Headless console testing accurately evaluated laid-out Control rects, bounding box enclosure, and clearance.
+  - Manual interactive graphical inspection was not available in this headless runner environment (noted explicitly per instruction).
+
+### Files Created / Modified
+- `scenes/ui/hud.tscn` (Adjusted BuildMenuPanel offsets to 680x410 px)
+- `scripts/test/test_palisade.gd` (Extended TC-PA.7 with layout geometry assertions)
+- `docs/BACKLOG.md` (Added TASK-1I.9)
+- `docs/CHANGELOG.md` (Documented Build Menu layout hardening)
+- `docs/TEST_PLAN.md` (Updated TC-PA.7 criteria with Subchecks A–G)
+- `docs/WORKLOG.md` (Recorded Milestone 42)
+
+### Next Exact Step
+- Stage modified files explicitly (`git add scenes/ui/hud.tscn scripts/test/test_palisade.gd docs/BACKLOG.md docs/CHANGELOG.md docs/TEST_PLAN.md docs/WORKLOG.md`).
+- Commit with exact mandated message: `Fix Palisade build menu layout`.
+- Push to `origin/feature/package-1i-palisade`.
+- Verify local HEAD equals remote HEAD.
+- Stop for independent review. Do not merge to master, do not start Package 1J.

@@ -35,6 +35,13 @@ func _init() -> void:
 func _process(_delta: float) -> bool:
 	frame_count += 1
 
+	if frame_count == 2:
+		var h = world_instance.get_node_or_null("HUD")
+		if h:
+			var bmp = h.get_node_or_null("BuildMenuPanel")
+			if bmp:
+				bmp.visible = true
+
 	if frame_count == 3:
 		_run_world_integration_checks()
 
@@ -368,15 +375,90 @@ func _run_world_integration_checks() -> void:
 		return
 
 	# -------------------------------------------------------------------------
-	# TC-PA.7: HUD and Scene Wiring
+	# TC-PA.7: HUD BuildMenuPanel Layout Geometry & Palisade Wiring
 	# -------------------------------------------------------------------------
-	print("--- Running TC-PA.7: HUD and Scene Wiring ---")
+	print("--- Running TC-PA.7: HUD BuildMenuPanel Layout & Palisade Wiring ---")
+	var build_panel: PanelContainer = hud.get_node_or_null("BuildMenuPanel")
+	var bottom_bar: Control = hud.get_node_or_null("BottomBar")
+	var close_btn: Button = hud.get_node_or_null("BuildMenuPanel/MarginContainer/VBoxContainer/CloseBuildBtn")
+	var grid: GridContainer = hud.get_node_or_null("BuildMenuPanel/MarginContainer/VBoxContainer/GridContainer")
 	var palisade_btn: Button = hud.get_node_or_null("BuildMenuPanel/MarginContainer/VBoxContainer/GridContainer/PalisadeBtn")
-	if palisade_btn == null:
-		printerr("  [FAIL] PalisadeBtn not found in HUD BuildMenuPanel/MarginContainer/VBoxContainer/GridContainer!")
+
+	if build_panel == null or bottom_bar == null or close_btn == null or grid == null or palisade_btn == null:
+		printerr("  [FAIL] Missing vital BuildMenuPanel HUD elements!")
 		failures += 1
 	else:
-		print("  [PASS] PalisadeBtn found in HUD tree.")
+		# Subcheck A: All 11 building buttons remain present and active
+		var button_count: int = 0
+		for child in grid.get_children():
+			if child is Button:
+				button_count += 1
+		if button_count != 11:
+			printerr("  [FAIL] Expected exactly 11 building buttons in grid, found %d!" % button_count)
+			failures += 1
+		else:
+			print("  [PASS] All 11 building buttons present in BuildMenuPanel GridContainer.")
+
+		# Subcheck B: Panel height accommodates combined minimum content size
+		var min_size: Vector2 = build_panel.get_combined_minimum_size()
+		var panel_size: Vector2 = build_panel.size
+		if panel_size.y < min_size.y:
+			printerr("  [FAIL] BuildMenuPanel height (%.1f) is less than combined minimum content size (%.1f)!" % [panel_size.y, min_size.y])
+			failures += 1
+		else:
+			print("  [PASS] BuildMenuPanel height (%.1f px) accommodates combined minimum content size (%.1f px)." % [panel_size.y, min_size.y])
+
+		# Subcheck C: Panel is positioned above BottomBar with zero overlap
+		var panel_rect: Rect2 = build_panel.get_global_rect()
+		var bottom_bar_rect: Rect2 = bottom_bar.get_global_rect()
+		if panel_rect.intersects(bottom_bar_rect):
+			printerr("  [FAIL] BuildMenuPanel rect %s overlaps BottomBar rect %s!" % [str(panel_rect), str(bottom_bar_rect)])
+			failures += 1
+		elif panel_rect.position.y + panel_rect.size.y > bottom_bar_rect.position.y:
+			printerr("  [FAIL] BuildMenuPanel bottom (%.1f) penetrates BottomBar top (%.1f)!" % [panel_rect.position.y + panel_rect.size.y, bottom_bar_rect.position.y])
+			failures += 1
+		else:
+			var gap: float = bottom_bar_rect.position.y - (panel_rect.position.y + panel_rect.size.y)
+			print("  [PASS] BuildMenuPanel cleanly positioned above BottomBar with %.1f px clearance (no overlap)." % gap)
+
+		# Subcheck C2: Panel is horizontally centered on viewport
+		var vp_rect: Rect2 = hud.get_viewport().get_visible_rect()
+		var panel_center_x: float = panel_rect.position.x + panel_rect.size.x * 0.5
+		var vp_center_x: float = vp_rect.size.x * 0.5
+		if absf(panel_center_x - vp_center_x) > 1.0:
+			printerr("  [FAIL] BuildMenuPanel is not horizontally centered! Panel center: %f, Viewport center: %f" % [panel_center_x, vp_center_x])
+			failures += 1
+		else:
+			print("  [PASS] BuildMenuPanel is horizontally centered on viewport (center: %.1f)." % panel_center_x)
+
+		# Subcheck D: Final grid row (including PalisadeBtn) lies fully within panel
+		var palisade_rect: Rect2 = palisade_btn.get_global_rect()
+		if not panel_rect.encloses(palisade_rect):
+			printerr("  [FAIL] PalisadeBtn rect %s is not enclosed within BuildMenuPanel rect %s!" % [str(palisade_rect), str(panel_rect)])
+			failures += 1
+		else:
+			print("  [PASS] PalisadeBtn (final grid row) lies strictly within BuildMenuPanel boundaries.")
+
+		# Subcheck E: CloseBuildBtn lies fully within panel and is visible
+		var close_rect: Rect2 = close_btn.get_global_rect()
+		if not panel_rect.encloses(close_rect):
+			printerr("  [FAIL] CloseBuildBtn rect %s is not enclosed within BuildMenuPanel rect %s!" % [str(close_rect), str(panel_rect)])
+			failures += 1
+		elif not close_btn.visible:
+			printerr("  [FAIL] CloseBuildBtn is not visible!")
+			failures += 1
+		else:
+			print("  [PASS] CloseBuildBtn lies strictly within BuildMenuPanel and is fully visible.")
+
+		# Subcheck F: CloseBuildBtn functionality
+		close_btn.pressed.emit()
+		if build_panel.visible:
+			printerr("  [FAIL] CloseBuildBtn press did not close BuildMenuPanel!")
+			failures += 1
+		else:
+			print("  [PASS] CloseBuildBtn cleanly dismisses BuildMenuPanel.")
+
+		# Subcheck G: PalisadeBtn signal wiring & placement initiation
 		palisade_btn.pressed.emit()
 		if world_instance.get("placing_building_type") != "palisade":
 			printerr("  [FAIL] Pressing PalisadeBtn did not set placing_building_type to 'palisade'!")
