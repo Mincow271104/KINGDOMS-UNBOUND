@@ -38,6 +38,7 @@ var autosave_interval_days: int = 1
 
 var buildings_by_cell: Dictionary = {} # cell (Vector2i) -> building_type (String)
 var citizens_by_id: Dictionary = {}
+var deceased_citizen_ids: Dictionary = {}
 var citizen_list: Array = []
 var terrain_textures: Dictionary = {}
 var building_textures: Dictionary = {}
@@ -331,6 +332,7 @@ func refresh_poi_visibility() -> void:
 			p_node.visible = (poi.state != POIManager.POIState.UNDISCOVERED)
 
 func _spawn_starter_citizens() -> void:
+	deceased_citizen_ids.clear()
 	var citizen_tex = load("res://assets/entities/citizen.png")
 	var starter_roles: Array[String] = []
 	for i in range(5): starter_roles.append("farmer")
@@ -426,18 +428,27 @@ func _spawn_immigrant_wave(immigrants: Array) -> void:
 		hud.update_population_display(citizen_list.size(), housing_cap)
 
 func _on_citizen_died(died_id: String) -> void:
+	if died_id == "" or deceased_citizen_ids.has(died_id):
+		return # Idempotent: already processed death for this citizen ID
+
+	var cit = citizens_by_id.get(died_id)
+	if cit == null:
+		return # Missing or already removed citizen ID; do not fabricate events
+
+	deceased_citizen_ids[died_id] = true
+
 	var rm = get_node_or_null("/root/ResourceManager")
 	var em = get_node_or_null("/root/EventManager")
-	var cit = citizens_by_id.get(died_id)
 	var is_combat_death: bool = false
-	if cit:
-		var status_reason: String = String(cit.get("status_reason"))
-		if status_reason.contains("bảo vệ định cư") or status_reason.contains("Tử trận") or status_reason.contains("trận chiến"):
-			is_combat_death = true
-		citizen_list.erase(cit)
-		citizens_by_id.erase(died_id)
-		if is_instance_valid(cit):
-			cit.queue_free()
+	var status_reason: String = String(cit.get("status_reason"))
+	if status_reason.contains("bảo vệ định cư") or status_reason.contains("Tử trận") or status_reason.contains("trận chiến"):
+		is_combat_death = true
+
+	citizen_list.erase(cit)
+	citizens_by_id.erase(died_id)
+	if is_instance_valid(cit):
+		cit.queue_free()
+
 	if rm:
 		rm.active_population = citizen_list.size()
 	if em:

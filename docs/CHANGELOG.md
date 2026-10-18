@@ -20,12 +20,14 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - Strict idempotency: stable raid identifiers prevent repeat processing or duplicate casualties/plunder on re-runs or save/load.
   - Save/load persistence: serializes and restores campaign raid state via `SaveManager` (`"battle_campaign"` section) with full legacy save compatibility.
   - Player-facing feedback: HUD banners and Diplomacy panel cards display upcoming raid days, detailed battle outcome summaries, and peace cancellations.
-  - Automated test suite `scripts/test/test_live_battle_loop.gd` covering TC-LB.1 through TC-LB.18 (PASS, Exit Code 0).
-#### Fixed
+  - Automated test suite `scripts/test/test_live_battle_loop.gd` covering TC-LB.1 through TC-LB.19 (PASS, Exit Code 0).
+#### Fixed & Hardened
 - Overdue raid processing: `BattleCampaignManager.process_daily_raids()` passes current simulation day to resolution, reports the actual resolution day, and schedules next raid relative to current day (TC-LB.15).
 - Transactional plunder & in-flight guard: pre-validates plunder plan against available stock, uses `reserve_cost()` / `commit_cost()` to protect reserved stock; fails closed upon reservation failure; blocks re-entrant calls via `_in_flight_raids` (TC-LB.16).
-- Accurate death notifications: `WorldView._on_citizen_died()` checks `status_reason` to trigger `Chiến Binh Tử Trận` for combat casualties while preserving `Tang Lễ Vương Quốc` for starvation/exhaustion deaths (TC-LB.17).
+- Fail-closed non-transactional plunder handling: removed non-atomic `consume_resource()` loop fallback; strictly requires transactional `reserve_cost()` + `commit_cost()`, failing closed with zero plunder reported and zero resources deducted if transaction APIs are missing (TC-LB.16 Subcheck D).
+- Citizen death notification accuracy & idempotency: `WorldView._on_citizen_died()` checks `status_reason` to trigger `Chiến Binh Tử Trận` for combat casualties while preserving `Tang Lễ Vương Quốc` for starvation/exhaustion deaths; tracks `deceased_citizen_ids` to idempotently ignore repeated death calls for the same citizen ID and rejects non-existent IDs without emitting spurious events or modifying population (TC-LB.17).
 - Real daily scheduling with `TimeManager`: verified end-to-end integration via `TimeManager.day_passed` signal, zero premature resolution, single execution on due day, and cancellation on peace (TC-LB.18).
+- Legacy save campaign state reset: `SaveManager.apply_loaded_state_to_world()` invokes `campaign_mgr.deserialize({})` when `"battle_campaign"` is omitted or empty, purging in-flight, pending, and processed raids to guarantee stale raids do not execute on day advance (TC-LB.19).
 
 ### [Package 1J] - 2026-10-19
 #### Added

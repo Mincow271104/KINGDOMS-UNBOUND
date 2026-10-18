@@ -479,6 +479,8 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 			child.queue_free()
 	world_view.get("citizens_by_id").clear()
 	world_view.get("citizen_list").clear()
+	if world_view.get("deceased_citizen_ids") != null:
+		world_view.get("deceased_citizen_ids").clear()
 
 	var nav = world_view.get("nav")
 	var job_mgr = world_view.get("job_mgr")
@@ -608,9 +610,13 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 
 	# 12. Restore Battle Campaign
 	var campaign_mgr = world_view.get("battle_campaign_mgr")
-	var campaign_data = loaded_data.get("battle_campaign", {})
-	if campaign_mgr != null and not campaign_data.is_empty():
-		campaign_mgr.call("deserialize", campaign_data)
+	if campaign_mgr != null and campaign_mgr.has_method("deserialize"):
+		var campaign_data = loaded_data.get("battle_campaign", {})
+		if campaign_data is Dictionary and not campaign_data.is_empty():
+			campaign_mgr.call("deserialize", campaign_data)
+		else:
+			# Legacy save or empty battle_campaign: reset campaign manager to clean default state
+			campaign_mgr.call("deserialize", {})
 
 	print("[SaveManager] Loaded world state restored successfully (%d citizens, %d buildings)" % [world_view.get("citizen_list").size(), world_data.buildings.size()])
 	return {"success": true}

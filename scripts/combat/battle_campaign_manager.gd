@@ -346,18 +346,9 @@ func resolve_and_apply_raid(faction_id: String, current_day: int = -1) -> Dictio
 			else:
 				# Reservation failed (e.g. stock reserved by other orders or insufficient): fail closed
 				plundered_applied = {}
-		elif rm.has_method("consume_resource"):
-			# Fallback for simple mock/legacy interfaces
-			var all_succeeded: bool = true
-			for r_id in plunder_plan:
-				var consumed: bool = rm.call("consume_resource", r_id, plunder_plan[r_id])
-				if not consumed:
-					all_succeeded = false
-					break
-			if all_succeeded:
-				plundered_applied = plunder_plan.duplicate()
-			else:
-				plundered_applied = {}
+		else:
+			# ResourceManager does not provide full transaction API: fail closed
+			plundered_applied = {}
 
 	# C4. Schedule next raid or terminate campaign
 	var next_scheduled_day: int = -1

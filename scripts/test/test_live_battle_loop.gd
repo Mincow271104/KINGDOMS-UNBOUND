@@ -1,12 +1,14 @@
 extends SceneTree
 ## Test Suite: Package 1K — Live War & Settlement Defense Battle Loop
-## Verifies TC-LB.1 through TC-LB.13:
+## Verifies TC-LB.1 through TC-LB.19:
 ## War declaration, raid scheduling delay (3 days), peace cancellation,
 ## attacking & defending force construction, zero-troop edge cases & casualty bounds,
 ## Palisade fortification integration, deterministic guard casualty lifecycle,
-## faction military power loss & non-negativity, resource plunder limits,
+## faction military power loss & non-negativity, transactional resource plunder limits,
 ## strict idempotency, multi-faction independence, save/load persistence,
-## legacy save compatibility, and TimeManager daily advancement.
+## overdue raid processing, fail-closed non-transactional plunder handling,
+## accurate death notifications & idempotency, TimeManager daily advancement,
+## and legacy save campaign state reset & execution prevention.
 
 const BattleCampaignManagerScript = preload("res://scripts/combat/battle_campaign_manager.gd")
 const BattleResolverScript = preload("res://scripts/combat/battle_resolver.gd")
@@ -70,6 +72,27 @@ class MockResourceManager:
 	func release_cost(cost: Dictionary) -> void:
 		for res_id in cost:
 			reserved[res_id] = maxi(0, reserved.get(res_id, 0) - cost[res_id])
+
+	func consume_resource(res_id: String, amount: int) -> bool:
+		var avail = get_available_stock(res_id)
+		if avail >= amount:
+			stock[res_id] = stock.get(res_id, 0) - amount
+			return true
+		return false
+
+class MockIncompleteResourceManager:
+	var stock: Dictionary = {}
+
+	func _init() -> void:
+		stock = {
+			EconomyConfigScript.RES_FOOD: 100,
+			EconomyConfigScript.RES_WOOD: 100,
+			EconomyConfigScript.RES_GOLD: 50,
+			EconomyConfigScript.RES_STONE: 50
+		}
+
+	func get_available_stock(res_id: String) -> int:
+		return stock.get(res_id, 0)
 
 	func consume_resource(res_id: String, amount: int) -> bool:
 		var avail = get_available_stock(res_id)
@@ -671,6 +694,28 @@ func _run_world_integration_checks() -> void:
 		print("  [PASS] TC-LB.16 Subcheck C: In-flight guard successfully rejected re-entrant resolution.")
 	fail_bcm._in_flight_raids.clear()
 
+	# Subcheck D: Non-transactional / Incomplete ResourceManager fails closed without deducting resources
+	var inc_bcm := BattleCampaignManagerScript.new(null, fm, 99999)
+	var inc_fac = fm.get_faction("rival_military")
+	inc_fac.military_power = 90.0
+	inc_fac.declare_war()
+	var inc_rm := MockIncompleteResourceManager.new()
+	inc_bcm.set_custom_resource_manager(inc_rm)
+	inc_bcm.set_custom_world_data(world_instance.world_data)
+	inc_bcm.set_custom_citizen_list([])
+	inc_bcm.schedule_raid("rival_military", 14, 1)
+
+	var inc_res = inc_bcm.resolve_and_apply_raid("rival_military", 14)
+	var inc_plundered = inc_res.get("context", {}).get("plundered_resources", {})
+	if not inc_plundered.is_empty():
+		printerr("  [FAIL] TC-LB.16 Subcheck D: Incomplete ResourceManager still reported plunder: %s" % str(inc_plundered))
+		failures += 1
+	elif inc_rm.stock[EconomyConfigScript.RES_FOOD] != 100 or inc_rm.stock[EconomyConfigScript.RES_WOOD] != 100:
+		printerr("  [FAIL] TC-LB.16 Subcheck D: Incomplete ResourceManager deducted stock! Stock: %s" % str(inc_rm.stock))
+		failures += 1
+	else:
+		print("  [PASS] TC-LB.16 Subcheck D: Incomplete ResourceManager (lacking reserve/commit) safely failed closed (0 plundered, 0 deducted).")
+
 	# -------------------------------------------------------------------------
 	# TC-LB.17: Accurate Battle-Death vs Starvation Event Notifications
 	# -------------------------------------------------------------------------
@@ -710,6 +755,30 @@ func _run_world_integration_checks() -> void:
 		else:
 			print("  [PASS] TC-LB.17: Combat casualty triggered accurate 'Chiến Binh Tử Trận' event.")
 
+	# Verify idempotency: Calling _on_citizen_died again for the same citizen ID
+	var events_count_before: int = triggered_events.size()
+	var pop_before: int = world_instance.citizen_list.size()
+	world_instance._on_citizen_died(combat_cit.citizen_id)
+	if triggered_events.size() != events_count_before:
+		printerr("  [FAIL] TC-LB.17: Duplicate _on_citizen_died call emitted duplicate event!")
+		failures += 1
+	elif world_instance.citizen_list.size() != pop_before:
+		printerr("  [FAIL] TC-LB.17: Duplicate _on_citizen_died call altered population count!")
+		failures += 1
+	else:
+		print("  [PASS] TC-LB.17: Duplicate death call for already-dead citizen ignored idempotently.")
+
+	# Verify non-existent citizen ID is safely ignored with 0 events
+	world_instance._on_citizen_died("nonexistent_citizen_ghost_id")
+	if triggered_events.size() != events_count_before:
+		printerr("  [FAIL] TC-LB.17: Non-existent citizen ID emitted spurious event!")
+		failures += 1
+	elif world_instance.citizen_list.size() != pop_before:
+		printerr("  [FAIL] TC-LB.17: Non-existent citizen ID altered population count!")
+		failures += 1
+	else:
+		print("  [PASS] TC-LB.17: Non-existent citizen ID safely ignored without events.")
+
 	# Test civilian starvation death
 	var starv_cit = CitizenScript.new()
 	starv_cit.citizen_id = "test_civilian_starv_died"
@@ -730,6 +799,15 @@ func _run_world_integration_checks() -> void:
 		failures += 1
 	else:
 		print("  [PASS] TC-LB.17: Starvation death retained 'Tang Lễ Vương Quốc' event.")
+
+	# Verify starvation death duplicate idempotency
+	var events_count_after_starv: int = triggered_events.size()
+	world_instance._on_citizen_died(starv_cit.citizen_id)
+	if triggered_events.size() != events_count_after_starv:
+		printerr("  [FAIL] TC-LB.17: Duplicate starvation death call emitted duplicate event!")
+		failures += 1
+	else:
+		print("  [PASS] TC-LB.17: Duplicate starvation death call ignored idempotently.")
 
 	if em != null and em.event_triggered.is_connected(on_event_cb):
 		em.event_triggered.disconnect(on_event_cb)
@@ -818,6 +896,63 @@ func _run_world_integration_checks() -> void:
 		failures += 1
 	else:
 		print("  [PASS] TC-LB.18: Peace remained active through Day 20; zero subsequent raids scheduled.")
+
+	# -------------------------------------------------------------------------
+	# TC-LB.19: Legacy Save Campaign State Reset & Execution Prevention
+	# -------------------------------------------------------------------------
+	print("\n--- Running TC-LB.19: Legacy Save Campaign State Reset ---")
+	# Re-declare war so rival_military is eligible to raid
+	fm.declare_war("rival_military")
+	# 1. Put bcm into dirty state with pending and processed raids
+	bcm.schedule_raid("rival_military", 25, 2)
+	bcm._processed_raids["rival_military_day_20_seq_1"] = true
+	bcm._in_flight_raids["rival_military_day_25_seq_2"] = true
+	if not bcm.has_pending_raid("rival_military"):
+		printerr("  [FAIL] TC-LB.19: Failed to prime pending raid for legacy test")
+		failures += 1
+
+	# 2. Serialize current world state and strip battle_campaign to simulate legacy save
+	var legacy_state: Dictionary = SaveManagerScript.serialize_world_state(world_instance)
+	legacy_state.erase("battle_campaign")
+
+	# 3. Apply legacy state to world
+	var legacy_apply_res = SaveManagerScript.apply_loaded_state_to_world(world_instance, legacy_state)
+	if not legacy_apply_res.get("success", false):
+		printerr("  [FAIL] TC-LB.19: Failed to apply legacy state: %s" % str(legacy_apply_res))
+		failures += 1
+
+	# 4. Verify bcm pending, processed, and in_flight raids were cleanly wiped
+	if bcm.has_pending_raid("rival_military") or not bcm.get_pending_raid("rival_military").is_empty():
+		printerr("  [FAIL] TC-LB.19: Pending raid not wiped after loading legacy save!")
+		failures += 1
+	elif not bcm._processed_raids.is_empty():
+		printerr("  [FAIL] TC-LB.19: Processed raids not wiped after loading legacy save! Current: %s" % str(bcm._processed_raids))
+		failures += 1
+	elif not bcm._in_flight_raids.is_empty():
+		printerr("  [FAIL] TC-LB.19: In-flight raids not wiped after loading legacy save!")
+		failures += 1
+	else:
+		print("  [PASS] TC-LB.19: Legacy save load successfully wiped all pending, processed, and in-flight campaign data.")
+
+	# 5. Advance day to 25 (the day of the wiped raid); ensure no raid executes
+	world_instance._on_simulation_day_passed(25, "Summer", 1)
+	if bcm.has_pending_raid("rival_military"):
+		printerr("  [FAIL] TC-LB.19: Raid executed or scheduled after legacy save load on day 25!")
+		failures += 1
+	else:
+		print("  [PASS] TC-LB.19: Day 25 passed with zero raid execution from wiped legacy campaign state.")
+
+	# 6. Re-save world state and verify clean canonical schema
+	var post_legacy_save: Dictionary = SaveManagerScript.serialize_world_state(world_instance)
+	var serialized_camp: Dictionary = post_legacy_save.get("battle_campaign", {})
+	if serialized_camp.is_empty():
+		printerr("  [FAIL] TC-LB.19: Re-saved state missing battle_campaign section!")
+		failures += 1
+	elif not serialized_camp.get("pending_raids", {}).is_empty() or not serialized_camp.get("processed_raids", {}).is_empty():
+		printerr("  [FAIL] TC-LB.19: Re-saved state contains non-empty campaign data: %s" % str(serialized_camp))
+		failures += 1
+	else:
+		print("  [PASS] TC-LB.19: Clean canonical campaign schema produced on subsequent save.")
 
 	if not is_autoload:
 		live_tm.day_passed.disconnect(world_instance._on_simulation_day_passed)

@@ -3139,9 +3139,82 @@ Address independent code-review findings in Package 1K on branch `feature/packag
 - `docs/WORKLOG.md` (Recorded Milestone 45)
 
 ### Next Exact Step
+- Milestone 45 committed and pushed on `feature/package-1k-live-battle-loop` at `9efb722644e74f77cdee65e72170829c65042455`.
+
+---
+
+## [2026-10-19] Milestone 46: Package 1K Final Review Fix — Death Idempotency & Legacy State Reset ✅ VERIFIED
+
+### Context & Objective
+Address the three remaining independent-review findings in Package 1K on branch `feature/package-1k-live-battle-loop`:
+1. **Citizen Death Idempotency & Missing ID Safety:**
+   - In `scripts/world/world_view.gd`, `_on_citizen_died(died_id)` previously removed the citizen on the first call, but subsequent calls with the same ID found `cit == null`, causing `is_combat_death` to remain `false` and falling through to trigger a default `citizen_died` event (`Tang Lễ Vương Quốc`), fabricating duplicate starvation events.
+   - Requirement: Repeated calls for the same citizen ID must be idempotent with zero duplicate events or population alterations; missing/unregistered citizen IDs must fail closed with zero events emitted.
+2. **Atomic Multi-Resource Plunder (Remove Fallback):**
+   - In `scripts/combat/battle_campaign_manager.gd`, `resolve_and_apply_raid()` retained a fallback `elif rm.has_method("consume_resource"):` loop that could partially deduct some resources and fail on others, violating atomicity.
+   - Requirement: Strictly require `reserve_cost()` + `commit_cost()` for multi-resource plunder; if transaction APIs are missing, strictly fail closed with empty plunder reported and zero resources deducted.
+3. **Reset Campaign State on Legacy Save Load:**
+   - In `scripts/persistence/save_manager.gd`, `apply_loaded_state_to_world()` previously only called `deserialize()` if `campaign_data.is_empty() == false`. Loading a legacy save without `"battle_campaign"` left in-memory pending raids intact, causing old raids to fire upon day advance.
+   - Requirement: When loading a save lacking `"battle_campaign"` or having an empty dictionary, actively call `campaign_mgr.deserialize({})` to purge all pending, processed, and in-flight raids.
+4. **Automated Regression Verification:**
+   - Add TC-LB.16 Subcheck D (incomplete mock resource manager fails closed), TC-LB.17 duplicate/unknown death idempotency assertions, and TC-LB.19 (legacy save load resets campaign, prevents stale raid execution, and re-saves clean canonical schema).
+
+### Implementation Summary
+1. **Citizen Death Idempotency (`scripts/world/world_view.gd`):**
+   - Added `var deceased_citizen_ids: Dictionary = {}` tracking processed citizen deaths.
+   - Cleared `deceased_citizen_ids.clear()` in `_spawn_starter_citizens()` and in `SaveManager.apply_loaded_state_to_world()`.
+   - In `_on_citizen_died(died_id)`:
+     - Return early if `died_id == ""` or `deceased_citizen_ids.has(died_id)` (idempotency guard).
+     - Return early if `citizens_by_id.get(died_id) == null` (missing/ghost citizen guard; eliminates fabricated starvation events).
+     - Recorded `deceased_citizen_ids[died_id] = true` before cleanup.
+2. **Plunder Transaction Requirement (`scripts/combat/battle_campaign_manager.gd`):**
+   - Removed the `elif rm.has_method("consume_resource"):` fallback loop.
+   - Strictly enforced `if rm.has_method("reserve_cost") and rm.has_method("commit_cost"):` else `plundered_applied = {}`.
+3. **Legacy Save Campaign Reset (`scripts/persistence/save_manager.gd`):**
+   - In Step 4: cleared `world_view.get("deceased_citizen_ids").clear()`.
+   - In Step 12: if `campaign_data` is missing or empty, actively calls `campaign_mgr.call("deserialize", {})`.
+4. **Automated Test Suite Expansion (`scripts/test/test_live_battle_loop.gd`):**
+   - Added `MockIncompleteResourceManager` exposing only `get_available_stock` and `consume_resource`.
+   - Added TC-LB.16 Subcheck D: verifies incomplete resource manager fails closed (0 plunder reported, 0 deducted).
+   - Added TC-LB.17 idempotency assertions: verified calling `_on_citizen_died()` multiple times for combat casualty and starvation casualty emits zero duplicate events and keeps population intact; verified unknown citizen ID emits zero events.
+   - Added TC-LB.19: verified loading legacy save without `"battle_campaign"` cleanly purges in-flight, pending, and processed raids, prevents stale raid execution on day 25, and produces clean canonical campaign data on subsequent save.
+
+### Validations Performed & Results
+- **Dedicated Live Battle Loop Suite (`scripts/test/test_live_battle_loop.gd`):**
+  - Command: `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless -s res://scripts/test/test_live_battle_loop.gd`
+  - Result: **PASS (Exit Code 0, 19/19 tests passed)**
+    - TC-LB.1 to TC-LB.15: PASS
+    - TC-LB.16 (Subchecks A–D, including incomplete resource manager fail-closed): PASS
+    - TC-LB.17 (Accurate death notifications + duplicate death idempotency + unknown ID safety): PASS
+    - TC-LB.18 (TimeManager real daily scheduling): PASS
+    - TC-LB.19 (Legacy save campaign state reset & execution prevention): PASS
+- **Targeted Integration Suites:**
+  - `test_battle_fortification.gd`: **PASS (Exit Code 0, 12/12 passed)**
+  - `test_factions_and_battles.gd`: **PASS (Exit Code 0, 2/2 passed)**
+  - `test_palisade.gd`: **PASS (Exit Code 0, 7/7 passed)**
+- **Full Test Matrix (All 24 Test Suites in `scripts/test/test_*.gd`):**
+  - Result: **PASS (24/24 suites passed, Exit Code 0)**
+- **Headless Scene Smoke Checks:**
+  - `scenes/ui/main_menu.tscn`: **PASS (Exit Code 0)**
+  - `scenes/world/world_view.tscn`: **PASS (Exit Code 0)**
+  - `scenes/ui/hud.tscn`: **PASS (Exit Code 0)**
+  - `scenes/test/visual_validation_test.tscn`: **PASS (Exit Code 0)**
+- **Whitespace & Formatting Check:**
+  - `git diff --check`: Clean (Exit Code 0, zero whitespace errors).
+
+### Files Created / Modified
+- `scripts/world/world_view.gd` (Death idempotency, deceased_citizen_ids tracking, ghost event elimination)
+- `scripts/combat/battle_campaign_manager.gd` (Strict transactional plunder API requirement)
+- `scripts/persistence/save_manager.gd` (Reset battle campaign manager on legacy save load)
+- `scripts/test/test_live_battle_loop.gd` (MockIncompleteResourceManager, TC-LB.16 Subcheck D, TC-LB.17 idempotency, TC-LB.19)
+- `docs/TEST_PLAN.md` (Updated criteria for TC-LB.16, TC-LB.17, added TC-LB.19, 19/19 passed)
+- `docs/CHANGELOG.md` (Documented death idempotency, fail-closed plunder, and legacy save reset)
+- `docs/WORKLOG.md` (Recorded Milestone 46)
+
+### Next Exact Step
 - Stage modified files explicitly:
-  `git add scripts/combat/battle_campaign_manager.gd scripts/world/world_view.gd scripts/test/test_live_battle_loop.gd docs/TEST_PLAN.md docs/CHANGELOG.md docs/WORKLOG.md`
-- Commit with exact mandated message: `Fix Package 1K raid state application edge cases`
+  `git add scripts/combat/battle_campaign_manager.gd scripts/world/world_view.gd scripts/persistence/save_manager.gd scripts/test/test_live_battle_loop.gd docs/TEST_PLAN.md docs/CHANGELOG.md docs/WORKLOG.md`
+- Commit with exact mandated message: `Harden Package 1K death and legacy state handling`
 - Push to `origin/feature/package-1k-live-battle-loop`.
-- Verify local HEAD equals remote HEAD and show parent SHA.
+- Verify local HEAD equals remote HEAD and show parent SHA (`9efb722644e74f77cdee65e72170829c65042455`).
 - Stop for independent review. Do not merge to master, do not start Package 1L.
