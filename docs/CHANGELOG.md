@@ -8,6 +8,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### [Package 1I] - 2026-10-18
+#### Added
+- Buildable Palisade defensive structure (Tường Rào Phòng Ngự) adhering to GDD Section 7.3:
+  - Authoritative blueprint `palisade` in `EconomyConfig.BLUEPRINTS`: 1x1 diamond footprint, construction cost 4 Wood + 2 Stone, 3.0h construction time, 0 workers, empty storage, no production jobs.
+  - Dedicated pixel art asset `assets/buildings/bld_palisade.png` (32x36 px) conforming to the authoritative 27-color fantasy palette, NW lighting, and 2:1 dimetric perspective with log ramparts and defensive spikes.
+  - Full construction lifecycle integration: starts in `under_construction` state with initial progress 0.0h, allocates 2 concurrent builder jobs, renders with amber modulate scaffolding (`Color(0.8, 0.7, 0.5, 0.7)`), and cleanly resets modulate on completion.
+  - Construction cancellation policy refunding 50% blueprint costs atomically (+2 Wood, +1 Stone) with storage capacity pre-validation, clearing footprint occupancy and builder jobs.
+  - Navigation grid obstacle integration: `GridNavigation` treats completed and under-construction palisades as solid unwalkable obstacles (`is_cell_walkable == false`), forcing citizens and pathfinding to route around.
+  - Settlement fortification calculation: `BuildingSystem.calculate_fortification_level(world_data)` and `BattleResolver.calculate_settlement_fortification_level(world_data)` deduplicate active palisades and calculate fortification level 0..3 (0: 0 palisades, 1: 1-4 palisades, 2: 5-9 palisades, 3: 10+ palisades), integrating with `BattleResolver` combat score calculation (+30% per level).
+  - HUD Build Menu integration: Added dedicated `PalisadeBtn` under `scenes/ui/hud.tscn` with Vietnamese label `🛡️ Tường Rào (4W 2S)` and ghost placement preview with proper texture and offset `Vector2(-16.0, -28.0)`.
+  - Save/load persistence: Full serialization and deserialization of active and under-construction palisades without duplicate nodes, duplicate jobs, or secondary resource deductions.
+  - Automated test suite `scripts/test/test_palisade.gd` covering TC-PA.1 through TC-PA.7 (PASS, Exit Code 0).
+
 ### [Package 1H] - 2026-10-18
 #### Added
 - Full builder construction lifecycle adhering strictly to GDD Section 7.3:

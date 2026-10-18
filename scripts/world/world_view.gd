@@ -105,6 +105,10 @@ func _load_assets() -> void:
 		building_textures["barracks"] = load("res://assets/buildings/bld_barracks.png")
 	else:
 		building_textures["barracks"] = building_textures.get("townhall", null)
+	if ResourceLoader.exists("res://assets/buildings/bld_palisade.png"):
+		building_textures["palisade"] = load("res://assets/buildings/bld_palisade.png")
+	else:
+		building_textures["palisade"] = building_textures.get("woodcutter", null)
 	
 	prop_textures["tree"] = load("res://assets/props/prop_tree.png")
 	prop_textures["rock"] = load("res://assets/props/prop_rock.png")
@@ -253,6 +257,7 @@ func _get_building_sprite_offset(type: String) -> Vector2:
 		"quarry": return Vector2(-32.0, -36.0)
 		"mine": return Vector2(-32.0, -36.0)
 		"workshop": return Vector2(-32.0, -36.0)
+		"palisade": return Vector2(-16.0, -28.0)
 		_: return Vector2(-32.0, -32.0)
 
 func _spawn_props() -> void:
@@ -1131,6 +1136,7 @@ func _get_building_display_name(key: String) -> String:
 		"workshop": return "Xưởng Chế Tác (2x2)"
 		"research_hall": return "Viện Nghiên Cứu Hoàng Gia (3x3)"
 		"barracks": return "Doanh Trại (3x3)"
+		"palisade": return "Tường Rào Phòng Ngự (1x1)"
 		_: return ""
 
 func _on_return_to_menu() -> void:

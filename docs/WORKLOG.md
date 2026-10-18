@@ -1,4 +1,4 @@
-# KINGDOMS UNBOUND — DEVELOPMENT WORKLOG
+﻿# KINGDOMS UNBOUND â€” DEVELOPMENT WORKLOG
 
 ## [2026-10-12] Milestone 1: Visual Design & Projection Alignment (Documentation Only)
 
@@ -7,20 +7,20 @@ Before starting autonomous development under `MASTER_PROMPT.md`, the visual dire
 
 ### Completed Work
 1. **Authoritative Perspective Specification:**
-   - Established the mandatory visual direction: 2D isometric / dimetric, three-quarter top-down pixel art with 2:1 slope (~26.565°).
-   - Flat overhead / straight top-down (90° bird's-eye) perspective is explicitly prohibited.
+   - Established the mandatory visual direction: 2D isometric / dimetric, three-quarter top-down pixel art with 2:1 slope (~26.565Â°).
+   - Flat overhead / straight top-down (90Â° bird's-eye) perspective is explicitly prohibited.
    - Buildings must show visible rooftops (tilted planes facing NW/NE) and front-facing facades (walls facing SW/SE).
 2. **Tile Size Evaluation & Decision:**
-   - Evaluated 16×8 px diamond (too small, causes visual noise and unreadable textures) and 64×32 px diamond (excessive sprite drawing workload, poor viewport framing at 1080p).
-   - Formally standardized on **32 × 16 pixel diamond ground tiles** (2048 × 1024 px world span for a 64×64 grid), providing ideal pixel density, optimal camera framing at 1080p/720p, and crisp 2:1 pixel steps.
+   - Evaluated 16Ã—8 px diamond (too small, causes visual noise and unreadable textures) and 64Ã—32 px diamond (excessive sprite drawing workload, poor viewport framing at 1080p).
+   - Formally standardized on **32 Ã— 16 pixel diamond ground tiles** (2048 Ã— 1024 px world span for a 64Ã—64 grid), providing ideal pixel density, optimal camera framing at 1080p/720p, and crisp 2:1 pixel steps.
 3. **Strict Coordinate Decoupling:**
-   - The logical 64×64 grid (`Vector2i`) remains pure discrete integer simulation data (unaware of screen pixels, camera zoom, or rendering offsets).
+   - The logical 64Ã—64 grid (`Vector2i`) remains pure discrete integer simulation data (unaware of screen pixels, camera zoom, or rendering offsets).
    - The presentation layer projects `(grid_x, grid_y)` to continuous pixel screen coordinates `(screen_x, screen_y)`.
 4. **Depth / Y-Sorting Architecture:**
    - Enforced Godot 2D `y_sort_enabled = true` on world parent containers and entity layers.
    - Mandated that every entity node anchor/pivot must be positioned strictly at its ground-contact plane (citizen feet, tree trunk base, building footprint center/base).
 5. **Asset Style Guide Creation:**
-   - Authored `docs/ASSET_STYLE_GUIDE.md` covering projection geometry, tile dimensions, sprite scales, building footprints (1×1, 2×2, 3×3 diamonds), 27-color core palette, NW directional lighting, selective outlines, animation frame counts, and Godot 4 import settings (Nearest-neighbor, lossless, pixel snapping).
+   - Authored `docs/ASSET_STYLE_GUIDE.md` covering projection geometry, tile dimensions, sprite scales, building footprints (1Ã—1, 2Ã—2, 3Ã—3 diamonds), 27-color core palette, NW directional lighting, selective outlines, animation frame counts, and Godot 4 import settings (Nearest-neighbor, lossless, pixel snapping).
 6. **Visual-Validation Gate:**
    - Instituted a mandatory Visual-Validation Gate requiring a dedicated test scene (`res://scenes/test/visual_validation_test.tscn`) verifying terrain, trees, building with visible roof/facade, one moving citizen, diamond grid cursor highlighting, and flawless Y-sorting before producing or integrating large asset collections.
 7. **Document Synchronization:**
@@ -43,14 +43,14 @@ Rigorous consistency review of all specification documents (`docs/GDD.md`, `MAST
 3. **Citizen Sprite Specification Variations:**
    - *Issue:* `docs/GDD.md`, `MASTER_PROMPT.md`, and `docs/ASSET_STYLE_GUIDE.md` used slightly varying dimension figures and conflated canvas frame boundaries with visible figure heights.
    - *Resolution:* Established a unified, four-part citizen specification:
-     - *Default Sprite Canvas:* 24 × 32 px per frame.
-     - *Visible Figure Dimensions:* 12–16 px wide by 22–26 px tall (leaving vertical and horizontal breathing room for hats, bobbing, and tools without canvas distortion).
+     - *Default Sprite Canvas:* 24 Ã— 32 px per frame.
+     - *Visible Figure Dimensions:* 12â€“16 px wide by 22â€“26 px tall (leaving vertical and horizontal breathing room for hats, bobbing, and tools without canvas distortion).
      - *Ground-Contact Pivot:* `Vector2(12, 30)` within canvas.
-     - *World-Space Footprint & Y-Sorting Anchor:* 1×1 logical cell (`Vector2i`), entity node at `map_to_local(cell)`, sprite texture offset at `Vector2(-12, -30)` for exact foot Y-sorting.
+     - *World-Space Footprint & Y-Sorting Anchor:* 1Ã—1 logical cell (`Vector2i`), entity node at `map_to_local(cell)`, sprite texture offset at `Vector2(-12, -30)` for exact foot Y-sorting.
      - *Flexibility Clause:* Explicitly declared as a proposed default standard that can be adjusted for non-standard units (mounted units, banners, siege gear) when justified.
-4. **Phase Outline Alignment (GDD 0–8 vs. Master Prompt 0–9):**
-   - *Issue:* `docs/GDD.md` outline listed 9 phases (Giai đoạn 0–8) while `MASTER_PROMPT.md` outlined 10 phases (Phases 0–9).
-   - *Resolution:* Clarified that GDD Giai đoạn 0–8 represents the high-level Game Design Roadmap, while Master Prompt Phases 0–9 represents the operational Technical Execution Workflow. GDD Giai đoạn 7 ("Chiến thắng, sụp đổ và save/load") is intentionally divided into two sequential engineering phases: Phase 7 (Population growth, crisis, prosperity victory, collapse) and Phase 8 (Robust Save/Load & persistence hardening) to isolate data serialization and prevent duplication bugs. Added explicit cross-reference mapping tables to `docs/GDD.md` (Section 18.0), `MASTER_PROMPT.md` (Development Strategy), and `docs/GDD_REVIEW.md` (Section 8).
+4. **Phase Outline Alignment (GDD 0â€“8 vs. Master Prompt 0â€“9):**
+   - *Issue:* `docs/GDD.md` outline listed 9 phases (Giai Ä‘oáº¡n 0â€“8) while `MASTER_PROMPT.md` outlined 10 phases (Phases 0â€“9).
+   - *Resolution:* Clarified that GDD Giai Ä‘oáº¡n 0â€“8 represents the high-level Game Design Roadmap, while Master Prompt Phases 0â€“9 represents the operational Technical Execution Workflow. GDD Giai Ä‘oáº¡n 7 ("Chiáº¿n tháº¯ng, sá»¥p Ä‘á»• vÃ  save/load") is intentionally divided into two sequential engineering phases: Phase 7 (Population growth, crisis, prosperity victory, collapse) and Phase 8 (Robust Save/Load & persistence hardening) to isolate data serialization and prevent duplication bugs. Added explicit cross-reference mapping tables to `docs/GDD.md` (Section 18.0), `MASTER_PROMPT.md` (Development Strategy), and `docs/GDD_REVIEW.md` (Section 8).
 5. **Path and Filename Consistency:**
    - *Issue:* `docs/GDD_REVIEW.md` referenced `Kingdoms_Unbound_AI_Master_Prompt.md`, which differed from the root file `MASTER_PROMPT.md`. `MASTER_PROMPT.md` line 55 omitted `docs/` prefixes on some document references.
    - *Resolution:* Standardized all references to `MASTER_PROMPT.md` and ensured all documentation paths explicitly include the `docs/` folder prefix.
@@ -102,8 +102,8 @@ Execute Phase 0 requirements as mandated by `MASTER_PROMPT.md` and user instruct
 4. **Master Document Suite Created:**
    - `docs/SCOPE_DECISIONS.md`: Resolved all 10 Master Prompt ambiguities and established starter resource/job rules.
    - `docs/GAME_RULES.md`: Mathematical formulas for 2:1 dimetric projection, simulation ticks, needs decay, seasons, victory/collapse.
-   - `docs/ARCHITECTURE.md`: Pure 64×64 simulation coordinate decoupling, scene tree hierarchy, Y-sorting pivots, data contracts.
-   - `docs/IMPLEMENTATION_PLAN.md`: 10-phase execution roadmap mapping directly to GDD Phases 0–8.
+   - `docs/ARCHITECTURE.md`: Pure 64Ã—64 simulation coordinate decoupling, scene tree hierarchy, Y-sorting pivots, data contracts.
+   - `docs/IMPLEMENTATION_PLAN.md`: 10-phase execution roadmap mapping directly to GDD Phases 0â€“8.
    - `docs/TEST_PLAN.md`: Headless and MCP test harness, test suites TC-0.1 through TC-9.1.
    - `docs/BACKLOG.md`: Task tracker with `[ ]`, `[-]`, `[x]` status markers.
    - `docs/KNOWN_ISSUES.md`: Issue register with symptoms, causes, and verified fixes.
@@ -127,8 +127,8 @@ Execute Phase 0 requirements as mandated by `MASTER_PROMPT.md` and user instruct
 ### Context & Objective
 Implement Phase 1 Vertical Slice as mandated by `MASTER_PROMPT.md`:
 - Main menu scene with New World, Settings, Quit.
-- Seeded procedural 64×64 logical grid map rendered in 2D dimetric (2:1 isometric) projection with 32×16 diamond ground tiles.
-- Starter building instances (Town Hall 3×3, 4 Houses 2×2, Farm 2×2, Storehouse 2×2, Woodcutter Camp 2×2) with visible roofs and SW/SE facades.
+- Seeded procedural 64Ã—64 logical grid map rendered in 2D dimetric (2:1 isometric) projection with 32Ã—16 diamond ground tiles.
+- Starter building instances (Town Hall 3Ã—3, 4 Houses 2Ã—2, Farm 2Ã—2, Storehouse 2Ã—2, Woodcutter Camp 2Ã—2) with visible roofs and SW/SE facades.
 - CameraController with pan, zoom, and bounding box clamping.
 - Central `TimeManager` autoload with pause safety and speed multipliers (0x, 1x, 2x, 3x).
 - Interactive mouse-hover diamond tile highlight.
@@ -139,29 +139,29 @@ Implement Phase 1 Vertical Slice as mandated by `MASTER_PROMPT.md`:
    - Implemented `scripts/utils/iso_math.gd` with forward/inverse 2:1 dimetric functions, bounding box queries, and neighbor lookups.
    - Verified via unit test `scripts/test/test_coordinates.gd` (TC-1.1): all 13 reference coordinate cases passed.
 2. **Central Simulation Clock:**
-   - Implemented `scripts/core/time_manager.gd` autoload singleton with pause safety, speed controls (0x–3x), hourly/daily/seasonal ticks, and calendar formatting.
+   - Implemented `scripts/core/time_manager.gd` autoload singleton with pause safety, speed controls (0xâ€“3x), hourly/daily/seasonal ticks, and calendar formatting.
    - Registered in `project.godot` autoload.
    - Verified via unit test `scripts/test/test_time_manager.gd` (TC-1.4).
 3. **Procedural Pixel Art Pipeline:**
    - Implemented `scripts/tools/generate_pixel_assets.gd` conforming strictly to `docs/ASSET_STYLE_GUIDE.md` and 27-color palette.
-   - Generated 13 pixel-perfect assets: terrain tiles (grass, dirt, water, sand), props (tree, rock), buildings (townhall, house, farm, storehouse, woodcutter), citizen sprite (24×32 canvas, foot pivot at (12, 30)), and diamond cursor outline.
+   - Generated 13 pixel-perfect assets: terrain tiles (grass, dirt, water, sand), props (tree, rock), buildings (townhall, house, farm, storehouse, woodcutter), citizen sprite (24Ã—32 canvas, foot pivot at (12, 30)), and diamond cursor outline.
 4. **Deterministic Seeded World Generation:**
-   - Implemented `scripts/world/world_generator.gd` generating 64×64 simulation grid with FastNoiseLite elevation, island shaping, dry central plaza, and deterministic placement of all 8 starter buildings and flora.
+   - Implemented `scripts/world/world_generator.gd` generating 64Ã—64 simulation grid with FastNoiseLite elevation, island shaping, dry central plaza, and deterministic placement of all 8 starter buildings and flora.
    - Verified via unit test `scripts/test/test_world_gen.gd` (TC-1.2): 100% byte-for-byte identical terrain and props across identical seed runs.
 5. **Mandatory Visual-Validation Gate Scene:**
    - Delivered `scenes/test/visual_validation_test.tscn` and `scripts/test/visual_validation_test.gd`.
-   - Verified 32×16 diamond terrain, multi-tile building with visible rooftop/facade, isometric props, 1 moving citizen with ground-contact foot pivot, interactive hover cursor, and flawless Y-sorting behind and in front of buildings.
+   - Verified 32Ã—16 diamond terrain, multi-tile building with visible rooftop/facade, isometric props, 1 moving citizen with ground-contact foot pivot, interactive hover cursor, and flawless Y-sorting behind and in front of buildings.
    - Captured runtime screenshot (`screenshot_3162.png`) and visually verified natural occlusion.
 6. **Full In-Game World & HUD:**
    - Implemented `scripts/world/world_view.gd` and `scenes/world/world_view.tscn`.
    - Implemented `scripts/ui/hud.gd` and `scenes/ui/hud.tscn` with time controls, clock, resource ledger, and pause menu.
    - Implemented `scripts/ui/main_menu.gd` and `scenes/ui/main_menu.tscn`.
    - Configured `run/main_scene="res://scenes/ui/main_menu.tscn"` in `project.godot`.
-   - Captured runtime screenshot (`screenshot_3547.png`) verifying 64×64 isometric world, starter settlement, HUD, and 24 citizens.
+   - Captured runtime screenshot (`screenshot_3547.png`) verifying 64Ã—64 isometric world, starter settlement, HUD, and 24 citizens.
 
 ### Validations Performed & Results
 - **TC-1.1 Coordinate Transform:** **PASS** (13/13 cases passed).
-- **TC-1.2 World Generation Reproducibility:** **PASS** (Identical seed produces identical 64×64 map; 0 building collisions).
+- **TC-1.2 World Generation Reproducibility:** **PASS** (Identical seed produces identical 64Ã—64 map; 0 building collisions).
 - **TC-1.3 Visual-Validation Gate:** **PASS** (Headless check passed, runtime screenshot 3162 inspected).
 - **TC-1.4 TimeManager & Pause Safety:** **PASS** (1 real sec = 1 game hour, pause stops all simulation, seasonal modifiers correct).
 - **Project Headless Launch:** **PASS** (Exit code 0, 0 parse/import errors).
@@ -199,7 +199,7 @@ Implement Phase 2 authoritative economy systems as mandated by `MASTER_PROMPT.md
    - Implemented `scripts/economy/building_system.gd` enforcing discrete grid bounds, water prohibition, occupancy tracking, and storage capacity expansion.
    - Supports demolition with material refunds.
 4. **Interactive In-Game Build Menu:**
-   - Updated `scenes/ui/hud.tscn` and `scripts/ui/hud.gd` with Build button (`🏗️ Xây Dựng (B)`) and Build Menu panel.
+   - Updated `scenes/ui/hud.tscn` and `scripts/ui/hud.gd` with Build button (`ðŸ—ï¸ XÃ¢y Dá»±ng (B)`) and Build Menu panel.
    - Updated `scripts/world/world_view.gd` with real-time ghost building placement preview showing green (legal) and red (blocked) states, left-click placement, and right-click cancellation.
 5. **Headless Economy Automated Test Suite:**
    - Authored `scripts/test/test_economy.gd` (TC-2.1 and TC-2.2).
@@ -224,7 +224,7 @@ Implement Phase 2 authoritative economy systems as mandated by `MASTER_PROMPT.md
 
 ### Context & Objective
 Implement Phase 3 autonomous simulation layer as mandated by `MASTER_PROMPT.md` and `docs/GDD.md`:
-- Pure 2D discrete A* grid pathfinder (`scripts/navigation/grid_navigation.gd`) operating on 64×64 simulation grid with 4-way/diagonal movement and obstacle avoidance.
+- Pure 2D discrete A* grid pathfinder (`scripts/navigation/grid_navigation.gd`) operating on 64Ã—64 simulation grid with 4-way/diagonal movement and obstacle avoidance.
 - Shared job system (`scripts/jobs/job_manager.gd`) with lifecycle (`AVAILABLE` $\to$ `RESERVED` $\to$ `IN_PROGRESS` $\to$ `COMPLETED` / `CANCELLED`).
 - Citizen controller (`scripts/entities/citizen_controller.gd`) and scene (`scenes/entities/citizen.tscn`) with foot pivot at $(12, 30)$ for pixel-accurate Y-sorting.
 - Spawn exactly 24 starter citizens with unique stable IDs and jobs conforming to `docs/SCOPE_DECISIONS.md`: 5 Farmers, 4 Woodcutters, 3 Builders, 3 Haulers, 9 Idle.
@@ -254,7 +254,7 @@ Implement Phase 3 autonomous simulation layer as mandated by `MASTER_PROMPT.md` 
 - **TC-3.2 24 Citizen Spawn & Job Allocation:** **PASS** (Exactly 24 citizens: 5 Farmers, 4 Woodcutters, 3 Builders, 3 Haulers, 9 Idle; 24 unique IDs).
 - **Job Lifecycle Execution:** **PASS** (Job reserved, progressed, completed; worker returns to IDLE).
 - **Full Regression Test:** TC-0.1, TC-0.2, TC-1.1, TC-1.2, TC-1.3, TC-1.4, TC-2.1, TC-2.2, TC-3.1, TC-3.2 all pass with 0 failures.
-- **Runtime Visual Inspection:** Screenshot `screenshot_104607.png` verified 24 moving citizens on 64×64 isometric world, hunger consumption over 5 game days, and 0 runtime errors.
+- **Runtime Visual Inspection:** Screenshot `screenshot_104607.png` verified 24 moving citizens on 64Ã—64 isometric world, hunger consumption over 5 game days, and 0 runtime errors.
 
 ### Phase 3 Exit Gate Assessment
 - **Status: PASSED.** 24 citizens spawn with assigned jobs; pathfinding resolves paths around obstacles; job lifecycle transitions cleanly; citizen inspection panel renders live; scripted tests pass completely.
@@ -272,7 +272,7 @@ Implement Phase 4 logistics loop, consumption ticks, and priority automation as 
 - Physical hauling loop: workplace production deposited locally in output buffers (Farm: 50 food buffer, Woodcutter: 40 wood buffer) rather than instant teleportation into central inventory.
 - Haulers physically traverse to workplaces, pick up cargo, navigate to Storehouse/Town Hall dropoffs, and deposit items.
 - Seasonal agriculture modifier: $1.2\times$ Summer, $0.5\times$ Winter, $1.0\times$ Spring/Autumn.
-- Non-instant starvation escalation: food depletion triggers "Nạn đói" state; morale drops by -15/day, fatigue +20/day, health drops 5%/day; death only at health 0; natural recovery when fed.
+- Non-instant starvation escalation: food depletion triggers "Náº¡n Ä‘Ã³i" state; morale drops by -15/day, fatigue +20/day, health drops 5%/day; death only at health 0; natural recovery when fed.
 - Priority automation rules with strict execution budget ($O(1)$ constant overhead) to prevent performance death spirals.
 - Automated headless test suite `scripts/test/test_logistics.gd` (TC-4.1, TC-4.2, TC-4.3).
 
@@ -340,7 +340,7 @@ Implement Phase 5 research tree, exploration/Fog of War, Points of Interest (POI
    - Created `scripts/core/world_event_system.gd` with positive and negative events and cooldown intervals.
    - Registered `scripts/core/event_manager.gd` autoload in `project.godot` routing decoupled world alerts.
 5. **HUD & World View Integration:**
-   - Added `ResearchBtn`, `ResearchMenuPanel` ("VIỆN NGHIÊN CỨU HOÀNG GIA"), and `EventBanner` to `scenes/ui/hud.tscn`.
+   - Added `ResearchBtn`, `ResearchMenuPanel` ("VIá»†N NGHIÃŠN Cá»¨U HOÃ€NG GIA"), and `EventBanner` to `scenes/ui/hud.tscn`.
    - Wired `scripts/ui/hud.gd` with live research progress, interactive research buttons, `KEY_T` shortcut, and event banners.
    - Updated `scripts/world/world_view.gd` instantiating research, fog of war, POI nodes, citizen vision updates, POI reward claiming, and daily event triggers.
 6. **Automated Test Suite & Verification:**
@@ -367,7 +367,7 @@ Implement Phase 5 research tree, exploration/Fog of War, Points of Interest (POI
 
 ### Context & Objective
 Implement Phase 6 external factions, diplomatic treaties, visiting merchant caravans, and deterministic battle resolver per `MASTER_PROMPT.md` and `docs/GDD.md`:
-- 2 rival factions ("Cổ Thành Thiết Giáp", "Thương Hội Vân Đồn") and 1 neutral faction ("Bản Làng Rừng Xanh") with deterministic states.
+- 2 rival factions ("Cá»• ThÃ nh Thiáº¿t GiÃ¡p", "ThÆ°Æ¡ng Há»™i VÃ¢n Äá»“n") and 1 neutral faction ("Báº£n LÃ ng Rá»«ng Xanh") with deterministic states.
 - Diplomatic state machine: Non-Aggression Pacts (NAP), Alliances, Gifts/Tribute, War declarations, Peace treaties.
 - Scheduled trade caravans with finite inventory, asymmetric buy/sell pricing, faction opinion modifiers, and atomic exchange transactions.
 - Deterministic abstract battle resolver (`BattleResolver.gd`) calculating casualties, plunder spoils, fortification impact, and explainable outcome reports.
@@ -381,11 +381,11 @@ Implement Phase 6 external factions, diplomatic treaties, visiting merchant cara
 2. **Trade Caravans & Atomic Transactions:**
    - Implemented `scripts/trade/trade_caravan.gd` with deterministic seeded arrivals, finite item stocks, gold budgets, asymmetric buy/sell pricing, opinion discounts, and atomic all-or-nothing transactions preventing item/gold duplication.
 3. **Deterministic Battle Resolver:**
-   - Implemented `scripts/combat/battle_resolver.gd` calculating combat scores from troops, equipment tiers (1–3), morale, fortification levels (0–3), and terrain multipliers.
-   - Formulated proportional casualty distributions (winner 8–25%, loser 35–70%) and plunder spoils (20% of defender stock).
+   - Implemented `scripts/combat/battle_resolver.gd` calculating combat scores from troops, equipment tiers (1â€“3), morale, fortification levels (0â€“3), and terrain multipliers.
+   - Formulated proportional casualty distributions (winner 8â€“25%, loser 35â€“70%) and plunder spoils (20% of defender stock).
    - Generates comprehensive `BattleReport` with explainable outcome reasons.
 4. **HUD & World View Integration:**
-   - Added `DiplomacyBtn` ("👑 Ngoại Giao (Y)") to HUD bottom bar and `DiplomacyPanel` ("NGOẠI GIAO VÀ THƯƠNG MẠI HOÀNG GIA") to `scenes/ui/hud.tscn`.
+   - Added `DiplomacyBtn` ("ðŸ‘‘ Ngoáº¡i Giao (Y)") to HUD bottom bar and `DiplomacyPanel` ("NGOáº I GIAO VÃ€ THÆ¯Æ NG Máº I HOÃ€NG GIA") to `scenes/ui/hud.tscn`.
    - Wired `scripts/ui/hud.gd` to list external factions, handle diplomatic gift tributes, treaty negotiations, war/peace actions, and visiting caravan quick-trade.
    - Updated `scripts/world/world_view.gd` with daily faction simulations and scheduled caravan arrivals every 5 days starting Day 3.
 5. **Automated Test Suite & Evidence:**
@@ -414,7 +414,7 @@ Implement Phase 7 population expansion, prosperity victory continuous hold, dete
 - Deterministic immigration pacing (`ImmigrationManager.gd`) evaluating housing capacity, food reserves, settlement stability, and average citizen morale.
 - 5-day continuous prosperity hold check (`VictoryManager.gd`) requiring $\ge 30$ population, $\ge 500$ food, $\ge 1000$ treasury gold, $\ge 80\%$ stability, $\ge 75\%$ morale, and $\ge 3$ unlocked technologies for 120 consecutive game-hours, with instant reset to 0 upon any condition lapse.
 - Deterministic crisis levels and collapse failure triggers: Extinction (population $\le 0$), Town Hall Ruin ($> 72$ hours destroyed), and Prolonged Anarchy ($> 72$ hours at $0\%$ stability).
-- World summary modal dialogs in HUD: Victory Dialog ("👑 CHIẾN THẮNG THỊNH VƯỢNG!"), Collapse Dialog ("💀 VƯƠNG QUỐC SỤP ĐỔ!"), and Crisis Banner.
+- World summary modal dialogs in HUD: Victory Dialog ("ðŸ‘‘ CHIáº¾N THáº®NG THá»ŠNH VÆ¯á»¢NG!"), Collapse Dialog ("ðŸ’€ VÆ¯Æ NG QUá»C Sá»¤P Äá»”!"), and Crisis Banner.
 - Automated test suite `scripts/test/test_victory_and_collapse.gd` (TC-7.1, TC-7.2, TC-7.3).
 
 ### Completed Work
@@ -422,7 +422,7 @@ Implement Phase 7 population expansion, prosperity victory continuous hold, dete
    - Implemented `scripts/economy/immigration_manager.gd` evaluating immigration every 3 game-days at 06:00.
    - Enforced gating conditions: housing capacity $>$ population, food reserve $\ge 30$, stability $\ge 50\%$, morale $\ge 60\%$.
    - Generated unique citizen IDs, traditional Vietnamese names, and initial needs.
-   - Recorded clear failure reasons when rejected ("Thiếu chỗ ở", "Thiếu lương thực", etc.).
+   - Recorded clear failure reasons when rejected ("Thiáº¿u chá»— á»Ÿ", "Thiáº¿u lÆ°Æ¡ng thá»±c", etc.).
 2. **Authoritative Victory & Crisis Manager:**
    - Implemented `scripts/core/victory_manager.gd` with deterministic settlement stability formula evaluating Town Hall governance, morale, food, housing, and treasury.
    - Implemented continuous 120-hour (5-day) prosperity hold check resetting hold timer immediately to $0.0$ if any condition becomes false.
@@ -434,7 +434,7 @@ Implement Phase 7 population expansion, prosperity victory continuous hold, dete
    - Enhanced `scripts/entities/citizen_controller.gd` with `citizen_died` signal, `is_alive()` check, and starving death escalation.
 4. **HUD & World View Integration:**
    - Added `VictoryPanel`, `CollapsePanel`, and `CrisisBanner` to `scenes/ui/hud.tscn`.
-   - Wired `scripts/ui/hud.gd` with `show_victory_panel()`, `show_collapse_panel()`, `show_crisis_warning()`, `update_population_display()`, and buttons for "Tiếp Tục Cai Trị" and "Trở Về Menu Chính".
+   - Wired `scripts/ui/hud.gd` with `show_victory_panel()`, `show_collapse_panel()`, `show_crisis_warning()`, `update_population_display()`, and buttons for "Tiáº¿p Tá»¥c Cai Trá»‹" and "Trá»Ÿ Vá» Menu ChÃ­nh".
    - Updated `scripts/world/world_view.gd` to wire hourly immigration evaluations, spawn immigrant citizen instances, connect citizen death cleanup, and link `VictoryManager` signals.
 5. **Automated Test Suite & Evidence:**
    - Authored `scripts/test/test_victory_and_collapse.gd` validating TC-7.1 (immigration condition gating and wave admission), TC-7.2 (continuous 5-day hold, reset on metric lapse, clean victory trigger at hour 120, duplicate legacy claim prevention), and TC-7.3 (immediate extinction collapse, 72-hour town hall ruin collapse, 72-hour prolonged anarchy collapse, summary reports).
@@ -452,42 +452,42 @@ Implement Phase 7 population expansion, prosperity victory continuous hold, dete
 
 ### Next Exact Step
 - Execute Phase 7 local Git checkpoint.
-- Proceed to **Phase 8: Robust Save/Load & Persistence Hardening** (Task 8.1: Versioned JSON schema serialization; Task 8.2: Atomic disk write with `.tmp` and `.bak` backups; Task 8.3: Complete entity reconstruction without duplicate nodes; Task 8.4: Automated Save → Load → Save equivalence test suite).
+- Proceed to **Phase 8: Robust Save/Load & Persistence Hardening** (Task 8.1: Versioned JSON schema serialization; Task 8.2: Atomic disk write with `.tmp` and `.bak` backups; Task 8.3: Complete entity reconstruction without duplicate nodes; Task 8.4: Automated Save â†’ Load â†’ Save equivalence test suite).
 
 ---
 
-## [2026-10-12] Milestone 11: Phase 8 — Robust Save/Load & Persistence Hardening ✅ COMPLETE
+## [2026-10-12] Milestone 11: Phase 8 â€” Robust Save/Load & Persistence Hardening âœ… COMPLETE
 
 ### Context & Objective
 Phase 8 hardened world persistence: versioned JSON serialization, atomic disk writes, corruption recovery, fog of war persistence, daily autosave, Save/Load buttons wired into the in-game Pause Menu, and Load World enabled in the Main Menu when a valid save exists.
 
 ### Completed Work
 1. **`scripts/persistence/save_manager.gd`** (created):
-   - `SAVE_SCHEMA_VERSION = 1` — versioned schema, forward-incompatible saves rejected.
-   - `serialize_world_state()` — serializes clock, resources, buildings (id/type/cell/size/state/health), citizens (id/name/role/cell/stats), research, factions, POIs, victory state, and fog-of-war explored cells.
-   - `save_to_file()` — atomic write: `.tmp` → `.json`; preserves `.bak` of prior save before replacement.
-   - `load_from_file()` — validates schema/sections; auto-falls-back to `.bak` on missing main file.
-   - `validate_save_data()` — rejects incompatible version and missing required sections.
-   - `apply_loaded_state_to_world()` — zero-duplication reconstruction: clears old nodes, restores clock, resources, buildings, citizens, research, factions, POIs, fog-of-war, and refreshes HUD.
+   - `SAVE_SCHEMA_VERSION = 1` â€” versioned schema, forward-incompatible saves rejected.
+   - `serialize_world_state()` â€” serializes clock, resources, buildings (id/type/cell/size/state/health), citizens (id/name/role/cell/stats), research, factions, POIs, victory state, and fog-of-war explored cells.
+   - `save_to_file()` â€” atomic write: `.tmp` â†’ `.json`; preserves `.bak` of prior save before replacement.
+   - `load_from_file()` â€” validates schema/sections; auto-falls-back to `.bak` on missing main file.
+   - `validate_save_data()` â€” rejects incompatible version and missing required sections.
+   - `apply_loaded_state_to_world()` â€” zero-duplication reconstruction: clears old nodes, restores clock, resources, buildings, citizens, research, factions, POIs, fog-of-war, and refreshes HUD.
    - Save speed stored as previous_speed when paused to avoid saving speed=0.
-2. **`scenes/ui/hud.tscn`** — Added SaveGameBtn, LoadGameBtn, SaveStatusLabel to PauseMenuOverlay VBox.
-3. **`scripts/ui/hud.gd`** — `SaveManager` preloaded; `@onready` for new buttons; `_on_save_game_pressed()` and `_on_load_game_pressed()` handlers with success/error feedback label.
-4. **`scenes/ui/main_menu.tscn`** — Updated LoadWorldBtn text to "📂 Tải Thế Giới".
-5. **`scripts/ui/main_menu.gd`** — LoadWorldBtn dynamically enabled if save/bak exists; `_on_load_world()` loads save, instantiates WorldView from stored seed, and applies state after one frame.
-6. **`scripts/world/world_view.gd`** — `hud.world_view_ref = self` set on _ready; daily autosave added to `_on_simulation_day_passed`; `autosave_enabled` / `autosave_interval_days` variables exposed.
-7. **`scripts/test/test_save_load.gd`** — Updated with TC-8.3 UI workflow test (pause menu open, HUD save, file verified on disk, gold consumed, HUD load restores state, MainMenu LoadWorldBtn verified enabled).
-8. **`scripts/test/capture_screenshot_phase8.gd`** — Screenshot capture: pause menu with save feedback + main menu.
+2. **`scenes/ui/hud.tscn`** â€” Added SaveGameBtn, LoadGameBtn, SaveStatusLabel to PauseMenuOverlay VBox.
+3. **`scripts/ui/hud.gd`** â€” `SaveManager` preloaded; `@onready` for new buttons; `_on_save_game_pressed()` and `_on_load_game_pressed()` handlers with success/error feedback label.
+4. **`scenes/ui/main_menu.tscn`** â€” Updated LoadWorldBtn text to "ðŸ“‚ Táº£i Tháº¿ Giá»›i".
+5. **`scripts/ui/main_menu.gd`** â€” LoadWorldBtn dynamically enabled if save/bak exists; `_on_load_world()` loads save, instantiates WorldView from stored seed, and applies state after one frame.
+6. **`scripts/world/world_view.gd`** â€” `hud.world_view_ref = self` set on _ready; daily autosave added to `_on_simulation_day_passed`; `autosave_enabled` / `autosave_interval_days` variables exposed.
+7. **`scripts/test/test_save_load.gd`** â€” Updated with TC-8.3 UI workflow test (pause menu open, HUD save, file verified on disk, gold consumed, HUD load restores state, MainMenu LoadWorldBtn verified enabled).
+8. **`scripts/test/capture_screenshot_phase8.gd`** â€” Screenshot capture: pause menu with save feedback + main menu.
 
 ### Validations Performed & Results
-- **TC-8.1 Save → Load → Save Canonical Equivalence:** **PASS** (Exit Code 0) — 24 citizens, 8 buildings, resources, research, victory, fog_of_war all preserved 100%.
-- **TC-8.2 Corruption Handling & Backup Recovery:** **PASS** (Exit Code 0) — Bad schema rejected; missing section rejected; malformed JSON rejected; .bak fallback verified.
-- **TC-8.3 UI Save/Load & Menu Integration:** **PASS** (Exit Code 0) — Pause menu opens; HUD "💾 Lưu Thế Giới" saves and shows "✅ Đã lưu thế giới thành công!"; file confirmed on disk; HUD "📂 Tải Bản Lưu" restores live world state (gold test verified); MainMenu LoadWorldBtn enabled.
+- **TC-8.1 Save â†’ Load â†’ Save Canonical Equivalence:** **PASS** (Exit Code 0) â€” 24 citizens, 8 buildings, resources, research, victory, fog_of_war all preserved 100%.
+- **TC-8.2 Corruption Handling & Backup Recovery:** **PASS** (Exit Code 0) â€” Bad schema rejected; missing section rejected; malformed JSON rejected; .bak fallback verified.
+- **TC-8.3 UI Save/Load & Menu Integration:** **PASS** (Exit Code 0) â€” Pause menu opens; HUD "ðŸ’¾ LÆ°u Tháº¿ Giá»›i" saves and shows "âœ… ÄÃ£ lÆ°u tháº¿ giá»›i thÃ nh cÃ´ng!"; file confirmed on disk; HUD "ðŸ“‚ Táº£i Báº£n LÆ°u" restores live world state (gold test verified); MainMenu LoadWorldBtn enabled.
 - **Phase 7 Regression (TC-7.1, TC-7.2, TC-7.3):** All PASS (Exit Code 0).
-- **Phase 5/6 Regression (TC-5.1–5.3, TC-6.1–6.2):** All PASS (Exit Code 0).
+- **Phase 5/6 Regression (TC-5.1â€“5.3, TC-6.1â€“6.2):** All PASS (Exit Code 0).
 - **Screenshots captured:** `screenshot_phase8_pause_menu.png` (pause menu with save buttons + success text), `screenshot_phase8_main_menu.png` (main menu with load button enabled).
 
 ### Phase 8 Exit Gate Assessment
-- **Status: PASSED.** Save→Load→Save preserves canonical state; citizens, buildings, fog-of-war not duplicated; corrupt/incompatible saves fail gracefully with error messages; save/load works through actual UI (Pause Menu + Main Menu).
+- **Status: PASSED.** Saveâ†’Loadâ†’Save preserves canonical state; citizens, buildings, fog-of-war not duplicated; corrupt/incompatible saves fail gracefully with error messages; save/load works through actual UI (Pause Menu + Main Menu).
 
 ### Next Exact Step
 - Create local Git checkpoint: `git add . ; git commit -m "Phase 8 Complete: Robust Save/Load, Versioned Schema, UI Wiring & Autosave"`.
@@ -495,7 +495,7 @@ Phase 8 hardened world persistence: versioned JSON serialization, atomic disk wr
 
 ---
 
-## [2026-10-12] Milestone 12: Phase 9 — Polish, Stress Test & Release Candidate ✅ MVP COMPLETE
+## [2026-10-12] Milestone 12: Phase 9 â€” Polish, Stress Test & Release Candidate âœ… MVP COMPLETE
 
 ### Context & Objective
 Phase 9 completes the MVP lifecycle: 100-citizen simulation stress test (TC-9.1), procedural 16-bit audio synthesis subsystem, visual polish at target resolution, export packaging presets, non-programmer smoke-test checklist, full 12-suite regression test matrix, and release candidate signoff.
@@ -509,11 +509,11 @@ Phase 9 completes the MVP lifecycle: 100-citizen simulation stress test (TC-9.1)
    - Wired audio cues into `world_view.gd` (build/error/ambient), `hud.gd` (victory fanfare, collapse alarm, trade coins, save/load, button clicks), and `main_menu.gd` (button clicks).
    - Automated unit test suite `scripts/test/test_audio.gd` (5/5 tests PASS).
 2. **100-Citizen Simulation Stress Benchmark (TC-9.1, `scripts/test/test_stress_100_citizens.gd`):**
-   - Spawns up to 100 active pathfinding citizens into the 64×64 isometric world with diverse job roles.
-   - Evaluated across 200 frames at 1× speed and 200 frames at 3× speed plus 72 continuous simulation hours (3 game days).
+   - Spawns up to 100 active pathfinding citizens into the 64Ã—64 isometric world with diverse job roles.
+   - Evaluated across 200 frames at 1Ã— speed and 200 frames at 3Ã— speed plus 72 continuous simulation hours (3 game days).
    - Measured frame times:
-     - 1× Speed: **6.87 ms** average (≈ **145.5 FPS**, 95th percentile 6.94 ms, max 7.29 ms).
-     - 3× Speed: **6.90 ms** average (≈ **144.9 FPS**, 95th percentile 6.93 ms, max 7.24 ms).
+     - 1Ã— Speed: **6.87 ms** average (â‰ˆ **145.5 FPS**, 95th percentile 6.94 ms, max 7.29 ms).
+     - 3Ã— Speed: **6.90 ms** average (â‰ˆ **144.9 FPS**, 95th percentile 6.93 ms, max 7.24 ms).
      - Multi-Day Simulation: 72 hourly ticks + 3 daily ticks completed in **238.65 ms** (3.31 ms/tick).
    - Both speed tiers exceed the $\ge 60$ FPS (frame time $\le 16.66$ ms) acceptance requirement.
 3. **Release Packaging & Smoke Test Documentation:**
@@ -521,12 +521,12 @@ Phase 9 completes the MVP lifecycle: 100-citizen simulation stress test (TC-9.1)
    - Authored `docs/SMOKE_TEST_CHECKLIST.md` with complete, non-programmer step-by-step verification checklist covering controls, new world creation, building placement, logistics hauling, research, diplomacy/trade, victory/collapse, saving/loading, and CLI build commands.
 4. **Visual Polish & Screenshots:**
    - Captured and reviewed `screenshot_5780.png` (Main Menu with Load World enabled).
-   - Captured and reviewed `screenshot_6398.png` (Live 64×64 Isometric WorldView with complete HUD).
+   - Captured and reviewed `screenshot_6398.png` (Live 64Ã—64 Isometric WorldView with complete HUD).
 5. **Full Regression Matrix Execution:**
    - 12 out of 12 test suites passed with Exit Code 0 (TC-0.1 through TC-9.1).
 
 ### Validations Performed & Results
-- **TC-9.1 100-Citizen Stress Benchmark:** **PASS** (145.5 FPS at 1×, 144.9 FPS at 3×, 100/100 citizens responsive).
+- **TC-9.1 100-Citizen Stress Benchmark:** **PASS** (145.5 FPS at 1Ã—, 144.9 FPS at 3Ã—, 100/100 citizens responsive).
 - **Phase 9 Audio Subsystem Test:** **PASS** (8 streams, polyphonic pool, volume curves, mute toggle).
 - **Full Regression Test Matrix:** **12/12 PASSED (0 FAILURES)**:
   - `test_coordinates.gd` (TC-1.1): **PASS**
@@ -548,7 +548,7 @@ Phase 9 completes the MVP lifecycle: 100-citizen simulation stress test (TC-9.1)
 
 ---
 
-## [2026-10-12] Milestone 13: Post-Phase-9 Stabilization & Standalone Build Verification ✅ STABILIZATION COMPLETE
+## [2026-10-12] Milestone 13: Post-Phase-9 Stabilization & Standalone Build Verification âœ… STABILIZATION COMPLETE
 
 ### Context & Objective
 Following the completion of Phase 9, execute the comprehensive post-implementation stabilization quality gate: audit runtime warnings and compiler issues, eliminate GDScript warnings across all systems, package a fully functional standalone Windows build, verify offline headless execution and UI persistence in the standalone package, and run the 12-suite regression test matrix.
@@ -569,8 +569,8 @@ Following the completion of Phase 9, execute the comprehensive post-implementati
 3. **Standalone Windows Build Delivery:**
    - Packaged production `.pck` via Godot `--export-pack "Windows Desktop" "build/KingdomsUnbound.pck"`.
    - Placed companion standalone executables `KingdomsUnbound.exe` and `KingdomsUnbound_console.exe` alongside `KingdomsUnbound.pck` and `KingdomsUnbound_console.pck` in `build/`.
-   - Tested standalone executable cold boot (`KingdomsUnbound_console.exe --headless --quit`) — exited with code 0.
-   - Tested standalone persistence suite (`KingdomsUnbound_console.exe --headless -s "res://scripts/test/test_save_load.gd"`) directly against the exported package — all Phase 8 persistence tests (TC-8.1, TC-8.2, TC-8.3) PASSED 100%.
+   - Tested standalone executable cold boot (`KingdomsUnbound_console.exe --headless --quit`) â€” exited with code 0.
+   - Tested standalone persistence suite (`KingdomsUnbound_console.exe --headless -s "res://scripts/test/test_save_load.gd"`) directly against the exported package â€” all Phase 8 persistence tests (TC-8.1, TC-8.2, TC-8.3) PASSED 100%.
 4. **Full Regression Matrix Verification:**
    - 12 out of 12 test suites passed cleanly with Exit Code 0:
      - `test_coordinates.gd` (TC-1.1): **PASS**
@@ -588,7 +588,7 @@ Following the completion of Phase 9, execute the comprehensive post-implementati
 
 ---
 
-## [2026-10-12] Milestone 14: Full QA Functional Audit & Gold Spending/Gifting Fixes ✅ VERIFIED
+## [2026-10-12] Milestone 14: Full QA Functional Audit & Gold Spending/Gifting Fixes âœ… VERIFIED
 
 ### Context & Objective
 Investigate and resolve reported manual gameplay failures regarding spending gold to purchase items and gifting gold to other kingdoms. Perform an evidence-based functional audit, identify the root causes across API contracts and UI event wiring, fix confirmed in-scope defects, implement caravan selling capabilities, and verify with unit/integration testing and live gameplay screenshots.
@@ -601,41 +601,41 @@ Investigate and resolve reported manual gameplay failures regarding spending gol
    - *Issue:* `TradeCaravan` called `resource_mgr.get_storage_capacity(...)` to check warehouse limits, but `ResourceManager` declared `get_capacity(...)`.
    - *Resolution:* Added `get_storage_capacity(res_id: String) -> int` as an alias to `get_capacity()` on `ResourceManager`.
 3. **Loop Variable Capture (Closure Bug) in `hud.gd`:**
-   - *Issue:* Lambda closures in `_refresh_diplomacy_ui()` captured loop variables `res_id` and `fac` by reference. Clicking any "Mua 10" button bought the last item in the caravan list, and clicking "Tặng 50 Vàng", "Ký NAP", or "Tuyên Chiến" on any kingdom always executed against the last faction in the list (`neutral_tribe`).
+   - *Issue:* Lambda closures in `_refresh_diplomacy_ui()` captured loop variables `res_id` and `fac` by reference. Clicking any "Mua 10" button bought the last item in the caravan list, and clicking "Táº·ng 50 VÃ ng", "KÃ½ NAP", or "TuyÃªn Chiáº¿n" on any kingdom always executed against the last faction in the list (`neutral_tribe`).
    - *Resolution:* Captured `cur_res`, `cur_fac_id`, and `cur_fac_name` in local immutable variables before lambda binding, ensuring each button targets its exact intended resource and kingdom.
 4. **Lack of User Feedback & SFX:**
    - *Issue:* Clicking trade or gift buttons gave no audio or visual feedback when successful, and silently failed without explanation when funds or warehouse capacity were insufficient.
    - *Resolution:* Added `_show_diplomacy_feedback()`, a prominent green/red status banner at the top of the Diplomacy panel, and triggered `AudioManager.play_sfx("coin")` on success and `"error"` on failure.
 5. **Missing Caravan Selling in UI:**
    - *Issue:* While `sell_to_caravan()` existed in `TradeCaravan`, the HUD only offered "Mua 10" buttons.
-   - *Resolution:* Added "Bán 10" buttons in the Diplomacy panel for surplus resources (Wood, Food, Stone, Herbs, Metal) whenever player stock $\ge 10$, paying gold from the caravan's finite budget.
+   - *Resolution:* Added "BÃ¡n 10" buttons in the Diplomacy panel for surplus resources (Wood, Food, Stone, Herbs, Metal) whenever player stock $\ge 10$, paying gold from the caravan's finite budget.
 
 ### Validations Performed & Results
 - **Dedicated QA Functional Test Suite (`scripts/test/test_gold_transactions.gd`):**
-  - TC-G.1: `ResourceManager` API contract (`has_resource`, `get_storage_capacity`) — **PASS**
-  - TC-G.2: Gold purchasing with sufficient gold (exact deduction, stock credited) — **PASS**
-  - TC-G.3: Gold purchasing with insufficient & zero gold (clean rejection, zero partial deduction) — **PASS**
-  - TC-G.4: Diplomatic gold gifting with sufficient gold (opinion +15, gold deducted) — **PASS**
-  - TC-G.5: Diplomatic gold gifting with insufficient gold (clean rejection) — **PASS**
-  - TC-G.6: Diplomatic gold gifting to invalid target — **PASS**
-  - TC-G.7: Selling resources to caravan for gold (payout credited, stock deducted, caravan gold decremented) — **PASS**
-  - TC-G.8: Rapid repeated transactions until depletion (atomic safety) — **PASS**
+  - TC-G.1: `ResourceManager` API contract (`has_resource`, `get_storage_capacity`) â€” **PASS**
+  - TC-G.2: Gold purchasing with sufficient gold (exact deduction, stock credited) â€” **PASS**
+  - TC-G.3: Gold purchasing with insufficient & zero gold (clean rejection, zero partial deduction) â€” **PASS**
+  - TC-G.4: Diplomatic gold gifting with sufficient gold (opinion +15, gold deducted) â€” **PASS**
+  - TC-G.5: Diplomatic gold gifting with insufficient gold (clean rejection) â€” **PASS**
+  - TC-G.6: Diplomatic gold gifting to invalid target â€” **PASS**
+  - TC-G.7: Selling resources to caravan for gold (payout credited, stock deducted, caravan gold decremented) â€” **PASS**
+  - TC-G.8: Rapid repeated transactions until depletion (atomic safety) â€” **PASS**
   - **Results: 9/9 tests PASSED (Exit Code 0).**
 - **Full Regression Test Matrix:**
   - 13 out of 13 test suites passed cleanly with Exit Code 0 (TC-0.1 through TC-9.1 plus `test_gold_transactions.gd`).
 - **Standalone Build Retest:**
-  - `KingdomsUnbound_console.exe --headless -s "res://scripts/test/test_gold_transactions.gd"` executed against the repacked `KingdomsUnbound.pck` — **PASS (Exit Code 0)**.
+  - `KingdomsUnbound_console.exe --headless -s "res://scripts/test/test_gold_transactions.gd"` executed against the repacked `KingdomsUnbound.pck` â€” **PASS (Exit Code 0)**.
 - **Live Visual Verification:**
   - Captured `screenshot_trade_active.png` showing live caravan trading, gold deductions, opinion boost banner, and updated HUD balances.
 
 ---
 
-## [2026-10-17] Milestone 15: Tech Research Closure Capture Fix & Crisis Banner Non-Blocking UI Pass ✅ VERIFIED
+## [2026-10-17] Milestone 15: Tech Research Closure Capture Fix & Crisis Banner Non-Blocking UI Pass âœ… VERIFIED
 
 ### Context & Objective
 During exploratory manual playthrough testing via Godot runtime MCP controls, two UX/functional defects were identified and resolved:
 1. Research tech button clicks in the Royal Research Academy (`ResearchMenuPanel`) did not initiate the selected project because `tech_id` was captured by reference in a `for` loop closure, causing every button to point to the last item in the dictionary. Additionally, the callback expected a `Dictionary` return value when `ResearchManager.start_research` returns a typed `bool`.
-2. The `CrisisBanner` ("LƯƠNG THỰC BÁO ĐỘNG") stayed permanently visible with default `mouse_filter = MOUSE_FILTER_STOP`, absorbing mouse clicks meant for underlying HUD menus (Research, Diplomacy, Building).
+2. The `CrisisBanner` ("LÆ¯Æ NG THá»°C BÃO Äá»˜NG") stayed permanently visible with default `mouse_filter = MOUSE_FILTER_STOP`, absorbing mouse clicks meant for underlying HUD menus (Research, Diplomacy, Building).
 
 ### Resolutions Implemented
 1. **Tech Research Button Wiring (`scripts/ui/hud.gd`):**
@@ -648,13 +648,13 @@ During exploratory manual playthrough testing via Godot runtime MCP controls, tw
 
 ### Validations Performed
 - **Live MCP UI Playthrough:**
-  - Started "Luân Canh Nông Nghiệp" via UI click on `@Button@4432`.
-  - Visual verification via `screenshot_3846308.png`: Research panel actively displayed `"Đang tiến hành: Luân Canh Nông Nghiệp [5.0 / 12.0 giờ] (42%)"` with yellow progress indicator and accurate prerequisite lock descriptions.
+  - Started "LuÃ¢n Canh NÃ´ng Nghiá»‡p" via UI click on `@Button@4432`.
+  - Visual verification via `screenshot_3846308.png`: Research panel actively displayed `"Äang tiáº¿n hÃ nh: LuÃ¢n Canh NÃ´ng Nghiá»‡p [5.0 / 12.0 giá»] (42%)"` with yellow progress indicator and accurate prerequisite lock descriptions.
   - Verified Crisis Banner dismissed cleanly without blocking clicks.
 
 ---
 
-## [2026-10-17] Milestone 16: Package 0 — HUD Compilation Blocker Verified & Fixed ✅ VERIFIED
+## [2026-10-17] Milestone 16: Package 0 â€” HUD Compilation Blocker Verified & Fixed âœ… VERIFIED
 
 ### Context & Objective
 Resolve the compilation blocker identified in the audit report at `scripts/ui/hud.gd:247` (`var cur_tech := tech_id`), which caused Godot 4.7 GDScript parse failure (`Cannot infer the type of "cur_tech" variable because the value doesn't have a set type`) and cascading failure in `world_view.gd` during scene loading and persistence testing.
@@ -697,10 +697,10 @@ Resolve the compilation blocker identified in the audit report at `scripts/ui/hu
 
 ---
 
-## [2026-10-17] Milestone 17: Package 1A — Watchtower Scouting Building ✅ VERIFIED
+## [2026-10-17] Milestone 17: Package 1A â€” Watchtower Scouting Building âœ… VERIFIED
 
 ### Context & Objective
-Implement Package 1A adding the Watchtower (Tháp Canh) scouting building on feature branch `feature/package-1a-watchtower`. Enable building placement, procedural pixel art visual presentation, 1x1 diamond footprint collision, and active 15-tile Fog of War vision expansion integrated into gameplay.
+Implement Package 1A adding the Watchtower (ThÃ¡p Canh) scouting building on feature branch `feature/package-1a-watchtower`. Enable building placement, procedural pixel art visual presentation, 1x1 diamond footprint collision, and active 15-tile Fog of War vision expansion integrated into gameplay.
 
 ### Completed Work & Architecture Integration
 1. **Watchtower Blueprint (`scripts/economy/economy_config.gd`):**
@@ -709,12 +709,12 @@ Implement Package 1A adding the Watchtower (Tháp Canh) scouting building on fea
    - Implemented `_generate_watchtower_building()` generating 32x48 px pixel art with 1x1 diamond base (32x16 px), stone shaft, wooden lookout balcony, crimson roof, NW lighting, and ground-contact pivot `Vector2(-16.0, -40.0)`.
    - Generated `res://assets/buildings/bld_watchtower.png` and imported cleanly into Godot.
 3. **HUD Build Menu Integration (`scenes/ui/hud.tscn` & `scripts/ui/hud.gd`):**
-   - Added `WatchtowerBtn` ("🗼 Tháp Canh (20 Gỗ, 15 Đá)") in `BuildMenuPanel/GridContainer`.
+   - Added `WatchtowerBtn` ("ðŸ—¼ ThÃ¡p Canh (20 Gá»—, 15 ÄÃ¡)") in `BuildMenuPanel/GridContainer`.
    - Wired button press to `_select_building("watchtower")` and `build_requested.emit("watchtower")`.
 4. **WorldView Placement & Simulation (`scripts/world/world_view.gd`):**
    - Loaded texture in `building_textures["watchtower"]` for live placement and ghost preview.
    - Configured sprite offset `Vector2(-16.0, -40.0)` matching the 1x1 diamond pivot.
-   - Connected display name `"Tháp Canh (1x1)"` in tile inspection.
+   - Connected display name `"ThÃ¡p Canh (1x1)"` in tile inspection.
    - Immediate vision expansion: Called `fog_of_war.reveal_circle(cell, 15)` and `poi_mgr.update_discovery(fog_of_war)` on placement completion.
    - Hourly continuous vision: Maintained active watchtower vision circles during `_on_simulation_hour_passed` to keep surrounding cells explored and discover incoming POIs/events.
 5. **Combat Defense Scope Note:**
@@ -754,7 +754,7 @@ Implement Package 1A adding the Watchtower (Tháp Canh) scouting building on fea
 
 ---
 
-## [2026-10-17] Milestone 18: Package 1A Review Fixes — POI Visual Discovery, Manhattan Boundary & HUD Signals ✅ VERIFIED
+## [2026-10-17] Milestone 18: Package 1A Review Fixes â€” POI Visual Discovery, Manhattan Boundary & HUD Signals âœ… VERIFIED
 
 ### Context & Objective
 Address code review feedback on feature branch `feature/package-1a-watchtower`:
@@ -824,7 +824,7 @@ Address code review feedback on feature branch `feature/package-1a-watchtower`:
 
 ---
 
-## [2026-10-17] Milestone 19: Package 1A Final Fix — Fog of War Save Restoration & True Roundtrip Test ✅ VERIFIED
+## [2026-10-17] Milestone 19: Package 1A Final Fix â€” Fog of War Save Restoration & True Roundtrip Test âœ… VERIFIED
 
 ### Context & Objective
 Address code review feedback regarding Fog of War restoration cleanliness and test validity on branch `feature/package-1a-watchtower`:
@@ -891,7 +891,7 @@ Address code review feedback regarding Fog of War restoration cleanliness and te
 
 ---
 
-## [2026-10-17] Milestone 20: Package 1A Final Review — Safe Building Node Reconstruction & Zero Duplication ✅ VERIFIED
+## [2026-10-17] Milestone 20: Package 1A Final Review â€” Safe Building Node Reconstruction & Zero Duplication âœ… VERIFIED
 
 ### Context & Objective
 Address code review finding regarding node lifecycle during building reconstruction in `SaveManager.apply_loaded_state_to_world()`:
@@ -956,7 +956,7 @@ Address code review finding regarding node lifecycle during building reconstruct
 
 ---
 
-## [2026-10-18] Milestone 21: Package 1B — Dynamic Production Workplaces ✅ VERIFIED
+## [2026-10-18] Milestone 21: Package 1B â€” Dynamic Production Workplaces âœ… VERIFIED
 
 ### Context & Objective
 Package 1B implements dynamic production workplace registration and physical logistics integration for player-constructed Farm and Woodcutter Camp buildings:
@@ -1037,7 +1037,7 @@ Package 1B implements dynamic production workplace registration and physical log
 
 ---
 
-## [2026-10-18] Milestone 22: Package 1B Review Fix — Real Citizen Work & Hauling Flow Verification ✅ VERIFIED
+## [2026-10-18] Milestone 22: Package 1B Review Fix â€” Real Citizen Work & Hauling Flow Verification âœ… VERIFIED
 
 ### Context & Objective
 Following independent review of Package 1B (Milestone 21), address review findings by adding end-to-end integration tests using real `CitizenController` instances to verify the complete citizen state machine life cycle for dynamic workplaces:
@@ -1057,7 +1057,7 @@ Following independent review of Package 1B (Milestone 21), address review findin
 | **TC-DW.4b** | **Integration Test** | **Real `CitizenController` State Machine (`_process`)** | Verifies full hauler life cycle: `IDLE` -> baseline stock recorded before pickup -> `MOVING_TO_JOB` -> arrival at source -> automatic cargo extraction (`_pickup_hauler_cargo()`, buffer 10->0) -> immediate assertion of stock invariance post-pickup -> `HAULING` traversal with mid-transit stock invariance -> arrival at dropoff -> automatic central deposit (`_deposit_hauler_cargo()`, +10 Food) -> `IDLE` -> post-delivery assertion of atomic credit (+10) and cargo clearing |
 | **TC-DW.5** | Unit Test / Integration | Save/Load Cycle (`SaveManager`) | Verifies world state serialization, buffer restoration, dynamic workplace reconstruction, repeated load anti-duplication, fresh world restoration, legacy save compatibility, and buffer clamping |
 
-### Section 4: Architectural Evaluation — Access Cell Stacking & Worker Density
+### Section 4: Architectural Evaluation â€” Access Cell Stacking & Worker Density
 1. **Current Access Cell Stacking:**
    - Dynamic Farm currently assigns up to 5 workers to a single `access_cell` (e.g. `(28, 27)` for farm at `(29, 27)`).
    - In Godot isometric navigation, pathfinding checks static terrain and building occupancy (`world_data.occupancy`), not citizen-to-citizen physics bodies. As a result, multiple citizens occupying the same access cell do not cause A* pathfinding deadlocks, collision clipping bugs, or physics glitches.
@@ -1117,24 +1117,24 @@ Following independent review of Package 1B (Milestone 21), address review findin
 
 ---
 
-## [2026-10-18] Milestone 23: Package 1C — Dynamic Quarry Stone Production ✅ VERIFIED
+## [2026-10-18] Milestone 23: Package 1C â€” Dynamic Quarry Stone Production âœ… VERIFIED
 
 ### Context & Objective
-Implement Package 1C: Dynamic Quarry Workplace on feature branch `feature/package-1c-quarry`, branched from Package 1B commit `505a51af479adcaf6b00567bd648c1acd1c9aa97`. Package 1C expands the construction and production economy by introducing the Quarry (Mỏ Khai Thác Đá), which allows players to construct 2×2 stone-producing quarries, assign miners, produce stone into local workplace buffers, and haul stone to central storage using the physical hauling pipeline.
+Implement Package 1C: Dynamic Quarry Workplace on feature branch `feature/package-1c-quarry`, branched from Package 1B commit `505a51af479adcaf6b00567bd648c1acd1c9aa97`. Package 1C expands the construction and production economy by introducing the Quarry (Má» Khai ThÃ¡c ÄÃ¡), which allows players to construct 2Ã—2 stone-producing quarries, assign miners, produce stone into local workplace buffers, and haul stone to central storage using the physical hauling pipeline.
 
 ### Completed Work
 1. **Blueprint & Economy Configuration (`scripts/economy/economy_config.gd`):**
-   - Added `"quarry"` blueprint with 2×2 footprint, construction cost `{RES_WOOD: 15, RES_TOOLS: 5}`, construction time 8.0 hours, 4 max workers, job type `"miner"`, output resource `RES_STONE`, base daily output 20.0, and 40 buffer capacity.
+   - Added `"quarry"` blueprint with 2Ã—2 footprint, construction cost `{RES_WOOD: 15, RES_TOOLS: 5}`, construction time 8.0 hours, 4 max workers, job type `"miner"`, output resource `RES_STONE`, base daily output 20.0, and 40 buffer capacity.
 2. **Citizen Controller Role & Buffer Production (`scripts/entities/citizen_controller.gd`):**
    - Added `"miner"` role to `CitizenController.ROLES`.
    - Updated `_process_working(delta)` to route work completion for `"miner"` (and legacy `"quarryman"`) through `workplace_mgr.produce_to_buffer()`, ensuring zero instant teleportation to central storage.
 3. **Quarry Visual Asset (`assets/buildings/bld_quarry.png` & `.import`):**
-   - Generated authentic 64×48 px isometric sprite for 2×2 diamond footprint conforming to the 27-color fantasy palette. Visual features an excavated stone pit, dressed granite blocks, timber crane hoisting rig, and chisel bench.
+   - Generated authentic 64Ã—48 px isometric sprite for 2Ã—2 diamond footprint conforming to the 27-color fantasy palette. Visual features an excavated stone pit, dressed granite blocks, timber crane hoisting rig, and chisel bench.
    - Imported into Godot engine with lossless pixel compression and nearest-neighbor filtering.
 4. **WorldView Placement & Dynamic Registration (`scripts/world/world_view.gd`):**
    - Preloaded `bld_quarry.png` texture with storehouse fallback.
-   - Set sprite rendering offset strictly at `Vector2(-32.0, -36.0)` matching the 2×2 diamond footprint center.
-   - Added Vietnamese display name `"Mỏ Khai Thác Đá (2x2)"`.
+   - Set sprite rendering offset strictly at `Vector2(-32.0, -36.0)` matching the 2Ã—2 diamond footprint center.
+   - Added Vietnamese display name `"Má» Khai ThÃ¡c ÄÃ¡ (2x2)"`.
    - Integrated `"quarry"` into `_execute_placement()`, dynamic workplace registration, and `sync_workplaces_after_load()`.
 5. **HUD Build Menu & Citizen Inspector (`scenes/ui/hud.tscn`, `scripts/ui/hud.gd`):**
    - Added `QuarryBtn` to HUD `BuildMenuPanel` GridContainer with icon, hover tooltip, and wiring to `_select_building("quarry")`.
@@ -1146,12 +1146,12 @@ Implement Package 1C: Dynamic Quarry Workplace on feature branch `feature/packag
 ### Test Architecture: Package 1C Dynamic Quarry Suite
 | Test Case ID | Test Category | Execution Mechanism | Scope & Purpose |
 |---|---|---|---|
-| **TC-Q.1** | Unit / UI Test | Direct Blueprint & Node Inspection | Verifies `quarry` blueprint in `EconomyConfig` (2×2, 15 Wood, 5 Tools, 4 workers, miner, stone), 64×48 px texture, `(-32, -36)` sprite offset, display name, and HUD `QuarryBtn` placement trigger |
+| **TC-Q.1** | Unit / UI Test | Direct Blueprint & Node Inspection | Verifies `quarry` blueprint in `EconomyConfig` (2Ã—2, 15 Wood, 5 Tools, 4 workers, miner, stone), 64Ã—48 px texture, `(-32, -36)` sprite offset, display name, and HUD `QuarryBtn` placement trigger |
 | **TC-Q.2** | Unit Test | Placement Method Invocation | Verifies dynamic quarry placement, atomic cost deduction (-15 Wood, -5 Tools), walkable perimeter access cell check, registration of 4 recurring miner jobs, and rejection of inaccessible placement before deduction |
 | **TC-Q.3** | **Integration Test** | **Real `CitizenController` State Machine (`_process`)** | Verifies full miner life cycle: `IDLE` -> claims job -> traverses grid to access cell (`MOVING_TO_JOB`) -> works 3.0 hrs (`WORKING`) -> direct deposit of 4 Stone into quarry buffer without central stock change -> `IDLE` -> recurring cycle 2 produces additional 4 Stone (total 8 Stone) |
 | **TC-Q.4** | **Integration Test** | **Real `CitizenController` State Machine (`_process`)** | Verifies full hauler life cycle: `IDLE` -> claims quarry hauling job -> baseline stock recorded before pickup -> `MOVING_TO_JOB` -> arrival at quarry access cell -> extracts 8 Stone from buffer (buffer 8->0) -> `HAULING` traversal with stock invariant mid-transit -> arrives at dropoff -> deposits 8 Stone (+8 Stone in central storage) -> clears cargo -> marks job `COMPLETED` |
 | **TC-Q.5** | Unit / Integration | Save/Load Cycle (`SaveManager`) | Verifies world save with quarry, buffer restoration to 12 Stone, reconstruction of 4 recurring miner jobs, anti-duplication over repeated loads, legacy save compatibility (defaults buffer to 0), and overflow clamping to capacity (40) |
-| **TC-Q.6** | Non-Regression | Direct Blueprint & Workplace Query | Verifies starter farm (5 workers, 50 capacity, food), starter woodcutter (4 workers, 40 capacity, wood), and watchtower blueprint (1×1, vision 15) remain 100% intact |
+| **TC-Q.6** | Non-Regression | Direct Blueprint & Workplace Query | Verifies starter farm (5 workers, 50 capacity, food), starter woodcutter (4 workers, 40 capacity, wood), and watchtower blueprint (1Ã—1, vision 15) remain 100% intact |
 
 ### Validations Performed & Results
 - **Dedicated Test Suite (`scripts/test/test_quarry.gd`):** **PASS (Exit Code 0, 0 failures)**
@@ -1188,12 +1188,12 @@ Implement Package 1C: Dynamic Quarry Workplace on feature branch `feature/packag
   - `git diff --check`: Clean (Exit Code 0, zero whitespace errors).
 
 ### Files Created / Modified
-- `scripts/economy/economy_config.gd` (Registered `quarry` blueprint with 2×2 footprint, costs, output resource, buffer capacity)
+- `scripts/economy/economy_config.gd` (Registered `quarry` blueprint with 2Ã—2 footprint, costs, output resource, buffer capacity)
 - `scripts/entities/citizen_controller.gd` (Added `miner` role and wired production to `produce_to_buffer()`)
 - `scripts/world/world_view.gd` (Quarry texture loading, `(-32, -36)` sprite offset, display name, dynamic placement & load sync)
 - `scenes/ui/hud.tscn` (Added `QuarryBtn` to `BuildMenuPanel`)
 - `scripts/ui/hud.gd` (Wired `QuarryBtn` and added `miner` option to citizen inspector role list)
-- `assets/buildings/bld_quarry.png` (64×48 px isometric quarry sprite)
+- `assets/buildings/bld_quarry.png` (64Ã—48 px isometric quarry sprite)
 - `assets/buildings/bld_quarry.png.import` (Godot 4.7 texture import definition)
 - `scripts/test/test_quarry.gd` (Dedicated test suite for TC-Q.1 to TC-Q.6)
 - `docs/WORKLOG.md` (Documented Milestone 23)
@@ -1208,13 +1208,13 @@ Implement Package 1C: Dynamic Quarry Workplace on feature branch `feature/packag
 
 ---
 
-## [2026-10-18] Milestone 24: Package 1D — Dynamic Mine & Ore Production ✅ VERIFIED
+## [2026-10-18] Milestone 24: Package 1D â€” Dynamic Mine & Ore Production âœ… VERIFIED
 
 ### Context & Objective
-Implement Package 1D: Dynamic Mine & Ore Production on feature branch `feature/package-1d-mine`, branched from Package 1C commit `092689d983e9bf88474557efe2c693a3caf442ef`. Package 1D expands the extraction economy to include raw Ore (Quặng thô), allowing the kingdom to construct 2×2 underground mines, assign miners, produce raw ore into local workplace buffers, and haul ore via the physical hauling pipeline to central storage.
+Implement Package 1D: Dynamic Mine & Ore Production on feature branch `feature/package-1d-mine`, branched from Package 1C commit `092689d983e9bf88474557efe2c693a3caf442ef`. Package 1D expands the extraction economy to include raw Ore (Quáº·ng thÃ´), allowing the kingdom to construct 2Ã—2 underground mines, assign miners, produce raw ore into local workplace buffers, and haul ore via the physical hauling pipeline to central storage.
 
 ### Initial Balancing & Design Assumptions
-- **Footprint & Cost:** Per GDD Section 7.1 table, Mine requires a 2×2 footprint (64×32 px ground base) and initial cost of **20 Wood + 10 Stone**.
+- **Footprint & Cost:** Per GDD Section 7.1 table, Mine requires a 2Ã—2 footprint (64Ã—32 px ground base) and initial cost of **20 Wood + 10 Stone**.
 - **Labor Quota & Production Rate (Balancing Assumptions):** GDD does not fully specify worker quota and buffer metrics for Mine. Consistent with Package 1C and prompt guidelines, the following initial balancing parameters are established:
   - Worker quota: 4 Miners (`worker_quota = 4`).
   - Work cycle: 3.0 simulation hours per job cycle.
@@ -1225,19 +1225,19 @@ Implement Package 1D: Dynamic Mine & Ore Production on feature branch `feature/p
 
 ### Completed Work
 1. **Blueprint & Economy Configuration (`scripts/economy/economy_config.gd`):**
-   - Added `"mine"` blueprint with 2×2 footprint, cost `{RES_WOOD: 20, RES_STONE: 10}`, 8.0h construction time, 4 max workers, `"miner"` job type, `RES_ORE` output resource, 20.0 base daily output, and 40 buffer capacity.
+   - Added `"mine"` blueprint with 2Ã—2 footprint, cost `{RES_WOOD: 20, RES_STONE: 10}`, 8.0h construction time, 4 max workers, `"miner"` job type, `RES_ORE` output resource, 20.0 base daily output, and 40 buffer capacity.
 2. **Quarry Visual Asset (`assets/buildings/bld_mine.png` & `.import`):**
-   - Generated authentic 64×48 px isometric sprite matching the 27-color fantasy palette. Features a rock mound excavated into earth, dark timber portal frame, rails, minecart heaped with gleaming ore, and raw ore piles.
+   - Generated authentic 64Ã—48 px isometric sprite matching the 27-color fantasy palette. Features a rock mound excavated into earth, dark timber portal frame, rails, minecart heaped with gleaming ore, and raw ore piles.
    - Imported into Godot engine with lossless pixel compression and nearest-neighbor filtering.
 3. **WorldView Placement & Dynamic Registration (`scripts/world/world_view.gd`):**
    - Loaded `bld_mine.png` texture with storehouse fallback.
-   - Set sprite rendering offset strictly at `Vector2(-32.0, -36.0)` matching the 2×2 diamond footprint center.
-   - Added Vietnamese display name `"Mỏ Khai Thác Quặng (2x2)"`.
-   - Integrated `"mine"` into `_execute_placement()`, dynamic workplace registration, job descriptions (`"Khai thác quặng thô tại mỏ quặng"`), and `sync_workplaces_after_load()`.
+   - Set sprite rendering offset strictly at `Vector2(-32.0, -36.0)` matching the 2Ã—2 diamond footprint center.
+   - Added Vietnamese display name `"Má» Khai ThÃ¡c Quáº·ng (2x2)"`.
+   - Integrated `"mine"` into `_execute_placement()`, dynamic workplace registration, job descriptions (`"Khai thÃ¡c quáº·ng thÃ´ táº¡i má» quáº·ng"`), and `sync_workplaces_after_load()`.
 4. **HUD Build Menu & Inspector (`scenes/ui/hud.tscn`, `scripts/ui/hud.gd`):**
-   - Added `MineBtn` to HUD `BuildMenuPanel` GridContainer (`⛰️ Mỏ Quặng (20 Gỗ, 10 Đá)`).
+   - Added `MineBtn` to HUD `BuildMenuPanel` GridContainer (`â›°ï¸ Má» Quáº·ng (20 Gá»—, 10 ÄÃ¡)`).
    - Wired `MineBtn` click to `_select_building("mine")`.
-   - Updated citizen inspector dropdown label to `"Thợ Mỏ / Khai Thác Đá & Quặng (Miner)"`.
+   - Updated citizen inspector dropdown label to `"Thá»£ Má» / Khai ThÃ¡c ÄÃ¡ & Quáº·ng (Miner)"`.
 5. **Dedicated Test Suite (`scripts/test/test_mine.gd`):**
    - Authored automated headless test suite covering TC-M.1 through TC-M.6.
    - Validated real citizen production flow, real citizen hauling flow, save/load persistence, anti-duplication, legacy save compatibility, buffer clamping, and non-regression.
@@ -1245,7 +1245,7 @@ Implement Package 1D: Dynamic Mine & Ore Production on feature branch `feature/p
 ### Test Architecture: Package 1D Dynamic Mine Suite
 | Test Case ID | Test Category | Execution Mechanism | Scope & Purpose |
 |---|---|---|---|
-| **TC-M.1** | Unit / UI Test | Direct Blueprint & Node Inspection | Verifies `mine` blueprint in `EconomyConfig` (2×2, 20 Wood, 10 Stone, 4 workers, miner, ore), 64×48 px texture, `(-32, -36)` sprite offset, display name, and HUD `MineBtn` placement trigger |
+| **TC-M.1** | Unit / UI Test | Direct Blueprint & Node Inspection | Verifies `mine` blueprint in `EconomyConfig` (2Ã—2, 20 Wood, 10 Stone, 4 workers, miner, ore), 64Ã—48 px texture, `(-32, -36)` sprite offset, display name, and HUD `MineBtn` placement trigger |
 | **TC-M.2** | Unit Test | Placement Method Invocation | Verifies dynamic mine placement, atomic cost deduction (-20 Wood, -10 Stone), walkable perimeter access cell check, registration of 4 recurring miner jobs, and rejection of inaccessible placement before deduction |
 | **TC-M.3** | **Integration Test** | **Real `CitizenController` State Machine (`_process`)** | Verifies full miner life cycle: `IDLE` -> claims job -> traverses grid to access cell (`MOVING_TO_JOB`) -> works 3.0 hrs (`WORKING`) -> direct deposit of 4 Ore into mine buffer without central stock change -> `IDLE` -> recurring cycle 2 produces additional 4 Ore (total 8 Ore) |
 | **TC-M.4** | **Integration Test** | **Real `CitizenController` State Machine (`_process`)** | Verifies full hauler life cycle: `IDLE` -> claims mine hauling job -> baseline stock recorded before pickup -> `MOVING_TO_JOB` -> arrival at mine access cell -> extracts 8 Ore from buffer (buffer 8->0) -> `HAULING` traversal with stock invariant mid-transit -> arrives at dropoff -> deposits 8 Ore (+8 Ore in central storage) -> clears cargo -> marks job `COMPLETED` |
@@ -1288,11 +1288,11 @@ Implement Package 1D: Dynamic Mine & Ore Production on feature branch `feature/p
   - `git diff --check`: Clean (Exit Code 0, zero whitespace errors).
 
 ### Files Created / Modified
-- `scripts/economy/economy_config.gd` (Registered `mine` blueprint with 2×2 footprint, costs 20 Wood + 10 Stone, output resource `ore`, 4 workers, 40 buffer capacity)
+- `scripts/economy/economy_config.gd` (Registered `mine` blueprint with 2Ã—2 footprint, costs 20 Wood + 10 Stone, output resource `ore`, 4 workers, 40 buffer capacity)
 - `scripts/world/world_view.gd` (Mine texture loading, `(-32, -36)` sprite offset, display name, dynamic placement & load sync)
 - `scenes/ui/hud.tscn` (Added `MineBtn` to `BuildMenuPanel`)
 - `scripts/ui/hud.gd` (Wired `MineBtn` and updated citizen inspector role label)
-- `assets/buildings/bld_mine.png` (64×48 px isometric mine sprite)
+- `assets/buildings/bld_mine.png` (64Ã—48 px isometric mine sprite)
 - `assets/buildings/bld_mine.png.import` (Godot 4.7 texture import definition)
 - `scripts/test/test_mine.gd` (Dedicated test suite for TC-M.1 to TC-M.6)
 - `docs/WORKLOG.md` (Documented Milestone 24)
@@ -1307,21 +1307,21 @@ Implement Package 1D: Dynamic Mine & Ore Production on feature branch `feature/p
 
 ---
 
-## [2026-10-18] Milestone 25: Package 1D Review Follow-Up — HUD Ore Resource Display & Verification ✅ VERIFIED
+## [2026-10-18] Milestone 25: Package 1D Review Follow-Up â€” HUD Ore Resource Display & Verification âœ… VERIFIED
 
 ### Context & Objective
 Address independent code review finding for Package 1D on branch `feature/package-1d-mine`: Mine produces Ore and the hauling pipeline deposits it into `ResourceManager`, but the primary HUD TopBar resource row previously only displayed Food, Wood, Stone, Gold, and Population. The player needs to see the current available Ore stock in the main HUD.
 
 ### Completed Work
 1. **HUD Scene Integration (`scenes/ui/hud.tscn`):**
-   - Added `OreLabel` (`⛏️ Quặng: 0`) to `TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources` between `StoneLabel` and `GoldLabel`, preserving the established visual styling and naming conventions.
+   - Added `OreLabel` (`â›ï¸ Quáº·ng: 0`) to `TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources` between `StoneLabel` and `GoldLabel`, preserving the established visual styling and naming conventions.
 2. **HUD Script Integration (`scripts/ui/hud.gd`):**
    - Added `@onready var ore_label: Label = $TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources/OreLabel`.
-   - Updated `_refresh_all_resources()` to set `ore_label.text = "⛏️ Quặng: %d" % rm.get_available_stock("ore")`.
+   - Updated `_refresh_all_resources()` to set `ore_label.text = "â›ï¸ Quáº·ng: %d" % rm.get_available_stock("ore")`.
    - Verified that `resource_changed` signal triggers `_on_resource_changed()` $\to$ `_refresh_all_resources()`, updating `ore_label` in real time.
 3. **Focused Regression Verification (`scripts/test/test_mine.gd`):**
-   - Extended **TC-M.1** to assert that `OreLabel` exists at the expected scene tree path, matches initial `ResourceManager` stock (`⛏️ Quặng: 0`), dynamically updates when stock changes (`⛏️ Quặng: 25`), restores on consumption, and that all existing HUD labels (`FoodLabel`, `WoodLabel`, `StoneLabel`, `GoldLabel`, `PopLabel`) remain intact.
-   - Extended **TC-M.4** to verify that `OreLabel` reflects the new stock immediately upon physical hauler deposit (`⛏️ Quặng: 8`).
+   - Extended **TC-M.1** to assert that `OreLabel` exists at the expected scene tree path, matches initial `ResourceManager` stock (`â›ï¸ Quáº·ng: 0`), dynamically updates when stock changes (`â›ï¸ Quáº·ng: 25`), restores on consumption, and that all existing HUD labels (`FoodLabel`, `WoodLabel`, `StoneLabel`, `GoldLabel`, `PopLabel`) remain intact.
+   - Extended **TC-M.4** to verify that `OreLabel` reflects the new stock immediately upon physical hauler deposit (`â›ï¸ Quáº·ng: 8`).
 
 ### Validations Performed & Results
 - **Dedicated Test Suite (`scripts/test/test_mine.gd`):** **PASS (Exit Code 0, 0 failures)**
@@ -1361,7 +1361,7 @@ Address independent code review finding for Package 1D on branch `feature/packag
 
 ---
 
-## [2026-10-18] Milestone 26: Harden Package 1D HUD Tests (Fail Closed) ✅ VERIFIED
+## [2026-10-18] Milestone 26: Harden Package 1D HUD Tests (Fail Closed) âœ… VERIFIED
 
 ### Context & Objective
 Address independent code review finding for Package 1D: in `scripts/test/test_mine.gd`, HUD and ResourceManager checks were nested under `if hud != null` and `if hud_m4 != null` without `else` branches. If the HUD or ResourceManager singleton were missing or disconnected, assertions could be silently bypassed. The test suite is hardened to fail closed on any missing node or singleton.
@@ -1375,7 +1375,7 @@ Address independent code review finding for Package 1D: in `scripts/test/test_mi
 2. **TC-M.4 Fail-Closed Hardening (`scripts/test/test_mine.gd`):**
    - Added explicit `else: printerr("  [FAIL] HUD instance not found in TC-M.4!"); failures += 1` if `hud_m4 == null`.
    - Added explicit `if ore_lbl_m4 == null: printerr("  [FAIL] HUD OreLabel not found in TC-M.4!"); failures += 1`.
-   - Asserted that `ore_lbl_m4.text` exactly equals `"⛏️ Quặng: %d" % central_stock_post_delivery` and matches current live stock in `ResourceManager`.
+   - Asserted that `ore_lbl_m4.text` exactly equals `"â›ï¸ Quáº·ng: %d" % central_stock_post_delivery` and matches current live stock in `ResourceManager`.
 
 ### Validations Performed & Results
 - **Hardened Test Suite (`scripts/test/test_mine.gd`):** **PASS (Exit Code 0, 0 failures)**
@@ -1413,15 +1413,15 @@ Address independent code review finding for Package 1D: in `scripts/test/test_mi
 
 ---
 
-## [2026-10-18] Milestone 27: Package 1E — Dynamic Workshop: Metal Smelting, Tool Crafting & Physical Logistics ✅ VERIFIED
+## [2026-10-18] Milestone 27: Package 1E â€” Dynamic Workshop: Metal Smelting, Tool Crafting & Physical Logistics âœ… VERIFIED
 
 ### Context & Objective
 Implement Package 1E: Dynamic Workshop on dedicated branch `feature/package-1e-workshop` created from reviewed Package 1D base commit `86fb44bc479b95af3183dd254802e0862f31ee0c`.
-Package 1E introduces the dynamic Workshop (`Xưởng Chế Tác`), featuring two distinct recipe channels (`smelt_metal`: 2 Ore $\to$ 1 Metal, and `craft_tools`: 2 Metal + 1 Wood $\to$ 1 Tool), local buffer capacities (40 each), 4 smith worker quotas, atomic input consumption without partial expenditure, zero-teleportation production, physical hauling loop, HUD integration for Metal and Tools stocks, and save/load persistence with backward compatibility.
+Package 1E introduces the dynamic Workshop (`XÆ°á»Ÿng Cháº¿ TÃ¡c`), featuring two distinct recipe channels (`smelt_metal`: 2 Ore $\to$ 1 Metal, and `craft_tools`: 2 Metal + 1 Wood $\to$ 1 Tool), local buffer capacities (40 each), 4 smith worker quotas, atomic input consumption without partial expenditure, zero-teleportation production, physical hauling loop, HUD integration for Metal and Tools stocks, and save/load persistence with backward compatibility.
 
 ### Completed Work
 1. **Economy Configuration & Blueprint (`scripts/economy/economy_config.gd`):**
-   - Registered `workshop` blueprint: 2×2 footprint, cost (20 Wood, 15 Stone, 5 Metal), 4 workers, role `smith`.
+   - Registered `workshop` blueprint: 2Ã—2 footprint, cost (20 Wood, 15 Stone, 5 Metal), 4 workers, role `smith`.
    - Defined recipe channels: `smelt_metal` (2 Ore $\to$ 1 Metal, 3.0h) and `craft_tools` (2 Metal + 1 Wood $\to$ 1 Tool, 3.0h).
 2. **Access Cell Validation (`scripts/economy/building_system.gd`):**
    - Updated `can_place_building` to compute and require valid walkable perimeter access cells for multi-recipe workplaces.
@@ -1438,15 +1438,15 @@ Package 1E introduces the dynamic Workshop (`Xưởng Chế Tác`), featuring tw
    - Passed `workplace_mgr` and `ResourceManager` to `request_job` during idle state.
    - Wired production execution to target recipe channels and updated Vietnamese status reasons for smiths.
 6. **WorldView Integration (`scripts/world/world_view.gd`):**
-   - Loaded `bld_workshop.png` with pivot offset `Vector2(-32.0, -36.0)` and Vietnamese name `"Xưởng Chế Tác (2x2)"`.
+   - Loaded `bld_workshop.png` with pivot offset `Vector2(-32.0, -36.0)` and Vietnamese name `"XÆ°á»Ÿng Cháº¿ TÃ¡c (2x2)"`.
    - In `register_dynamic_workplace`, registered dual channels (`b_id + "_smelt"`, `b_id + "_craft"`) with 4 recurring smith jobs.
    - In `sync_workplaces_after_load`, restored independent channel buffer amounts with legacy single-buffer fallback and 40-capacity clamping.
 7. **HUD Integration (`scenes/ui/hud.tscn`, `scripts/ui/hud.gd`):**
-   - Added `MetalLabel` (`⚔️ Kim loại: %d`) and `ToolsLabel` (`🛠️ Công cụ: %d`) to HUD `Resources` container.
+   - Added `MetalLabel` (`âš”ï¸ Kim loáº¡i: %d`) and `ToolsLabel` (`ðŸ› ï¸ CÃ´ng cá»¥: %d`) to HUD `Resources` container.
    - Added `WorkshopBtn` to `BuildMenuPanel` and expanded panel bounds.
-   - Added `Thợ Xưởng (Smith)` option (index 6) to citizen inspector role dropdown.
+   - Added `Thá»£ XÆ°á»Ÿng (Smith)` option (index 6) to citizen inspector role dropdown.
 8. **Pixel Art Asset:**
-   - Generated 64×48 RGBA `bld_workshop.png` and `.import` metadata conforming to 2:1 dimetric perspective and project palette.
+   - Generated 64Ã—48 RGBA `bld_workshop.png` and `.import` metadata conforming to 2:1 dimetric perspective and project palette.
 9. **Automated Test Suite (`scripts/test/test_workshop.gd`):**
    - Implemented TC-WS.1 through TC-WS.7 verifying blueprint, build button, sprite, HUD, placement, real citizen smelting, real citizen crafting, real physical hauling, save/load persistence, buffer clamping, backward compatibility, and non-regression.
 10. **Game Rules Documentation (`docs/GAME_RULES.md`):**
@@ -1513,13 +1513,13 @@ Package 1E introduces the dynamic Workshop (`Xưởng Chế Tác`), featuring tw
 
 ---
 
-## [2026-10-18] Milestone 28: Package 1E Review Fix — Authoritative Recipe Config & Hardened Tests ✅ VERIFIED
+## [2026-10-18] Milestone 28: Package 1E Review Fix â€” Authoritative Recipe Config & Hardened Tests âœ… VERIFIED
 
 ### Context & Objective
 Address independent code review findings for Package 1E:
-1. **Fix A — Authoritative Recipe Configuration:** In `scripts/world/world_view.gd`, recipe channel registration and recurring smith job creation previously duplicated literal values rather than reading directly from `EconomyConfig.BLUEPRINTS["workshop"]["recipes"]`. Refactor `register_dynamic_workplace` to derive all channel parameters (inputs, outputs, output amounts, capacities, quotas, job durations) from the recipe configuration.
-2. **Fix B — Non-Vacuous Blocked-Recipe Tests:** In `scripts/test/test_workshop.gd` (TC-WS.3 and TC-WS.4), insufficient-input and full-buffer test scenarios previously set `job.state = JobState.RESERVED` before calling `_process(3.0)`, causing `JobManager.progress_job` to return false without advancing work or calling production. Refactor tests to set `JobState.IN_PROGRESS` with zero initial work, execute the genuine 3.0h completion cycle, and assert proper transition to `IDLE`, explainable `status_reason`, and zero resource consumption/overflow.
-3. **Fix C — Strengthened Tools Hauling Transit Checks:** In TC-WS.5, add comprehensive assertions that central Tools stock remains unchanged upon pickup and at every simulation step while in `HAULING`, verify correct cargo clearance from the citizen, and assert hauling job transitions to `COMPLETED`.
+1. **Fix A â€” Authoritative Recipe Configuration:** In `scripts/world/world_view.gd`, recipe channel registration and recurring smith job creation previously duplicated literal values rather than reading directly from `EconomyConfig.BLUEPRINTS["workshop"]["recipes"]`. Refactor `register_dynamic_workplace` to derive all channel parameters (inputs, outputs, output amounts, capacities, quotas, job durations) from the recipe configuration.
+2. **Fix B â€” Non-Vacuous Blocked-Recipe Tests:** In `scripts/test/test_workshop.gd` (TC-WS.3 and TC-WS.4), insufficient-input and full-buffer test scenarios previously set `job.state = JobState.RESERVED` before calling `_process(3.0)`, causing `JobManager.progress_job` to return false without advancing work or calling production. Refactor tests to set `JobState.IN_PROGRESS` with zero initial work, execute the genuine 3.0h completion cycle, and assert proper transition to `IDLE`, explainable `status_reason`, and zero resource consumption/overflow.
+3. **Fix C â€” Strengthened Tools Hauling Transit Checks:** In TC-WS.5, add comprehensive assertions that central Tools stock remains unchanged upon pickup and at every simulation step while in `HAULING`, verify correct cargo clearance from the citizen, and assert hauling job transitions to `COMPLETED`.
 
 ### Completed Work
 1. **Authoritative Recipe Channel Registration (`scripts/world/world_view.gd`):**
@@ -1530,9 +1530,9 @@ Address independent code review findings for Package 1E:
 2. **Hardened Recipe Channel & Job Assertions (`scripts/test/test_workshop.gd`):**
    - Updated TC-WS.2 to compare actual registered channel data (`output_resource`, `buffer_capacity`, `worker_quota`, `output_amount`, `required_inputs`) and job parameters (`work_hours_required`, `worker_quota`, `channel_id`) directly against `EconomyConfig.BLUEPRINTS["workshop"]["recipes"]`.
 3. **Genuine Work Completion & Rejection Testing (`scripts/test/test_workshop.gd`):**
-   - In TC-WS.3 (Smelting 0 Ore): Set `smelt_job.state = JobState.IN_PROGRESS`, executed `_process(3.0)`, verified citizen returned to `IDLE` with `active_job = null`, `status_reason` reporting missing ingredients (`"Thiếu nguyên liệu"`), 0 Ore consumed, and 0 Metal produced.
-   - In TC-WS.3 (Full Smelting Buffer): Set `smelt_job.state = JobState.IN_PROGRESS`, executed `_process(3.0)`, verified citizen returned to `IDLE` with `status_reason` reporting full buffer (`"đầy"`), buffer clamped at capacity 40, and 0 Ore consumed.
-   - In TC-WS.4 (Crafting Missing Wood): Set `craft_job.state = JobState.IN_PROGRESS`, executed `_process(3.0)`, verified citizen returned to `IDLE` with `status_reason` reporting missing ingredients (`"Thiếu nguyên liệu"`), atomic cost rejection (0 Metal consumed when Wood is 0), and 0 Tools produced.
+   - In TC-WS.3 (Smelting 0 Ore): Set `smelt_job.state = JobState.IN_PROGRESS`, executed `_process(3.0)`, verified citizen returned to `IDLE` with `active_job = null`, `status_reason` reporting missing ingredients (`"Thiáº¿u nguyÃªn liá»‡u"`), 0 Ore consumed, and 0 Metal produced.
+   - In TC-WS.3 (Full Smelting Buffer): Set `smelt_job.state = JobState.IN_PROGRESS`, executed `_process(3.0)`, verified citizen returned to `IDLE` with `status_reason` reporting full buffer (`"Ä‘áº§y"`), buffer clamped at capacity 40, and 0 Ore consumed.
+   - In TC-WS.4 (Crafting Missing Wood): Set `craft_job.state = JobState.IN_PROGRESS`, executed `_process(3.0)`, verified citizen returned to `IDLE` with `status_reason` reporting missing ingredients (`"Thiáº¿u nguyÃªn liá»‡u"`), atomic cost rejection (0 Metal consumed when Wood is 0), and 0 Tools produced.
 4. **Strengthened Tools Hauling Checks (`scripts/test/test_workshop.gd`):**
    - Added assertion that central Tools stock is unchanged immediately upon pickup.
    - Added assertion at every movement step while in `HAULING` verifying central stock remains strictly unchanged.
@@ -1589,7 +1589,7 @@ Address independent code review findings for Package 1E:
 
 ---
 
-## [2026-10-18] Milestone 29: Package 1E Final Review Fix — Legacy Nested Save Restoration ✅ VERIFIED
+## [2026-10-18] Milestone 29: Package 1E Final Review Fix â€” Legacy Nested Save Restoration âœ… VERIFIED
 
 ### Context & Objective
 Address final independent review finding for Package 1E:
@@ -1662,16 +1662,16 @@ Refactor `sync_workplaces_after_load()` to cleanly and unambiguously support all
 
 ---
 
-## [2026-10-18] Milestone 30: Package 1F — Research Hall Integration (Completed)
+## [2026-10-18] Milestone 30: Package 1F â€” Research Hall Integration (Completed)
 
 ### Context & Objective
 Implement Package 1F: Research Hall Integration on branch `feature/package-1f-research-hall` based on approved commit `9c670251f394754ae561e4817f16906880b2dfe3`:
 - Central blueprint `research_hall` in `scripts/economy/economy_config.gd`: footprint `Vector2i(3, 3)`, cost `{wood: 25, stone: 10}`, housing 0, storage bonus empty, max_workers 0, job_type `""`.
-- Placement validation through `BuildingSystem.place_building()`: 3×3 bounds, water prohibition, 9-cell occupancy collision, atomic cost deduction.
+- Placement validation through `BuildingSystem.place_building()`: 3Ã—3 bounds, water prohibition, 9-cell occupancy collision, atomic cost deduction.
 - Helper `BuildingSystem.is_research_hall_active(world_data) -> bool` detecting non-destroyed Research Hall.
-- Research gating in `scripts/research/research_manager.gd`: `hall_checker: Callable`, `has_active_hall() -> bool`, `can_research()` returning `"Cần có Viện Nghiên Cứu Hoàng Gia đang hoạt động"`, `start_research()` gated, `progress_research()` paused during downtime without reset.
-- HUD integration: `ResearchHallBtn` ("🏛️ Viện Nghiên Cứu (25 Gỗ, 10 Đá)") added to `BuildMenuPanel` GridContainer, wired to `_select_building("research_hall")`; research UI displays warning notice when hall is missing, and status pauses when hall is down.
-- Sprite asset: created `assets/buildings/bld_research_hall.png` (96×80 px, 3×3 dimetric isometric sprite with royal observatory dome, brass astrolabe spire, library entrance, and banners). Offset `Vector2(-48.0, -56.0)` anchored at base vertex `(origin + Vector2i(2, 2))`.
+- Research gating in `scripts/research/research_manager.gd`: `hall_checker: Callable`, `has_active_hall() -> bool`, `can_research()` returning `"Cáº§n cÃ³ Viá»‡n NghiÃªn Cá»©u HoÃ ng Gia Ä‘ang hoáº¡t Ä‘á»™ng"`, `start_research()` gated, `progress_research()` paused during downtime without reset.
+- HUD integration: `ResearchHallBtn` ("ðŸ›ï¸ Viá»‡n NghiÃªn Cá»©u (25 Gá»—, 10 ÄÃ¡)") added to `BuildMenuPanel` GridContainer, wired to `_select_building("research_hall")`; research UI displays warning notice when hall is missing, and status pauses when hall is down.
+- Sprite asset: created `assets/buildings/bld_research_hall.png` (96Ã—80 px, 3Ã—3 dimetric isometric sprite with royal observatory dome, brass astrolabe spire, library entrance, and banners). Offset `Vector2(-48.0, -56.0)` anchored at base vertex `(origin + Vector2i(2, 2))`.
 - Automated test suite `scripts/test/test_research_hall.gd` covering TC-RH.1 through TC-RH.7.
 - Updated `scripts/test/test_research_and_exploration.gd` test fixture with active hall checker.
 - Full regression matrix (17 test suites), 3 scene smoke tests, and live D3D12 GUI visual validation saving 7 screenshots into `docs/visual_validation/`.
@@ -1683,21 +1683,21 @@ Implement Package 1F: Research Hall Integration on branch `feature/package-1f-re
    - Implemented `BuildingSystem.is_research_hall_active(world_data: WorldGenerator.WorldData) -> bool` returning true only when a research hall exists and is not destroyed.
 3. **Research Gating System (`scripts/research/research_manager.gd`):**
    - Added `hall_checker: Callable = Callable()`, `set_hall_checker(checker: Callable) -> void`, and `has_active_hall() -> bool`.
-   - In `can_research()`: gated execution; if `not has_active_hall()`, returns `{"valid": false, "reason": "Cần có Viện Nghiên Cứu Hoàng Gia đang hoạt động"}`.
+   - In `can_research()`: gated execution; if `not has_active_hall()`, returns `{"valid": false, "reason": "Cáº§n cÃ³ Viá»‡n NghiÃªn Cá»©u HoÃ ng Gia Ä‘ang hoáº¡t Ä‘á»™ng"}`.
    - In `progress_research()`: gated execution; if `not has_active_hall()`, returns `false` before modifying `active_progress_hours`, preserving accumulated progress during downtime and resuming upon restoration.
 4. **WorldView Integration (`scripts/world/world_view.gd`):**
    - Registered `research_hall` texture with fallback to `townhall`.
-   - Added sprite offset `Vector2(-48.0, -56.0)` for 3×3 footprint.
-   - Added display name `"Viện Nghiên Cứu Hoàng Gia (3x3)"`.
+   - Added sprite offset `Vector2(-48.0, -56.0)` for 3Ã—3 footprint.
+   - Added display name `"Viá»‡n NghiÃªn Cá»©u HoÃ ng Gia (3x3)"`.
    - Wired `research_mgr.set_hall_checker(func(): return BuildingSystem.is_research_hall_active(world_data))` during world initialization.
    - Refreshed HUD research UI upon `research_hall` placement.
 5. **HUD UI Integration (`scenes/ui/hud.tscn`, `scripts/ui/hud.gd`):**
-   - Added `ResearchHallBtn` ("🏛️ Viện Nghiên Cứu (25 Gỗ, 10 Đá)") to `BuildMenuPanel` GridContainer.
+   - Added `ResearchHallBtn` ("ðŸ›ï¸ Viá»‡n NghiÃªn Cá»©u (25 Gá»—, 10 ÄÃ¡)") to `BuildMenuPanel` GridContainer.
    - Connected `ResearchHallBtn` pressed signal to `_select_building("research_hall")`.
-   - Updated `_refresh_research_ui()` and `_on_tech_progress_updated()` to display `"⚠️ Cần xây dựng Viện Nghiên Cứu Hoàng Gia để bắt đầu nghiên cứu"` or `"⏸️ Tạm dừng: ... (Cần Viện Nghiên Cứu hoạt động)"`.
+   - Updated `_refresh_research_ui()` and `_on_tech_progress_updated()` to display `"âš ï¸ Cáº§n xÃ¢y dá»±ng Viá»‡n NghiÃªn Cá»©u HoÃ ng Gia Ä‘á»ƒ báº¯t Ä‘áº§u nghiÃªn cá»©u"` or `"â¸ï¸ Táº¡m dá»«ng: ... (Cáº§n Viá»‡n NghiÃªn Cá»©u hoáº¡t Ä‘á»™ng)"`.
    - Made `set_research_manager` idempotent against duplicate connections.
 6. **Pixel Art Sprite Asset:**
-   - Authored `assets/buildings/bld_research_hall.png` (96×80 px) adhering strictly to `docs/ASSET_STYLE_GUIDE.md` 27-color fantasy palette with royal observatory dome, telescope slit, celestial astrolabe, grand library arched entrance, and banners.
+   - Authored `assets/buildings/bld_research_hall.png` (96Ã—80 px) adhering strictly to `docs/ASSET_STYLE_GUIDE.md` 27-color fantasy palette with royal observatory dome, telescope slit, celestial astrolabe, grand library arched entrance, and banners.
 7. **Automated Unit & Regression Tests:**
    - Created `scripts/test/test_research_hall.gd` covering TC-RH.1 through TC-RH.7 with fail-closed assertions.
    - Updated `scripts/test/test_research_and_exploration.gd` fixture with active hall checker.
@@ -1750,7 +1750,7 @@ Implement Package 1F: Research Hall Integration on branch `feature/package-1f-re
   - `git diff --check`: Clean (Exit Code 0, zero whitespace errors).
 
 ### Files Created / Modified
-- `assets/buildings/bld_research_hall.png` (96×80 px dimetric isometric sprite)
+- `assets/buildings/bld_research_hall.png` (96Ã—80 px dimetric isometric sprite)
 - `assets/buildings/bld_research_hall.png.import` (Godot texture import metadata)
 - `scenes/ui/hud.tscn` (Added ResearchHallBtn, adjusted BuildMenuPanel height)
 - `scripts/economy/economy_config.gd` (Added research_hall blueprint)
@@ -1771,13 +1771,13 @@ Implement Package 1F: Research Hall Integration on branch `feature/package-1f-re
 
 ---
 
-## [2026-10-18] Milestone 31: Package 1F Review Fix — Research Hall State Hardening, Atomic Research Costs & Idempotent Persistence
+## [2026-10-18] Milestone 31: Package 1F Review Fix â€” Research Hall State Hardening, Atomic Research Costs & Idempotent Persistence
 
 ### Context & Objective
 Address code review findings for Package 1F:
-1. **Fix A — Active State Enforcement:** Research Hall only enables research when `state == "active"` (defaulting to `"active"` if state field is omitted). Damaged, paused, under construction, planned, or destroyed halls fail closed.
-2. **Fix B — Atomic Cost Reservation & Commit:** `ResearchManager.start_research()` fail-closed enforcement using `reserve_cost()` (all-or-nothing) and `commit_cost()`. Returns false safely if `reserve_cost`/`commit_cost` are missing or reservation fails; no partial deductions.
-3. **Fix C — Idempotent Persistence & Count Verification:** Assert exact record count in `world_data.buildings` (1) and visual node count in `buildings_container` (1) after placement and after load. Re-apply loaded state a second time to verify anti-duplication / idempotency.
+1. **Fix A â€” Active State Enforcement:** Research Hall only enables research when `state == "active"` (defaulting to `"active"` if state field is omitted). Damaged, paused, under construction, planned, or destroyed halls fail closed.
+2. **Fix B â€” Atomic Cost Reservation & Commit:** `ResearchManager.start_research()` fail-closed enforcement using `reserve_cost()` (all-or-nothing) and `commit_cost()`. Returns false safely if `reserve_cost`/`commit_cost` are missing or reservation fails; no partial deductions.
+3. **Fix C â€” Idempotent Persistence & Count Verification:** Assert exact record count in `world_data.buildings` (1) and visual node count in `buildings_container` (1) after placement and after load. Re-apply loaded state a second time to verify anti-duplication / idempotency.
 
 ### Completed Work
 1. **Active State Filter (`scripts/economy/building_system.gd`):**
@@ -1845,7 +1845,7 @@ Address code review findings for Package 1F:
 
 ---
 
-## [2026-10-18] Milestone 32: Package 1F Final Review Fix — Prevent Free Research When Resource Manager Is Missing
+## [2026-10-18] Milestone 32: Package 1F Final Review Fix â€” Prevent Free Research When Resource Manager Is Missing
 
 ### Context & Objective
 Address final code review finding for Package 1F:
@@ -1917,11 +1917,11 @@ In `scripts/research/research_manager.gd`, `start_research()` previously checked
 
 ---
 
-## [2026-10-18] Milestone 33: Package 1G — Barracks & Guard Integration
+## [2026-10-18] Milestone 33: Package 1G â€” Barracks & Guard Integration
 
 ### Context & Objective
 Implement Package 1G: Barracks & Guard Integration on Godot 4.7.
-Establish buildable Barracks (Doanh Trại) with 3x3 footprint, active state detection, fail-closed Guard role gating, deterministic perimeter guard duty loop via shared JobManager, and idempotent save/load persistence without combat formulas or troop stacks.
+Establish buildable Barracks (Doanh Tráº¡i) with 3x3 footprint, active state detection, fail-closed Guard role gating, deterministic perimeter guard duty loop via shared JobManager, and idempotent save/load persistence without combat formulas or troop stacks.
 
 ### Completed Work
 1. **Authoritative Blueprint & Economy Config (`scripts/economy/economy_config.gd`):**
@@ -1934,29 +1934,29 @@ Establish buildable Barracks (Doanh Trại) with 3x3 footprint, active state det
    - Implemented `BuildingSystem.find_perimeter_cells(origin, size, world_data, max_count)` to dynamically determine unique, walkable, unblocked perimeter positions outside the 3x3 footprint for guard sentry posts.
    - Enforced accessibility check in `BuildingSystem.can_place_building` for `barracks`.
 3. **Pixel Art Asset Creation (`assets/buildings/bld_barracks.png`):**
-   - Generated authentic 96×80 px dimetric pixel art sprite using the 27-color fantasy palette with NW directional lighting.
+   - Generated authentic 96Ã—80 px dimetric pixel art sprite using the 27-color fantasy palette with NW directional lighting.
    - Features reinforced stone masonry base, double wooden gates with iron banding, corner battlements/crenellations, a royal kingdom crest insignia, and an elevated sentry watchtower flying a garrison banner.
    - Configured `.import` file for lossless 2D pixel-art rendering.
 4. **Citizen Controller Guard Duty State Machine (`scripts/entities/citizen_controller.gd`):**
    - Added `GUARDING = 6` to `enum State`.
    - Added `set_barracks_checker(checker: Callable)` and `is_barracks_active() -> bool`.
-   - Updated `set_role(new_role)` to return `bool` and reject `"guard"` fail-closed when barracks is inactive, setting reason `"Cần Doanh Trại đang hoạt động"`.
+   - Updated `set_role(new_role)` to return `bool` and reject `"guard"` fail-closed when barracks is inactive, setting reason `"Cáº§n Doanh Tráº¡i Ä‘ang hoáº¡t Ä‘á»™ng"`.
    - Updated `_process_idle()`: guard citizens do not claim jobs while barracks is inactive.
-   - Updated `_arrive_at_destination()`: transitions guard citizens from `MOVING_TO_JOB` to `State.GUARDING`, marks job `IN_PROGRESS`, and updates reason to `"Đang canh gác tại Doanh Trại"`.
+   - Updated `_arrive_at_destination()`: transitions guard citizens from `MOVING_TO_JOB` to `State.GUARDING`, marks job `IN_PROGRESS`, and updates reason to `"Äang canh gÃ¡c táº¡i Doanh Tráº¡i"`.
    - Implemented `_process_guarding(delta)`:
-     - Detects barracks inactivation dynamically, releasing job and returning to IDLE with status `"Cần Doanh Trại đang hoạt động"` while strictly retaining the citizen's `"guard"` role.
+     - Detects barracks inactivation dynamically, releasing job and returning to IDLE with status `"Cáº§n Doanh Tráº¡i Ä‘ang hoáº¡t Ä‘á»™ng"` while strictly retaining the citizen's `"guard"` role.
      - Enforces urgent needs release: hunger >= 70 or fatigue >= 85 immediately releases duty to seek food or rest.
      - Scales shift duration with `TimeManager.current_speed` (zero shift progression when paused).
      - Completes recurring shift when done, freeing worker for the next guard rotation.
 5. **HUD Integration (`scenes/ui/hud.tscn`, `scripts/ui/hud.gd`):**
-   - Expanded BuildMenuPanel height and added `BarracksBtn` ("🛡️ Doanh Trại (25 Gỗ, 20 Đá, 5 Kim Loại)").
+   - Expanded BuildMenuPanel height and added `BarracksBtn` ("ðŸ›¡ï¸ Doanh Tráº¡i (25 Gá»—, 20 ÄÃ¡, 5 Kim Loáº¡i)").
    - Wired `btn_barracks` to emit `build_requested("barracks")`.
-   - Added item 7 `"Vệ Binh (Guard)"` to `role_option_btn`.
-   - Implemented `_refresh_role_options()`: dynamically annotates item 7 with `"Vệ Binh (Cần Doanh Trại)"` and disables it when barracks is inactive.
+   - Added item 7 `"Vá»‡ Binh (Guard)"` to `role_option_btn`.
+   - Implemented `_refresh_role_options()`: dynamically annotates item 7 with `"Vá»‡ Binh (Cáº§n Doanh Tráº¡i)"` and disables it when barracks is inactive.
    - Updated `_on_role_option_selected(idx)` to reject option 7 fail-closed with error audio and reselection if barracks is inactive.
    - Integrated `guard` role selection in `show_citizen_inspector`.
 6. **WorldView Integration (`scripts/world/world_view.gd`):**
-   - Loaded barracks texture with townhall fallback, configured offset `Vector2(-48.0, -56.0)` and display name `"Doanh Trại (3x3)"`.
+   - Loaded barracks texture with townhall fallback, configured offset `Vector2(-48.0, -56.0)` and display name `"Doanh Tráº¡i (3x3)"`.
    - Connected HUD barracks checker in `_generate_and_build_world`.
    - Set barracks checker on spawned starter citizens and immigrant waves.
    - Implemented `register_barracks_jobs(b_data)` generating up to `guard_capacity` recurring jobs targeting distinct perimeter cells.
@@ -2031,17 +2031,17 @@ Establish buildable Barracks (Doanh Trại) with 3x3 footprint, active state det
 
 ---
 
-## [2026-10-18] Milestone 34: Package 1G Review Fix — Multi-Barracks Guard Duty Eligibility and Tests
+## [2026-10-18] Milestone 34: Package 1G Review Fix â€” Multi-Barracks Guard Duty Eligibility and Tests
 
 ### Context & Objective
 Address independent source review findings for Package 1G on branch `feature/package-1g-barracks`:
-1. **Fix A — Tie each guard job to its own Barracks:** Multi-building support in `BuildingSystem.is_barracks_active(world_data, barracks_id)`, building-specific checks in `JobManager._is_job_executable()`, building-specific checks in `CitizenController._process_guarding()`, individual duty release on specific building downtime with role retention and reason `"Cần Doanh Trại đang hoạt động"`.
-2. **Fix B — Enforce unique guard positions and capacity:** Strict registration of up to `guard_capacity` (2) jobs without duplicate fallback posts, cross-barracks perimeter exclusion in `WorldView.register_barracks_jobs()` via `occupied_guard_posts` collection and `BuildingSystem.find_perimeter_cells()`, no jobs for inactive barracks.
-3. **Fix C — Work-related need decay in `State.GUARDING`:** Included `State.GUARDING` in `CitizenController._on_hour_passed()` for work-related need decay (+4.167 Hunger, +4.0 Fatigue), preserving hunger >= 70 and fatigue >= 85 release.
-4. **Fix D — Genuine TimeManager pause test:** Real engine TimeManager pause test in `test_barracks.gd` verifying zero job progress and zero movement during pause, followed by safe game speed restoration.
-5. **Fix E — Regression test suite expansion:** Comprehensive active-state coverage (`active`, `paused`, `damaged`, `under_construction`, `planned`, `destroyed`, legacy default), multi-barracks segregation, single-post constrained layout, overlapping perimeter post exclusion, and full placement rejection coverage with zero resource deductions.
-6. **Fix F — Save/Load persistence hardening:** Double-load idempotency, inactive barracks load test, legacy save compatibility, and zero resource deduction on load.
-7. **Fix G — Strict package boundary preservation:** Zero bleed into combat formulas, troop recruitment, or refactors outside Package 1G.
+1. **Fix A â€” Tie each guard job to its own Barracks:** Multi-building support in `BuildingSystem.is_barracks_active(world_data, barracks_id)`, building-specific checks in `JobManager._is_job_executable()`, building-specific checks in `CitizenController._process_guarding()`, individual duty release on specific building downtime with role retention and reason `"Cáº§n Doanh Tráº¡i Ä‘ang hoáº¡t Ä‘á»™ng"`.
+2. **Fix B â€” Enforce unique guard positions and capacity:** Strict registration of up to `guard_capacity` (2) jobs without duplicate fallback posts, cross-barracks perimeter exclusion in `WorldView.register_barracks_jobs()` via `occupied_guard_posts` collection and `BuildingSystem.find_perimeter_cells()`, no jobs for inactive barracks.
+3. **Fix C â€” Work-related need decay in `State.GUARDING`:** Included `State.GUARDING` in `CitizenController._on_hour_passed()` for work-related need decay (+4.167 Hunger, +4.0 Fatigue), preserving hunger >= 70 and fatigue >= 85 release.
+4. **Fix D â€” Genuine TimeManager pause test:** Real engine TimeManager pause test in `test_barracks.gd` verifying zero job progress and zero movement during pause, followed by safe game speed restoration.
+5. **Fix E â€” Regression test suite expansion:** Comprehensive active-state coverage (`active`, `paused`, `damaged`, `under_construction`, `planned`, `destroyed`, legacy default), multi-barracks segregation, single-post constrained layout, overlapping perimeter post exclusion, and full placement rejection coverage with zero resource deductions.
+6. **Fix F â€” Save/Load persistence hardening:** Double-load idempotency, inactive barracks load test, legacy save compatibility, and zero resource deduction on load.
+7. **Fix G â€” Strict package boundary preservation:** Zero bleed into combat formulas, troop recruitment, or refactors outside Package 1G.
 
 ### Completed Work
 1. **BuildingSystem (`scripts/economy/building_system.gd`):**
@@ -2054,7 +2054,7 @@ Address independent source review findings for Package 1G on branch `feature/pac
 3. **CitizenController (`scripts/entities/citizen_controller.gd`):**
    - Updated `is_barracks_active(barracks_id: String = "")` to pass `barracks_id` to `barracks_checker`.
    - In `_process_idle()`, passed building-aware `filter_cb` to `job_mgr.request_job()`.
-   - In `_process_guarding(delta)`, validated `active_job.target_building_id` specifically; releases job if its barracks becomes inactive or if the guard cell becomes unwalkable/occupied, setting reason `"Cần Doanh Trại đang hoạt động"` or `"Không thể tiếp cận nơi làm việc (bị chặn đường)"` while retaining role `"guard"`.
+   - In `_process_guarding(delta)`, validated `active_job.target_building_id` specifically; releases job if its barracks becomes inactive or if the guard cell becomes unwalkable/occupied, setting reason `"Cáº§n Doanh Tráº¡i Ä‘ang hoáº¡t Ä‘á»™ng"` or `"KhÃ´ng thá»ƒ tiáº¿p cáº­n nÆ¡i lÃ m viá»‡c (bá»‹ cháº·n Ä‘Æ°á»ng)"` while retaining role `"guard"`.
    - In `_on_hour_passed()`, included `State.GUARDING` alongside `State.WORKING` and `State.HAULING` (+4.167 Hunger, +4.0 Fatigue).
 4. **HUD & WorldView (`scripts/ui/hud.gd`, `scripts/world/world_view.gd`):**
    - Updated HUD `is_barracks_active(barracks_id: String = "")` forwarding `barracks_id`.
@@ -2105,7 +2105,7 @@ Address independent source review findings for Package 1G on branch `feature/pac
 
 ---
 
-## [2026-10-18] Milestone 35: Package 1G Final Hardening — Fail-Closed Guard Job Validation
+## [2026-10-18] Milestone 35: Package 1G Final Hardening â€” Fail-Closed Guard Job Validation
 
 ### Context & Objective
 Implement Package 1G final hardening on branch `feature/package-1g-barracks`:
@@ -2165,7 +2165,7 @@ Implement Package 1G final hardening on branch `feature/package-1g-barracks`:
 
 ---
 
-## [2026-10-18] Milestone 36: Implement Builder & Construction Lifecycle (Package 1H) ✅ VERIFIED
+## [2026-10-18] Milestone 36: Implement Builder & Construction Lifecycle (Package 1H) âœ… VERIFIED
 
 ### Context & Objective
 Implement Package 1H: Builder & Construction Lifecycle directly in the local repository on branch `feature/package-1h-construction` adhering strictly to GDD Section 7.3:
@@ -2175,7 +2175,7 @@ Implement Package 1H: Builder & Construction Lifecycle directly in the local rep
 - Real builder work loop in `CitizenController` advancing shared project progress by `delta_hours` per working builder, respecting pause and time speed (1x, 2x, 3x).
 - Centralized idempotent completion transition (`complete_construction`) unlocking building operational features (workplace channels, guard posts, research UI, watchtower vision, housing cap, storehouse capacity) and resetting amber scaffolding modulate.
 - Cancellation policy refunding 50% blueprint costs atomically, releasing occupancy, removing jobs, and freeing visual nodes idempotently.
-- Visual scaffolding amber modulate `Color(0.8, 0.7, 0.5, 0.7)` and dynamic HUD hover progress percentage `[Đang xây: X%]`.
+- Visual scaffolding amber modulate `Color(0.8, 0.7, 0.5, 0.7)` and dynamic HUD hover progress percentage `[Äang xÃ¢y: X%]`.
 - Save/load persistence preserving exact progress, zero duplicate jobs/nodes, zero reload deductions, and legacy save compatibility.
 
 ### Completed Work
@@ -2192,14 +2192,14 @@ Implement Package 1H: Builder & Construction Lifecycle directly in the local rep
    - In `_is_job_executable()`, validated builder jobs fail closed on empty building ID or missing checker, returning true only if target building is verifiably under construction and perimeter cell is walkable.
 3. **Builder Citizen Work Loop (`scripts/entities/citizen_controller.gd`):**
    - Added `construction_checker`, `construction_handler`, `world_view`, `world_data`, and setters.
-   - In `_process_idle()`, added builder role filter callback and status reason `"Chờ công trình cần xây dựng"`.
-   - In `_process_working()`, routed builder jobs to `_process_building_work(delta_hours)` with need interruption (hunger >= 70, fatigue >= 85), building cancellation/completion handling, and explainable status reason `"Đang thi công [Tên công trình]: X%"`.
+   - In `_process_idle()`, added builder role filter callback and status reason `"Chá» cÃ´ng trÃ¬nh cáº§n xÃ¢y dá»±ng"`.
+   - In `_process_working()`, routed builder jobs to `_process_building_work(delta_hours)` with need interruption (hunger >= 70, fatigue >= 85), building cancellation/completion handling, and explainable status reason `"Äang thi cÃ´ng [TÃªn cÃ´ng trÃ¬nh]: X%"`.
 4. **WorldView Lifecycle & Visual Scaffolding (`scripts/world/world_view.gd`):**
    - Added amber scaffolding modulate `Color(0.8, 0.7, 0.5, 0.7)` to `_instantiate_building_node()` when `state == "under_construction"`.
    - In `_execute_placement()`, places buildings in `under_construction` and registers builder jobs up to capacity at walkable perimeter cells.
    - Implemented `register_construction_jobs(b_data)`, `advance_construction_work(b_id, delta_hours)`, `complete_construction(b_id)`, `cancel_construction_project(b_id)`.
    - Centralized `complete_construction(b_id)`: activates state, resets modulate, frees builder jobs, and calls `_apply_building_operational_integration(b_data)` once.
-   - Updated `_update_tile_hover()` to append `[Đang xây: X%]` when hovering unbuilt structures.
+   - Updated `_update_tile_hover()` to append `[Äang xÃ¢y: X%]` when hovering unbuilt structures.
    - In `sync_workplaces_after_load()`, registers construction jobs for `under_construction` buildings.
 5. **Save/Load Persistence (`scripts/persistence/save_manager.gd`):**
    - Serialized `construction_progress` and `construction_hours`.
@@ -2365,7 +2365,7 @@ Address independent review findings for Package 1H on branch `feature/package-1h
 
 ---
 
-## [2026-10-18] Milestone 38: Package 1H Final Review Fix — Idempotent Construction Registration, Footprint Validation, Watchtower Hourly Tick & Fail-Closed Storage Effects (Completed)
+## [2026-10-18] Milestone 38: Package 1H Final Review Fix â€” Idempotent Construction Registration, Footprint Validation, Watchtower Hourly Tick & Fail-Closed Storage Effects (Completed)
 
 ### Context & Objective
 Execute the focused Package 1H Final Review Fix on branch `feature/package-1h-construction` (base: `804fcd069b3645392091395e812b1de87ec12639`):
@@ -2473,7 +2473,7 @@ Execute the focused Package 1H Final Review Fix on branch `feature/package-1h-co
 - `scripts/test/test_watchtower.gd` (TC-W.6 under-construction hourly simulation tick regression)
 - `docs/BACKLOG.md` (Added TASK-1H.11 completion)
 - `docs/CHANGELOG.md` (Documented Package 1H final review fix details)
-- `docs/TEST_PLAN.md` (Updated test plan specifications for TC-CON.1–TC-CON.6 and TC-W.6)
+- `docs/TEST_PLAN.md` (Updated test plan specifications for TC-CON.1â€“TC-CON.6 and TC-W.6)
 - `docs/WORKLOG.md` (Documented Milestone 38)
 
 ### Next Exact Step
@@ -2481,7 +2481,7 @@ Execute the focused Package 1H Final Review Fix on branch `feature/package-1h-co
 
 ---
 
-## [2026-10-18] Milestone 39: Package 1H Final Fix #2 — Construction Job Perimeter Validity & Deduplication (Completed)
+## [2026-10-18] Milestone 39: Package 1H Final Fix #2 â€” Construction Job Perimeter Validity & Deduplication (Completed)
 
 ### Context & Objective
 Execute the focused Package 1H Final Fix #2 on branch `feature/package-1h-construction` (starting base: `ebe7ab111d4459e206faa2a0787af9b315c793da`):
@@ -2513,7 +2513,7 @@ Execute the focused Package 1H Final Fix #2 on branch `feature/package-1h-constr
    - Added Subcheck C: calls registration 3 consecutive times; asserts count and target-cell set are 100% stable.
    - Added Subcheck D: verifies overlapping prefix building `bld_house_15_150` maintains its separate 3 jobs throughout all cleanups.
 3. **Full Validation Matrix:**
-   - Dedicated `test_construction.gd`: 6/6 passed (TC-CON.1 to TC-CON.6 including Subchecks A–D).
+   - Dedicated `test_construction.gd`: 6/6 passed (TC-CON.1 to TC-CON.6 including Subchecks Aâ€“D).
    - Dedicated `test_watchtower.gd`: passed (all cases including TC-W.6).
    - All 21 test suites in `scripts/test/test_*.gd`: passed with Exit Code 0.
    - 4 headless scene smoke checks (`main_menu.tscn`, `world_view.tscn`, `hud.tscn`, `visual_validation_test.tscn`): passed with Exit Code 0.
@@ -2565,10 +2565,10 @@ Execute the focused Package 1H Final Fix #2 on branch `feature/package-1h-constr
 
 ### Files Created / Modified
 - `scripts/world/world_view.gd` (Perimeter containment verification, duplicate cell deduplication, worker safety in `_safe_cleanup_construction_job`)
-- `scripts/test/test_construction.gd` (TC-CON.2 Subchecks A–D for stale cleanup, duplicate deduplication, worker safety, idempotency, and project isolation)
+- `scripts/test/test_construction.gd` (TC-CON.2 Subchecks Aâ€“D for stale cleanup, duplicate deduplication, worker safety, idempotency, and project isolation)
 - `docs/BACKLOG.md` (Added TASK-1H.12 completion)
 - `docs/CHANGELOG.md` (Documented Package 1H Final Fix #2 details)
-- `docs/TEST_PLAN.md` (Updated TC-CON.2 specifications with Subchecks A–D)
+- `docs/TEST_PLAN.md` (Updated TC-CON.2 specifications with Subchecks Aâ€“D)
 - `docs/WORKLOG.md` (Documented Milestone 39)
 
 ### Next Exact Step
@@ -2576,7 +2576,7 @@ Execute the focused Package 1H Final Fix #2 on branch `feature/package-1h-constr
 
 ---
 
-## [2026-10-18] Milestone 40: Package 1H Final Fix #3 — Preserve Unrelated Citizen Assignments & Exact Project Ownership (Completed)
+## [2026-10-18] Milestone 40: Package 1H Final Fix #3 â€” Preserve Unrelated Citizen Assignments & Exact Project Ownership (Completed)
 
 ### Context & Objective
 Execute the focused Package 1H Final Fix #3 on branch `feature/package-1h-construction` (starting base: `7e19c96194552a8fb09f117e3b7711fae16c57d7`):
@@ -2604,7 +2604,7 @@ Execute the focused Package 1H Final Fix #3 on branch `feature/package-1h-constr
    - Added Subcheck F: creates actual stale builder job with working citizen; injects stranded citizen with null active_job; asserts stale job cleaned up, assigned citizen active_job cleared and state set to IDLE with empty path, and stranded citizen released to IDLE.
    - Added Subcheck G: creates builder job for `bld_house_15_15_annex`; registers house `bld_house_15_15`; asserts annex job is neither adopted nor removed and remains unchanged in `JobManager`.
 3. **Full Validation Matrix:**
-   - Dedicated `test_construction.gd`: 6/6 passed (TC-CON.1 to TC-CON.6 including Subchecks A–G).
+   - Dedicated `test_construction.gd`: 6/6 passed (TC-CON.1 to TC-CON.6 including Subchecks Aâ€“G).
    - Dedicated `test_watchtower.gd`: passed (all cases including TC-W.6).
    - All 21 test suites in `scripts/test/test_*.gd`: passed with Exit Code 0.
    - 4 headless scene smoke checks (`main_menu.tscn`, `world_view.tscn`, `hud.tscn`, `visual_validation_test.tscn`): passed with Exit Code 0.
@@ -2662,7 +2662,7 @@ Execute the focused Package 1H Final Fix #3 on branch `feature/package-1h-constr
 - `scripts/test/test_construction.gd` (TC-CON.2 Subchecks E, F, G)
 - `docs/BACKLOG.md` (Added TASK-1H.13 completion)
 - `docs/CHANGELOG.md` (Documented Package 1H Final Fix #3 details)
-- `docs/TEST_PLAN.md` (Updated TC-CON.2 specifications with Subchecks E–G)
+- `docs/TEST_PLAN.md` (Updated TC-CON.2 specifications with Subchecks Eâ€“G)
 - `docs/WORKLOG.md` (Documented Milestone 40)
 
 ### Next Exact Step
@@ -2670,3 +2670,109 @@ Execute the focused Package 1H Final Fix #3 on branch `feature/package-1h-constr
 - Commit with exact mandated message: `Preserve unrelated citizen assignments during cleanup`.
 - Push to `origin/feature/package-1h-construction`.
 - Await independent review. Do not merge into master, do not start Package 1I.
+
+---
+
+## [2026-10-18] Milestone 41: Package 1I â€” Palisade & Fortification System âœ… VERIFIED
+
+### Context & Objective
+Implement Package 1I as the next vertical slice: a buildable Palisade defensive structure integrated into the existing construction, placement, navigation, visual rendering, HUD, settlement fortification, and save/load persistence systems.
+- Repository: `Mincow271104/KINGDOMS-UNBOUND`
+- Branch: `feature/package-1i-palisade` (based on accepted baseline `67846f8e5f03d8acc2f06e8f3a63c1a863fdbce2`)
+- Mandated commit message: `Add palisade fortification structure`
+
+### Implementation Summary
+1. **Authoritative Blueprint (`scripts/economy/economy_config.gd`):**
+   - Added `palisade` blueprint with 1x1 footprint, cost `{wood: 4, stone: 2}`, `construction_hours: 3.0`, 0 workers, empty storage, no production jobs.
+2. **Defensive Fortification Integration (`scripts/economy/building_system.gd`, `scripts/combat/battle_resolver.gd`):**
+   - Added `BuildingSystem.calculate_fortification_level(world_data) -> int` deduplicating active palisade cells, ignoring under-construction or damaged palisades, and mapping counts to fortification levels 0..3 (0: 0, 1â€“4: 1, 5â€“9: 2, 10+: 3).
+   - Added `BattleResolver.calculate_settlement_fortification_level(world_data) -> int` integrating fortification level into defender combat calculations (+30% score per level).
+3. **Pixel Art Asset (`assets/buildings/bld_palisade.png` & `.import`):**
+   - Created 32x36 px PNG asset using authoritative 27-color fantasy palette with NW lighting and 2:1 dimetric isometric perspective, featuring sharpened wooden stakes, cross-bracing logs, stone foundation footing, and iron binding spikes.
+4. **WorldView Lifecycle & Rendering (`scripts/world/world_view.gd`):**
+   - Registered `building_textures["palisade"]`.
+   - Added sprite offset `Vector2(-16.0, -28.0)` for 32x36 canvas in `_get_building_sprite_offset()`.
+   - Added display name `"TÆ°á»ng RÃ o PhÃ²ng Ngá»± (1x1)"` in `_get_building_display_name()`.
+5. **HUD Build Menu Wiring (`scenes/ui/hud.tscn`, `scripts/ui/hud.gd`):**
+   - Added `PalisadeBtn` (`ðŸ›¡ï¸ TÆ°á»ng RÃ o (4W 2S)`) in `BuildMenuPanel/MarginContainer/VBoxContainer/GridContainer`.
+   - Wired `PalisadeBtn.pressed` to `_select_building("palisade")` with ghost placement preview.
+6. **Navigation Obstacle Integration:**
+   - Completed and under-construction palisades occupy footprint cells in `world_data.occupancy` and are marked solid unwalkable obstacles (`is_cell_walkable == false`) in `GridNavigation`.
+7. **Automated Test Suite (`scripts/test/test_palisade.gd`):**
+   - Created test suite covering TC-PA.1 through TC-PA.7:
+     - TC-PA.1: Blueprint Verification & Placement Legality
+     - TC-PA.2: Construction Lifecycle & Worker Capacity (capacity 2, amber modulate, completion threshold, idempotent completion)
+     - TC-PA.3: Cancellation Policy & Resource Refund (fail-closed on null RM, storage capacity check, exact 50% refund, occupancy clearance, prefix isolation)
+     - TC-PA.4: Navigation Grid Obstacle & Walkability (unwalkable cell, pathfinding bypass)
+     - TC-PA.5: Save/Load Persistence & Reconstitution (zero double deductions, progress restoration, zero node duplication, builder job reconstruction)
+     - TC-PA.6: Settlement Fortification & Battle Integration (level 0..3 scaling, combat bonus calculation)
+     - TC-PA.7: HUD Integration & Visual Presentation (button wiring, ghost preview, display name)
+
+### Validations Performed & Results
+- **Dedicated Palisade Test Suite (`scripts/test/test_palisade.gd`):** **PASS (Exit Code 0, 7/7 tests passed)**
+  - TC-PA.1: Blueprint & Placement Legality: **PASS**
+  - TC-PA.2: Construction Lifecycle: **PASS**
+  - TC-PA.3: Cancellation and Cleanup: **PASS**
+  - TC-PA.4: Navigation and Occupancy: **PASS**
+  - TC-PA.5: Save/Load Persistence: **PASS**
+  - TC-PA.6: Defensive Fortification Integration: **PASS**
+  - TC-PA.7: HUD and Scene Wiring: **PASS**
+- **Targeted Regression Suites:**
+  - `test_construction.gd`: **PASS (Exit Code 0, 6/6 tests passed)**
+  - `test_watchtower.gd`: **PASS (Exit Code 0, all tests passed)**
+  - `test_barracks.gd`: **PASS (Exit Code 0, 7/7 tests passed)**
+  - `test_workshop.gd`: **PASS (Exit Code 0, 7/7 tests passed)**
+  - `test_research_hall.gd`: **PASS (Exit Code 0, 7/7 tests passed)**
+- **Full Test Matrix (All 22 Test Suites in `scripts/test/test_*.gd`):** **PASS (22/22 suites passed, Exit Code 0)**
+  - `test_audio.gd`: **PASS**
+  - `test_barracks.gd`: **PASS**
+  - `test_citizens.gd`: **PASS**
+  - `test_construction.gd`: **PASS**
+  - `test_coordinates.gd`: **PASS**
+  - `test_dynamic_workplaces.gd`: **PASS**
+  - `test_economy.gd`: **PASS**
+  - `test_factions_and_battles.gd`: **PASS**
+  - `test_gold_transactions.gd`: **PASS**
+  - `test_logistics.gd`: **PASS**
+  - `test_mine.gd`: **PASS**
+  - `test_palisade.gd`: **PASS**
+  - `test_quarry.gd`: **PASS**
+  - `test_research_and_exploration.gd`: **PASS**
+  - `test_research_hall.gd`: **PASS**
+  - `test_save_load.gd`: **PASS**
+  - `test_stress_100_citizens.gd`: **PASS**
+  - `test_time_manager.gd`: **PASS**
+  - `test_victory_and_collapse.gd`: **PASS**
+  - `test_watchtower.gd`: **PASS**
+  - `test_workshop.gd`: **PASS**
+  - `test_world_gen.gd`: **PASS**
+- **Headless Scene Smoke Checks:**
+  - `scenes/ui/main_menu.tscn`: **PASS (Exit Code 0)**
+  - `scenes/world/world_view.tscn`: **PASS (Exit Code 0)**
+  - `scenes/ui/hud.tscn`: **PASS (Exit Code 0)**
+  - `scenes/test/visual_validation_test.tscn`: **PASS (Exit Code 0)**
+  *(Note: All scene smoke validations were executed via Godot 4.7 headless console; no manual visual GUI inspection was performed).*
+- **Whitespace Check:**
+  - `git diff --check`: Clean (Exit Code 0, zero whitespace errors).
+
+### Files Created / Modified
+- `scripts/economy/economy_config.gd` (Added `palisade` blueprint)
+- `scripts/economy/building_system.gd` (Added `calculate_fortification_level`)
+- `scripts/combat/battle_resolver.gd` (Added `calculate_settlement_fortification_level`)
+- `assets/buildings/bld_palisade.png` (Created 32x36 px pixel art asset)
+- `assets/buildings/bld_palisade.png.import` (Godot texture import metadata)
+- `scripts/world/world_view.gd` (Texture loading, sprite offset, display name)
+- `scenes/ui/hud.tscn` (Added `PalisadeBtn`)
+- `scripts/ui/hud.gd` (Connected `PalisadeBtn` to `_select_building("palisade")`)
+- `scripts/test/test_palisade.gd` (Automated test suite for TC-PA.1 to TC-PA.7)
+- `docs/BACKLOG.md` (Added Package 1I tasks TASK-1I.1 to TASK-1I.8)
+- `docs/CHANGELOG.md` (Documented Package 1I additions)
+- `docs/GAME_RULES.md` (Documented Palisade blueprint and fortification mechanics)
+- `docs/TEST_PLAN.md` (Added TC-PA.1 through TC-PA.7 test specifications and results)
+- `docs/WORKLOG.md` (Documented Milestone 41)
+
+### Next Exact Step
+- Stage modified and created Package 1I files explicitly (preserving untracked files).
+- Commit with exact mandated message: `Add palisade fortification structure`.
+- Push to `origin/feature/package-1i-palisade`.
+- Await independent review. Do not merge into master, do not start Package 1J.

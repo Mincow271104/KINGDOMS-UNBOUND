@@ -113,6 +113,7 @@ Configured centrally in `EconomyConfig`:
 | **Workshop** | $2 \times 2$ cells | $64 \times 32$ px base | 0 | 20 Wood + 15 Stone + 5 Metal, max 4 smiths (2 smelt, 2 craft) |
 | **Research Hall** | $3 \times 3$ cells | $96 \times 48$ px base | 0 | 25 Wood + 10 Stone, unlocks technological research |
 | **Barracks** | $3 \times 3$ cells | $96 \times 48$ px base | 0 | 25 Wood + 20 Stone + 5 Metal, 2 guard sentry posts, gates Guard role |
+| **Palisade** | $1 \times 1$ cell | $32 \times 16$ px base | 0 | 4 Wood + 2 Stone, 3.0h build time, solid obstacle, grants fortification level |
 
 ### 4.2 Workshop Recipes
 - **Smelt Metal (Luyện Kim Loại):** 2 Ore $\to$ 1 Metal (3.0h duration, buffer capacity 40).
@@ -121,6 +122,17 @@ Configured centrally in `EconomyConfig`:
 ### 4.3 Building Costs & Construction States
 - **Construction States:** `Unbuilt` $\to$ `Placing` $\to$ `UnderConstruction` $\to$ `Active` $\to$ `Paused` $\to$ `Damaged` $\to$ `Destroyed`.
 - **Occupancy Rule:** A building footprint of size $W \times H$ occupies cells $(gx + i, gy + j)$ for $0 \le i < W$ and $0 \le j < H$. All footprint cells must be buildable, walkable terrain, and unreserved.
+
+### 4.4 Fortifications & Settlement Defense
+- **Palisade (Tường Rào):** 1x1 footprint solid obstacle unwalkable by citizens (`is_cell_walkable == false`).
+- **Fortification Level Calculation:**
+  - Calculated deterministically by `BuildingSystem.calculate_fortification_level(world_data)` and `BattleResolver.calculate_settlement_fortification_level(world_data)`.
+  - Only `state == "active"` palisades count (under_construction and damaged palisades are ignored). Duplicate palisade records sharing the same cell are deduplicated.
+  - Threshold mapping:
+    - $0$ active palisades: Level 0 (no bonus)
+    - $1$ to $4$ active palisades: Level 1 (+30% defender combat score)
+    - $5$ to $9$ active palisades: Level 2 (+60% defender combat score)
+    - $10+$ active palisades: Level 3 (+90% defender combat score, clamped maximum)
 
 ---
 

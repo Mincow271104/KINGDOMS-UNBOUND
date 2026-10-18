@@ -1,4 +1,4 @@
-# KINGDOMS UNBOUND — Master Test Plan & Verification Strategy
+﻿# KINGDOMS UNBOUND â€” Master Test Plan & Verification Strategy
 
 ## Document Overview
 - **Status:** Active (Phase 0 Baseline)
@@ -56,7 +56,7 @@ When Godot Editor is running with the MCP plugin:
   - *Status:* Pending Phase 1.
 - **TC-1.3: Visual-Validation Gate Runtime Scene**
   - *Scene:* `res://scenes/test/visual_validation_test.tscn`
-  - *Acceptance Criteria:* Demonstrates 32×16 diamond terrain, multi-tile building with visible roof/facade, isometric tree props, 1 moving citizen with feet pivot at $(12, 30)$, diamond hover highlight, and flawless Y-sorting behind/in front of structures.
+  - *Acceptance Criteria:* Demonstrates 32Ã—16 diamond terrain, multi-tile building with visible roof/facade, isometric tree props, 1 moving citizen with feet pivot at $(12, 30)$, diamond hover highlight, and flawless Y-sorting behind/in front of structures.
   - *Status:* Pending Phase 1.
 
 ### Phase 2: Authoritative Resource Ledger & Building Placement
@@ -131,9 +131,9 @@ When Godot Editor is running with the MCP plugin:
 | 2026-10-12 | TC-0.1 | Engine Launch & Scan | **PASS** | Exit code 0, 0 errors after adding `docs/.gdignore` |
 | 2026-10-12 | TC-0.2 | MCP Bridge Connection | **PASS** | `diagnose_connection` healthy, port 6505 live |
 | 2026-10-12 | TC-1.1 | Coordinate Forward/Inverse Transform | **PASS** | All 13 cases passed in `test_coordinates.gd` |
-| 2026-10-12 | TC-1.2 | Deterministic Seeded World Generation | **PASS** | 100% identical 64×64 grid across runs in `test_world_gen.gd` |
+| 2026-10-12 | TC-1.2 | Deterministic Seeded World Generation | **PASS** | 100% identical 64Ã—64 grid across runs in `test_world_gen.gd` |
 | 2026-10-12 | TC-1.3 | Visual-Validation Gate Scene | **PASS** | `visual_validation_test.tscn` passed headless & live screenshot 3162 inspected |
-| 2026-10-12 | TC-1.4 | TimeManager Clock & Pause Safety | **PASS** | Speeds 0–3, pause safety, seasonal modifiers passed in `test_time_manager.gd` |
+| 2026-10-12 | TC-1.4 | TimeManager Clock & Pause Safety | **PASS** | Speeds 0â€“3, pause safety, seasonal modifiers passed in `test_time_manager.gd` |
 | 2026-10-12 | TC-2.1 | Resource Conservation & Atomic Reservations | **PASS** | Atomic cost locks, storage caps, double-spend prevention verified in `test_economy.gd` |
 | 2026-10-12 | TC-2.2 | Building Placement & Single-Cost Deduction | **PASS** | Footprint occupancy, water rejection, collision checks verified in `test_economy.gd` |
 | 2026-10-12 | TC-3.1 | A* Pathfinding Walkability & Blocked Target | **PASS** | Obstacle avoidance & unreachable handling verified in `test_citizens.gd` |
@@ -149,9 +149,9 @@ When Godot Editor is running with the MCP plugin:
 | 2026-10-12 | TC-7.1 | Immigration Pacing & Gating | **PASS** | Rejection on full housing, food, stability, morale; wave admitted; unique IDs & names in `test_victory_and_collapse.gd` |
 | 2026-10-12 | TC-7.2 | 5-Day Prosperity Victory Hold & Reset | **PASS** | 100h hold without early win; reset on lapse; 120h continuous win; duplicate claim prevention in `test_victory_and_collapse.gd` |
 | 2026-10-12 | TC-7.3 | Deterministic Collapse Triggers & Summaries | **PASS** | Pop 0 extinction; 72h town hall ruin; 72h anarchy; summary report with cause in `test_victory_and_collapse.gd` |
-| 2026-10-12 | TC-8.1 | Save→Load→Save Canonical Equivalence | **PASS** | 24 citizens, 8 buildings, resources, research, victory, fog_of_war 100% preserved across roundtrip in `test_save_load.gd` |
+| 2026-10-12 | TC-8.1 | Saveâ†’Loadâ†’Save Canonical Equivalence | **PASS** | 24 citizens, 8 buildings, resources, research, victory, fog_of_war 100% preserved across roundtrip in `test_save_load.gd` |
 | 2026-10-12 | TC-8.2 | Corruption Handling & Backup Recovery | **PASS** | Bad schema rejected; missing section rejected; malformed JSON rejected; .bak fallback succeeded in `test_save_load.gd` |
-| 2026-10-12 | TC-8.3 | UI Save/Load & Menu Integration | **PASS** | Pause menu opened; HUD save button saved and displayed "✅" feedback; HUD load button restored world state (gold verify); MainMenu LoadWorldBtn enabled in `test_save_load.gd` |
+| 2026-10-12 | TC-8.3 | UI Save/Load & Menu Integration | **PASS** | Pause menu opened; HUD save button saved and displayed "âœ…" feedback; HUD load button restored world state (gold verify); MainMenu LoadWorldBtn enabled in `test_save_load.gd` |
 | 2026-10-12 | TC-9.1 | 100 Citizen Simulation Stress Test | **PASS** | 145.5 FPS at 1x (6.87 ms), 144.9 FPS at 3x (6.90 ms); 72 continuous simulation hours executed in 238.65 ms in `test_stress_100_citizens.gd` |
 | 2026-10-12 | TC-9.2 | Procedural Audio Synthesis Subsystem | **PASS** | 8 16-bit PCM streams, polyphonic pool, volume curves, mute toggle verified in `test_audio.gd` |
 | 2026-10-18 | TC-BR.1 | Barracks Blueprint Validation & Configuration | **PASS** | Footprint 3x3, cost 25W/20S/5M, 2 guards verified in `test_barracks.gd` |
@@ -169,7 +169,7 @@ When Godot Editor is running with the MCP plugin:
 | 2026-10-18 | TC-CON.6 | Save/Load Persistence, Hover & Malformed Save Rejection | **PASS** | Footprint mismatch (3x3 house) rejected, fractional coords/dims rejected, legacy saves omitting size fields validated cleanly from blueprint in `test_construction.gd` |
 
 ### Phase 8: Save/Load Persistence
-- **TC-8.1: Save → Load → Save Canonical Equivalence**
+- **TC-8.1: Save â†’ Load â†’ Save Canonical Equivalence**
   - *Script:* `res://scripts/test/test_save_load.gd`
   - *Acceptance Criteria:* Roundtrip from live world through save file and back preserves 100% canonical state; no entity or building duplication.
   - *Status:* **PASSED** (2026-10-12, Exit Code 0).
@@ -201,5 +201,35 @@ When Godot Editor is running with the MCP plugin:
 ### Package 1H: Builder & Construction Lifecycle (Final Hardening, Review Fix & Assignment Safety)
 - **TC-CON.1 to TC-CON.6: Construction Lifecycle Suite**
   - *Script:* `res://scripts/test/test_construction.gd`
-  - *Acceptance Criteria:* Positive construction_hours across blueprints, storehouse capacity withheld while under construction, atomic cost reservation/deduction, concurrent builder job capacities (1x1: 2, 2x2: 3, 3x3: 4) bounded by perimeter cells, idempotent construction job registration with strict perimeter containment check, duplicate target cell deduplication with active worker preservation and safe release to IDLE without leaving orphaned job references, Subchecks A–D (stale cell cleanup, duplicate cell deduplication, worker safety, strict idempotency, overlapping prefix isolation), Subchecks E–G (preserving unrelated valid assignments when invalid job has worker_id pointing to that citizen, safely clearing actual stale assignments to IDLE with empty path, and exact construction project ownership preserving delimited prefix jobs such as bld_house_15_15_annex), active builder progress accumulation (`delta_hours` per working builder), genuine TimeManager pause safety (0x halts progress, 1x/2x/3x scale properly), strict completion threshold (`progress >= hours - 0.001` required; premature 0% or partial completion refused without side effects), negative progress delta rejected, fail-closed storage capacity application on completion (refusing activation if required ResourceManager is missing, non-duplicating storage bonus), prefix-isolated job matching (`JobManager.job_matches_building`), all-or-nothing storage capacity validation on cancellation refund (preserving building if storage cannot fit refund), exact 50% refund, blueprint footprint validation in `SaveManager.validate_save_data()` (rejecting mismatched footprints such as 3x3 houses and fractional coordinates/dimensions; resolving legacy saves omitting size fields), double load idempotency, legacy save compatibility.
+  - *Acceptance Criteria:* Positive construction_hours across blueprints, storehouse capacity withheld while under construction, atomic cost reservation/deduction, concurrent builder job capacities (1x1: 2, 2x2: 3, 3x3: 4) bounded by perimeter cells, idempotent construction job registration with strict perimeter containment check, duplicate target cell deduplication with active worker preservation and safe release to IDLE without leaving orphaned job references, Subchecks Aâ€“D (stale cell cleanup, duplicate cell deduplication, worker safety, strict idempotency, overlapping prefix isolation), Subchecks Eâ€“G (preserving unrelated valid assignments when invalid job has worker_id pointing to that citizen, safely clearing actual stale assignments to IDLE with empty path, and exact construction project ownership preserving delimited prefix jobs such as bld_house_15_15_annex), active builder progress accumulation (`delta_hours` per working builder), genuine TimeManager pause safety (0x halts progress, 1x/2x/3x scale properly), strict completion threshold (`progress >= hours - 0.001` required; premature 0% or partial completion refused without side effects), negative progress delta rejected, fail-closed storage capacity application on completion (refusing activation if required ResourceManager is missing, non-duplicating storage bonus), prefix-isolated job matching (`JobManager.job_matches_building`), all-or-nothing storage capacity validation on cancellation refund (preserving building if storage cannot fit refund), exact 50% refund, blueprint footprint validation in `SaveManager.validate_save_data()` (rejecting mismatched footprints such as 3x3 houses and fractional coordinates/dimensions; resolving legacy saves omitting size fields), double load idempotency, legacy save compatibility.
   - *Status:* **PASSED** (2026-10-18, Exit Code 0: 6/6 tests passed).
+
+### Package 1I: Palisade & Fortification System
+- **TC-PA.1: Blueprint Verification & Placement Legality**
+  - *Script:* `res://scripts/test/test_palisade.gd`
+  - *Acceptance Criteria:* Blueprint `palisade` has 1x1 footprint, 4 Wood + 2 Stone cost, 3.0h construction time, 0 workers, empty storage, no production jobs. Placement creates site in `under_construction` state with initial progress 0.0h, marks 1x1 cell occupied immediately, and deducts 4W+2S atomically. Placement on water, occupied cell, out of bounds, or with insufficient funds rejected fail-closed.
+  - *Status:* **PASSED** (2026-10-18, Exit Code 0).
+- **TC-PA.2: Construction Lifecycle & Worker Capacity**
+  - *Script:* `res://scripts/test/test_palisade.gd`
+  - *Acceptance Criteria:* Worker capacity for 1x1 palisade is strictly 2. Visual node instantiates with amber modulate `Color(0.8, 0.7, 0.5, 0.7)`. Exactly 2 builder jobs registered. Premature completion rejected at 0% and 50% progress. Negative delta safely rejected. Legit completion transitions state to `active`, resets modulate to `Color(1, 1, 1, 1)`, and cleans up builder jobs idempotently.
+  - *Status:* **PASSED** (2026-10-18, Exit Code 0).
+- **TC-PA.3: Cancellation Policy & Resource Refund**
+  - *Script:* `res://scripts/test/test_palisade.gd`
+  - *Acceptance Criteria:* Missing ResourceManager fails closed. Insufficient storage space rejects cancellation safely. Exact 50% refund (+2 Wood, +1 Stone) credited atomically. Occupancy cleared, jobs removed, visual node queued for deletion. Overlapping prefix building preserved. Re-cancellation safely rejected.
+  - *Status:* **PASSED** (2026-10-18, Exit Code 0).
+- **TC-PA.4: Navigation Grid Obstacle & Walkability**
+  - *Script:* `res://scripts/test/test_palisade.gd`
+  - *Acceptance Criteria:* Palisade cell is strictly unwalkable in `GridNavigation.is_walkable()`. Pathfinding successfully calculates collision-free bypass around palisade obstacle.
+  - *Status:* **PASSED** (2026-10-18, Exit Code 0).
+- **TC-PA.5: Save/Load Persistence & Reconstitution**
+  - *Script:* `res://scripts/test/test_palisade.gd`
+  - *Acceptance Criteria:* World state saved and restored with active and under-construction palisades. Zero resource deduction on load. Construction progress and hours perfectly restored. Zero visual node duplication. Builder jobs cleanly reconstructed for under-construction palisades.
+  - *Status:* **PASSED** (2026-10-18, Exit Code 0).
+- **TC-PA.6: Settlement Fortification & Battle Integration**
+  - *Script:* `res://scripts/test/test_palisade.gd`
+  - *Acceptance Criteria:* `BuildingSystem.calculate_fortification_level` and `BattleResolver.calculate_settlement_fortification_level` strictly ignore under-construction and damaged palisades. Duplicate records at same cell deduplicated. Threshold scaling verified (0 palisades: 0, 1â€“4: 1, 5â€“9: 2, 10+: 3). BattleResolver applies correct fortification combat score bonus (+90% for level 3).
+  - *Status:* **PASSED** (2026-10-18, Exit Code 0).
+- **TC-PA.7: HUD Integration & Visual Presentation**
+  - *Script:* `res://scripts/test/test_palisade.gd`
+  - *Acceptance Criteria:* `PalisadeBtn` present in HUD BuildMenuPanel. Pressing sets `placing_building_type` to `palisade` and activates ghost preview with correct sprite texture and offset `Vector2(-16.0, -28.0)`. Canceling hides ghost cleanly. WorldView Vietnamese display name is `"TÆ°á»ng RÃ o PhÃ²ng Ngá»± (1x1)"`.
+  - *Status:* **PASSED** (2026-10-18, Exit Code 0).

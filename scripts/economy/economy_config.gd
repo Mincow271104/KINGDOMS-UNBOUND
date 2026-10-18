@@ -219,5 +219,16 @@ const BLUEPRINTS: Dictionary = {
 		"max_workers": 2,
 		"guard_capacity": 2,
 		"job_type": "guard"
+	},
+	"palisade": {
+		"id": "palisade",
+		"name_vi": "Tường Rào Phòng Ngự",
+		"footprint": Vector2i(1, 1),
+		"cost": {RES_WOOD: 4, RES_STONE: 2},
+		"construction_hours": 3.0,
+		"housing_capacity": 0,
+		"storage_bonus": {},
+		"max_workers": 0,
+		"job_type": ""
 	}
 }

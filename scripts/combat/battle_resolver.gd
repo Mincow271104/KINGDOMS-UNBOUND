@@ -100,3 +100,7 @@ static func resolve_battle(
 		"score_ratio": score_ratio
 	}
 	return report
+
+## Calculates the settlement fortification level (0..3) from active Palisade fortifications.
+static func calculate_settlement_fortification_level(world_data: WorldGenerator.WorldData) -> int:
+	return BuildingSystem.calculate_fortification_level(world_data)

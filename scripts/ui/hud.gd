@@ -164,6 +164,9 @@ func _ready() -> void:
 	var btn_barracks = $BuildMenuPanel/MarginContainer/VBoxContainer/GridContainer.get_node_or_null("BarracksBtn")
 	if btn_barracks:
 		btn_barracks.pressed.connect(func(): _select_building("barracks"))
+	var btn_palisade = $BuildMenuPanel/MarginContainer/VBoxContainer/GridContainer.get_node_or_null("PalisadeBtn")
+	if btn_palisade:
+		btn_palisade.pressed.connect(func(): _select_building("palisade"))
 	btn_close_build.pressed.connect(func(): build_menu_panel.visible = false)
 
 	# Citizen inspector controls

@@ -418,3 +418,23 @@ static func find_perimeter_cells(origin: Vector2i, size: Vector2i, world_data: W
 				break
 
 	return result
+
+static func calculate_fortification_level(world_data: WorldGenerator.WorldData) -> int:
+	if world_data == null or world_data.buildings == null:
+		return 0
+	var active_palisade_cells: Dictionary = {}
+	for b in world_data.buildings:
+		if b.get("type", "") == "palisade" and b.get("state", "") == "active":
+			var cell = b.get("cell", Vector2i(-1, -1))
+			if cell != Vector2i(-1, -1) and IsoMath.is_in_bounds(cell):
+				active_palisade_cells[cell] = true
+
+	var count: int = active_palisade_cells.size()
+	if count == 0:
+		return 0
+	elif count < 5:
+		return 1
+	elif count < 10:
+		return 2
+	else:
+		return 3

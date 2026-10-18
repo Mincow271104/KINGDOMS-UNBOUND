@@ -1,4 +1,4 @@
-# KINGDOMS UNBOUND — Master Task Backlog
+﻿# KINGDOMS UNBOUND â€” Master Task Backlog
 
 ## Status Legend
 - `[ ]` Not started
@@ -21,15 +21,15 @@
 ## Phase 1: Vertical Slice, World, Camera, Time & Visual-Validation Gate (Completed)
 - [x] **TASK-1.1:** Create coordinate transformation utility script (`scripts/utils/iso_math.gd`) with forward/inverse 2:1 dimetric functions.
 - [x] **TASK-1.2:** Write automated unit test `test_coordinates.gd` verifying all 13 reference coordinate cases.
-- [x] **TASK-1.3:** Implement `TimeManager.gd` autoload supporting Pause (0×), 1×, 2×, 3× speeds, hourly/daily ticks.
-- [x] **TASK-1.4:** Create procedural World Generator (`scripts/world/world_generator.gd`) generating 64×64 logical grid map from seed.
+- [x] **TASK-1.3:** Implement `TimeManager.gd` autoload supporting Pause (0Ã—), 1Ã—, 2Ã—, 3Ã— speeds, hourly/daily ticks.
+- [x] **TASK-1.4:** Create procedural World Generator (`scripts/world/world_generator.gd`) generating 64Ã—64 logical grid map from seed.
 - [x] **TASK-1.5:** Implement 2:1 dimetric isometric diamond `TileMapLayer` presentation layer (`scenes/world/world_view.tscn`).
-- [x] **TASK-1.6:** Implement interactive mouse hover tile highlight matching 32×16 diamond geometry.
+- [x] **TASK-1.6:** Implement interactive mouse hover tile highlight matching 32Ã—16 diamond geometry.
 - [x] **TASK-1.7:** Implement `CameraController.gd` with WASD/mouse pan, zoom, and map bounds clamping.
-- [x] **TASK-1.8:** Create Starter Building instances (Town Hall 3×3, 4 Houses 2×2, Farm 2×2, Storehouse 2×2, Woodcutter Camp 2×2) with visible roofs and SW/SE facades.
+- [x] **TASK-1.8:** Create Starter Building instances (Town Hall 3Ã—3, 4 Houses 2Ã—2, Farm 2Ã—2, Storehouse 2Ã—2, Woodcutter Camp 2Ã—2) with visible roofs and SW/SE facades.
 - [x] **TASK-1.9:** Implement Main Menu (`scenes/ui/main_menu.tscn`) with New World (seed input, difficulty), Settings, Quit.
 - [x] **TASK-1.10:** Implement in-game HUD with time controls, clock, resource summary bar, and pause menu.
-- [x] **TASK-1.11:** Build and pass the mandatory **Visual-Validation Gate Scene** (`scenes/test/visual_validation_test.tscn`) verifying 32×16 diamond tiles, multi-tile building, props, moving citizen, and flawless Y-sorting.
+- [x] **TASK-1.11:** Build and pass the mandatory **Visual-Validation Gate Scene** (`scenes/test/visual_validation_test.tscn`) verifying 32Ã—16 diamond tiles, multi-tile building, props, moving citizen, and flawless Y-sorting.
 - [x] **TASK-1.12:** Git checkpoint Phase 1.
 
 ---
@@ -49,7 +49,7 @@
 ## Phase 3: Citizens, Navigation & Real Jobs (Completed)
 - [x] **TASK-3.1:** Implement `CitizenController.gd` and scene (`Citizen.tscn`) with foot pivot at $(12, 30)$ for Y-sorting.
 - [x] **TASK-3.2:** Spawn 24 citizens with unique stable IDs and starter job allocations (5 farmers, 4 woodcutters, 3 builders, 3 haulers, 9 idle).
-- [x] **TASK-3.3:** Implement grid A* pathfinding (`GridNavigation.gd`) on the 64×64 simulation grid.
+- [x] **TASK-3.3:** Implement grid A* pathfinding (`GridNavigation.gd`) on the 64Ã—64 simulation grid.
 - [x] **TASK-3.4:** Implement citizen state machine (`Idle`, `Moving`, `Working`, `Hauling`, `Resting`, `SeekingFood`).
 - [x] **TASK-3.5:** Implement `JobManager.gd` with job lifecycle (`Available` $\to$ `Reserved` $\to$ `InProgress` $\to$ `Completed`/`Cancelled`).
 - [x] **TASK-3.6:** Implement citizen needs decay and hourly tick (Hunger, Fatigue, Health, Morale).
@@ -71,7 +71,7 @@
 ---
 
 ## Phase 5: Research, Exploration & Events (Completed)
-- [x] **TASK-5.1:** Implement 4 research branches with 8–12 data-driven technologies (`scripts/research/tech_tree.gd`).
+- [x] **TASK-5.1:** Implement 4 research branches with 8â€“12 data-driven technologies (`scripts/research/tech_tree.gd`).
 - [x] **TASK-5.2:** Implement Royal Research Institute system and active single-project progress (`scripts/research/research_manager.gd`).
 - [x] **TASK-5.3:** Implement Fog of War grid layer (Unexplored, Explored, Visible) (`scripts/world/fog_of_war.gd`).
 - [x] **TASK-5.4:** Implement map Points of Interest with single-claim persistent discovery rewards (`scripts/world/poi_manager.gd`).
@@ -124,11 +124,11 @@
 - [x] **TASK-1G.2:** Active state detection `BuildingSystem.is_barracks_active(world_data)` and perimeter sentry cell resolution `find_perimeter_cells`.
 - [x] **TASK-1G.3:** Custom 27-color fantasy palette pixel-art sprite `bld_barracks.png` (96x80 px) with fortified walls, gateway arch, crest, and watchtower.
 - [x] **TASK-1G.4:** CitizenController guard duty state machine (`State.GUARDING`), fail-closed role gating, needs release, time pause safety, and reason updates.
-- [x] **TASK-1G.5:** HUD integration with `BarracksBtn`, role option 7 ("Vệ Binh (Guard)"), dynamic annotation/disabling when inactive, and selection error audio feedback.
+- [x] **TASK-1G.5:** HUD integration with `BarracksBtn`, role option 7 ("Vá»‡ Binh (Guard)"), dynamic annotation/disabling when inactive, and selection error audio feedback.
 - [x] **TASK-1G.6:** WorldView lifecycle integration, guard job registration, save/load workplace sync, and citizen checker attachment.
 - [x] **TASK-1G.7:** Save/Load persistence hardening attaching barracks checker to restored citizens, with zero node/job duplication.
 - [x] **TASK-1G.8:** Automated test suite `scripts/test/test_barracks.gd` covering TC-BR.1 through TC-BR.7 (PASS, Exit Code 0).
-- [x] **TASK-1G.9:** Package 1G Review Fix — Multi-barracks specific building ID tracking, unique guard positions deduplication, work-related need decay in State.GUARDING, genuine TimeManager pause verification, and comprehensive regression test suite (PASS, Exit Code 0).
+- [x] **TASK-1G.9:** Package 1G Review Fix â€” Multi-barracks specific building ID tracking, unique guard positions deduplication, work-related need decay in State.GUARDING, genuine TimeManager pause verification, and comprehensive regression test suite (PASS, Exit Code 0).
 
 ---
 
@@ -139,10 +139,22 @@
 - [x] **TASK-1H.4:** Real builder work loop in `CitizenController` advancing shared building progress by `delta_hours` per active working builder, respecting time pause and speeds (1x, 2x, 3x).
 - [x] **TASK-1H.5:** Centralized idempotent completion transition (`complete_construction`) unlocking building operations (workplaces, guard jobs, research UI, watchtower vision, housing, storehouse capacity) and resetting visual scaffolding modulate.
 - [x] **TASK-1H.6:** Cancellation policy refunding 50% blueprint costs atomically, releasing occupancy, removing jobs, and freeing visual nodes idempotently.
-- [x] **TASK-1H.7:** Visual scaffolding amber modulate `Color(0.8, 0.7, 0.5, 0.7)` and dynamic HUD hover progress percentage `[Đang xây: X%]`.
+- [x] **TASK-1H.7:** Visual scaffolding amber modulate `Color(0.8, 0.7, 0.5, 0.7)` and dynamic HUD hover progress percentage `[Äang xÃ¢y: X%]`.
 - [x] **TASK-1H.8:** Save/Load persistence preserving construction progress and hours, zero duplicate jobs/nodes, zero deduction on reload, and legacy save compatibility.
 - [x] **TASK-1H.9:** Automated test suite `scripts/test/test_construction.gd` covering TC-CON.1 through TC-CON.6 (PASS, Exit Code 0).
-- [x] **TASK-1H.10:** Package 1H Final Hardening — Strict construction completion threshold enforcement (`construction_progress >= construction_hours - 0.001`), fail-closed negative/NaN progress delta rejection, watchtower vision state filtering (`state == "active"`), separator-aware job prefix matching (`job_matches_building`), all-or-nothing cancellation refund storage capacity verification, save/load schema validation against corrupted/out-of-bounds building records, and genuine TimeManager pause verification (PASS, Exit Code 0).
-- [x] **TASK-1H.11:** Package 1H Final Review Fix — Idempotent construction job registration (preventing duplicate jobs on repeated calls, preserving capacity and perimeter bounds, isolating overlapping text prefix IDs), blueprint footprint enforcement in SaveManager.validate_save_data (rejecting mismatched footprints and fractional coordinates/dimensions, handling legacy saves without size fields), strengthened watchtower hourly tick regression testing (under-construction state unrevealed through _on_simulation_hour_passed), fail-closed completion when required storage effects cannot be applied (missing ResourceManager), and non-duplicating storage bonus (PASS, Exit Code 0).
-- [x] **TASK-1H.12:** Package 1H Final Fix #2 — Construction job perimeter validity and deduplication in WorldView.register_construction_jobs (checking actual perimeter containment, eliminating duplicate target cells while preserving active worker assignments, safely releasing displaced workers to IDLE without leaving orphaned job references, capping to min(worker_capacity, valid_perimeter_cell_count), strict idempotency, and project isolation across overlapping textual prefix IDs) (PASS, Exit Code 0).
-- [x] **TASK-1H.13:** Package 1H Final Fix #3 — Preserve unrelated valid citizen assignments during construction cleanup in WorldView._safe_cleanup_construction_job (matching active_job strictly rather than matching worker_id alone, preserving unrelated jobs and working states, releasing stranded citizens without active_job to IDLE), exact project ownership in register_construction_jobs (preventing adoption or removal of builder jobs belonging to other projects sharing delimited prefixes like bld_house_15_15_annex), and regression tests covering Subchecks E, F, G in test_construction.gd (PASS, Exit Code 0).
+- [x] **TASK-1H.10:** Package 1H Final Hardening â€” Strict construction completion threshold enforcement (`construction_progress >= construction_hours - 0.001`), fail-closed negative/NaN progress delta rejection, watchtower vision state filtering (`state == "active"`), separator-aware job prefix matching (`job_matches_building`), all-or-nothing cancellation refund storage capacity verification, save/load schema validation against corrupted/out-of-bounds building records, and genuine TimeManager pause verification (PASS, Exit Code 0).
+- [x] **TASK-1H.11:** Package 1H Final Review Fix â€” Idempotent construction job registration (preventing duplicate jobs on repeated calls, preserving capacity and perimeter bounds, isolating overlapping text prefix IDs), blueprint footprint enforcement in SaveManager.validate_save_data (rejecting mismatched footprints and fractional coordinates/dimensions, handling legacy saves without size fields), strengthened watchtower hourly tick regression testing (under-construction state unrevealed through _on_simulation_hour_passed), fail-closed completion when required storage effects cannot be applied (missing ResourceManager), and non-duplicating storage bonus (PASS, Exit Code 0).
+- [x] **TASK-1H.12:** Package 1H Final Fix #2 â€” Construction job perimeter validity and deduplication in WorldView.register_construction_jobs (checking actual perimeter containment, eliminating duplicate target cells while preserving active worker assignments, safely releasing displaced workers to IDLE without leaving orphaned job references, capping to min(worker_capacity, valid_perimeter_cell_count), strict idempotency, and project isolation across overlapping textual prefix IDs) (PASS, Exit Code 0).
+- [x] **TASK-1H.13:** Package 1H Final Fix #3 â€” Preserve unrelated valid citizen assignments during construction cleanup in WorldView._safe_cleanup_construction_job (matching active_job strictly rather than matching worker_id alone, preserving unrelated jobs and working states, releasing stranded citizens without active_job to IDLE), exact project ownership in register_construction_jobs (preventing adoption or removal of builder jobs belonging to other projects sharing delimited prefixes like bld_house_15_15_annex), and regression tests covering Subchecks E, F, G in test_construction.gd (PASS, Exit Code 0).
+
+---
+
+## Package 1I: Palisade & Fortification System (Completed)
+- [x] **TASK-1I.1:** Authoritative blueprint `palisade` in `EconomyConfig` (1x1 footprint, 4 Wood, 2 Stone, 3.0h construction time, 0 workers, empty storage, no production jobs).
+- [x] **TASK-1I.2:** Pixel-art asset `assets/buildings/bld_palisade.png` (32x36 px) conforming to 27-color fantasy palette, NW lighting, and 2:1 dimetric perspective.
+- [x] **TASK-1I.3:** WorldView visual rendering integration (texture loading, sprite offset `Vector2(-16.0, -28.0)`, Vietnamese display name `"TÆ°á»ng RÃ o PhÃ²ng Ngá»± (1x1)"`).
+- [x] **TASK-1I.4:** Full construction lifecycle integration (initial state `under_construction`, worker capacity 2, amber modulate scaffolding, idempotent completion transition resetting modulate, 50% refund cancellation crediting 2W+1S atomically with storage validation and occupancy cleanup).
+- [x] **TASK-1I.5:** Navigation grid obstacle integration (`GridNavigation` recognizes palisade cells as solid obstacles, `is_cell_walkable == false`, pathfinding routes around).
+- [x] **TASK-1I.6:** Settlement fortification integration (`BuildingSystem.calculate_fortification_level` and `BattleResolver.calculate_settlement_fortification_level` deduplicating active palisades and mapping to levels 0..3 with battle combat bonuses).
+- [x] **TASK-1I.7:** HUD Build Menu integration (`PalisadeBtn` wired to `_select_building("palisade")`, ghost preview with correct dimensions/offsets).
+- [x] **TASK-1I.8:** Save/Load persistence & regression test suite `scripts/test/test_palisade.gd` covering TC-PA.1 through TC-PA.7 (PASS, Exit Code 0).

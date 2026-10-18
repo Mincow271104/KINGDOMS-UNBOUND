@@ -176,7 +176,7 @@ anchor_top = 1.0
 anchor_right = 0.5
 anchor_bottom = 1.0
 offset_left = -280.0
-offset_top = -340.0
+offset_top = -390.0
 offset_right = 280.0
 offset_bottom = -56.0
 grow_horizontal = 2
@@ -254,6 +254,11 @@ text = "🏛️ Viện Nghiên Cứu (25 Gỗ, 10 Đá)"
 custom_minimum_size = Vector2(250, 40)
 layout_mode = 2
 text = "🛡️ Doanh Trại (25 Gỗ, 20 Đá, 5 Kim Loại)"
+
+[node name="PalisadeBtn" type="Button" parent="BuildMenuPanel/MarginContainer/VBoxContainer/GridContainer"]
+custom_minimum_size = Vector2(250, 40)
+layout_mode = 2
+text = "🪵 Tường Rào (4 Gỗ, 2 Đá)"
 
 [node name="CloseBuildBtn" type="Button" parent="BuildMenuPanel/MarginContainer/VBoxContainer"]
 custom_minimum_size = Vector2(0, 30)
