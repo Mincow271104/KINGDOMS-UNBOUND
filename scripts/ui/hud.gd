@@ -26,6 +26,7 @@ signal citizen_role_changed(citizen_id: String, new_role: String)
 @onready var open_build_btn: Button = $BottomBar/PanelContainer/MarginContainer/HBoxContainer/BuildBtn
 @onready var open_research_btn: Button = $BottomBar/PanelContainer/MarginContainer/HBoxContainer/ResearchBtn
 @onready var open_diplomacy_btn: Button = $BottomBar/PanelContainer/MarginContainer/HBoxContainer/DiplomacyBtn
+@onready var open_military_btn: Button = $BottomBar/PanelContainer/MarginContainer/HBoxContainer.get_node_or_null("MilitaryBtn")
 @onready var pause_menu_dialog: Control = $PauseMenuOverlay
 @onready var save_game_btn: Button = $PauseMenuOverlay/CenterContainer/PanelContainer/MarginContainer/VBoxContainer/SaveGameBtn
 @onready var load_game_btn: Button = $PauseMenuOverlay/CenterContainer/PanelContainer/MarginContainer/VBoxContainer/LoadGameBtn
@@ -43,6 +44,19 @@ signal citizen_role_changed(citizen_id: String, new_role: String)
 @onready var tech_status_label: Label = $ResearchMenuPanel/MarginContainer/VBoxContainer/TechStatusLabel
 @onready var tech_list_vbox: VBoxContainer = $ResearchMenuPanel/MarginContainer/VBoxContainer/ScrollContainer/TechListVBox
 @onready var close_research_btn: Button = $ResearchMenuPanel/MarginContainer/VBoxContainer/CloseResearchBtn
+
+# Military / Army Panel
+@onready var army_panel: Control = get_node_or_null("ArmyPanel")
+@onready var army_count_label: Label = get_node_or_null("ArmyPanel/MarginContainer/VBoxContainer/ArmyStatsVBox/ArmyCountLabel")
+@onready var barracks_count_label: Label = get_node_or_null("ArmyPanel/MarginContainer/VBoxContainer/ArmyStatsVBox/BarracksCountLabel")
+@onready var supply_status_label: Label = get_node_or_null("ArmyPanel/MarginContainer/VBoxContainer/ArmyStatsVBox/SupplyStatusLabel")
+@onready var upkeep_label: Label = get_node_or_null("ArmyPanel/MarginContainer/VBoxContainer/ArmyStatsVBox/UpkeepLabel")
+@onready var recruit_cost_label: Label = get_node_or_null("ArmyPanel/MarginContainer/VBoxContainer/ArmyStatsVBox/RecruitCostLabel")
+@onready var recruit_btn: Button = get_node_or_null("ArmyPanel/MarginContainer/VBoxContainer/RecruitBtn")
+@onready var recruit_reason_label: Label = get_node_or_null("ArmyPanel/MarginContainer/VBoxContainer/RecruitReasonLabel")
+@onready var close_army_btn: Button = get_node_or_null("ArmyPanel/MarginContainer/VBoxContainer/CloseArmyBtn")
+
+var player_army_mgr: Object = null
 
 # Event Banner
 @onready var event_banner: Control = $EventBanner
@@ -188,6 +202,16 @@ func _ready() -> void:
 		open_diplomacy_btn.pressed.connect(_toggle_diplomacy_menu)
 	if close_diplomacy_btn:
 		close_diplomacy_btn.pressed.connect(func(): diplomacy_panel.visible = false)
+
+	# Military & Army Panel controls
+	if army_panel:
+		army_panel.visible = false
+	if open_military_btn:
+		open_military_btn.pressed.connect(_toggle_army_menu)
+	if close_army_btn:
+		close_army_btn.pressed.connect(func(): if army_panel: army_panel.visible = false)
+	if recruit_btn:
+		recruit_btn.pressed.connect(_on_recruit_btn_pressed)
 
 	# Victory & Collapse dialog controls
 	if continue_victory_btn:
@@ -397,6 +421,7 @@ func _on_battle_resolved(report: BattleResolver.BattleReport, context: Dictionar
 	var victor: String = report.victor
 	var is_win: bool = (victor == "defender")
 	var title: String = "THẮNG TRẬN!" if is_win else ("THẤT THỦ!" if victor == "attacker" else "BẤT PHÂN THẮNG BẠI!")
+	var army_lost: int = context.get("army_casualties", 0)
 	var guards_lost: int = context.get("guards_killed", []).size()
 	var enemy_lost: int = context.get("enemy_casualties", 0)
 	var fort_lvl: int = report.details.get("fortification_level", 0)
@@ -406,8 +431,9 @@ func _on_battle_resolved(report: BattleResolver.BattleReport, context: Dictionar
 	if not spoils.is_empty():
 		spoils_str = " | Cướp phá: %s" % str(spoils)
 
-	var desc: String = "%s\n[Lính gác mất: %d | Địch thương vong: %d | Công sự: Cấp %d (x%.2f)%s]" % [
+	var desc: String = "%s\n[Quân đội mất: %d | Vệ binh mất: %d | Địch thương vong: %d | Công sự: Cấp %d (x%.2f)%s]" % [
 		report.explanation,
+		army_lost,
 		guards_lost,
 		enemy_lost,
 		fort_lvl,
@@ -416,11 +442,108 @@ func _on_battle_resolved(report: BattleResolver.BattleReport, context: Dictionar
 	]
 	show_event_banner(title, desc, is_win, 8.0)
 	_refresh_diplomacy_ui()
+	_refresh_army_panel()
 
 func _toggle_diplomacy_menu() -> void:
 	diplomacy_panel.visible = not diplomacy_panel.visible
 	if diplomacy_panel.visible:
 		_refresh_diplomacy_ui()
+
+# -----------------------------------------------------------------------------
+# Military & Army Panel Methods (Package 1L)
+# -----------------------------------------------------------------------------
+
+func set_player_army_manager(mgr: Object) -> void:
+	player_army_mgr = mgr
+	if player_army_mgr != null:
+		if not player_army_mgr.army_changed.is_connected(_on_army_changed):
+			player_army_mgr.army_changed.connect(_on_army_changed)
+		if not player_army_mgr.supply_status_changed.is_connected(_on_army_supply_changed):
+			player_army_mgr.supply_status_changed.connect(_on_army_supply_changed)
+		if not player_army_mgr.recruitment_completed.is_connected(_on_recruitment_completed):
+			player_army_mgr.recruitment_completed.connect(_on_recruitment_completed)
+	_refresh_army_panel()
+
+func _on_army_changed(_count: int, _cap: int) -> void:
+	_refresh_army_panel()
+
+func _on_army_supply_changed(_supplied: bool) -> void:
+	_refresh_army_panel()
+
+func _on_recruitment_completed(_count: int, _cost: Dictionary) -> void:
+	_refresh_army_panel()
+	_refresh_all_resources()
+
+func _toggle_army_menu() -> void:
+	if not army_panel:
+		return
+	army_panel.visible = not army_panel.visible
+	if army_panel.visible:
+		build_menu_panel.visible = false
+		research_menu_panel.visible = false
+		if diplomacy_panel:
+			diplomacy_panel.visible = false
+		_refresh_army_panel()
+
+func _refresh_army_panel() -> void:
+	if not army_panel or not is_instance_valid(army_panel):
+		return
+	if player_army_mgr == null:
+		if army_count_label: army_count_label.text = "⚔️ Quân số chính quy: 0 / 0 lính"
+		if recruit_btn: recruit_btn.disabled = true
+		if recruit_reason_label: recruit_reason_label.text = "Hệ thống quân đội chưa khởi tạo"
+		return
+
+	var count: int = player_army_mgr.call("get_army_count")
+	var cap: int = player_army_mgr.call("get_army_capacity")
+	var is_sup: bool = player_army_mgr.get("is_supplied")
+	var morale: float = player_army_mgr.call("get_combat_morale")
+	var upkeep: int = count * EconomyConfig.ARMY_DAILY_FOOD_UPKEEP
+
+	var active_barracks: int = int(cap / float(maxi(1, EconomyConfig.ARMY_CAPACITY_PER_BARRACKS)))
+	if barracks_count_label:
+		barracks_count_label.text = "🏰 Doanh trại hoạt động: %d (Sức chứa tối đa: %d lính)" % [active_barracks, cap]
+
+	if army_count_label:
+		army_count_label.text = "⚔️ Quân số chính quy: %d / %d lính" % [count, cap]
+
+	if supply_status_label:
+		if is_sup:
+			supply_status_label.text = "🍖 Tình trạng tiếp tế: Đầy đủ (Nhuệ khí: %.0f)" % morale
+			supply_status_label.modulate = Color(0.5, 1.0, 0.5)
+		else:
+			supply_status_label.text = "⚠️ Tình trạng tiếp tế: Thiếu lương (Nhuệ khí: %.0f)" % morale
+			supply_status_label.modulate = Color(1.0, 0.4, 0.4)
+
+	if upkeep_label:
+		upkeep_label.text = "🌾 Chi phí duy trì: %d Lương thực / ngày" % upkeep
+
+	if recruit_cost_label:
+		recruit_cost_label.text = "💰 Chi phí mỗi lính: 20 Vàng, 2 Kim loại, 5 Lương thực"
+
+	var check: Dictionary = player_army_mgr.call("can_recruit", 1)
+	var can_r: bool = check.get("can_recruit", false)
+	var reason: String = check.get("reason", "")
+
+	if recruit_btn:
+		recruit_btn.disabled = not can_r
+	if recruit_reason_label:
+		recruit_reason_label.text = reason if not can_r else ""
+
+func _on_recruit_btn_pressed() -> void:
+	if player_army_mgr == null:
+		return
+	var res: Dictionary = player_army_mgr.call("recruit", 1)
+	if res.get("success", false):
+		var am = get_node_or_null("/root/AudioManager")
+		if am: am.play_coin()
+		show_event_banner("Tuyển Binh Thành Công!", "Đã chiêu mộ thành công 1 binh sĩ vào quân đội hoàng gia.", true, 4.0)
+	else:
+		var am = get_node_or_null("/root/AudioManager")
+		if am: am.play_error()
+		show_event_banner("Chiêu Mộ Thất Bại", res.get("reason", "Không thể chiêu mộ binh sĩ"), false, 4.0)
+	_refresh_army_panel()
+	_refresh_all_resources()
 
 var _diplomacy_feedback_message: String = ""
 var _diplomacy_feedback_is_error: bool = false
@@ -649,6 +772,8 @@ func _unhandled_input(event: InputEvent) -> void:
 				research_menu_panel.visible = false
 			elif diplomacy_panel.visible:
 				diplomacy_panel.visible = false
+			elif army_panel and army_panel.visible:
+				army_panel.visible = false
 			else:
 				_toggle_pause_menu()
 		elif k.keycode == KEY_SPACE:
@@ -659,6 +784,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			_toggle_research_menu()
 		elif k.keycode == KEY_Y:
 			_toggle_diplomacy_menu()
+		elif k.keycode == KEY_U:
+			_toggle_army_menu()
 		elif k.keycode == KEY_1:
 			get_node("/root/TimeManager").set_speed(1)
 		elif k.keycode == KEY_2:
@@ -860,6 +987,8 @@ func _refresh_all_resources() -> void:
 		tools_label.text = "🛠️ Công cụ: %d" % rm.get_available_stock("tools")
 	gold_label.text = "🪙 Vàng: %d" % rm.get_available_stock("gold")
 	pop_label.text = "👥 Dân số: %d/%d" % [rm.active_population, total_housing_cap]
+	if army_panel and army_panel.visible:
+		_refresh_army_panel()
 
 func update_population_display(current_pop: int, max_pop: int) -> void:
 	total_housing_cap = max_pop

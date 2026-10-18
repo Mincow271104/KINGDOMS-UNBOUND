@@ -214,6 +214,11 @@ static func serialize_world_state(world_view: Node) -> Dictionary:
 	if campaign_mgr != null and campaign_mgr.has_method("serialize"):
 		data["battle_campaign"] = campaign_mgr.call("serialize")
 
+	# 13. Player Army
+	var army_mgr = world_view.get("player_army_mgr")
+	if army_mgr != null and army_mgr.has_method("serialize"):
+		data["player_army"] = army_mgr.call("serialize")
+
 	return data
 
 static func save_to_file(world_view: Node, filepath: String = DEFAULT_SAVE_PATH) -> Dictionary:
@@ -343,6 +348,26 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 		const PROG_TOLERANCE: float = 0.001
 		if b_prog < 0.0 or b_prog > (b_hours + PROG_TOLERANCE):
 			return {"valid": false, "error": "Tiến độ thi công của '%s' nằm ngoài phạm vi hợp lệ [0, %f]: %f." % [b_type, b_hours, b_prog]}
+
+	# Validate optional Player Army section (Package 1L)
+	if json_dict.has("player_army"):
+		var army_val = json_dict.get("player_army")
+		if not (army_val is Dictionary):
+			return {"valid": false, "error": "Dữ liệu quân đội 'player_army' phải là Dictionary."}
+		if army_val.has("soldier_count"):
+			var s_count = army_val.get("soldier_count")
+			if not _is_valid_integer_val(s_count):
+				return {"valid": false, "error": "Quân số soldier_count phải là số nguyên hợp lệ: %s." % str(s_count)}
+			if int(s_count) < 0 or int(s_count) > 1000:
+				return {"valid": false, "error": "Quân số soldier_count nằm ngoài phạm vi cho phép [0, 1000]: %s." % str(s_count)}
+		if army_val.has("last_upkeep_day"):
+			var last_upkeep = army_val.get("last_upkeep_day")
+			if not _is_valid_integer_val(last_upkeep):
+				return {"valid": false, "error": "last_upkeep_day phải là số nguyên hợp lệ: %s." % str(last_upkeep)}
+			if int(last_upkeep) < -1:
+				return {"valid": false, "error": "last_upkeep_day không được nhỏ hơn -1: %s." % str(last_upkeep)}
+		if army_val.has("is_supplied") and not (army_val.get("is_supplied") is bool):
+			return {"valid": false, "error": "Trạng thái tiếp tế is_supplied phải là boolean."}
 			
 	return {"valid": true, "error": ""}
 
@@ -617,6 +642,16 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 		else:
 			# Legacy save or empty battle_campaign: reset campaign manager to clean default state
 			campaign_mgr.call("deserialize", {})
+
+	# 13. Restore Player Army
+	var army_mgr = world_view.get("player_army_mgr")
+	if army_mgr != null and army_mgr.has_method("deserialize"):
+		var army_data = loaded_data.get("player_army", {})
+		if army_data is Dictionary and not army_data.is_empty():
+			army_mgr.call("deserialize", army_data)
+		else:
+			# Legacy save or empty player_army: reset to clean default state (0 soldiers)
+			army_mgr.call("deserialize", {})
 
 	print("[SaveManager] Loaded world state restored successfully (%d citizens, %d buildings)" % [world_view.get("citizen_list").size(), world_data.buildings.size()])
 	return {"success": true}

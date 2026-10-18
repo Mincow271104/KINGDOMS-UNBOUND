@@ -3218,3 +3218,92 @@ Address the three remaining independent-review findings in Package 1K on branch 
 - Push to `origin/feature/package-1k-live-battle-loop`.
 - Verify local HEAD equals remote HEAD and show parent SHA (`9efb722644e74f77cdee65e72170829c65042455`).
 - Stop for independent review. Do not merge to master, do not start Package 1L.
+
+---
+
+## [2026-10-19] Milestone 47: Package 1L — Player Army Recruitment & Upkeep (Completed)
+
+### Context & Objective
+Implement Package 1L — Player Army Recruitment & Upkeep in `Mincow271104/KINGDOMS-UNBOUND` on branch `feature/package-1l-army-recruitment-upkeep` starting from baseline commit `ab03e9f2b4b9d61e76adea834a701c95cab9118c`. The objective is to provide a dedicated, abstract player army recruitment and daily upkeep system decoupled from civilian citizen Guards, enabling robust settlement defense without cannibalizing civilian labor or inflating colony population.
+
+### Completed Work
+1. **Military Economy Constants (`scripts/economy/economy_config.gd`):**
+   - Added `ARMY_CAPACITY_PER_BARRACKS = 5`.
+   - Added `ARMY_RECRUIT_COST = {RES_GOLD: 20, RES_METAL: 2, RES_FOOD: 5}`.
+   - Added `ARMY_DAILY_FOOD_UPKEEP = 1`.
+   - Added `ARMY_MORALE_SUPPLIED = 70.0` and `ARMY_MORALE_UNSUPPLIED = 45.0`.
+2. **Active Barracks Capacity Derivation (`scripts/economy/building_system.gd`):**
+   - Added `static func get_active_barracks_count(world_data: WorldGenerator.WorldData) -> int` to dynamically count buildings with `type == "barracks"` and `state == "active"`. Under-construction or damaged barracks contribute 0 capacity.
+3. **Player Army Manager (`scripts/military/player_army_manager.gd`):**
+   - Created `PlayerArmyManager` RefCounted class managing `soldier_count`, `is_supplied`, and `last_upkeep_day`.
+   - Exposed signals: `army_changed(current_count, capacity)`, `supply_status_changed(is_supplied)`, `upkeep_processed(day, cost_paid, success)`, and `recruitment_completed(count, cost)`.
+   - Dependency injection hooks (`set_custom_resource_manager`, `set_custom_world_data`, `set_custom_event_manager`) for decoupled unit testing.
+   - Implemented atomic `recruit(count)` with `can_recruit(count)` validation and `reserve_cost()` + `commit_cost()` fail-closed transaction.
+   - Implemented `process_daily_upkeep(day)`: deducts 1 Food per soldier daily, strictly day-gated via `last_upkeep_day` for idempotency. If food is insufficient, marks `is_supplied = false` without deleting soldiers or partially draining food; emits transition events and recovers when food is replenished.
+   - Implemented `remove_casualties(count)`: decreases `soldier_count` safely without civilian side effects.
+   - Implemented `serialize()` and `deserialize()` with default reset handling.
+4. **Defending Force & Settlement Battle Integration (`scripts/combat/battle_campaign_manager.gd`):**
+   - Added `_custom_army_mgr` hook and `get_player_army_manager()`.
+   - Updated `construct_defending_force()`: combines recruited army units + eligible civilian guards, calculating weighted average combat morale.
+   - Updated `resolve_and_apply_raid()`: applies defender casualties to recruited army soldiers first, applying only overflow casualties to living civilian guards (sorted by `citizen_id`). Recorded `army_casualties`, `guards_killed`, and `defender_casualties` in raid context.
+5. **WorldView Lifecycle & Daily Upkeep Wiring (`scripts/world/world_view.gd`):**
+   - Instantiated `PlayerArmyManager` in `_generate_and_build_world()`, wired to HUD via `hud.set_player_army_manager(player_army_mgr)`.
+   - Connected daily simulation tick `_on_simulation_day_passed()` to call `player_army_mgr.process_daily_upkeep(day)`.
+6. **Save/Load Persistence & Validation (`scripts/persistence/save_manager.gd`):**
+   - Step 13 in `serialize_world_state()`: serializes `player_army` state.
+   - Step 13 in `apply_loaded_state_to_world()`: deserializes `player_army` (calling `deserialize({})` to cleanly reset when missing or empty).
+   - In `validate_save_data()`: added validation for optional `player_army` section (rejects negative, float, or out-of-bounds `soldier_count`, negative `last_upkeep_day`, or non-boolean `is_supplied`).
+7. **HUD Military Interface (`scenes/ui/hud.tscn` & `scripts/ui/hud.gd`):**
+   - Added `MilitaryBtn` (`"⚔️ Quân Đội (U)"`) on `BottomBar`.
+   - Added `ArmyPanel` (520x360 PanelContainer) displaying standing army count, active barracks capacity, supply status, daily food upkeep, recruitment cost, and recruit button with diagnostics.
+   - Wired `_unhandled_input()` to handle `KEY_U` (toggle army panel) and `KEY_ESCAPE` (dismiss army panel).
+   - Wired resource refresh to update army panel dynamically.
+8. **Automated Testing Suite (`scripts/test/test_player_army.gd` & `test_live_battle_loop.gd`):**
+   - Created `test_player_army.gd` covering TC-ARMY.1 to TC-ARMY.30 across recruitment, upkeep, defense, casualties, persistence, and edge cases.
+   - Extended `test_live_battle_loop.gd` with TC-LB.4C (defending force combination) and TC-LB.7B (recruited army casualty priority).
+
+### Validations Performed & Results
+- **Dedicated Player Army Test Suite (`scripts/test/test_player_army.gd`):**
+  - Command: `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless -s res://scripts/test/test_player_army.gd`
+  - Result: **PASS (Exit Code 0, 30/30 tests passed)**
+    - TC-ARMY.1 to TC-ARMY.13 (Recruitment & non-citizen registry immutability): PASS
+    - TC-ARMY.14 to TC-ARMY.22 (Upkeep, supply transitions, morale, TimeManager safety): PASS
+    - TC-ARMY.23 to TC-ARMY.28 (Defending force combination, weighted morale, casualty priority): PASS
+    - TC-ARMY.29 to TC-ARMY.30 + Extras (Save/load roundtrip, legacy reset, inactive barracks, malformed data): PASS
+- **Targeted Integration Suite (`scripts/test/test_live_battle_loop.gd`):**
+  - Command: `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless -s res://scripts/test/test_live_battle_loop.gd`
+  - Result: **PASS (Exit Code 0, 19/19 + TC-LB.4C + TC-LB.7B passed)**
+- **Full Test Matrix (All 25 Test Suites in `scripts/test/test_*.gd`):**
+  - Result: **PASS (25/25 suites passed, Exit Code 0)**
+- **Headless Scene Smoke Checks:**
+  - `scenes/ui/main_menu.tscn`: **PASS (Exit Code 0)**
+  - `scenes/world/world_view.tscn`: **PASS (Exit Code 0)**
+  - `scenes/ui/hud.tscn`: **PASS (Exit Code 0)**
+  - `scenes/test/visual_validation_test.tscn`: **PASS (Exit Code 0)**
+  - `scenes/entities/citizen.tscn`: **PASS (Exit Code 0)**
+- **Whitespace & Formatting Check:**
+  - `git diff --check`: Clean (Exit Code 0, zero whitespace errors).
+
+### Files Created / Modified
+- `scripts/economy/economy_config.gd` (Added military capacity, cost, upkeep, and morale constants)
+- `scripts/economy/building_system.gd` (Added get_active_barracks_count)
+- `scripts/military/player_army_manager.gd` (Created PlayerArmyManager class)
+- `scripts/combat/battle_campaign_manager.gd` (Combined defending force, weighted morale, casualty priority)
+- `scripts/world/world_view.gd` (Instantiated and wired PlayerArmyManager, daily upkeep tick)
+- `scripts/persistence/save_manager.gd` (Save/load serialization, legacy save handling, schema validation)
+- `scenes/ui/hud.tscn` (Added MilitaryBtn and ArmyPanel)
+- `scripts/ui/hud.gd` (Wired ArmyPanel UI, recruitment action, hotkeys, and refresh)
+- `scripts/test/test_player_army.gd` (Created automated test suite for TC-ARMY.1 to TC-ARMY.30)
+- `scripts/test/test_live_battle_loop.gd` (Added TC-LB.4C and TC-LB.7B)
+- `docs/GAME_RULES.md` (Added Section 9 for Player Army rules and formulas)
+- `docs/SCOPE_DECISIONS.md` (Added Section 1.12 for Player Army scope and architecture)
+- `docs/TEST_PLAN.md` (Added Package 1L test specifications and criteria)
+- `docs/CHANGELOG.md` (Added Package 1L release notes)
+- `docs/WORKLOG.md` (Recorded Milestone 47)
+
+### Next Exact Step
+- Inspect git status and stage only intended Package 1L files (never `git add -A`).
+- Commit with exact mandated message: `Add player army recruitment and upkeep`
+- Push branch `feature/package-1l-army-recruitment-upkeep` to remote.
+- Verify remote HEAD matches local HEAD.
+- Stop for independent review. Do not merge to master, do not start Package 1M.

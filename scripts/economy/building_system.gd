@@ -384,6 +384,16 @@ static func is_barracks_active(world_data: WorldGenerator.WorldData, barracks_id
 					return true
 	return false
 
+static func get_active_barracks_count(world_data: WorldGenerator.WorldData) -> int:
+	if world_data == null:
+		return 0
+	var count: int = 0
+	for b in world_data.buildings:
+		if b.get("type", "") == "barracks" and b.get("state", "active") == "active":
+			count += 1
+	return count
+
+
 static func find_perimeter_cells(origin: Vector2i, size: Vector2i, world_data: WorldGenerator.WorldData, max_count: int = 2, excluded_cells: Array = []) -> Array[Vector2i]:
 	var result: Array[Vector2i] = []
 	if world_data == null:

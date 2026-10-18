@@ -232,3 +232,16 @@ const BLUEPRINTS: Dictionary = {
 		"job_type": ""
 	}
 }
+
+# -----------------------------------------------------------------------------
+# Military & Player Army Configuration (Package 1L)
+# -----------------------------------------------------------------------------
+const ARMY_CAPACITY_PER_BARRACKS: int = 5
+const ARMY_RECRUIT_COST: Dictionary = {
+	RES_GOLD: 20,
+	RES_METAL: 2,
+	RES_FOOD: 5
+}
+const ARMY_DAILY_FOOD_UPKEEP: int = 1
+const ARMY_MORALE_SUPPLIED: float = 70.0
+const ARMY_MORALE_UNSUPPLIED: float = 45.0

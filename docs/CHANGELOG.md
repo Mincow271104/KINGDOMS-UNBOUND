@@ -8,6 +8,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### [Package 1L] - 2026-10-19
+#### Added
+- Player Army Recruitment & Upkeep System (`PlayerArmyManager`):
+  - Abstract standing army model separate from civilian `CitizenController` units, eliminating population inflation and civilian labor drain while expanding settlement defense capabilities.
+  - Barracks capacity derivation: 5 soldiers per active Barracks structure (`ARMY_CAPACITY_PER_BARRACKS = 5`), dynamically responding to construction, damage, and destruction.
+  - Atomic recruitment transactions: costs 20 Gold, 2 Metal, and 5 Food per soldier with fail-closed all-or-nothing reservations.
+  - Daily food upkeep simulation: consumes 1 Food per soldier on simulation day ticks (`00:00` Game Time), gated by `last_upkeep_day` for strict daily idempotency.
+  - Starvation & supply state machine: insufficient food marks army unsupplied without deleting soldiers or draining partial food stocks. Restoring food automatically recovers supplied status on subsequent day ticks.
+  - Combat morale scaling: supplied soldiers fight at 70.0 morale (`ARMY_MORALE_SUPPLIED`); unsupplied soldiers fight at 45.0 morale (`ARMY_MORALE_UNSUPPLIED`).
+  - Defending garrison force integration: `BattleCampaignManager.construct_defending_force()` combines recruited army units and living civilian guards with weighted average combat morale.
+  - Casualty absorption priority: settlement battle casualties deduct from recruited army first, preserving civilian guards until standing army reserves are exhausted. Abstract army casualties do not trigger civilian death events.
+  - Save/load persistence: full serialization and deserialization of `soldier_count`, `is_supplied`, and `last_upkeep_day` under `"player_army"` in `SaveManager` with legacy save compatibility and schema validation.
+  - HUD Military Interface: added `MilitaryBtn` (`"⚔️ Quân Đội (U)"`) on `BottomBar`, non-modal `ArmyPanel` dialog with live stats, barracks capacity, upkeep rate, recruitment button with failure diagnostics, and hotkey `U`/`ESC` bindings.
+  - Dedicated automated test suite `scripts/test/test_player_army.gd` covering TC-ARMY.1 through TC-ARMY.30 (PASS, Exit Code 0), and extension of `scripts/test/test_live_battle_loop.gd` with TC-LB.4C and TC-LB.7B (PASS, Exit Code 0).
+
 ### [Package 1K] - 2026-10-19
 #### Added
 - Live Settlement Defense Battle Loop (`BattleCampaignManager`):

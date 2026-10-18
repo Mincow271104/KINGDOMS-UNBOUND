@@ -245,3 +245,39 @@ The live settlement defense loop operates deterministically via `BattleCampaignM
   - **Faction Strength:** Attacking casualties reduce `military_power` by $30.0 \times \text{casualties}$, clamped at 0.0.
   - **Plunder:** Attacker plunder deducts only available (unreserved) resources from `ResourceManager`.
   - **Idempotency:** Unique raid identifiers prevent repeat execution or duplicate mutations on save/load.
+
+---
+
+## 9. Player Army Recruitment, Upkeep & Garrison Defense (Package 1L)
+
+### 9.1 Abstract Military Standing Reserve
+- **Numerical Army Representation:** Recruited soldiers are tracked as an abstract numerical reserve in `PlayerArmyManager`. They are decoupled from the civilian `CitizenController` system: they do not consume housing capacity, inflate citizen population totals, or emit civilian death notifications.
+- **Barracks Capacity Gating:** Each active Barracks structure provides capacity for exactly **5 soldiers** (`ARMY_CAPACITY_PER_BARRACKS = 5`).
+  $$\text{Total Capacity} = \text{Active Barracks Count} \times 5$$
+  Under-construction, damaged, or destroyed Barracks provide $0$ capacity. Existing soldiers are preserved if capacity drops, but further recruitment is blocked until capacity exceeds current troop strength.
+
+### 9.2 Atomic Recruitment Transactions
+- **Per-Soldier Cost:**
+  - $20$ Gold (`gold`)
+  - $2$ Metal (`metal`)
+  - $5$ Food (`food`)
+- **Transaction Safety:** Recruitment uses atomic all-or-nothing reservations (`ResourceManager.reserve_cost()` followed by `ResourceManager.commit_cost()`). If any resource is insufficient or capacity is exceeded, the transaction fails closed with zero resources deducted and zero soldier modifications.
+
+### 9.3 Daily Food Upkeep & Supply Status
+- **Upkeep Rate:** $1$ Food per soldier deducted daily on simulation day transition ticks (`00:00` Game Time).
+- **Supply Gating & Failure Behavior:**
+  - If available food satisfies the full daily requirement, food is committed, `is_supplied = true`, and `last_upkeep_day` updates.
+  - If available food is insufficient, **no soldiers are deleted** and **no partial food is consumed**. The army transitions to unsupplied status (`is_supplied = false`), firing a notification event.
+- **Recovery:** When sufficient food is available on a subsequent daily tick, the army automatically restores to supplied status upon upkeep commitment.
+- **Combat Morale Scaling:**
+  - Supplied Army: $70.0$ combat morale (`ARMY_MORALE_SUPPLIED`).
+  - Unsupplied Army: $45.0$ combat morale (`ARMY_MORALE_UNSUPPLIED`).
+
+### 9.4 Defending Force Composition & Casualty Absorption
+- **Garrison Force Combination:** Settlement defense in `BattleCampaignManager.construct_defending_force()` combines recruited army units and active citizen Guards:
+  $$\text{Total Defending Troops} = \text{Army Soldiers} + \text{Eligible Guards}$$
+- **Weighted Morale Formula:**
+  $$\text{Defending Morale} = \frac{(\text{Army Soldiers} \times \text{Army Morale}) + \sum \text{Guard Morale}}{\text{Total Defending Troops}}$$
+- **Casualty Absorption Order:**
+  1. Defender casualties are deducted first from recruited army soldiers in `PlayerArmyManager.remove_casualties()`. Abstract soldier casualties do not emit `citizen_died` signals.
+  2. Any remaining overflow casualties beyond the recruited army are applied deterministically to living citizen Guards (ordered by `citizen_id`), executing their normal death lifecycle.

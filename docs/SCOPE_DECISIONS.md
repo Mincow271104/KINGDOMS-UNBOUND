@@ -118,6 +118,15 @@
   - **Zero-Troop Handling:** 0 vs 0 produces stalemate with 0 casualties; unopposed raids against undefended settlements produce 0 defender casualties and 20% resource plunder. Casualties never exceed initial force count.
   - **Idempotent Mutations:** Raids tracked by stable ID (`faction_day_seq`); repeat processing rejected; plunder respects available (unreserved) stock.
 
+### 1.12 Player Army Recruitment & Upkeep (Package 1L)
+- **Problem:** Settlement defense relied solely on converting civilian citizens into Guards. Large garrisons cannibalized the civilian labor force and distorted colony growth.
+- **Resolution:**
+  - **Separation of Reserves:** Recruited army units are an abstract military reserve tracked in `PlayerArmyManager`, distinct from civilian `CitizenController` Guards. They do not consume housing capacity, inflate population displays, or require physical pathfinding.
+  - **Barracks Capacity:** Each active Barracks provides capacity for 5 soldiers. Under-construction or inactive Barracks contribute 0 capacity.
+  - **Atomic Recruitment:** Recruited at 20 Gold, 2 Metal, and 5 Food per soldier using fail-closed atomic cost reservation and commit.
+  - **Daily Food Upkeep:** 1 Food per soldier charged on daily simulation ticks. Starvation transitions army to unsupplied (morale 45.0) without deleting soldiers or partially draining food.
+  - **Casualty Absorption Priority:** Settlement battles deduct casualties from recruited army first, sparing civilian guards until army reserves are exhausted. Abstract army casualties do not trigger citizen death events.
+
 ---
 
 ## 2. Deferred & Excluded Scope for MVP

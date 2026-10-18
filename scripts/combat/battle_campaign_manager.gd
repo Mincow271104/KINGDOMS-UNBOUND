@@ -27,6 +27,7 @@ var _custom_world_data: WorldGenerator.WorldData = null
 var _custom_citizen_list: Array = []
 var _custom_resource_mgr: Object = null
 var _custom_job_mgr: JobManager = null
+var _custom_army_mgr: Object = null
 var _custom_current_day: int = -1
 
 # Persistent State:
@@ -133,6 +134,16 @@ func get_resource_manager() -> Object:
 		return world_view.get_node_or_null("/root/ResourceManager")
 	return null
 
+func get_player_army_manager() -> Object:
+	if _custom_army_mgr != null:
+		return _custom_army_mgr
+	if is_instance_valid(world_view):
+		return world_view.get("player_army_mgr")
+	return null
+
+func set_custom_army_manager(mgr: Object) -> void:
+	_custom_army_mgr = mgr
+
 # -----------------------------------------------------------------------------
 # B1. Raid Scheduling & Queries
 # -----------------------------------------------------------------------------
@@ -207,15 +218,27 @@ func get_eligible_guards() -> Array:
 	return result
 
 func construct_defending_force() -> Dictionary:
+	var army_mgr = get_player_army_manager()
+	var army_soldiers: int = 0
+	var army_morale: float = EconomyConfigScript.ARMY_MORALE_SUPPLIED
+	if army_mgr != null and army_mgr.has_method("get_army_count"):
+		army_soldiers = maxi(0, int(army_mgr.call("get_army_count")))
+		if army_mgr.has_method("get_combat_morale"):
+			army_morale = float(army_mgr.call("get_combat_morale"))
+
 	var guards: Array = get_eligible_guards()
 	var guard_count: int = guards.size()
+	var total_troops: int = army_soldiers + guard_count
 
 	var avg_morale: float = 70.0
-	if guard_count > 0:
-		var total_morale: float = 0.0
-		for g in guards:
-			total_morale += float(g.get("morale"))
-		avg_morale = clampf(total_morale / float(guard_count), 20.0, 100.0)
+	if total_troops > 0:
+		var total_morale_sum: float = 0.0
+		if army_soldiers > 0:
+			total_morale_sum += army_morale * float(army_soldiers)
+		if guard_count > 0:
+			for g in guards:
+				total_morale_sum += float(g.get("morale"))
+		avg_morale = clampf(total_morale_sum / float(total_troops), 20.0, 100.0)
 
 	var def_resources: Dictionary = {}
 	var rm = get_resource_manager()
@@ -226,7 +249,9 @@ func construct_defending_force() -> Dictionary:
 				def_resources[res_id] = avail
 
 	return {
-		"troops": guard_count,
+		"troops": total_troops,
+		"army_soldiers": army_soldiers,
+		"guard_count": guard_count,
 		"equipment_tier": 1,
 		"morale": avg_morale,
 		"terrain_multiplier": 1.0,
@@ -299,10 +324,20 @@ func resolve_and_apply_raid(faction_id: String, current_day: int = -1) -> Dictio
 				if to_deduct > 0:
 					plunder_plan[r_id] = to_deduct
 
-	# Pre-validate eligible guards and casualties
+	# Pre-validate defender casualties
+	var total_def_casualties: int = maxi(0, report.defender_casualties)
+	var army_casualties: int = 0
+	var army_mgr = get_player_army_manager()
+	if army_mgr != null and army_mgr.has_method("get_army_count"):
+		var cur_army: int = maxi(0, int(army_mgr.call("get_army_count")))
+		army_casualties = mini(total_def_casualties, cur_army)
+		if army_casualties > 0 and army_mgr.has_method("remove_casualties"):
+			army_mgr.call("remove_casualties", army_casualties)
+
+	var remaining_casualties: int = total_def_casualties - army_casualties
 	var eligible_guards: Array = get_eligible_guards()
 	eligible_guards.sort_custom(func(a, b): return String(a.get("citizen_id")) < String(b.get("citizen_id")))
-	var casualties_to_take: int = mini(report.defender_casualties, eligible_guards.size())
+	var casualties_to_take: int = mini(remaining_casualties, eligible_guards.size())
 	var jm = get_job_manager()
 
 	# C1. Apply Guard Casualties
@@ -371,7 +406,9 @@ func resolve_and_apply_raid(faction_id: String, current_day: int = -1) -> Dictio
 		"day": current_day,
 		"scheduled_day": sched_day,
 		"sequence": seq,
+		"army_casualties": army_casualties,
 		"guards_killed": guards_killed,
+		"defender_casualties": army_casualties + guards_killed.size(),
 		"enemy_casualties": enemy_casualties,
 		"remaining_military_power": fac.military_power,
 		"plundered_resources": plundered_applied,

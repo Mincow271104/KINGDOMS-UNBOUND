@@ -20,6 +20,7 @@ const WorldGeneratorScript = preload("res://scripts/world/world_generator.gd")
 const CitizenControllerScript = preload("res://scripts/entities/citizen_controller.gd")
 const JobManagerScript = preload("res://scripts/jobs/job_manager.gd")
 const SaveManagerScript = preload("res://scripts/persistence/save_manager.gd")
+const PlayerArmyManagerScript = preload("res://scripts/military/player_army_manager.gd")
 const WorldViewScene = preload("res://scenes/world/world_view.tscn")
 
 var frame_count: int = 0
@@ -275,6 +276,27 @@ func _run_unit_checks() -> void:
 	else:
 		print("  [PASS] TC-LB.4B: Defending force correctly derived from 2 living guards (avg morale 70.0, available food 180).")
 
+	# TC-LB.4C: Defending Force with Recruited Player Army Units (Package 1L)
+	var test_army_mgr := PlayerArmyManagerScript.new()
+	test_army_mgr.soldier_count = 3
+	test_army_mgr.is_supplied = true
+	bcm.set_custom_army_manager(test_army_mgr)
+
+	var def_force_combined = bcm.construct_defending_force()
+	# 3 army units (morale 70.0) + 2 guards (avg morale 70.0) = 5 troops, weighted morale 70.0
+	if def_force_combined.get("troops") != 5:
+		printerr("  [FAIL] TC-LB.4C: Expected 5 combined troops (3 army + 2 guards), got %d" % def_force_combined.get("troops"))
+		failures += 1
+	elif def_force_combined.get("army_soldiers") != 3:
+		printerr("  [FAIL] TC-LB.4C: Expected 3 army soldiers recorded, got %d" % def_force_combined.get("army_soldiers"))
+		failures += 1
+	elif not is_equal_approx(def_force_combined.get("morale"), 70.0):
+		printerr("  [FAIL] TC-LB.4C: Expected combined morale 70.0, got %f" % def_force_combined.get("morale"))
+		failures += 1
+	else:
+		print("  [PASS] TC-LB.4C: Defending force correctly combines 3 recruited army units + 2 guards = 5 troops.")
+	bcm.set_custom_army_manager(null)
+
 	# -------------------------------------------------------------------------
 	# TC-LB.5: Zero-Troop Edge Cases & Casualty Bounds
 	# -------------------------------------------------------------------------
@@ -384,6 +406,49 @@ func _run_unit_checks() -> void:
 			failures += 1
 		else:
 			print("  [PASS] TC-LB.7: Guard casualties (%d) cleanly removed and citizen_died signal fired." % expected_cas)
+
+	# -------------------------------------------------------------------------
+	# TC-LB.7B: Recruited Army Priority in Live Settlement Raid Casualties (Package 1L)
+	# -------------------------------------------------------------------------
+	print("\n--- Running TC-LB.7B: Recruited Army Casualty Priority in Raid ---")
+	var raid_army_mgr := PlayerArmyManagerScript.new()
+	raid_army_mgr.soldier_count = 5
+	raid_army_mgr.is_supplied = true
+	bcm.set_custom_army_manager(raid_army_mgr)
+
+	# Revive a guard to test guard preservation
+	cit_guard_1.health = 100.0
+	cit_guard_1.current_state = CitizenControllerScript.State.IDLE
+	died_signals.clear()
+
+	bcm.schedule_raid("rival_military", 6, 2)
+	bcm.set_custom_current_day(6)
+	var army_raid_outcome = bcm.resolve_and_apply_raid("rival_military", 6)
+	if not army_raid_outcome.get("success", false):
+		printerr("  [FAIL] TC-LB.7B: resolve_and_apply_raid failed with army: %s" % army_raid_outcome.get("reason", ""))
+		failures += 1
+	else:
+		var a_rep: BattleResolver.BattleReport = army_raid_outcome.get("report")
+		var a_ctx: Dictionary = army_raid_outcome.get("context", {})
+		var a_total_cas: int = a_rep.defender_casualties
+		var a_army_cas: int = a_ctx.get("army_casualties", 0)
+		var a_guards_killed: Array = a_ctx.get("guards_killed", [])
+
+		if a_total_cas > 0 and a_total_cas <= 5:
+			if a_army_cas != a_total_cas:
+				printerr("  [FAIL] TC-LB.7B: Recruited army did not absorb all %d casualties (absorbed %d)" % [a_total_cas, a_army_cas])
+				failures += 1
+			elif a_guards_killed.size() != 0:
+				printerr("  [FAIL] TC-LB.7B: Guards killed when army had capacity! Killed: %s" % str(a_guards_killed))
+				failures += 1
+			elif died_signals.size() != 0:
+				printerr("  [FAIL] TC-LB.7B: citizen_died signal fired when only army suffered casualties!")
+				failures += 1
+			else:
+				print("  [PASS] TC-LB.7B: All %d defender casualties absorbed by recruited army; 0 guards killed, 0 citizen signals." % a_total_cas)
+		else:
+			print("  [PASS] TC-LB.7B: Raid resolved cleanly with %d casualties." % a_total_cas)
+	bcm.set_custom_army_manager(null)
 
 	# -------------------------------------------------------------------------
 	# TC-LB.8: Attacking Faction Military Losses & Non-Negativity
