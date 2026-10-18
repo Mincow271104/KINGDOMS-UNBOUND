@@ -34,6 +34,8 @@ var _custom_current_day: int = -1
 var _pending_raids: Dictionary = {}
 # _processed_raids: raid_id (String) -> true
 var _processed_raids: Dictionary = {}
+# In-flight guard to prevent re-entrant duplicate resolution
+var _in_flight_raids: Dictionary = {}
 
 func _init(p_world_view: Node = null, p_faction_mgr: FactionManager = null, p_seed: int = 12345) -> void:
 	world_view = p_world_view
@@ -235,7 +237,10 @@ func construct_defending_force() -> Dictionary:
 # B4, C1..C4. Battle Execution and Idempotent World Mutation
 # -----------------------------------------------------------------------------
 
-func resolve_and_apply_raid(faction_id: String, day: int) -> Dictionary:
+func resolve_and_apply_raid(faction_id: String, current_day: int = -1) -> Dictionary:
+	if current_day < 0:
+		current_day = get_current_day()
+
 	if not is_faction_eligible_to_raid(faction_id):
 		cancel_raid(faction_id, "Thế lực không đủ điều kiện tấn công")
 		return {"success": false, "reason": "Faction not eligible to raid"}
@@ -245,23 +250,32 @@ func resolve_and_apply_raid(faction_id: String, day: int) -> Dictionary:
 		return {"success": false, "reason": "No pending raid for faction"}
 
 	var sched_day: int = pending.get("scheduled_day", -1)
-	if day < sched_day:
-		return {"success": false, "reason": "Raid already processed or not due yet", "already_processed": true}
+	if current_day < sched_day:
+		return {"success": false, "reason": "Raid already processed or not due yet", "already_processed": true, "not_due": true}
 
 	var seq: int = pending.get("raid_sequence", 1)
 	var raid_id: String = "%s_day_%d_seq_%d" % [faction_id, sched_day, seq]
 
-	# Enforce Idempotency: cannot process the same raid twice
+	# Guard against re-entrant duplicate execution or replay
+	if _in_flight_raids.has(raid_id):
+		return {"success": false, "reason": "Raid resolution already in-flight", "in_flight": true}
+
 	if _processed_raids.has(raid_id):
 		return {"success": false, "reason": "Raid already processed", "already_processed": true}
 
-	var fac: FactionData = faction_mgr.get_faction(faction_id)
+	var fac: FactionData = faction_mgr.get_faction(faction_id) if faction_mgr != null else null
+	if fac == null:
+		return {"success": false, "reason": "Faction data not found"}
+
+	# Set in-flight guard before any operations begin
+	_in_flight_raids[raid_id] = true
+
 	var atk_force: Dictionary = construct_attacking_force(fac)
 	var def_force: Dictionary = construct_defending_force()
 	var wd = get_world_data()
 
-	# Deterministic seed derivation
-	var raid_seed: int = (world_seed * 31 + day * 101 + hash(faction_id) + seq * 17) & 0x7FFFFFFF
+	# Deterministic seed derivation using the effective resolution day
+	var raid_seed: int = (world_seed * 31 + current_day * 101 + hash(faction_id) + seq * 17) & 0x7FFFFFFF
 
 	# Call Package 1J authoritative resolver
 	var report: BattleResolver.BattleReport = BattleResolverScript.resolve_settlement_battle(
@@ -271,17 +285,28 @@ func resolve_and_apply_raid(faction_id: String, day: int) -> Dictionary:
 		raid_seed
 	)
 
-	# Mark processed immediately to prevent re-entrancy / duplicate execution
-	_processed_raids[raid_id] = true
+	# Pre-validate plunder plan from actual available stock before mutations
+	var plunder_plan: Dictionary = {}
+	var rm = get_resource_manager()
+	if report.victor == "attacker" and rm != null and not report.plunder_spoils.is_empty():
+		for r_id in report.plunder_spoils:
+			var requested_amt: int = int(report.plunder_spoils[r_id])
+			if requested_amt > 0:
+				var avail: int = 0
+				if rm.has_method("get_available_stock"):
+					avail = rm.call("get_available_stock", r_id)
+				var to_deduct: int = mini(requested_amt, avail)
+				if to_deduct > 0:
+					plunder_plan[r_id] = to_deduct
+
+	# Pre-validate eligible guards and casualties
+	var eligible_guards: Array = get_eligible_guards()
+	eligible_guards.sort_custom(func(a, b): return String(a.get("citizen_id")) < String(b.get("citizen_id")))
+	var casualties_to_take: int = mini(report.defender_casualties, eligible_guards.size())
+	var jm = get_job_manager()
 
 	# C1. Apply Guard Casualties
 	var guards_killed: Array[String] = []
-	var eligible_guards: Array = get_eligible_guards()
-	# Sort guards deterministically by citizen_id ascending
-	eligible_guards.sort_custom(func(a, b): return String(a.get("citizen_id")) < String(b.get("citizen_id")))
-
-	var casualties_to_take: int = mini(report.defender_casualties, eligible_guards.size())
-	var jm = get_job_manager()
 	for i in range(casualties_to_take):
 		var cit = eligible_guards[i]
 		var c_id: String = cit.get("citizen_id")
@@ -292,7 +317,7 @@ func resolve_and_apply_raid(faction_id: String, day: int) -> Dictionary:
 			jm.release_job(cit.active_job)
 			cit.active_job = null
 
-		# Update citizen status and mark deceased
+		# Update citizen status and mark deceased with combat reason
 		cit.health = 0.0
 		cit.status_reason = "Tử trận khi bảo vệ định cư"
 		cit.current_state = 0 # State.IDLE
@@ -310,23 +335,34 @@ func resolve_and_apply_raid(faction_id: String, day: int) -> Dictionary:
 	var mil_loss: float = float(enemy_casualties) * MILITARY_POWER_PER_TROOP
 	fac.military_power = maxf(0.0, fac.military_power - mil_loss)
 
-	# C3. Apply Resource Plunder
+	# C3. Apply Resource Plunder Transactionally
 	var plundered_applied: Dictionary = {}
-	var rm = get_resource_manager()
-	if report.victor == "attacker" and rm != null and not report.plunder_spoils.is_empty():
-		for r_id in report.plunder_spoils:
-			var requested_amt: int = report.plunder_spoils[r_id]
-			if requested_amt > 0:
-				var avail: int = rm.call("get_available_stock", r_id) if rm.has_method("get_available_stock") else 0
-				var to_deduct: int = mini(requested_amt, avail)
-				if to_deduct > 0 and rm.has_method("consume_resource"):
-					rm.call("consume_resource", r_id, to_deduct)
-					plundered_applied[r_id] = to_deduct
+	if not plunder_plan.is_empty() and rm != null:
+		if rm.has_method("reserve_cost") and rm.has_method("commit_cost"):
+			var reserved: bool = rm.call("reserve_cost", plunder_plan)
+			if reserved:
+				rm.call("commit_cost", plunder_plan)
+				plundered_applied = plunder_plan.duplicate()
+			else:
+				# Reservation failed (e.g. stock reserved by other orders or insufficient): fail closed
+				plundered_applied = {}
+		elif rm.has_method("consume_resource"):
+			# Fallback for simple mock/legacy interfaces
+			var all_succeeded: bool = true
+			for r_id in plunder_plan:
+				var consumed: bool = rm.call("consume_resource", r_id, plunder_plan[r_id])
+				if not consumed:
+					all_succeeded = false
+					break
+			if all_succeeded:
+				plundered_applied = plunder_plan.duplicate()
+			else:
+				plundered_applied = {}
 
 	# C4. Schedule next raid or terminate campaign
 	var next_scheduled_day: int = -1
 	if fac.is_at_war and fac.military_power > 0.0:
-		next_scheduled_day = day + SUBSEQUENT_RAID_INTERVAL_DAYS
+		next_scheduled_day = current_day + SUBSEQUENT_RAID_INTERVAL_DAYS
 		_pending_raids[faction_id] = {
 			"scheduled_day": next_scheduled_day,
 			"raid_sequence": seq + 1
@@ -341,7 +377,8 @@ func resolve_and_apply_raid(faction_id: String, day: int) -> Dictionary:
 		"raid_id": raid_id,
 		"faction_id": faction_id,
 		"faction_name": fac.name,
-		"day": day,
+		"day": current_day,
+		"scheduled_day": sched_day,
 		"sequence": seq,
 		"guards_killed": guards_killed,
 		"enemy_casualties": enemy_casualties,
@@ -349,6 +386,10 @@ func resolve_and_apply_raid(faction_id: String, day: int) -> Dictionary:
 		"plundered_resources": plundered_applied,
 		"next_raid_day": next_scheduled_day
 	}
+
+	# Mark processed, clear in-flight guard, and emit resolution signal
+	_processed_raids[raid_id] = true
+	_in_flight_raids.erase(raid_id)
 
 	battle_resolved.emit(report, raid_context)
 
@@ -363,14 +404,17 @@ func resolve_and_apply_raid(faction_id: String, day: int) -> Dictionary:
 func process_daily_raids(current_day: int) -> Array[Dictionary]:
 	var results: Array[Dictionary] = []
 	var factions_with_raids := _pending_raids.keys()
+	factions_with_raids.sort()
 
 	for fac_id in factions_with_raids:
 		var pending: Dictionary = _pending_raids.get(fac_id, {})
+		if pending.is_empty():
+			continue
 		var sched_day: int = pending.get("scheduled_day", -1)
 
 		if sched_day <= current_day:
 			if is_faction_eligible_to_raid(fac_id):
-				var res = resolve_and_apply_raid(fac_id, sched_day)
+				var res = resolve_and_apply_raid(fac_id, current_day)
 				results.append(res)
 			else:
 				cancel_raid(fac_id, "Thế lực không còn đủ điều kiện đột kích")
@@ -390,6 +434,7 @@ func serialize() -> Dictionary:
 func deserialize(data: Dictionary) -> void:
 	_pending_raids.clear()
 	_processed_raids.clear()
+	_in_flight_raids.clear()
 
 	var raw_processed: Dictionary = data.get("processed_raids", {})
 	for k in raw_processed:

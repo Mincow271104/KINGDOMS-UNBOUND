@@ -3056,9 +3056,92 @@ Implement Package 1K: the first production gameplay path for the settlement defe
 - `docs/WORKLOG.md` (Recorded Milestone 44)
 
 ### Next Exact Step
+- Milestone 44 committed and pushed on `feature/package-1k-live-battle-loop` at `7e10ee1681a3cd246266f17d5ffb4349b18da151`.
+
+---
+
+## [2026-10-19] Milestone 45: Package 1K Review Fix — Raid State Application Edge Cases ✅ VERIFIED
+
+### Context & Objective
+Address independent code-review findings in Package 1K on branch `feature/package-1k-live-battle-loop`:
+1. **Overdue Raid Processing:**
+   - In `scripts/combat/battle_campaign_manager.gd`, `process_daily_raids(current_day)` previously passed `sched_day` to `resolve_and_apply_raid()`, resolving overdue raids using obsolete dates and calculating next raid scheduling from a stale past date.
+   - Requirement: Pass current simulation day into resolution; preserve stable raid ID (`<faction_id>_day_<sched_day>_seq_<seq>`); report actual resolution day in raid context while recording scheduled day; schedule next raid relative to current simulation day (`current_day + 5`); prevent multiple raid resolutions per faction per daily tick; verify overdue raid cannot re-resolve on the same day.
+2. **Transactional Plunder & In-Flight Guard:**
+   - Plunder previously used independent `consume_resource()` calls without transactional protection and marked raids processed before applying mutations.
+   - Requirement: Pre-validate plunder plan from actual available stock (excluding reserved stock); use `reserve_cost()` followed by `commit_cost()` for all-or-nothing transactional execution; fail closed with 0 plunder reported/deducted if reservation fails; add `_in_flight_raids` guard to reject re-entrant calls; only mark raid processed and emit `battle_resolved` after successful outcome application; prevent replay duplicates.
+3. **Accurate Battle-Death Notifications:**
+   - In `scripts/world/world_view.gd`, `_on_citizen_died()` previously announced every death as starvation or exhaustion regardless of combat status.
+   - Requirement: Inspect `cit.status_reason`; trigger `Chiến Binh Tử Trận` with `cause: "combat"` for combat casualties; preserve `Tang Lễ Vương Quốc` with `cause: "starvation_or_exhaustion"` for starvation deaths; preserve citizen removal, job release, and HUD population counter updates; emit zero duplicate notifications.
+4. **Real Daily Scheduling with TimeManager:**
+   - Verify end-to-end integration via the project's actual `TimeManager.day_passed` signal connected to `WorldView`. Verify raids do not resolve prematurely before due day, resolve once on due tick, advance hours safely without duplicate resolution, and cancel immediately upon signing peace.
+
+### Implementation Summary
+1. **Battle Campaign Manager Hardening (`scripts/combat/battle_campaign_manager.gd`):**
+   - Added `_in_flight_raids: Dictionary = {}` guard.
+   - In `resolve_and_apply_raid(faction_id, current_day)`:
+     - Defaults `current_day` to `get_current_day()` when omitted.
+     - Preserved stable `raid_id = "%s_day_%d_seq_%d" % [faction_id, sched_day, seq]`.
+     - Blocked execution if `_in_flight_raids.has(raid_id)` (returns `in_flight: true`) or `_processed_raids.has(raid_id)` (returns `already_processed: true`).
+     - Derived deterministic raid seed using `current_day`.
+     - Pre-validated plunder plan from `rm.get_available_stock()`, strictly bounded by available stock without touching reserved inventory.
+     - Applied plunder transactionally using `rm.reserve_cost(plunder_plan)` + `rm.commit_cost(plunder_plan)`; failed closed with empty plunder if reservation failed.
+     - Scheduled next raid relative to current simulation day: `current_day + SUBSEQUENT_RAID_INTERVAL_DAYS`.
+     - Recorded both `day: current_day` and `scheduled_day: sched_day` in `raid_context`.
+     - Marked `_processed_raids[raid_id] = true`, cleared `_in_flight_raids.erase(raid_id)`, and emitted `battle_resolved` only after all mutations completed.
+   - In `process_daily_raids(current_day)`:
+     - Sorted faction keys deterministically and passed `current_day` into `resolve_and_apply_raid(fac_id, current_day)`.
+   - In `deserialize()`:
+     - Cleared `_in_flight_raids.clear()`.
+2. **Citizen Death Notification Accuracy (`scripts/world/world_view.gd`):**
+   - In `_on_citizen_died(died_id)`:
+     - Evaluated `cit.get("status_reason")`. If containing `"bảo vệ định cư"`, `"Tử trận"`, or `"trận chiến"`, triggered `em.trigger_event("citizen_died", "Chiến Binh Tử Trận", ..., {"citizen_id": died_id, "cause": "combat"})`.
+     - Otherwise, triggered `em.trigger_event("citizen_died", "Tang Lễ Vương Quốc", ..., {"citizen_id": died_id, "cause": "starvation_or_exhaustion"})`.
+3. **Automated Regression Test Suite (`scripts/test/test_live_battle_loop.gd`):**
+   - Enhanced `MockResourceManager` with `can_afford`, `reserve_cost`, `commit_cost`, `release_cost`, and `fail_reservation` flag.
+   - Added `TC-LB.15`: Overdue Raid Processing & Current Day Scheduling (Day 5 scheduled, resolved on Day 20, next raid Day 25, repeat on Day 20 rejected).
+   - Added `TC-LB.16`: Transactional Plunder Application & In-Flight Guard (Subcheck A: available stock respected, reserved stock protected; Subcheck B: reservation failure fails closed with 0 plunder; Subcheck C: in-flight re-entrancy rejected).
+   - Added `TC-LB.17`: Accurate Death Notifications (`Chiến Binh Tử Trận` for combat vs `Tang Lễ Vương Quốc` for starvation).
+   - Added `TC-LB.18`: Real Daily Scheduling with TimeManager (Day 10 war -> Day 13 scheduled; Day 11-12 no premature resolution; Day 13 resolved on tick; Day 13 hourly advance no duplicate resolution; Day 14 peace cancellation; Day 14-20 zero subsequent raids).
+
+### Validations Performed & Results
+- **Dedicated Live Battle Loop Suite (`scripts/test/test_live_battle_loop.gd`):**
+  - Command: `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless -s scripts/test/test_live_battle_loop.gd`
+  - Result: **PASS (Exit Code 0, 18/18 tests passed)**
+    - TC-LB.1 to TC-LB.14: PASS
+    - TC-LB.15 (Overdue Raid Processing): PASS
+    - TC-LB.16 (Transactional Plunder & In-Flight Guard): PASS
+    - TC-LB.17 (Accurate Death Notifications): PASS
+    - TC-LB.18 (Real Daily Scheduling via TimeManager): PASS
+- **Targeted Integration Suites:**
+  - `test_battle_fortification.gd`: **PASS (Exit Code 0, 12/12 passed)**
+  - `test_factions_and_battles.gd`: **PASS (Exit Code 0, 2/2 passed)**
+  - `test_palisade.gd`: **PASS (Exit Code 0, 7/7 passed)**
+- **Full Test Matrix (All 24 Test Suites in `scripts/test/test_*.gd`):**
+  - Result: **PASS (24/24 suites passed, Exit Code 0)**
+- **Headless Scene Smoke Checks:**
+  - `scenes/ui/main_menu.tscn`: **PASS (Exit Code 0)**
+  - `scenes/world/world_view.tscn`: **PASS (Exit Code 0)**
+  - `scenes/ui/hud.tscn`: **PASS (Exit Code 0)**
+  - `scenes/test/visual_validation_test.tscn`: **PASS (Exit Code 0)**
+- **Whitespace & Formatting Check:**
+  - `git diff --check`: Clean (Exit Code 0, zero whitespace errors).
+- **Graphical Inspection Status:**
+  - Headless console testing accurately verified all deterministic combat simulations, transactional resource reservations, death notifications, and TimeManager daily advance signals.
+  - Interactive GUI / MCP screenshots not applicable in headless session without running Godot Editor client.
+
+### Files Created / Modified
+- `scripts/combat/battle_campaign_manager.gd` (Overdue raid day handling, transactional plunder, in-flight guard)
+- `scripts/world/world_view.gd` (Accurate combat death vs starvation death notifications)
+- `scripts/test/test_live_battle_loop.gd` (MockResourceManager transactional methods, TC-LB.15 through TC-LB.18)
+- `docs/TEST_PLAN.md` (Added TC-LB.15 through TC-LB.18, 18/18 passed)
+- `docs/CHANGELOG.md` (Documented Package 1K review fixes)
+- `docs/WORKLOG.md` (Recorded Milestone 45)
+
+### Next Exact Step
 - Stage modified files explicitly:
-  `git add scripts/combat/battle_resolver.gd scripts/combat/battle_campaign_manager.gd scripts/world/world_view.gd scripts/ui/hud.gd scripts/persistence/save_manager.gd scripts/test/test_live_battle_loop.gd docs/BACKLOG.md docs/CHANGELOG.md docs/GAME_RULES.md docs/SCOPE_DECISIONS.md docs/KNOWN_ISSUES.md docs/TEST_PLAN.md docs/WORKLOG.md`
-- Commit with exact mandated message: `Add live settlement defense battle loop`
+  `git add scripts/combat/battle_campaign_manager.gd scripts/world/world_view.gd scripts/test/test_live_battle_loop.gd docs/TEST_PLAN.md docs/CHANGELOG.md docs/WORKLOG.md`
+- Commit with exact mandated message: `Fix Package 1K raid state application edge cases`
 - Push to `origin/feature/package-1k-live-battle-loop`.
-- Verify local HEAD equals remote HEAD.
+- Verify local HEAD equals remote HEAD and show parent SHA.
 - Stop for independent review. Do not merge to master, do not start Package 1L.

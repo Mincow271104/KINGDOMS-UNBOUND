@@ -429,7 +429,11 @@ func _on_citizen_died(died_id: String) -> void:
 	var rm = get_node_or_null("/root/ResourceManager")
 	var em = get_node_or_null("/root/EventManager")
 	var cit = citizens_by_id.get(died_id)
+	var is_combat_death: bool = false
 	if cit:
+		var status_reason: String = String(cit.get("status_reason"))
+		if status_reason.contains("bảo vệ định cư") or status_reason.contains("Tử trận") or status_reason.contains("trận chiến"):
+			is_combat_death = true
 		citizen_list.erase(cit)
 		citizens_by_id.erase(died_id)
 		if is_instance_valid(cit):
@@ -437,7 +441,10 @@ func _on_citizen_died(died_id: String) -> void:
 	if rm:
 		rm.active_population = citizen_list.size()
 	if em:
-		em.trigger_event("citizen_died", "Tang Lễ Vương Quốc", "Một cư dân đã qua đời do nạn đói hoặc kiệt sức.", false, {})
+		if is_combat_death:
+			em.trigger_event("citizen_died", "Chiến Binh Tử Trận", "Một vệ binh đã anh dũng hy sinh khi bảo vệ định cư trong trận chiến.", false, {"citizen_id": died_id, "cause": "combat"})
+		else:
+			em.trigger_event("citizen_died", "Tang Lễ Vương Quốc", "Một cư dân đã qua đời do nạn đói hoặc kiệt sức.", false, {"citizen_id": died_id, "cause": "starvation_or_exhaustion"})
 	var housing_cap: int = BuildingSystem.get_total_housing_capacity(world_data)
 	if hud:
 		hud.update_population_display(citizen_list.size(), housing_cap)

@@ -27,6 +27,7 @@ var failures: int = 0
 class MockResourceManager:
 	var stock: Dictionary = {}
 	var reserved: Dictionary = {}
+	var fail_reservation: bool = false
 
 	func _init() -> void:
 		stock = {
@@ -44,6 +45,31 @@ class MockResourceManager:
 
 	func get_available_stock(res_id: String) -> int:
 		return maxi(0, stock.get(res_id, 0) - reserved.get(res_id, 0))
+
+	func can_afford(cost: Dictionary) -> bool:
+		if fail_reservation:
+			return false
+		for res_id in cost:
+			if get_available_stock(res_id) < cost[res_id]:
+				return false
+		return true
+
+	func reserve_cost(cost: Dictionary) -> bool:
+		if not can_afford(cost):
+			return false
+		for res_id in cost:
+			reserved[res_id] = reserved.get(res_id, 0) + cost[res_id]
+		return true
+
+	func commit_cost(cost: Dictionary) -> void:
+		for res_id in cost:
+			var amt: int = cost[res_id]
+			reserved[res_id] = maxi(0, reserved.get(res_id, 0) - amt)
+			stock[res_id] = maxi(0, stock.get(res_id, 0) - amt)
+
+	func release_cost(cost: Dictionary) -> void:
+		for res_id in cost:
+			reserved[res_id] = maxi(0, reserved.get(res_id, 0) - cost[res_id])
 
 	func consume_resource(res_id: String, amount: int) -> bool:
 		var avail = get_available_stock(res_id)
@@ -518,3 +544,281 @@ func _run_world_integration_checks() -> void:
 		failures += 1
 	else:
 		print("  [PASS] TC-LB.14: Same-day replay rejected cleanly with 0 duplicate raids.")
+
+	# -------------------------------------------------------------------------
+	# TC-LB.15: Overdue Raid Processing & Current Day Scheduling
+	# -------------------------------------------------------------------------
+	print("\n--- Running TC-LB.15: Overdue Raid Processing & Current Day Scheduling ---")
+	var overdue_bcm := BattleCampaignManagerScript.new(null, fm, 55555)
+	var overdue_fac = fm.get_faction("rival_military")
+	overdue_fac.military_power = 90.0
+	overdue_fac.declare_war()
+	var overdue_rm := MockResourceManager.new()
+	overdue_bcm.set_custom_resource_manager(overdue_rm)
+	overdue_bcm.set_custom_world_data(world_instance.world_data)
+	overdue_bcm.set_custom_citizen_list([])
+
+	# Schedule raid for Day 5, but current day is Day 20
+	overdue_bcm.schedule_raid("rival_military", 5, 1)
+	if not overdue_bcm.has_pending_raid("rival_military"):
+		printerr("  [FAIL] TC-LB.15: Failed to schedule overdue raid for day 5")
+		failures += 1
+
+	# Process at current day = 20
+	var overdue_results = overdue_bcm.process_daily_raids(20)
+	if overdue_results.size() != 1:
+		printerr("  [FAIL] TC-LB.15: Expected exactly 1 overdue raid processed, got %d" % overdue_results.size())
+		failures += 1
+	else:
+		var overdue_res: Dictionary = overdue_results[0]
+		var ctx: Dictionary = overdue_res.get("context", {})
+		if ctx.get("day") != 20:
+			printerr("  [FAIL] TC-LB.15: Report day mismatch! Expected 20, got %s" % str(ctx.get("day")))
+			failures += 1
+		elif ctx.get("scheduled_day") != 5:
+			printerr("  [FAIL] TC-LB.15: Scheduled day mismatch! Expected 5, got %s" % str(ctx.get("scheduled_day")))
+			failures += 1
+		else:
+			print("  [PASS] TC-LB.15: Overdue raid resolved on actual day 20 (scheduled day 5 preserved).")
+
+		# Check next raid is scheduled for Day 25 (20 + 5, not 5 + 5 = 10)
+		var next_p = overdue_bcm.get_pending_raid("rival_military")
+		if next_p.get("scheduled_day") != 25:
+			printerr("  [FAIL] TC-LB.15: Expected next raid at day 25 (20 + 5), got day %s" % str(next_p.get("scheduled_day")))
+			failures += 1
+		else:
+			print("  [PASS] TC-LB.15: Next raid correctly scheduled relative to current simulation day (Day 25).")
+
+		# Verify it cannot resolve again on Day 20
+		var re_overdue = overdue_bcm.process_daily_raids(20)
+		if not re_overdue.is_empty():
+			printerr("  [FAIL] TC-LB.15: Overdue raid re-resolved on Day 20!")
+			failures += 1
+		else:
+			print("  [PASS] TC-LB.15: Overdue raid cannot resolve again on the same simulation day.")
+
+		# Direct invocation for Day 20 rejected
+		var direct_re = overdue_bcm.resolve_and_apply_raid("rival_military", 20)
+		if direct_re.get("success", true) != false:
+			printerr("  [FAIL] TC-LB.15: Direct invocation on Day 20 accepted when next raid is Day 25!")
+			failures += 1
+		else:
+			print("  [PASS] TC-LB.15: Direct invocation for Day 20 cleanly rejected as not due yet.")
+
+	# -------------------------------------------------------------------------
+	# TC-LB.16: Transactional Plunder, Reservation Failure & In-Flight Guard
+	# -------------------------------------------------------------------------
+	print("\n--- Running TC-LB.16: Transactional Plunder Application & In-Flight Guard ---")
+	var tx_bcm := BattleCampaignManagerScript.new(null, fm, 77777)
+	var tx_fac = fm.get_faction("rival_military")
+	tx_fac.military_power = 90.0
+	tx_fac.declare_war()
+	var tx_rm := MockResourceManager.new()
+	tx_bcm.set_custom_resource_manager(tx_rm)
+	tx_bcm.set_custom_world_data(world_instance.world_data)
+	tx_bcm.set_custom_citizen_list([])
+
+	# Subcheck A: Plunder calculation from available stock only, protecting reserved stock
+	tx_rm.stock[EconomyConfigScript.RES_FOOD] = 100
+	tx_rm.reserved[EconomyConfigScript.RES_FOOD] = 80 # Available is only 20
+	tx_bcm.schedule_raid("rival_military", 10, 1)
+
+	var tx_res = tx_bcm.resolve_and_apply_raid("rival_military", 10)
+	var tx_plundered = tx_res.get("context", {}).get("plundered_resources", {})
+	if tx_plundered.has(EconomyConfigScript.RES_FOOD):
+		var p_amt: int = tx_plundered[EconomyConfigScript.RES_FOOD]
+		if p_amt > 20:
+			printerr("  [FAIL] TC-LB.16: Plunder exceeded available stock (%d > 20)!" % p_amt)
+			failures += 1
+		elif tx_rm.stock[EconomyConfigScript.RES_FOOD] < 80:
+			printerr("  [FAIL] TC-LB.16: Reserved stock violated! Current stock %d < 80" % tx_rm.stock[EconomyConfigScript.RES_FOOD])
+			failures += 1
+		else:
+			print("  [PASS] TC-LB.16 Subcheck A: Plunder committed %d food; reserved stock (80) protected." % p_amt)
+	else:
+		print("  [PASS] TC-LB.16 Subcheck A: No food plundered (available stock respected).")
+
+	# Subcheck B: Reservation failure fails closed with 0 plunder reported
+	var fail_bcm := BattleCampaignManagerScript.new(null, fm, 88888)
+	var fail_rm := MockResourceManager.new()
+	fail_rm.stock[EconomyConfigScript.RES_FOOD] = 100
+	fail_rm.reserved[EconomyConfigScript.RES_FOOD] = 0
+	fail_rm.fail_reservation = true # Force reserve_cost to return false
+	fail_bcm.set_custom_resource_manager(fail_rm)
+	fail_bcm.set_custom_world_data(world_instance.world_data)
+	fail_bcm.set_custom_citizen_list([])
+	fail_bcm.schedule_raid("rival_military", 12, 1)
+
+	var fail_res = fail_bcm.resolve_and_apply_raid("rival_military", 12)
+	var fail_plundered = fail_res.get("context", {}).get("plundered_resources", {})
+	if not fail_plundered.is_empty():
+		printerr("  [FAIL] TC-LB.16 Subcheck B: Failed reservation still reported plunder: %s" % str(fail_plundered))
+		failures += 1
+	elif fail_rm.stock[EconomyConfigScript.RES_FOOD] != 100:
+		printerr("  [FAIL] TC-LB.16 Subcheck B: Failed reservation deducted resources! Stock: %d" % fail_rm.stock[EconomyConfigScript.RES_FOOD])
+		failures += 1
+	else:
+		print("  [PASS] TC-LB.16 Subcheck B: Reservation failure safely failed closed (0 plunder reported, 0 deducted).")
+
+	# Subcheck C: Re-entrant / In-flight guard
+	fail_bcm._in_flight_raids["rival_military_day_15_seq_1"] = true
+	fail_bcm._pending_raids["rival_military"] = {"scheduled_day": 15, "raid_sequence": 1}
+	var in_flight_res = fail_bcm.resolve_and_apply_raid("rival_military", 15)
+	if in_flight_res.get("success", true) != false or not in_flight_res.get("in_flight", false):
+		printerr("  [FAIL] TC-LB.16 Subcheck C: In-flight re-entrant call was not rejected!")
+		failures += 1
+	else:
+		print("  [PASS] TC-LB.16 Subcheck C: In-flight guard successfully rejected re-entrant resolution.")
+	fail_bcm._in_flight_raids.clear()
+
+	# -------------------------------------------------------------------------
+	# TC-LB.17: Accurate Battle-Death vs Starvation Event Notifications
+	# -------------------------------------------------------------------------
+	print("\n--- Running TC-LB.17: Accurate Death Notifications ---")
+	var em = root.get_node_or_null("EventManager")
+	var triggered_events: Array[Dictionary] = []
+	var on_event_cb = func(event_id, title, desc, _is_pos, payload):
+		if event_id == "citizen_died":
+			triggered_events.append({"title": title, "desc": desc, "payload": payload})
+
+	if em != null:
+		em.event_triggered.connect(on_event_cb)
+
+	# Create a dummy citizen controller for combat death test
+	var CitizenScript = preload("res://scripts/entities/citizen_controller.gd")
+	var combat_cit = CitizenScript.new()
+	combat_cit.citizen_id = "test_guard_combat_died"
+	combat_cit.role = "guard"
+	combat_cit.status_reason = "Tử trận khi bảo vệ định cư"
+	combat_cit.health = 0.0
+	world_instance.citizens_by_id[combat_cit.citizen_id] = combat_cit
+	world_instance.citizen_list.append(combat_cit)
+
+	world_instance._on_citizen_died(combat_cit.citizen_id)
+
+	if triggered_events.is_empty():
+		printerr("  [FAIL] TC-LB.17: No citizen_died event triggered for combat death")
+		failures += 1
+	else:
+		var last_ev = triggered_events[triggered_events.size() - 1]
+		if last_ev.get("title") != "Chiến Binh Tử Trận":
+			printerr("  [FAIL] TC-LB.17: Expected 'Chiến Binh Tử Trận', got '%s'" % last_ev.get("title"))
+			failures += 1
+		elif last_ev.get("payload", {}).get("cause") != "combat":
+			printerr("  [FAIL] TC-LB.17: Expected payload cause 'combat', got '%s'" % str(last_ev.get("payload")))
+			failures += 1
+		else:
+			print("  [PASS] TC-LB.17: Combat casualty triggered accurate 'Chiến Binh Tử Trận' event.")
+
+	# Test civilian starvation death
+	var starv_cit = CitizenScript.new()
+	starv_cit.citizen_id = "test_civilian_starv_died"
+	starv_cit.role = "laborer"
+	starv_cit.status_reason = "Đã qua đời vì suy kiệt"
+	starv_cit.health = 0.0
+	world_instance.citizens_by_id[starv_cit.citizen_id] = starv_cit
+	world_instance.citizen_list.append(starv_cit)
+
+	world_instance._on_citizen_died(starv_cit.citizen_id)
+
+	var starv_ev = triggered_events[triggered_events.size() - 1]
+	if starv_ev.get("title") != "Tang Lễ Vương Quốc":
+		printerr("  [FAIL] TC-LB.17: Expected 'Tang Lễ Vương Quốc', got '%s'" % starv_ev.get("title"))
+		failures += 1
+	elif starv_ev.get("payload", {}).get("cause") != "starvation_or_exhaustion":
+		printerr("  [FAIL] TC-LB.17: Expected payload cause 'starvation_or_exhaustion', got '%s'" % str(starv_ev.get("payload")))
+		failures += 1
+	else:
+		print("  [PASS] TC-LB.17: Starvation death retained 'Tang Lễ Vương Quốc' event.")
+
+	if em != null and em.event_triggered.is_connected(on_event_cb):
+		em.event_triggered.disconnect(on_event_cb)
+
+	# -------------------------------------------------------------------------
+	# TC-LB.18: Real Daily Scheduling with TimeManager Signals
+	# -------------------------------------------------------------------------
+	print("\n--- Running TC-LB.18: Real Daily Scheduling via TimeManager ---")
+	var live_tm = root.get_node_or_null("TimeManager")
+	var is_autoload = true
+	if live_tm == null:
+		var TimeManagerScript = preload("res://scripts/core/time_manager.gd")
+		live_tm = TimeManagerScript.new()
+		live_tm.name = "TimeManager"
+		root.add_child(live_tm)
+		is_autoload = false
+		live_tm.day_passed.connect(world_instance._on_simulation_day_passed)
+
+	# Reset state: sign peace first to clear prior test state cleanly
+	fm.propose_treaty("rival_military", "peace")
+	live_tm.reset_time(6, 10, 1) # Advance clock to Day 10, 06:00
+
+	# Ensure rival_military has positive military power for the raid
+	var live_fac = fm.get_faction("rival_military")
+	live_fac.military_power = 90.0
+
+	# Faction war declared on Day 10
+	fm.declare_war("rival_military")
+	var sched_p = bcm.get_pending_raid("rival_military")
+	var tm_sched_day = sched_p.get("scheduled_day")
+	if tm_sched_day != 13:
+		printerr("  [FAIL] TC-LB.18: Expected raid scheduled for Day 13 (10 + 3), got Day %s" % str(tm_sched_day))
+		failures += 1
+	else:
+		print("  [PASS] TC-LB.18: War declared on Day 10; raid scheduled for Day 13.")
+
+	# Advance to Day 11 via TimeManager
+	live_tm._advance_one_day()
+	if bcm.get_pending_raid("rival_military").get("scheduled_day") != 13:
+		printerr("  [FAIL] TC-LB.18: Raid resolved prematurely on Day 11!")
+		failures += 1
+	else:
+		print("  [PASS] TC-LB.18: Raid did not resolve prematurely on Day 11.")
+
+	# Advance to Day 12 via TimeManager
+	live_tm._advance_one_day()
+	if bcm.get_pending_raid("rival_military").get("scheduled_day") != 13:
+		printerr("  [FAIL] TC-LB.18: Raid resolved prematurely on Day 12!")
+		failures += 1
+	else:
+		print("  [PASS] TC-LB.18: Raid did not resolve prematurely on Day 12.")
+
+	# Advance to Day 13 (due day) via TimeManager
+	live_tm._advance_one_day()
+	var post_tm_pending = bcm.get_pending_raid("rival_military")
+	if post_tm_pending.get("scheduled_day") != 18:
+		printerr("  [FAIL] TC-LB.18: Raid did not resolve on due Day 13 via TimeManager! Pending: %s" % str(post_tm_pending))
+		failures += 1
+	else:
+		print("  [PASS] TC-LB.18: Raid successfully resolved on Day 13 tick; next raid scheduled for Day 18.")
+
+	# Advance hours within Day 13 - verify no duplicate resolution
+	for _h in range(5):
+		live_tm._advance_one_hour()
+	if bcm.get_pending_raid("rival_military").get("scheduled_day") != 18:
+		printerr("  [FAIL] TC-LB.18: Hourly advance caused duplicate raid resolution!")
+		failures += 1
+	else:
+		print("  [PASS] TC-LB.18: Hourly advance on same day causes zero duplicate resolutions.")
+
+	# Sign peace on Day 14 and verify pending raid is canceled and stays canceled
+	live_tm._advance_one_day() # Day 14
+	fm.propose_treaty("rival_military", "peace")
+	if bcm.has_pending_raid("rival_military"):
+		printerr("  [FAIL] TC-LB.18: Signing peace did not cancel pending raid!")
+		failures += 1
+	else:
+		print("  [PASS] TC-LB.18: Signing peace canceled pending raid.")
+
+	# Advance through Day 20 via TimeManager
+	while live_tm.current_day < 20:
+		live_tm._advance_one_day()
+
+	if bcm.has_pending_raid("rival_military"):
+		printerr("  [FAIL] TC-LB.18: Raid re-appeared after peace during subsequent days!")
+		failures += 1
+	else:
+		print("  [PASS] TC-LB.18: Peace remained active through Day 20; zero subsequent raids scheduled.")
+
+	if not is_autoload:
+		live_tm.day_passed.disconnect(world_instance._on_simulation_day_passed)
+		live_tm.queue_free()

@@ -253,7 +253,7 @@ When Godot Editor is running with the MCP plugin:
 
 
 ### Package 1K: Live War & Settlement Defense Battle Loop
-- **TC-LB.1 to TC-LB.14: Live Battle Loop Verification Suite**
+- **TC-LB.1 to TC-LB.18: Live Battle Loop Verification Suite**
   - *Script:* `res://scripts/test/test_live_battle_loop.gd`
   - *Acceptance Criteria:*
     - **TC-LB.1 (War Declaration Schedules Raid with 3-Day Delay):** Declaring war schedules raid at current day + 3; raises `raid_scheduled` signal; pending raid visible in queries and HUD.
@@ -270,4 +270,8 @@ When Godot Editor is running with the MCP plugin:
     - **TC-LB.12 (Resource Plunder Accounting & Reserved Stock Protection):** On attacker victory, up to 20% of food, wood, stone, and iron plundered; reserved stock is strictly protected and never touched; storage and resources stay valid.
     - **TC-LB.13 (Recurring Raid Scheduling & War Exhaustion):** While at war with `military_power > 0`, completing a raid schedules the next raid for `day + 5`; when `military_power <= 0`, no further raid is scheduled.
     - **TC-LB.14 (Save/Load Persistence, Replay Protection & Idempotency):** Battle campaign state (`pending_raids`, `processed_raids`, `raid_sequence`) serializes and restores cleanly across save/load; duplicate or replayed raids rejected; legacy saves without `"battle_campaign"` load safely with defaults.
-  - *Status:* **PASSED** (2026-10-19, Exit Code 0: 14/14 tests passed).
+    - **TC-LB.15 (Overdue Raid Processing & Current Day Scheduling):** Overdue raid scheduled for Day 5 processed at Day 20 resolves on actual day 20 (preserving scheduled day 5 in context), schedules next raid for Day 25 (20 + 5, not 5 + 5 = 10), and cannot resolve again on Day 20.
+    - **TC-LB.16 (Transactional Plunder, Reservation Failure & In-Flight Guard):** Plunder calculated from available stock only, protecting reserved stock; simulated reservation failure fails closed with 0 plunder reported and 0 deducted; in-flight re-entrancy guard rejects concurrent calls and processed set rejects replay.
+    - **TC-LB.17 (Accurate Battle-Death vs Starvation Event Notifications):** Combat casualties emit `citizen_died` and trigger `Chiến Binh Tử Trận` with payload `cause == "combat"`; civilian starvation deaths retain `Tang Lễ Vương Quốc` with payload `cause == "starvation_or_exhaustion"`; zero duplicate events.
+    - **TC-LB.18 (Real Daily Scheduling via TimeManager Signals):** End-to-end integration with `TimeManager` clock: war declared Day 10 schedules Day 13; advancing Day 11 and 12 causes zero premature resolution; advancing to Day 13 resolves raid on tick and schedules Day 18; hourly advance causes zero duplicates; signing peace on Day 14 cancels pending raid and stays canceled through Day 20.
+  - *Status:* **PASSED** (2026-10-19, Exit Code 0: 18/18 tests passed).
