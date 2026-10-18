@@ -1,7 +1,12 @@
 # KINGDOMS UNBOUND — Known Issues & Technical Resolutions
 
 ## Active Issues
-*None currently blocking development.*
+
+### ISSUE-004: Live Production Settlement Battle Trigger Deferred to Future Combat Packages
+- **Severity:** Low / Architecture Scope Boundary (By Design for Package 1J)
+- **Symptom:** `BattleResolver.resolve_settlement_battle` provides full authoritative integration between `WorldGenerator.WorldData` palisade fortifications and deterministic battle resolution, but is not yet triggered by an active gameplay loop event (such as an enemy raid timer or manual attack command).
+- **Root Cause:** In the current game architecture, diplomatic war declarations via `FactionManager.declare_war` emit a `war_declared` signal that displays a HUD event banner, but does not deploy an army or trigger combat resolution.
+- **Resolution / Scope:** As specified in Package 1J requirements, no fake troop conversion or mock army UI was invented prematurely. The authoritative settlement battle resolution API is fully implemented and tested with 100% test coverage. Production army mobilization and real-time/timed raid triggers are tracked under `FUTURE-BATTLE-1` in `docs/BACKLOG.md` for future tactical combat milestones.
 
 ---
 

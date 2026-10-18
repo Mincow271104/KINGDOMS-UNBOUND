@@ -159,3 +159,12 @@
 - [x] **TASK-1I.7:** HUD Build Menu integration (`PalisadeBtn` wired to `_select_building("palisade")`, ghost preview with correct dimensions/offsets).
 - [x] **TASK-1I.8:** Save/Load persistence & regression test suite `scripts/test/test_palisade.gd` covering TC-PA.1 through TC-PA.7 (PASS, Exit Code 0).
 - [x] **TASK-1I.9:** Package 1I Final UI Fix — Adjusted `BuildMenuPanel` geometry in `scenes/ui/hud.tscn` (`offset_top = -466.0`, `offset_bottom = -56.0`, height 410 px; `offset_left = -340.0`, `offset_right = 340.0`, width 680 px) ensuring all 6 rows (11 buttons) and `CloseBuildBtn` are fully enclosed without clipping, maintaining 8 px clearance above `BottomBar`, and verified via automated layout geometry subchecks in `test_palisade.gd` TC-PA.7 (PASS, Exit Code 0).
+
+---
+
+## Package 1J: Settlement Battle & Fortification Integration (Completed)
+- [x] **TASK-1J.1:** Authoritative settlement battle API `BattleResolver.resolve_settlement_battle(attacker_force, defender_force, defender_world_data, seed_val) -> BattleReport` connecting deterministic battle resolution directly to `WorldGenerator.WorldData`.
+- [x] **TASK-1J.2:** Dynamic settlement fortification calculation via `BuildingSystem.calculate_fortification_level(defender_world_data)`, overriding/enforcing authoritative fortification levels (0..3) on defender forces and failing closed (level 0, bonus 1.0) on null or invalid settlement data.
+- [x] **TASK-1J.3:** Deep-clone caller input protection (`attacker_force.duplicate(true)`, `defender_force.duplicate(true)`) guaranteeing zero side effects or mutation on caller dictionaries, and enriching `BattleReport.details` with `"fortification_level"`, `"fortification_bonus"`, and `"has_settlement_context"` while maintaining backward compatibility with direct `resolve_battle()`.
+- [x] **TASK-1J.4:** Automated test suite `scripts/test/test_battle_fortification.gd` covering all 12 test conditions (TC-BF.1 through TC-BF.12) with 100% pass rate.
+- [ ] **FUTURE-BATTLE-1:** Implement live production battle trigger and troop deployment flow (deferred to future combat milestone per project scope).

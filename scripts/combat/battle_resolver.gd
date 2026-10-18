@@ -96,9 +96,40 @@ static func resolve_battle(
 		"attacker_combat_score": final_atk_score,
 		"defender_combat_score": final_def_score,
 		"fortification_bonus": def_fort_bonus,
+		"fortification_level": def_fort,
+		"has_settlement_context": false,
 		"terrain_bonus": def_terrain,
 		"score_ratio": score_ratio
 	}
+	return report
+
+## Resolves a deterministic battle where the defender is an established settlement with fortifications.
+## Derives the effective fortification level directly from authoritative WorldData via BuildingSystem.
+## Guarantees caller inputs are never mutated, overrides any omitted or stale caller-provided
+## fortification values, and fails closed (level 0) when settlement context is missing or invalid.
+static func resolve_settlement_battle(
+	attacker_force: Dictionary,
+	defender_force: Dictionary,
+	defender_world_data: WorldGenerator.WorldData,
+	seed_val: int = 12345
+) -> BattleReport:
+	var atk_copy: Dictionary = attacker_force.duplicate(true)
+	var def_copy: Dictionary = defender_force.duplicate(true)
+
+	var has_valid_context: bool = (defender_world_data != null and defender_world_data.buildings != null)
+	var fort_level: int = 0
+	if has_valid_context:
+		fort_level = calculate_settlement_fortification_level(defender_world_data)
+
+	# Automatically enforce authoritative fortification level onto defender force
+	def_copy["fortification_level"] = fort_level
+
+	var report: BattleReport = resolve_battle(atk_copy, def_copy, seed_val)
+
+	# Enrich report details with settlement-defense context
+	report.details["has_settlement_context"] = has_valid_context
+	report.details["fortification_level"] = fort_level
+
 	return report
 
 ## Calculates the settlement fortification level (0..3) from active Palisade fortifications.

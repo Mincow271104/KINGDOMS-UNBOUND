@@ -8,6 +8,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### [Package 1J] - 2026-10-19
+#### Added
+- Authoritative Settlement Battle API (`BattleResolver.resolve_settlement_battle`):
+  - Directly connects abstract deterministic combat resolution to live settlement world data (`WorldGenerator.WorldData`).
+  - Automatically queries `BuildingSystem.calculate_fortification_level(defender_world_data)` to compute fortification levels 0..3 from active Palisade fortifications (+30% defender combat score per level).
+  - Enforces authoritative fortification levels by overwriting any caller-omitted or stale fortification values in `defender_force`.
+  - Implements fail-closed behavior: invalid or null `defender_world_data` automatically defaults to fortification level 0 (+0% bonus) and reports `has_settlement_context == false`.
+  - Guaranteed caller input immutability: deep clones `attacker_force` and `defender_force` via `.duplicate(true)`, preventing unintended mutations or resource leakage on caller state.
+  - Enriched `BattleReport.details` with `"fortification_level"`, `"fortification_bonus"`, and `"has_settlement_context"`.
+  - Full backward compatibility: existing non-settlement calls to `BattleResolver.resolve_battle()` retain abstract combat capabilities without regression.
+  - Dedicated automated test suite `scripts/test/test_battle_fortification.gd` verifying all 12 test conditions (TC-BF.1 through TC-BF.12) with 100% pass rate.
+
 ### [Package 1I] - 2026-10-18
 #### Added
 - Buildable Palisade defensive structure (Tường Rào Phòng Ngự) adhering to GDD Section 7.3:

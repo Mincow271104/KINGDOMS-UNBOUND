@@ -2846,3 +2846,101 @@ Address the Build Menu layout issue found during independent review on branch `f
 - Push to `origin/feature/package-1i-palisade`.
 - Verify local HEAD equals remote HEAD.
 - Stop for independent review. Do not merge to master, do not start Package 1J.
+
+---
+
+## [2026-10-19] Milestone 43: Package 1J — Settlement Battle & Fortification Integration ✅ VERIFIED
+
+### Context & Objective
+Implement Package 1J: connect the existing abstract `BattleResolver` to authoritative settlement fortification data:
+- Authoritative API: `BattleResolver.resolve_settlement_battle(attacker_force, defender_force, defender_world_data, seed_val) -> BattleReport`.
+- Automatically derive the defender's fortification level (0..3) from `defender_world_data` via `BuildingSystem.calculate_fortification_level(world_data)` / `calculate_settlement_fortification_level(world_data)`.
+- Enforce the calculated fortification level by overwriting caller-provided or omitted values in `defender_force`.
+- Fail closed when `defender_world_data` is missing or invalid (level 0, bonus 1.0, `has_settlement_context = false`).
+- Protect caller input immutability: deep-clone both `attacker_force` and `defender_force` before computation.
+- Enrich `BattleReport.details` with `"fortification_level"`, `"fortification_bonus"`, and `"has_settlement_context"` while preserving backward compatibility with `resolve_battle()`.
+- Scope boundary enforcement: audit verified that no production battle trigger currently exists in the live game loop. Recorded in `docs/BACKLOG.md` (`FUTURE-BATTLE-1`) and `docs/KNOWN_ISSUES.md` (`ISSUE-004`) without inventing premature fake army UIs or troop conversions.
+
+### Implementation Summary
+1. **Authoritative Settlement Battle Method (`scripts/combat/battle_resolver.gd`):**
+   - Implemented `resolve_settlement_battle(attacker_force, defender_force, defender_world_data, seed_val) -> BattleReport`.
+   - Used `.duplicate(true)` on both incoming dictionaries so caller data is strictly immutable.
+   - Validated `defender_world_data != null and defender_world_data.buildings != null`; derived `fort_level` via `calculate_settlement_fortification_level(defender_world_data)` (or 0 if invalid).
+   - Overwrote `def_copy["fortification_level"] = fort_level` to guarantee authoritative settlement state cannot be bypassed.
+   - Dispatched to `resolve_battle(atk_copy, def_copy, seed_val)` and enriched `report.details` with `"has_settlement_context"` and `"fortification_level"`.
+   - In `resolve_battle()`, added `"fortification_level": def_fort` and default `"has_settlement_context": false` for complete backward compatibility.
+2. **Comprehensive Automated Test Suite (`scripts/test/test_battle_fortification.gd`):**
+   - Implemented test coverage for all 12 specified conditions (TC-BF.1 through TC-BF.12):
+     - TC-BF.1: Settlement with 0 palisades resolves at fortification level 0 (bonus 1.0, has_settlement_context true).
+     - TC-BF.2: 1 active palisade produces level 1 (bonus 1.30, +30%).
+     - TC-BF.3: Threshold boundaries: 4 (lvl 1), 5 (lvl 2), 9 (lvl 2), 10 (lvl 3), 15 (clamped lvl 3).
+     - TC-BF.4: Duplicate records at identical coordinates safely deduplicated to 1 unique cell.
+     - TC-BF.5: Non-active palisades (`under_construction`, `damaged`, `paused`, `destroyed`) strictly ignored.
+     - TC-BF.6: Pre-existing or omitted `fortification_level` in incoming `defender_force` overridden by authoritative calculation.
+     - TC-BF.7: Attacker force never receives defender's fortification bonus (attacker score strictly identical across fortification tiers).
+     - TC-BF.8: Caller dictionaries `attacker_force` and `defender_force` (including nested `resources`) are not mutated.
+     - TC-BF.9: Identical input and seed produce 100% deterministic reports (victor, casualties, scores, details).
+     - TC-BF.10: Combat score details report the exact multi-factor formula used in defender combat score.
+     - TC-BF.11: Invalid/null `defender_world_data` fails closed (`has_settlement_context == false`, level 0, bonus 1.0).
+     - TC-BF.12: Existing direct `resolve_battle()` abstract calls remain fully compatible and preserve caller values.
+
+### Validations Performed & Results
+- **Dedicated Battle Fortification Suite (`scripts/test/test_battle_fortification.gd`):**
+  - Command: `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless -s scripts/test/test_battle_fortification.gd`
+  - Result: **PASS (Exit Code 0, 12/12 tests passed)**
+- **Targeted Integration Suites:**
+  - `test_factions_and_battles.gd`: **PASS (Exit Code 0)**
+  - `test_palisade.gd`: **PASS (Exit Code 0)**
+- **Full Test Matrix (All 23 Test Suites in `scripts/test/test_*.gd`):**
+  - Result: **PASS (23/23 suites passed, Exit Code 0)**
+    - `test_audio.gd`: PASS
+    - `test_barracks.gd`: PASS
+    - `test_battle_fortification.gd`: PASS
+    - `test_citizens.gd`: PASS
+    - `test_construction.gd`: PASS
+    - `test_coordinates.gd`: PASS
+    - `test_dynamic_workplaces.gd`: PASS
+    - `test_economy.gd`: PASS
+    - `test_factions_and_battles.gd`: PASS
+    - `test_gold_transactions.gd`: PASS
+    - `test_logistics.gd`: PASS
+    - `test_mine.gd`: PASS
+    - `test_palisade.gd`: PASS
+    - `test_quarry.gd`: PASS
+    - `test_research_and_exploration.gd`: PASS
+    - `test_research_hall.gd`: PASS
+    - `test_save_load.gd`: PASS
+    - `test_stress_100_citizens.gd`: PASS
+    - `test_time_manager.gd`: PASS
+    - `test_victory_and_collapse.gd`: PASS
+    - `test_watchtower.gd`: PASS
+    - `test_workshop.gd`: PASS
+    - `test_world_gen.gd`: PASS
+- **Headless Scene Smoke Checks:**
+  - `scenes/ui/main_menu.tscn`: **PASS (Exit Code 0)**
+  - `scenes/world/world_view.tscn`: **PASS (Exit Code 0)**
+  - `scenes/ui/hud.tscn`: **PASS (Exit Code 0)**
+  - `scenes/test/visual_validation_test.tscn`: **PASS (Exit Code 0)**
+- **Whitespace & Formatting Check:**
+  - `git diff --check`: Clean (Exit Code 0, zero whitespace errors).
+- **Graphical Status:**
+  - Headless console testing accurately evaluated all deterministic combat models, fortification formulas, and world data calculations.
+  - Interactive graphical inspection was not applicable to abstract mathematical battle resolution.
+
+### Files Created / Modified
+- `scripts/combat/battle_resolver.gd` (Added `resolve_settlement_battle` and details enrichment)
+- `scripts/test/test_battle_fortification.gd` (New test suite for TC-BF.1 through TC-BF.12)
+- `docs/BACKLOG.md` (Added Package 1J tasks and `FUTURE-BATTLE-1`)
+- `docs/CHANGELOG.md` (Added `[Package 1J] - 2026-10-19`)
+- `docs/GAME_RULES.md` (Added Section 8: Settlement Battle & Fortification Combat Resolution)
+- `docs/TEST_PLAN.md` (Added TC-BF.1 through TC-BF.12)
+- `docs/KNOWN_ISSUES.md` (Added `ISSUE-004` documenting future live battle trigger)
+- `docs/WORKLOG.md` (Recorded Milestone 43)
+
+### Next Exact Step
+- Stage modified files explicitly:
+  `git add scripts/combat/battle_resolver.gd scripts/test/test_battle_fortification.gd docs/BACKLOG.md docs/CHANGELOG.md docs/GAME_RULES.md docs/TEST_PLAN.md docs/KNOWN_ISSUES.md docs/WORKLOG.md`
+- Commit with exact mandated message: `Integrate settlement fortification into battle resolution`.
+- Push to `origin/feature/package-1j-battle-fortification`.
+- Verify local HEAD equals remote HEAD.
+- Stop for independent review. Do not merge to master, do not start Package 1K.

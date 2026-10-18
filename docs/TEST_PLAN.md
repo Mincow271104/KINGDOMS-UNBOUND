@@ -233,3 +233,21 @@ When Godot Editor is running with the MCP plugin:
   - *Script:* `res://scripts/test/test_palisade.gd`
   - *Acceptance Criteria:* All 11 building buttons present in `GridContainer`. `BuildMenuPanel` height (410.0 px) accommodates combined minimum content size (378.0 px) with zero clipping. `BuildMenuPanel` positioned above `BottomBar` with 8.0 px clearance (zero overlap) and horizontally centered on viewport. Final grid row (`PalisadeBtn`) and `CloseBuildBtn` lie strictly within panel boundaries. `CloseBuildBtn` cleanly dismisses build menu. Pressing `PalisadeBtn` initiates placement mode, displaying ghost preview with correct texture and offset `Vector2(-16.0, -28.0)`. Canceling hides ghost cleanly. WorldView Vietnamese display name verified: `"Tường Rào Phòng Ngự (1x1)"`.
   - *Status:* **PASSED** (2026-10-19, Exit Code 0: Subchecks A–G passed).
+
+### Package 1J: Settlement Battle & Fortification Integration
+- **TC-BF.1 to TC-BF.12: Settlement Battle & Fortification Verification Suite**
+  - *Script:* `res://scripts/test/test_battle_fortification.gd`
+  - *Acceptance Criteria:*
+    - **TC-BF.1 (Zero Palisades):** Settlement with 0 palisades resolves at fortification level 0 (bonus 1.0, `has_settlement_context == true`).
+    - **TC-BF.2 (Single Active Palisade):** 1 active palisade produces fortification level 1 (bonus 1.30, +30%).
+    - **TC-BF.3 (Threshold Boundaries):** Boundary steps: 4 palisades (level 1, bonus 1.30), 5 palisades (level 2, bonus 1.60), 9 palisades (level 2, bonus 1.60), 10 palisades (level 3, bonus 1.90), 15 palisades (clamped level 3, bonus 1.90).
+    - **TC-BF.4 (Duplicate Cell Deduplication):** Duplicate active palisades placed at identical cell deduplicated to 1 unique cell (level 1).
+    - **TC-BF.5 (State Filtering):** Non-active palisades (`under_construction`, `damaged`, `paused`, `destroyed`) do not contribute.
+    - **TC-BF.6 (Authoritative Override):** Pre-existing caller-supplied `fortification_level` (e.g. fabricated level 3 or omitted) is strictly overridden by authoritative calculation from `WorldData`.
+    - **TC-BF.7 (Attacker Score Independence):** Attacker force never receives defender's fortification bonus; attacker score strictly identical across fortification tiers.
+    - **TC-BF.8 (Caller Immutability):** Caller dictionaries `attacker_force` and `defender_force` (including nested `resources`) are not mutated by battle resolution.
+    - **TC-BF.9 (Determinism):** Identical input and seed produce 100% deterministic reports (victor, casualties, scores, details).
+    - **TC-BF.10 (Formula Verification):** Report details reflect the exact multi-factor formula `float(troops) * equip_bonus * morale_factor * fort_bonus * terrain`.
+    - **TC-BF.11 (Fail-Closed Handling):** Invalid or null `defender_world_data` fails closed (`has_settlement_context == false`, level 0, bonus 1.0).
+    - **TC-BF.12 (Backward Compatibility):** Existing direct calls to `BattleResolver.resolve_battle()` remain fully operational and compatible.
+  - *Status:* **PASSED** (2026-10-19, Exit Code 0: 12/12 tests passed).

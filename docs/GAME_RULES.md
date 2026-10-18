@@ -207,3 +207,16 @@ The settlement enters Collapse when any of the following terminal failure condit
 3. **Prolonged Anarchy:** Settlement Stability remains at $0\%$ continuously for 3 consecutive game-days ($72$ game-hours).
 
 When collapse triggers, the simulation stops and displays the **Collapse Summary Screen** with peak population, days survived, and primary failure causes. Save data is preserved.
+
+---
+
+## 8. Settlement Battle & Fortification Combat Resolution
+
+### 8.1 Authoritative Settlement Battle Contract
+Settlement battles are resolved via `BattleResolver.resolve_settlement_battle(attacker_force, defender_force, defender_world_data, seed_val) -> BattleReport`:
+- **Fortification Derivation:** The defender's effective fortification level ($0 \le \text{level} \le 3$) is authoritatively derived from `defender_world_data` by counting unique grid cells containing `state == "active"` Palisades.
+- **Fail-Closed Policy:** If `defender_world_data` is `null` or invalid, the resolver fails closed to fortification level 0 (+0% bonus) with `has_settlement_context = false`.
+- **Authoritative Override:** Any pre-existing or omitted `fortification_level` in `defender_force` is unconditionally overwritten by the calculated level, preventing caller tampering.
+- **Input Immutability:** Both `attacker_force` and `defender_force` dictionaries are deep-cloned before calculation, guaranteeing that caller resources and unit records remain unmutated regardless of battle spoils or outcome.
+- **Deterministic Multiplier:** The defender's combat score receives a multiplier of $(1.0 + 0.30 \times \text{level})$ (Level 0: $1.0\times$, Level 1: $1.3\times$, Level 2: $1.6\times$, Level 3: $1.9\times$).
+- **Report Enrichment:** `BattleReport.details` includes `fortification_level`, `fortification_bonus`, and `has_settlement_context`.
