@@ -12,16 +12,18 @@ enum State {
 	WORKING = 2,
 	SEEKING_FOOD = 3,
 	RESTING = 4,
-	HAULING = 5
+	HAULING = 5,
+	GUARDING = 6
 }
 
 @export var citizen_id: String = ""
 @export var citizen_name: String = ""
-@export var role: String = "idle" # "farmer", "woodcutter", "builder", "hauler", "miner", "smith", "idle"
+@export var role: String = "idle" # "farmer", "woodcutter", "builder", "hauler", "miner", "smith", "guard", "idle"
 
 var current_cell: Vector2i = Vector2i(32, 32)
 var current_state: int = State.IDLE
 var status_reason: String = "Đang nghỉ ngơi tại quảng trường"
+var barracks_checker: Callable = Callable()
 
 # Needs (0..100)
 var hunger: float = 10.0
@@ -70,6 +72,18 @@ func init_citizen(p_id: String, p_name: String, p_role: String, p_cell: Vector2i
 	position = IsoMath.map_to_local(current_cell)
 	_update_reason()
 
+func set_barracks_checker(checker: Callable) -> void:
+	barracks_checker = checker
+
+func is_barracks_active() -> bool:
+	if barracks_checker.is_valid():
+		return bool(barracks_checker.call())
+	if is_inside_tree():
+		var wv = get_tree().root.find_child("WorldView", true, false)
+		if wv != null and wv.get("world_data") != null:
+			return BuildingSystem.is_barracks_active(wv.world_data)
+	return false
+
 func select() -> void:
 	citizen_selected.emit(self)
 
@@ -83,7 +97,7 @@ func _process(delta: float) -> void:
 	var tm := _get_time_manager()
 	if tm != null and tm.is_paused():
 		return
-			
+
 	match current_state:
 		State.IDLE:
 			_process_idle()
@@ -91,6 +105,8 @@ func _process(delta: float) -> void:
 			_process_movement(delta)
 		State.WORKING:
 			_process_working(delta)
+		State.GUARDING:
+			_process_guarding(delta)
 		State.SEEKING_FOOD:
 			_process_movement(delta)
 		State.RESTING:
@@ -99,7 +115,7 @@ func _process(delta: float) -> void:
 func _process_idle() -> void:
 	if job_mgr == null or nav == null:
 		return
-		
+
 	# Check urgent needs first
 	if hunger >= 70.0:
 		_seek_food()
@@ -107,9 +123,13 @@ func _process_idle() -> void:
 	if fatigue >= 85.0:
 		_seek_rest()
 		return
-		
+
 	# Request work
 	if role != "idle":
+		if role == "guard" and not is_barracks_active():
+			status_reason = "Cần Doanh Trại đang hoạt động"
+			return
+
 		var rm_node: Node = get_node_or_null("/root/ResourceManager") if (is_inside_tree() and has_node("/root/ResourceManager")) else null
 		var job = job_mgr.request_job(citizen_id, role, current_cell, nav, workplace_mgr, rm_node)
 		if job != null:
@@ -127,6 +147,11 @@ func _process_idle() -> void:
 		else:
 			if role == "smith":
 				status_reason = "Chờ nguyên liệu chế tác hoặc kho đệm xưởng giải phóng"
+			elif role == "guard":
+				if not is_barracks_active():
+					status_reason = "Cần Doanh Trại đang hoạt động"
+				else:
+					status_reason = "Đang chờ phân công vị trí canh gác"
 			else:
 				status_reason = "Chờ công việc phù hợp với vai trò: " + role
 	else:
@@ -157,6 +182,10 @@ func _arrive_at_destination() -> void:
 			if active_job != null:
 				if active_job.type == "hauler":
 					_pickup_hauler_cargo()
+				elif active_job.type == "guard":
+					current_state = State.GUARDING
+					active_job.state = JobManager.JobState.IN_PROGRESS
+					_update_reason()
 				else:
 					current_state = State.WORKING
 					active_job.state = JobManager.JobState.IN_PROGRESS
@@ -263,6 +292,42 @@ func _process_working(delta: float) -> void:
 		active_job = null
 		current_state = State.IDLE
 
+func _process_guarding(delta: float) -> void:
+	if active_job == null or job_mgr == null:
+		current_state = State.IDLE
+		return
+
+	# If barracks becomes inactive while on duty, stop duty
+	if not is_barracks_active():
+		job_mgr.release_job(active_job)
+		active_job = null
+		current_state = State.IDLE
+		status_reason = "Cần Doanh Trại đang hoạt động"
+		return
+
+	# Check urgent needs
+	if hunger >= 70.0:
+		job_mgr.release_job(active_job)
+		active_job = null
+		_seek_food()
+		return
+	if fatigue >= 85.0:
+		job_mgr.release_job(active_job)
+		active_job = null
+		_seek_rest()
+		return
+
+	var delta_hours := delta
+	var tm := _get_time_manager()
+	if tm != null:
+		delta_hours = delta * float(tm.current_speed)
+
+	var completed := job_mgr.progress_job(active_job, delta_hours)
+	if completed:
+		active_job = null
+		current_state = State.IDLE
+		status_reason = "Hoàn thành ca gác, sẵn sàng nhiệm vụ mới"
+
 func _process_resting(delta: float) -> void:
 	var delta_hours := delta
 	var tm := _get_time_manager()
@@ -333,7 +398,11 @@ func _on_hour_passed(_hour: int, _day: int) -> void:
 func is_alive() -> bool:
 	return health > 0.0
 
-func set_role(new_role: String) -> void:
+func set_role(new_role: String) -> bool:
+	if new_role == "guard" and not is_barracks_active():
+		status_reason = "Cần Doanh Trại đang hoạt động"
+		return false
+
 	if role != new_role:
 		if active_job != null and job_mgr != null:
 			job_mgr.release_job(active_job)
@@ -341,18 +410,27 @@ func set_role(new_role: String) -> void:
 		role = new_role
 		current_state = State.IDLE
 		_update_reason()
+	return true
 
 func _update_reason() -> void:
 	match current_state:
 		State.IDLE:
-			status_reason = "Sẵn sàng làm việc (" + role + ")"
+			if role == "guard" and not is_barracks_active():
+				status_reason = "Cần Doanh Trại đang hoạt động"
+			else:
+				status_reason = "Sẵn sàng làm việc (" + role + ")"
 		State.MOVING_TO_JOB:
-			status_reason = "Đang di chuyển đến vị trí làm việc"
+			if active_job != null and active_job.type == "guard":
+				status_reason = "Đang di chuyển đến vị trí canh gác"
+			else:
+				status_reason = "Đang di chuyển đến vị trí làm việc"
 		State.WORKING:
 			if active_job != null and active_job.type == "smith":
 				status_reason = "Đang luyện kim hoặc rèn công cụ tại xưởng"
 			else:
 				status_reason = "Đang tích cực lao động sản xuất"
+		State.GUARDING:
+			status_reason = "Đang canh gác tại Doanh Trại"
 		State.HAULING:
 			status_reason = "Đang vận chuyển %d %s về kho" % [carrying_amount, carrying_resource]
 		State.SEEKING_FOOD:

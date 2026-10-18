@@ -207,5 +207,17 @@ const BLUEPRINTS: Dictionary = {
 		"storage_bonus": {},
 		"max_workers": 0,
 		"job_type": ""
+	},
+	"barracks": {
+		"id": "barracks",
+		"name_vi": "Doanh Trại",
+		"footprint": Vector2i(3, 3),
+		"cost": {RES_WOOD: 25, RES_STONE: 20, RES_METAL: 5},
+		"construction_hours": 12.0,
+		"housing_capacity": 0,
+		"storage_bonus": {},
+		"max_workers": 2,
+		"guard_capacity": 2,
+		"job_type": "guard"
 	}
 }

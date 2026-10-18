@@ -8,6 +8,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### [Package 1G] - 2026-10-18
+#### Added
+- Buildable Barracks (Doanh Trại) with 3x3 footprint, cost (25 Wood, 20 Stone, 5 Metal), and 2 guard capacity slots.
+- Dedicated 96x80 pixel art sprite `assets/buildings/bld_barracks.png` conforming to 27-color fantasy palette with NW lighting.
+- Active Barracks detection via `BuildingSystem.is_barracks_active(world_data)` strictly requiring `state == "active"`.
+- Unique perimeter sentry cell calculation via `BuildingSystem.find_perimeter_cells(origin, size, world_data, max_count)`.
+- Guard role gating at UI and controller levels:
+  - Role dropdown item 7 disabled/annotated when no active Barracks exists.
+  - Fail-closed role assignment preventing Guard assignment without an active Barracks.
+  - Inactive Barracks duty release: guards pause duty with status "Cần Doanh Trại đang hoạt động" without losing their role.
+- Deterministic guard duty loop in `CitizenController` with `State.GUARDING`, time pause safety, and urgent needs release (hunger >= 70, fatigue >= 85).
+- Save/load persistence hardening attaching barracks checker to restored citizens, with zero node/job duplication.
+- Comprehensive automated test suite `scripts/test/test_barracks.gd` covering TC-BR.1 through TC-BR.7 (PASS, Exit Code 0).
+
 ### [1.0.0-rc1] - 2026-10-12
 #### Added
 - Phase 9 Polish, Asset Integration, Stress Test & Release Candidate completed:

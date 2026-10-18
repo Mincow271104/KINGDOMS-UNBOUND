@@ -116,3 +116,15 @@
 - [x] **TASK-9.3:** Execute 100-citizen simulation stress test (`test_stress_100_citizens.gd`, TC-9.1 PASS at ~145 FPS).
 - [x] **TASK-9.4:** Prepare release export configuration (`export_presets.cfg`) and manual smoke-test instructions (`docs/SMOKE_TEST_CHECKLIST.md`).
 - [x] **TASK-9.5:** Final documentation synchronization and MVP acceptance signoff.
+
+---
+
+## Package 1G: Barracks & Guard Integration (Completed)
+- [x] **TASK-1G.1:** Authoritative blueprint `barracks` (3x3 footprint, 25 Wood, 20 Stone, 5 Metal, 2 guard capacity, job_type "guard").
+- [x] **TASK-1G.2:** Active state detection `BuildingSystem.is_barracks_active(world_data)` and perimeter sentry cell resolution `find_perimeter_cells`.
+- [x] **TASK-1G.3:** Custom 27-color fantasy palette pixel-art sprite `bld_barracks.png` (96x80 px) with fortified walls, gateway arch, crest, and watchtower.
+- [x] **TASK-1G.4:** CitizenController guard duty state machine (`State.GUARDING`), fail-closed role gating, needs release, time pause safety, and reason updates.
+- [x] **TASK-1G.5:** HUD integration with `BarracksBtn`, role option 7 ("Vệ Binh (Guard)"), dynamic annotation/disabling when inactive, and selection error audio feedback.
+- [x] **TASK-1G.6:** WorldView lifecycle integration, guard job registration, save/load workplace sync, and citizen checker attachment.
+- [x] **TASK-1G.7:** Save/Load persistence hardening attaching barracks checker to restored citizens, with zero node/job duplication.
+- [x] **TASK-1G.8:** Automated test suite `scripts/test/test_barracks.gd` covering TC-BR.1 through TC-BR.7 (PASS, Exit Code 0).

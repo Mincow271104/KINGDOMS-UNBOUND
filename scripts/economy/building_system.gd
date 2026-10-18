@@ -33,8 +33,8 @@ static func can_place_building(type: String, origin: Vector2i, world_data: World
 			if world_data.occupancy[cell.x][cell.y]:
 				return {"valid": false, "reason": "Vị trí đã bị chiếm dụng bởi công trình hoặc chướng ngại vật"}
 				
-	# 3. Accessibility check for production workplaces
-	if bp.get("output_resource", "") != "" or bp.has("recipes") or type == "workshop":
+	# 3. Accessibility check for production workplaces and barracks
+	if bp.get("output_resource", "") != "" or bp.has("recipes") or type in ["workshop", "barracks"]:
 		var access_cell := find_access_cell(origin, size, world_data)
 		if access_cell == Vector2i(-1, -1):
 			return {"valid": false, "reason": "Không có vị trí tiếp cận khả dụng"}
@@ -161,3 +161,44 @@ static func is_research_hall_active(world_data: WorldGenerator.WorldData) -> boo
 		if b.get("type", "") == "research_hall" and b.get("state", "active") == "active":
 			return true
 	return false
+
+static func is_barracks_active(world_data: WorldGenerator.WorldData) -> bool:
+	if world_data == null:
+		return false
+	for b in world_data.buildings:
+		if b.get("type", "") == "barracks" and b.get("state", "active") == "active":
+			return true
+	return false
+
+static func find_perimeter_cells(origin: Vector2i, size: Vector2i, world_data: WorldGenerator.WorldData, max_count: int = 2) -> Array[Vector2i]:
+	var result: Array[Vector2i] = []
+	if world_data == null:
+		return result
+
+	var candidates: Array[Vector2i] = []
+	# 1. Front/South edge: (origin.x + ox, origin.y + size.y)
+	for ox in range(size.x):
+		candidates.append(Vector2i(origin.x + ox, origin.y + size.y))
+	# 2. Right/East edge: (origin.x + size.x, origin.y + oy)
+	for oy in range(size.y):
+		candidates.append(Vector2i(origin.x + size.x, origin.y + oy))
+	# 3. Left/West edge: (origin.x - 1, origin.y + oy)
+	for oy in range(size.y):
+		candidates.append(Vector2i(origin.x - 1, origin.y + oy))
+	# 4. Back/North edge: (origin.x + ox, origin.y - 1)
+	for ox in range(size.x):
+		candidates.append(Vector2i(origin.x + ox, origin.y - 1))
+
+	for cell in candidates:
+		if not IsoMath.is_in_bounds(cell):
+			continue
+		if world_data.terrain[cell.x][cell.y] == WorldGenerator.TerrainType.WATER:
+			continue
+		if world_data.occupancy[cell.x][cell.y]:
+			continue
+		if not result.has(cell):
+			result.append(cell)
+			if result.size() >= max_count:
+				break
+
+	return result

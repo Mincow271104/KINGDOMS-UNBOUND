@@ -111,6 +111,8 @@ Configured centrally in `EconomyConfig`:
 | **Quarry** | $2 \times 2$ cells | $64 \times 32$ px base | 0 | 15 Wood + 5 Tools, max 4 miners, output stone |
 | **Mine** | $2 \times 2$ cells | $64 \times 32$ px base | 0 | 20 Wood + 10 Stone, max 4 miners, output ore |
 | **Workshop** | $2 \times 2$ cells | $64 \times 32$ px base | 0 | 20 Wood + 15 Stone + 5 Metal, max 4 smiths (2 smelt, 2 craft) |
+| **Research Hall** | $3 \times 3$ cells | $96 \times 48$ px base | 0 | 25 Wood + 10 Stone, unlocks technological research |
+| **Barracks** | $3 \times 3$ cells | $96 \times 48$ px base | 0 | 25 Wood + 20 Stone + 5 Metal, 2 guard sentry posts, gates Guard role |
 
 ### 4.2 Workshop Recipes
 - **Smelt Metal (Luyện Kim Loại):** 2 Ore $\to$ 1 Metal (3.0h duration, buffer capacity 40).

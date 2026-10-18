@@ -101,6 +101,10 @@ func _load_assets() -> void:
 		building_textures["research_hall"] = load("res://assets/buildings/bld_research_hall.png")
 	else:
 		building_textures["research_hall"] = building_textures.get("townhall", null)
+	if ResourceLoader.exists("res://assets/buildings/bld_barracks.png"):
+		building_textures["barracks"] = load("res://assets/buildings/bld_barracks.png")
+	else:
+		building_textures["barracks"] = building_textures.get("townhall", null)
 	
 	prop_textures["tree"] = load("res://assets/props/prop_tree.png")
 	prop_textures["rock"] = load("res://assets/props/prop_rock.png")
@@ -151,6 +155,7 @@ func _generate_and_build_world() -> void:
 	if hud:
 		hud.set_research_manager(research_mgr)
 		hud.set_faction_manager(faction_mgr, self)
+		hud.set_barracks_checker(func(): return BuildingSystem.is_barracks_active(world_data))
 		victory_mgr.victory_achieved.connect(func(report: Dictionary): hud.show_victory_panel(report))
 		victory_mgr.collapse_triggered.connect(func(report: Dictionary): hud.show_collapse_panel(report))
 		victory_mgr.crisis_warning_issued.connect(func(warning: Dictionary): hud.show_crisis_warning(warning))
@@ -230,6 +235,7 @@ func _get_building_sprite_offset(type: String) -> Vector2:
 	match type:
 		"townhall": return Vector2(-48.0, -56.0)
 		"research_hall": return Vector2(-48.0, -56.0)
+		"barracks": return Vector2(-48.0, -56.0)
 		"house": return Vector2(-32.0, -40.0)
 		"storehouse": return Vector2(-32.0, -40.0)
 		"farm": return Vector2(-32.0, -28.0)
@@ -347,6 +353,7 @@ func _spawn_starter_citizens() -> void:
 		cit.add_child(spr)
 		
 		cit.init_citizen(cid, cname, crole, cell, nav, job_mgr, workplace_mgr)
+		cit.set_barracks_checker(func(): return BuildingSystem.is_barracks_active(world_data))
 		citizens_container.add_child(cit)
 		
 		citizens_by_id[cid] = cit
@@ -381,6 +388,7 @@ func _spawn_immigrant_wave(immigrants: Array) -> void:
 		cit.add_child(spr)
 		
 		cit.init_citizen(cid, cname, crole, cell, nav, job_mgr, workplace_mgr)
+		cit.set_barracks_checker(func(): return BuildingSystem.is_barracks_active(world_data))
 		citizens_container.add_child(cit)
 		
 		citizens_by_id[cid] = cit
@@ -480,6 +488,9 @@ func _check_citizen_click(cell: Vector2i) -> void:
 func _on_citizen_role_changed(cid: String, new_role: String) -> void:
 	var cit: Node = citizens_by_id.get(cid)
 	if cit:
+		if new_role == "guard" and not BuildingSystem.is_barracks_active(world_data):
+			print("[WorldView] Cannot assign %s to guard: no active barracks" % cid)
+			return
 		cit.call("set_role", new_role)
 		print("[WorldView] Reassigned %s to role: %s" % [cid, new_role])
 
@@ -518,6 +529,12 @@ func _execute_placement(cell: Vector2i) -> Dictionary:
 		# If research_hall, refresh research UI in hud
 		if b_data["type"] == "research_hall" and hud != null:
 			hud.call("_refresh_research_ui")
+
+		# If barracks, register guard jobs and refresh hud role options
+		if b_data["type"] == "barracks":
+			register_barracks_jobs(b_data)
+			if hud != null and hud.has_method("_refresh_role_options"):
+				hud.call("_refresh_role_options")
 
 		var am = get_node_or_null("/root/AudioManager")
 		if am:
@@ -634,6 +651,50 @@ func register_dynamic_workplace(b_data: Dictionary) -> WorkplaceManager.Workplac
 	print("[WorldView] Registered dynamic workplace '%s' (%s) with %d jobs at %s" % [b_id, b_type, max_workers, access_cell])
 	return wp
 
+func register_barracks_jobs(b_data: Dictionary) -> Array[JobManager.JobData]:
+	var result: Array[JobManager.JobData] = []
+	if job_mgr == null or world_data == null:
+		return result
+
+	var b_id: String = b_data.get("id", "")
+	var origin: Vector2i = b_data.get("cell", Vector2i.ZERO)
+	var size: Vector2i = b_data.get("size", Vector2i(3, 3))
+	if b_id == "":
+		b_id = "bld_barracks_%d_%d" % [origin.x, origin.y]
+		b_data["id"] = b_id
+
+	# Avoid duplicate jobs if already created
+	var existing_jobs := job_mgr.get_jobs_for_building(b_id)
+	if not existing_jobs.is_empty():
+		return existing_jobs
+
+	var bp: Dictionary = EconomyConfig.BLUEPRINTS.get("barracks", {})
+	var guard_capacity: int = bp.get("guard_capacity", 2)
+	var perimeter_cells := BuildingSystem.find_perimeter_cells(origin, size, world_data, guard_capacity)
+
+	if perimeter_cells.is_empty():
+		var access_cell := BuildingSystem.find_access_cell(origin, size, world_data)
+		if access_cell != Vector2i(-1, -1):
+			perimeter_cells.append(access_cell)
+
+	for i in range(guard_capacity):
+		var target_cell: Vector2i = origin
+		if i < perimeter_cells.size():
+			target_cell = perimeter_cells[i]
+		elif not perimeter_cells.is_empty():
+			target_cell = perimeter_cells[0]
+		else:
+			target_cell = BuildingSystem.find_access_cell(origin, size, world_data)
+			if target_cell == Vector2i(-1, -1):
+				target_cell = origin
+
+		var desc := "Tuần tra và canh gác tại Doanh Trại (Vị trí %d)" % (i + 1)
+		var job := job_mgr.create_job("guard", target_cell, desc, b_id, 4.0, 2, true)
+		result.append(job)
+
+	print("[WorldView] Registered %d guard jobs for barracks '%s'" % [result.size(), b_id])
+	return result
+
 func sync_workplaces_after_load(saved_workplaces_data: Dictionary = {}) -> void:
 	if workplace_mgr == null or job_mgr == null or world_data == null:
 		return
@@ -648,7 +709,7 @@ func sync_workplaces_after_load(saved_workplaces_data: Dictionary = {}) -> void:
 	for wp in workplace_mgr.get_all_workplaces():
 		wp.buffer_amount = 0
 
-	# 2. Re-register dynamic workplaces from world_data.buildings
+	# 2. Re-register dynamic workplaces and barracks jobs from world_data.buildings
 	for b in world_data.buildings:
 		var b_type: String = b.get("type", "")
 		if b_type in ["farm", "woodcutter", "quarry", "mine", "workshop"]:
@@ -657,6 +718,8 @@ func sync_workplaces_after_load(saved_workplaces_data: Dictionary = {}) -> void:
 			if (b_type == "farm" and b_cell == Vector2i(36, 35)) or (b_type == "woodcutter" and b_cell == Vector2i(26, 30)) or b.get("id", "") in starter_ids:
 				continue
 			register_dynamic_workplace(b)
+		elif b_type == "barracks":
+			register_barracks_jobs(b)
 
 	# 3. Restore buffer amounts
 	if saved_workplaces_data is Dictionary and not saved_workplaces_data.is_empty():
@@ -704,6 +767,9 @@ func sync_workplaces_after_load(saved_workplaces_data: Dictionary = {}) -> void:
 					smelt_ch.buffer_amount = clampi(saved_buf, 0, smelt_ch.buffer_capacity)
 					workplace_mgr.buffer_changed.emit(smelt_ch.id, smelt_ch.buffer_amount, smelt_ch.buffer_capacity)
 
+	if hud != null and hud.has_method("_refresh_role_options"):
+		hud.call("_refresh_role_options")
+
 func _cancel_placement() -> void:
 	placing_building_type = ""
 	if ghost_building_node:
@@ -732,6 +798,7 @@ func _get_building_display_name(key: String) -> String:
 		"mine": return "Mỏ Khai Thác Quặng (2x2)"
 		"workshop": return "Xưởng Chế Tác (2x2)"
 		"research_hall": return "Viện Nghiên Cứu Hoàng Gia (3x3)"
+		"barracks": return "Doanh Trại (3x3)"
 		_: return ""
 
 func _on_return_to_menu() -> void:

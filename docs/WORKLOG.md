@@ -1914,3 +1914,121 @@ In `scripts/research/research_manager.gd`, `start_research()` previously checked
 - Commit with mandated message: `Prevent free research when resource manager is missing`.
 - Push to origin on branch `feature/package-1f-research-hall`.
 - Await independent review. Do not merge into master, do not start Package 1G.
+
+---
+
+## [2026-10-18] Milestone 33: Package 1G — Barracks & Guard Integration
+
+### Context & Objective
+Implement Package 1G: Barracks & Guard Integration on Godot 4.7.
+Establish buildable Barracks (Doanh Trại) with 3x3 footprint, active state detection, fail-closed Guard role gating, deterministic perimeter guard duty loop via shared JobManager, and idempotent save/load persistence without combat formulas or troop stacks.
+
+### Completed Work
+1. **Authoritative Blueprint & Economy Config (`scripts/economy/economy_config.gd`):**
+   - Registered `barracks` blueprint in `EconomyConfig.BLUEPRINTS`.
+   - Dimensions: `footprint: Vector2i(3, 3)`.
+   - Construction cost: 25 Wood, 20 Stone, 5 Metal.
+   - Parameters: `construction_hours: 12.0`, `housing_capacity: 0`, `guard_capacity: 2`, `max_workers: 2`, `job_type: "guard"`, empty storage bonus.
+2. **Active State Detection & Perimeter Resolution (`scripts/economy/building_system.gd`):**
+   - Implemented `BuildingSystem.is_barracks_active(world_data) -> bool` strictly requiring `state == "active"`. Non-active states (`paused`, `damaged`, `under_construction`, `destroyed`) return `false`.
+   - Implemented `BuildingSystem.find_perimeter_cells(origin, size, world_data, max_count)` to dynamically determine unique, walkable, unblocked perimeter positions outside the 3x3 footprint for guard sentry posts.
+   - Enforced accessibility check in `BuildingSystem.can_place_building` for `barracks`.
+3. **Pixel Art Asset Creation (`assets/buildings/bld_barracks.png`):**
+   - Generated authentic 96×80 px dimetric pixel art sprite using the 27-color fantasy palette with NW directional lighting.
+   - Features reinforced stone masonry base, double wooden gates with iron banding, corner battlements/crenellations, a royal kingdom crest insignia, and an elevated sentry watchtower flying a garrison banner.
+   - Configured `.import` file for lossless 2D pixel-art rendering.
+4. **Citizen Controller Guard Duty State Machine (`scripts/entities/citizen_controller.gd`):**
+   - Added `GUARDING = 6` to `enum State`.
+   - Added `set_barracks_checker(checker: Callable)` and `is_barracks_active() -> bool`.
+   - Updated `set_role(new_role)` to return `bool` and reject `"guard"` fail-closed when barracks is inactive, setting reason `"Cần Doanh Trại đang hoạt động"`.
+   - Updated `_process_idle()`: guard citizens do not claim jobs while barracks is inactive.
+   - Updated `_arrive_at_destination()`: transitions guard citizens from `MOVING_TO_JOB` to `State.GUARDING`, marks job `IN_PROGRESS`, and updates reason to `"Đang canh gác tại Doanh Trại"`.
+   - Implemented `_process_guarding(delta)`:
+     - Detects barracks inactivation dynamically, releasing job and returning to IDLE with status `"Cần Doanh Trại đang hoạt động"` while strictly retaining the citizen's `"guard"` role.
+     - Enforces urgent needs release: hunger >= 70 or fatigue >= 85 immediately releases duty to seek food or rest.
+     - Scales shift duration with `TimeManager.current_speed` (zero shift progression when paused).
+     - Completes recurring shift when done, freeing worker for the next guard rotation.
+5. **HUD Integration (`scenes/ui/hud.tscn`, `scripts/ui/hud.gd`):**
+   - Expanded BuildMenuPanel height and added `BarracksBtn` ("🛡️ Doanh Trại (25 Gỗ, 20 Đá, 5 Kim Loại)").
+   - Wired `btn_barracks` to emit `build_requested("barracks")`.
+   - Added item 7 `"Vệ Binh (Guard)"` to `role_option_btn`.
+   - Implemented `_refresh_role_options()`: dynamically annotates item 7 with `"Vệ Binh (Cần Doanh Trại)"` and disables it when barracks is inactive.
+   - Updated `_on_role_option_selected(idx)` to reject option 7 fail-closed with error audio and reselection if barracks is inactive.
+   - Integrated `guard` role selection in `show_citizen_inspector`.
+6. **WorldView Integration (`scripts/world/world_view.gd`):**
+   - Loaded barracks texture with townhall fallback, configured offset `Vector2(-48.0, -56.0)` and display name `"Doanh Trại (3x3)"`.
+   - Connected HUD barracks checker in `_generate_and_build_world`.
+   - Set barracks checker on spawned starter citizens and immigrant waves.
+   - Implemented `register_barracks_jobs(b_data)` generating up to `guard_capacity` recurring jobs targeting distinct perimeter cells.
+   - Updated `_execute_placement` to register barracks jobs and refresh HUD role options upon construction.
+   - Gated `_on_citizen_role_changed` against inactive barracks.
+   - Updated `sync_workplaces_after_load` to reconstruct barracks jobs and refresh HUD options.
+7. **Save/Load Hardening (`scripts/persistence/save_manager.gd`):**
+   - Attached barracks checker to reconstructed citizens in `apply_loaded_state_to_world`.
+   - Verified zero node and zero job duplication on save/load cycles.
+8. **Automated Test Suite (`scripts/test/test_barracks.gd`):**
+   - Implemented comprehensive test suite covering TC-BR.1 through TC-BR.7.
+
+### Validations Performed & Results
+- **Dedicated Test Suite (`scripts/test/test_barracks.gd`):** **PASS (Exit Code 0, 7/7 passed)**
+  - TC-BR.1 (Blueprint Validation & Integrity): **PASS**
+  - TC-BR.2 (Placement Rules, Bounds, Water, Occupancy & Cost Reservation): **PASS**
+  - TC-BR.3 (BuildingSystem.is_barracks_active Detection): **PASS**
+  - TC-BR.4 (Role Assignment Gating UI & Controller Fail-Closed): **PASS**
+  - TC-BR.5 (Deterministic Guard Duty Loop & Perimeter Posts): **PASS**
+  - TC-BR.6 (Barracks Downtime & Inactivation Behavior): **PASS**
+  - TC-BR.7 (WorldView Lifecycle & Save/Load Persistence): **PASS**
+- **Related Package Test Suites:**
+  - `test_research_hall.gd`: **PASS (Exit Code 0, 7/7 passed)**
+  - `test_research_and_exploration.gd`: **PASS (Exit Code 0)**
+  - `test_save_load.gd`: **PASS (Exit Code 0)**
+  - `test_workshop.gd`: **PASS (Exit Code 0)**
+- **Full Core Regression Matrix (20 Test Suites, Godot 4.7 Headless):**
+  - `test_coordinates.gd`: **PASS (Exit Code 0)**
+  - `test_world_gen.gd`: **PASS (Exit Code 0)**
+  - `test_citizens.gd`: **PASS (Exit Code 0)**
+  - `test_economy.gd`: **PASS (Exit Code 0)**
+  - `test_time_manager.gd`: **PASS (Exit Code 0)**
+  - `test_logistics.gd`: **PASS (Exit Code 0)**
+  - `test_audio.gd`: **PASS (Exit Code 0)**
+  - `test_save_load.gd`: **PASS (Exit Code 0)**
+  - `test_research_and_exploration.gd`: **PASS (Exit Code 0)**
+  - `test_factions_and_battles.gd`: **PASS (Exit Code 0)**
+  - `test_victory_and_collapse.gd`: **PASS (Exit Code 0)**
+  - `test_stress_100_citizens.gd`: **PASS (Exit Code 0)**
+  - `test_gold_transactions.gd`: **PASS (Exit Code 0)**
+  - `test_quarry.gd`: **PASS (Exit Code 0)**
+  - `test_mine.gd`: **PASS (Exit Code 0)**
+  - `test_workshop.gd`: **PASS (Exit Code 0)**
+  - `test_watchtower.gd`: **PASS (Exit Code 0)**
+  - `test_dynamic_workplaces.gd`: **PASS (Exit Code 0)**
+  - `test_research_hall.gd`: **PASS (Exit Code 0)**
+  - `test_barracks.gd`: **PASS (Exit Code 0)**
+  - **Summary: 20 passed, 0 failed.**
+- **Scene Smoke Tests:**
+  - `scenes/ui/main_menu.tscn`: **PASS (Exit Code 0)**
+  - `scenes/world/world_view.tscn`: **PASS (Exit Code 0)**
+  - `scenes/ui/hud.tscn`: **PASS (Exit Code 0)**
+  - **Summary: 3 passed, 0 failed.**
+- **Whitespace Check:**
+  - `git diff --check`: Clean (Exit Code 0, zero whitespace errors).
+
+### Files Created / Modified
+- `scripts/economy/economy_config.gd` (Added `barracks` blueprint configuration)
+- `scripts/economy/building_system.gd` (`is_barracks_active`, `find_perimeter_cells`, placement accessibility)
+- `assets/buildings/bld_barracks.png` (Created 96x80 pixel art sprite)
+- `assets/buildings/bld_barracks.png.import` (Created import metadata)
+- `scripts/entities/citizen_controller.gd` (`State.GUARDING`, guard duty process, barracks gating, needs release)
+- `scenes/ui/hud.tscn` (Added BarracksBtn and adjusted panel sizing)
+- `scripts/ui/hud.gd` (BarracksBtn wiring, role option 7 gating and annotation, inspector support)
+- `scripts/world/world_view.gd` (Texture offset, display name, guard job registration, save/load sync, checker setup)
+- `scripts/persistence/save_manager.gd` (Set barracks checker on restored citizens)
+- `scripts/test/test_barracks.gd` (Automated test suite TC-BR.1 to TC-BR.7)
+- `docs/WORKLOG.md` (Documented Milestone 33)
+
+### Next Exact Step
+- Stage modified and created files explicitly (no `git add -A`).
+- Commit with mandated message: `Add Barracks and guard duty integration`.
+- Push to origin on branch `feature/package-1g-barracks`.
+- Verify local HEAD equals remote SHA.
+- Await independent review. Do not merge into master, do not start Package 1H.

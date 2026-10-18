@@ -83,6 +83,16 @@ var research_mgr: Object = null
 var faction_mgr: Object = null
 var world_view_ref: Node = null
 var total_housing_cap: int = 24
+var barracks_checker: Callable = Callable()
+
+func set_barracks_checker(checker: Callable) -> void:
+	barracks_checker = checker
+	_refresh_role_options()
+
+func is_barracks_active() -> bool:
+	if barracks_checker.is_valid():
+		return barracks_checker.call()
+	return false
 
 func _ready() -> void:
 	# Connect to TimeManager signals
@@ -148,6 +158,9 @@ func _ready() -> void:
 	var btn_research_hall = $BuildMenuPanel/MarginContainer/VBoxContainer/GridContainer.get_node_or_null("ResearchHallBtn")
 	if btn_research_hall:
 		btn_research_hall.pressed.connect(func(): _select_building("research_hall"))
+	var btn_barracks = $BuildMenuPanel/MarginContainer/VBoxContainer/GridContainer.get_node_or_null("BarracksBtn")
+	if btn_barracks:
+		btn_barracks.pressed.connect(func(): _select_building("barracks"))
 	btn_close_build.pressed.connect(func(): build_menu_panel.visible = false)
 
 	# Citizen inspector controls
@@ -207,6 +220,19 @@ func _setup_role_options() -> void:
 	role_option_btn.add_item("Thợ Mỏ / Khai Thác Đá & Quặng (Miner)", 4)
 	role_option_btn.add_item("Dân Tự Do (Idle)", 5)
 	role_option_btn.add_item("Thợ Xưởng (Smith)", 6)
+	role_option_btn.add_item("Vệ Binh (Guard)", 7)
+	_refresh_role_options()
+
+func _refresh_role_options() -> void:
+	if role_option_btn == null or role_option_btn.item_count <= 7:
+		return
+	var active: bool = is_barracks_active()
+	if active:
+		role_option_btn.set_item_text(7, "Vệ Binh (Guard)")
+		role_option_btn.set_item_disabled(7, false)
+	else:
+		role_option_btn.set_item_text(7, "Vệ Binh (Cần Doanh Trại)")
+		role_option_btn.set_item_disabled(7, true)
 
 func set_research_manager(mgr: Object) -> void:
 	if research_mgr == mgr and mgr != null:
@@ -577,6 +603,7 @@ func _process(_delta: float) -> void:
 func show_citizen_inspector(cit: Node) -> void:
 	inspected_citizen = cit
 	citizen_panel.visible = true
+	_refresh_role_options()
 	_refresh_inspected_citizen()
 	
 	# Select current role in dropdown
@@ -588,6 +615,21 @@ func show_citizen_inspector(cit: Node) -> void:
 		"hauler": role_option_btn.select(3)
 		"miner", "quarryman": role_option_btn.select(4)
 		"smith": role_option_btn.select(6)
+		"guard": role_option_btn.select(7)
+		_: role_option_btn.select(5)
+
+func _reselect_current_citizen_role() -> void:
+	if inspected_citizen == null:
+		return
+	var cur_role: String = inspected_citizen.get("role")
+	match cur_role:
+		"farmer": role_option_btn.select(0)
+		"woodcutter": role_option_btn.select(1)
+		"builder": role_option_btn.select(2)
+		"hauler": role_option_btn.select(3)
+		"miner", "quarryman": role_option_btn.select(4)
+		"smith": role_option_btn.select(6)
+		"guard": role_option_btn.select(7)
 		_: role_option_btn.select(5)
 
 func _refresh_inspected_citizen() -> void:
@@ -617,7 +659,23 @@ func _on_role_option_selected(idx: int) -> void:
 		4: new_role = "miner"
 		5: new_role = "idle"
 		6: new_role = "smith"
-	inspected_citizen.call("set_role", new_role)
+		7:
+			if not is_barracks_active():
+				var am = get_node_or_null("/root/AudioManager")
+				if am:
+					am.play_error()
+				_reselect_current_citizen_role()
+				return
+			new_role = "guard"
+
+	var success = inspected_citizen.call("set_role", new_role)
+	if success is bool and not success:
+		var am = get_node_or_null("/root/AudioManager")
+		if am:
+			am.play_error()
+		_reselect_current_citizen_role()
+		return
+
 	citizen_role_changed.emit(inspected_citizen.get("citizen_id"), new_role)
 	_refresh_inspected_citizen()
 
