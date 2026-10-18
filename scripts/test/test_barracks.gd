@@ -1053,7 +1053,20 @@ func _test_tc_br_7_worldview_and_save_load() -> bool:
 
 	var b_data = place_res.get("building")
 	var b_id: String = b_data.get("id")
-	world_instance.complete_construction(b_id)
+
+	# Demonstrate premature complete_construction at 0% is rejected
+	var premature_ok: bool = world_instance.complete_construction(b_id)
+	if premature_ok:
+		printerr("FAIL: Premature complete_construction at 0% should be rejected!")
+		failures += 1
+
+	# Advance progress through the intended construction path to completion
+	var bp_br: Dictionary = EconomyConfig.BLUEPRINTS.get("barracks", {})
+	var br_hours: float = float(bp_br.get("construction_hours", 12.0))
+	var adv_res: Dictionary = world_instance.advance_construction_work(b_id, br_hours)
+	if not adv_res.get("completed", false):
+		printerr("FAIL: Construction advancement failed for barracks!")
+		failures += 1
 
 	var guard_jobs = world_instance.job_mgr.get_jobs_for_building(b_id)
 	if guard_jobs.size() != 2:

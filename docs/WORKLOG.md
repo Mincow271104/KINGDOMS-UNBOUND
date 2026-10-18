@@ -2263,8 +2263,105 @@ Implement Package 1H: Builder & Construction Lifecycle directly in the local rep
 - `docs/TEST_PLAN.md` (Updated test plan table and detailed specifications)
 - `docs/WORKLOG.md` (Documented Milestone 36)
 
+---
+
+## [2026-10-18] Milestone 37: Package 1H Final Hardening & Review Fixes (Completed)
+
+### Context & Objective
+Address independent review findings for Package 1H on branch `feature/package-1h-construction` (base: `5a21b23861cde47b22b076a0090ab9d6b559ecda`):
+1. **Completion Threshold Enforcement:** Refuse building activation at 0% or partial progress (`construction_progress >= construction_hours - 0.001` strictly required). Reject negative/NaN progress advancement deltas.
+2. **Watchtower Vision State Filtering:** Ensure only active watchtowers (`state == "active"`) grant vision; paused, damaged, and under-construction towers must withhold vision.
+3. **Cross-Building Job Prefix Collision:** Prevent false-positive job matches between numeric coordinates (e.g., `bld_house_28_28` vs `bld_house_28_280`) by introducing `JobManager.job_matches_building` with exact and separator-aware (`building_id + "_"`) matching.
+4. **All-or-Nothing Cancellation Storage Refund:** Safeguard refunds by verifying central storage capacity before deducting site or cancelling; refuse cancellation safely if storage cannot fit the full 50% refund.
+5. **Save/Load Schema Validation:** Harden `SaveManager.validate_save_data()` to validate building records, bounds, finite positive hours, valid progress ranges, and valid states before mutating the world.
+6. **Genuine TimeManager Pause Test:** Test pause safety and time speed scaling (1x, 2x, 3x) with real `TimeManager` in `test_construction.gd`.
+
+### Completed Work
+1. **Completion Threshold Enforcement (`scripts/economy/building_system.gd`, `scripts/world/world_view.gd`):**
+   - In `BuildingSystem.complete_building()`, enforced that target building must have `state == "under_construction"`, positive finite `construction_hours`, and `construction_progress >= (construction_hours - 0.001)`. Premature calls return `false` without state change.
+   - In `BuildingSystem.advance_construction()`, rejected negative or NaN/inf deltas (`success: false`) without reducing accumulated progress; clamped progress to `[0.0, total_hours]`.
+   - In `WorldView.complete_construction()`, enforced completion threshold before visual reset, job cleanup, citizen release, or operational activations.
+   - Fixed all existing test suites that previously invoked `complete_construction()` prematurely.
+2. **Watchtower Vision State Filtering (`scripts/world/world_view.gd`, `scripts/world/fog_of_war.gd`, `scripts/test/test_watchtower.gd`):**
+   - In `WorldView._on_simulation_hour_passed()`, updated watchtower check from `state != "destroyed"` to `state == "active"`.
+   - Added `set_state(cell, new_state)` to `FogOfWar`.
+   - Added regression coverage in `test_watchtower.gd` confirming `paused` and `damaged` watchtowers do not grant vision.
+3. **Unambiguous Prefix Matching (`scripts/jobs/job_manager.gd`):**
+   - Implemented `JobManager.job_matches_building(job, building_id)` with exact match and `building_id + "_"` separator prefix matching.
+   - Refactored `get_jobs_for_building()` and `remove_jobs_for_building()` to use `job_matches_building()`.
+   - Updated `WorldView.cancel_construction_project()` to release citizens safely using separator-aware matching.
+4. **All-or-Nothing Cancellation Refund Policy (`scripts/economy/building_system.gd`, `scripts/world/world_view.gd`):**
+   - Fail-closed if `resource_mgr == null` or missing `add_resource`.
+   - Pre-calculated 50% floor costs and verified central storage capacity across all refunded resources.
+   - If storage cannot hold the refund, returns `success: false, insufficient_storage: true` and leaves construction site, progress, and jobs untouched.
+   - Cleared only the cancelled building footprint and removed its jobs without affecting neighboring sites.
+5. **Save/Load Schema Validation (`scripts/persistence/save_manager.gd`):**
+   - Validated `buildings` array, recognized blueprints, map boundaries, positive finite `construction_hours`, progress in `[0.0, hours + 0.001]`, and valid state enums.
+   - In `apply_loaded_state_to_world()`, executed validation upfront and safely aborted on malformed data before clearing live world nodes.
+6. **Genuine TimeManager Testing (`scripts/test/test_construction.gd`):**
+   - Updated TC-CON.3 to use real `TimeManager`: verified 0x pause halts progress, 1x/2x/3x speeds scale advancement proportionally, and idle non-builders do not advance progress.
+   - Updated TC-CON.4 to verify 0% and partial completion rejection, negative delta rejection, and legitimate completion.
+   - Updated TC-CON.5 to verify missing RM fail-closed, insufficient storage rejection, prefix isolation between `bld_house_28_28` and `bld_house_28_280`, exact 50% refund, and double-cancellation rejection.
+   - Updated TC-CON.6 to verify visual hover, double-load idempotency, and 5 malformed save data checks.
+
+### Validations Performed & Results
+- **Dedicated Test Suite (`scripts/test/test_construction.gd`):** **PASS (Exit Code 0, 6/6 passed)**
+  - TC-CON.1: Blueprint Verification & Placement Lifecycle: **PASS**
+  - TC-CON.2: Construction Jobs & Concurrent Capacity: **PASS**
+  - TC-CON.3: Builder Work Loop, Real TimeManager Scaling & Progress: **PASS**
+  - TC-CON.4: Strict Completion Threshold & Operational Activation: **PASS**
+  - TC-CON.5: Cancellation Policy, 50% Refund & Storage Capacity: **PASS**
+  - TC-CON.6: Save/Load Persistence, Hover & Malformed Save Rejection: **PASS**
+- **All Core Regression Suites (Godot 4.7 Headless):**
+  - `test_workshop.gd`: **PASS (Exit Code 0)**
+  - `test_barracks.gd`: **PASS (Exit Code 0)**
+  - `test_research_hall.gd`: **PASS (Exit Code 0)**
+  - `test_watchtower.gd`: **PASS (Exit Code 0)**
+  - `test_dynamic_workplaces.gd`: **PASS (Exit Code 0)**
+  - `test_mine.gd`: **PASS (Exit Code 0)**
+  - `test_quarry.gd`: **PASS (Exit Code 0)**
+  - `test_save_load.gd`: **PASS (Exit Code 0)**
+  - `test_citizens.gd`: **PASS (Exit Code 0)**
+  - `test_economy.gd`: **PASS (Exit Code 0)**
+  - `test_logistics.gd`: **PASS (Exit Code 0)**
+  - `test_research_and_exploration.gd`: **PASS (Exit Code 0)**
+  - `test_factions_and_battles.gd`: **PASS (Exit Code 0)**
+  - `test_gold_transactions.gd`: **PASS (Exit Code 0)**
+  - `test_time_manager.gd`: **PASS (Exit Code 0)**
+  - `test_victory_and_collapse.gd`: **PASS (Exit Code 0)**
+  - `test_world_gen.gd`: **PASS (Exit Code 0)**
+  - `test_coordinates.gd`: **PASS (Exit Code 0)**
+  - `test_stress_100_citizens.gd`: **PASS (Exit Code 0)**
+  - `test_audio.gd`: **PASS (Exit Code 0)**
+- **Headless Scene Smoke Checks:**
+  - `scenes/ui/main_menu.tscn`: **PASS (Exit Code 0)**
+  - `scenes/world/world_view.tscn`: **PASS (Exit Code 0)**
+  - `scenes/ui/hud.tscn`: **PASS (Exit Code 0)**
+  - `scenes/test/visual_validation_test.tscn`: **PASS (Exit Code 0)**
+- **Whitespace Check:**
+  - `git diff --check`: Clean (Exit Code 0, zero whitespace errors).
+
+### Files Created / Modified
+- `scripts/economy/building_system.gd`
+- `scripts/jobs/job_manager.gd`
+- `scripts/world/world_view.gd`
+- `scripts/world/fog_of_war.gd`
+- `scripts/persistence/save_manager.gd`
+- `scripts/test/test_construction.gd`
+- `scripts/test/test_barracks.gd`
+- `scripts/test/test_workshop.gd`
+- `scripts/test/test_research_hall.gd`
+- `scripts/test/test_watchtower.gd`
+- `scripts/test/test_dynamic_workplaces.gd`
+- `scripts/test/test_mine.gd`
+- `scripts/test/test_quarry.gd`
+- `docs/BACKLOG.md`
+- `docs/CHANGELOG.md`
+- `docs/TEST_PLAN.md`
+- `docs/WORKLOG.md`
+
 ### Next Exact Step
-- Stage Package 1H files explicitly (no `git add -A`).
-- Commit with exact mandated message: `Implement builder construction lifecycle`.
-- Push to origin on branch `feature/package-1h-construction`.
+- Stage modified files explicitly (do NOT use `git add -A`; preserve untracked files).
+- Commit with exact mandated message: `Harden construction completion and job cleanup`.
+- Push to `origin/feature/package-1h-construction`.
 - Await independent review. Do not merge into master, do not start Package 1I.

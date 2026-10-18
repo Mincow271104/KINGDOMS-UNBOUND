@@ -271,7 +271,20 @@ func _test_tc_ws_2_placement_and_registration() -> bool:
 	# Place Workshop at legal position (26, 23)
 	world_instance.set("placing_building_type", "workshop")
 	var place_res: Dictionary = world_instance.call("_execute_placement", ws_origin)
-	world_instance.call("complete_construction", "bld_workshop_26_23")
+
+	# Verify premature completion at 0% progress is rejected
+	var premature_ok: bool = world_instance.call("complete_construction", "bld_workshop_26_23")
+	if premature_ok:
+		printerr("  [FAIL] Premature complete_construction at 0% should be rejected!")
+		failures += 1
+
+	# Advance progress through the intended construction path to 100%
+	var bp_ws: Dictionary = EconomyConfigScript.BLUEPRINTS.get("workshop", {})
+	var ws_hours: float = float(bp_ws.get("construction_hours", 12.0))
+	var adv_res: Dictionary = world_instance.call("advance_construction_work", "bld_workshop_26_23", ws_hours)
+	if not adv_res.get("completed", false):
+		printerr("  [FAIL] Construction advancement failed for workshop!")
+		failures += 1
 
 	if not place_res.get("success", false):
 		printerr("  [FAIL] Failed to place workshop at (26, 23): %s" % place_res.get("reason", "unknown"))

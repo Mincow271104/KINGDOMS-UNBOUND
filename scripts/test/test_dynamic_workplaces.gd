@@ -187,7 +187,15 @@ func _test_tc_dw_2_dynamic_registration() -> bool:
 
 	world_instance.set("placing_building_type", "farm")
 	var res_farm: Dictionary = world_instance.call("_execute_placement", farm_origin)
-	world_instance.call("complete_construction", "bld_farm_29_27")
+
+	# Verify premature completion at 0% is rejected
+	var premature_farm: bool = world_instance.call("complete_construction", "bld_farm_29_27")
+	if premature_farm:
+		printerr("  [FAIL] Premature complete_construction at 0% should be rejected!")
+		failures += 1
+
+	# Advance construction legitimately to completion
+	world_instance.call("advance_construction_work", "bld_farm_29_27", 12.0)
 
 	if not res_farm.get("success", false):
 		printerr("  [FAIL] Placing dynamic farm failed: %s" % res_farm.get("reason"))
@@ -247,7 +255,15 @@ func _test_tc_dw_2_dynamic_registration() -> bool:
 
 	world_instance.set("placing_building_type", "woodcutter")
 	var res_wc: Dictionary = world_instance.call("_execute_placement", wc_origin)
-	world_instance.call("complete_construction", "bld_woodcutter_34_27")
+
+	# Verify premature completion at 0% is rejected
+	var premature_wc: bool = world_instance.call("complete_construction", "bld_woodcutter_34_27")
+	if premature_wc:
+		printerr("  [FAIL] Premature complete_construction at 0% should be rejected!")
+		failures += 1
+
+	# Advance construction legitimately to completion
+	world_instance.call("advance_construction_work", "bld_woodcutter_34_27", 8.0)
 
 	if not res_wc.get("success", false):
 		printerr("  [FAIL] Placing dynamic woodcutter failed: %s" % res_wc.get("reason"))

@@ -149,10 +149,22 @@ static func advance_construction(b_data_or_id, delta_hours: float, world_data: W
 
 	var total_hours: float = float(b_data.get("construction_hours", 12.0))
 	var cur_prog: float = float(b_data.get("construction_progress", 0.0))
+
+	# Reject negative or invalid (NaN/inf) time deltas without reducing progress
+	if delta_hours <= 0.0 or is_nan(delta_hours) or is_inf(delta_hours):
+		return {
+			"success": false,
+			"completed": cur_prog >= (total_hours - 0.001),
+			"progress": cur_prog,
+			"hours": total_hours
+		}
+
 	cur_prog = clampf(cur_prog + delta_hours, 0.0, total_hours)
 	b_data["construction_progress"] = cur_prog
 
-	var completed: bool = cur_prog >= total_hours
+	# Floating-point tolerance for required construction time (0.001 hours ~= 3.6 seconds)
+	const PROGRESS_TOLERANCE: float = 0.001
+	var completed: bool = cur_prog >= (total_hours - PROGRESS_TOLERANCE)
 	return {
 		"success": true,
 		"completed": completed,
@@ -160,7 +172,7 @@ static func advance_construction(b_data_or_id, delta_hours: float, world_data: W
 		"hours": total_hours
 	}
 
-static func complete_building(b_data_or_id, world_data: WorldGenerator.WorldData, resource_mgr: Node = null) -> bool:
+static func complete_building(b_data_or_id, world_data: WorldGenerator.WorldData, resource_mgr: Object = null) -> bool:
 	var b_data: Dictionary = {}
 	if b_data_or_id is Dictionary:
 		b_data = b_data_or_id
@@ -173,12 +185,25 @@ static func complete_building(b_data_or_id, world_data: WorldGenerator.WorldData
 	if b_data.get("state", "") != "under_construction":
 		return false # Idempotent: cannot complete if already active or other state
 
+	var total_hours: float = float(b_data.get("construction_hours", 0.0))
+	if is_nan(total_hours) or is_inf(total_hours) or total_hours <= 0.0:
+		return false
+
+	var cur_prog: float = float(b_data.get("construction_progress", 0.0))
+	if is_nan(cur_prog) or is_inf(cur_prog):
+		return false
+
+	# Floating-point tolerance for required construction time (0.001 hours ~= 3.6 seconds)
+	const PROGRESS_TOLERANCE: float = 0.001
+	if cur_prog < (total_hours - PROGRESS_TOLERANCE):
+		return false # Refuse premature activation at 0% or partial progress
+
 	b_data["state"] = "active"
-	b_data["construction_progress"] = float(b_data.get("construction_hours", 0.0))
+	b_data["construction_progress"] = total_hours
 	apply_completion_effects(b_data, resource_mgr)
 	return true
 
-static func cancel_construction(b_data_or_id, world_data: WorldGenerator.WorldData, resource_mgr: Node = null, job_mgr: Object = null) -> Dictionary:
+static func cancel_construction(b_data_or_id, world_data: WorldGenerator.WorldData, resource_mgr: Object = null, job_mgr: Object = null) -> Dictionary:
 	var b_data: Dictionary = {}
 	if b_data_or_id is Dictionary:
 		b_data = b_data_or_id
@@ -191,13 +216,53 @@ static func cancel_construction(b_data_or_id, world_data: WorldGenerator.WorldDa
 	if b_data.get("state", "") != "under_construction":
 		return {"success": false, "reason": "Chỉ có thể hủy công trình đang xây dựng"}
 
+	# Fail closed if required resource_mgr dependency is missing or invalid
+	if resource_mgr == null or not resource_mgr.has_method("add_resource"):
+		return {"success": false, "reason": "Thiếu ResourceManager để hoàn trả tài nguyên"}
+
 	var b_id: String = b_data.get("id", "")
 	var type: String = b_data.get("type", "")
 	var origin: Vector2i = b_data.get("cell", Vector2i(-1, -1))
 	var size: Vector2i = b_data.get("size", Vector2i(1, 1))
 	var bp: Dictionary = EconomyConfig.BLUEPRINTS.get(type, {})
+	var cost: Dictionary = bp.get("cost", {})
+	var refund_ratio: float = 0.5
 
-	# 1. Clear occupancy
+	# Calculate promised 50% refund amounts
+	var planned_refund: Dictionary = {}
+	for res_id in cost:
+		var refund_amount: int = int(float(cost[res_id]) * refund_ratio)
+		if refund_amount > 0:
+			planned_refund[res_id] = refund_amount
+
+	# All-or-Nothing check: Verify storage capacity has space for all refund amounts
+	for res_id in planned_refund:
+		var refund_amount: int = planned_refund[res_id]
+		var space: int = 999999
+		if resource_mgr.has_method("get_storage_capacity") and resource_mgr.has_method("get_total_stock"):
+			var cap: int = int(resource_mgr.get_storage_capacity(res_id))
+			var cur: int = int(resource_mgr.get_total_stock(res_id))
+			space = maxi(0, cap - cur)
+		elif resource_mgr.has_method("get_capacity") and resource_mgr.has_method("get_total_stock"):
+			var cap: int = int(resource_mgr.get_capacity(res_id))
+			var cur: int = int(resource_mgr.get_total_stock(res_id))
+			space = maxi(0, cap - cur)
+		if space < refund_amount:
+			return {
+				"success": false,
+				"reason": "Dung lượng kho chứa không đủ để nhận hoàn trả 50%% tài nguyên (%s: cần %d, còn trống %d)" % [res_id, refund_amount, space],
+				"insufficient_storage": true,
+				"refunded": {}
+			}
+
+	# Execute atomic refund: credit all resources and record exact credited amounts
+	var refunded: Dictionary = {}
+	for res_id in planned_refund:
+		var refund_amount: int = planned_refund[res_id]
+		var added: int = resource_mgr.add_resource(res_id, refund_amount)
+		refunded[res_id] = added
+
+	# 1. Clear occupancy only for this building's footprint
 	if world_data:
 		for ox in range(size.x):
 			for oy in range(size.y):
@@ -205,22 +270,11 @@ static func cancel_construction(b_data_or_id, world_data: WorldGenerator.WorldDa
 				if IsoMath.is_in_bounds(cell):
 					world_data.occupancy[cell.x][cell.y] = false
 
-	# 2. 50% material refund
-	var refund_ratio: float = 0.5
-	var refunded: Dictionary = {}
-	if resource_mgr and not bp.is_empty():
-		var cost: Dictionary = bp.get("cost", {})
-		for res_id in cost:
-			var refund_amount: int = int(float(cost[res_id]) * refund_ratio)
-			if refund_amount > 0:
-				resource_mgr.add_resource(res_id, refund_amount)
-				refunded[res_id] = refund_amount
-
-	# 3. Remove jobs from job_mgr
+	# 2. Remove jobs from job_mgr using unambiguous separator-aware prefix matching
 	if job_mgr and job_mgr.has_method("remove_jobs_for_building"):
 		job_mgr.remove_jobs_for_building(b_id)
 
-	# 4. Remove from world_data
+	# 3. Remove from world_data
 	if world_data:
 		world_data.buildings.erase(b_data)
 

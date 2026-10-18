@@ -370,7 +370,30 @@ func _run_world_integration_checks() -> void:
 		live_rm2.add_resource("wood", 100)
 		live_rm2.add_resource("stone", 100)
 	world_instance.call("_execute_placement", tower_cell)
-	world_instance.call("complete_construction", "bld_watchtower_%d_%d" % [tower_cell.x, tower_cell.y])
+	var tower_id := "bld_watchtower_%d_%d" % [tower_cell.x, tower_cell.y]
+
+	# Requirement 1 & 2: Demonstrate under_construction watchtower does NOT grant vision
+	if fow.is_visible(pt_dist_15):
+		printerr("  [FAIL] Under-construction watchtower should NOT grant vision!")
+		failures += 1
+	else:
+		print("  [PASS] Under-construction watchtower does not grant tower vision.")
+
+	# Demonstrate premature complete_construction is rejected at 0%
+	var premature_ok: bool = world_instance.call("complete_construction", tower_id)
+	if premature_ok:
+		printerr("  [FAIL] Premature complete_construction at 0% should be rejected!")
+		failures += 1
+	else:
+		print("  [PASS] Premature complete_construction at 0% rejected.")
+
+	# Advance progress through legitimate construction path to completion (6.0 hours)
+	var adv_res: Dictionary = world_instance.call("advance_construction_work", tower_id, 6.0)
+	if not adv_res.get("completed", false):
+		printerr("  [FAIL] Construction advancement failed for watchtower!")
+		failures += 1
+	else:
+		print("  [PASS] Watchtower construction completed legitimately.")
 
 	# Boundary check: dist 15 must be VISIBLE
 	if not fow.is_visible(pt_dist_15):
@@ -426,6 +449,34 @@ func _run_world_integration_checks() -> void:
 		failures += 1
 	else:
 		print("  [PASS] Continuous simulation maintained correct POI visibility states.")
+
+	# Regression tests: Paused and Damaged states must NOT grant vision
+	var tower_data: Dictionary = BuildingSystemScript.get_building_by_id(tower_id, world_instance.get("world_data"))
+	tower_data["state"] = "paused"
+	fow.set_state(pt_dist_15, FogOfWarScript.State.EXPLORED)
+	world_instance.call("_on_simulation_hour_passed", 8, 1)
+	if fow.is_visible(pt_dist_15):
+		printerr("  [FAIL] Paused watchtower should NOT grant tower vision!")
+		failures += 1
+	else:
+		print("  [PASS] Paused watchtower does not grant vision.")
+
+	tower_data["state"] = "damaged"
+	fow.set_state(pt_dist_15, FogOfWarScript.State.EXPLORED)
+	world_instance.call("_on_simulation_hour_passed", 9, 1)
+	if fow.is_visible(pt_dist_15):
+		printerr("  [FAIL] Damaged watchtower should NOT grant tower vision!")
+		failures += 1
+	else:
+		print("  [PASS] Damaged watchtower does not grant vision.")
+
+	tower_data["state"] = "active"
+	world_instance.call("_on_simulation_hour_passed", 10, 1)
+	if not fow.is_visible(pt_dist_15):
+		printerr("  [FAIL] Active watchtower should grant tower vision!")
+		failures += 1
+	else:
+		print("  [PASS] Active watchtower grants vision cleanly.")
 
 	# -------------------------------------------------------------------------
 	# TC-W.8: Save/Load Fog, Watchtower & POI Persistence

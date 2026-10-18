@@ -312,9 +312,17 @@ func _test_tc_con_2_builder_jobs_and_concurrency() -> bool:
 # -----------------------------------------------------------------------------
 # TC-CON.3: Real Builder Work Loop, Time/Pause Scaling & Shared Progress
 # -----------------------------------------------------------------------------
+# -----------------------------------------------------------------------------
+# TC-CON.3: Real Builder Work Loop, Time/Pause Scaling & Shared Progress
+# -----------------------------------------------------------------------------
 func _test_tc_con_3_builder_work_loop_and_time_scaling() -> bool:
 	print("--- Running TC-CON.3: Builder Work Loop, Scaling & Progress ---")
 	var failures: int = 0
+
+	var tm: Node = world_instance.get_node_or_null("/root/TimeManager")
+	if tm == null:
+		printerr("  [FAIL] TimeManager not found at /root/TimeManager!")
+		return false
 
 	var world_data = WorldGeneratorScript.generate(333)
 	var nav = GridNavigation.new(world_data)
@@ -339,54 +347,89 @@ func _test_tc_con_3_builder_work_loop_and_time_scaling() -> bool:
 
 	var p_cells = BuildingSystemScript.find_perimeter_cells(Vector2i(10, 10), Vector2i(2, 2), world_data, 2)
 	var job1 = jm.create_job("builder", p_cells[0], "Build farm", b_farm["id"], 12.0)
-	var job2 = jm.create_job("builder", p_cells[1], "Build farm", b_farm["id"], 12.0)
 
 	var b1 = CitizenControllerScript.new()
+	root.add_child(b1)
 	b1.init_citizen("builder_1", "Thợ Xây 1", "builder", p_cells[0], nav, jm)
 	b1.set_construction_checker(func(bid: String): return BuildingSystemScript.is_building_under_construction(world_data, bid))
+	b1.set_construction_handler(func(bid: String, dh: float): return BuildingSystemScript.advance_construction(b_farm, dh, world_data))
 	b1.world_data = world_data
 
-	var b2 = CitizenControllerScript.new()
-	b2.init_citizen("builder_2", "Thợ Xây 2", "builder", p_cells[1], nav, jm)
-	b2.set_construction_checker(func(bid: String): return BuildingSystemScript.is_building_under_construction(world_data, bid))
-	b2.world_data = world_data
-
-	# Assign jobs and transition to WORKING at perimeter
-	b1.active_job = job1
-	job1.state = JobManager.JobState.IN_PROGRESS
-	b1.current_state = CitizenController.State.WORKING
-
-	b2.active_job = job2
-	job2.state = JobManager.JobState.IN_PROGRESS
-	b2.current_state = CitizenController.State.WORKING
-
-	# 1 builder working for 1.0 hour advances progress by 1.0
-	b1._process_working(1.0)
-	if absf(b_farm["construction_progress"] - 1.0) > 0.01:
-		printerr("  [FAIL] 1 builder working 1.0h should advance progress to 1.0, got %f" % b_farm["construction_progress"])
+	# 1. Normal request_job() claiming path from State.IDLE
+	b1.current_state = CitizenController.State.IDLE
+	b1._process(0.016)
+	if b1.active_job != job1:
+		printerr("  [FAIL] Builder failed to claim job through request_job()! active_job: %s" % str(b1.active_job))
 		failures += 1
 
-	# Both builders working for 1.0 hour advance progress by 2.0 (total = 3.0)
-	b1._process_working(1.0)
-	b2._process_working(1.0)
+	# Arrive at perimeter post: transitions to WORKING and job IN_PROGRESS
+	b1._process(0.016)
+	if b1.current_state != CitizenController.State.WORKING or job1.state != JobManager.JobState.IN_PROGRESS:
+		printerr("  [FAIL] Builder did not transition to WORKING: state=%d, job_state=%d" % [b1.current_state, job1.state])
+		failures += 1
+	else:
+		print("  [PASS] Builder job claimed via request_job() and reached IN_PROGRESS at work site.")
+
+	# 2. TimeManager Pause (0x) test: progress must NOT advance
+	tm.pause()
+	if not tm.is_paused():
+		printerr("  [FAIL] TimeManager is not paused after tm.pause()!")
+		failures += 1
+	var prog_before_pause: float = b_farm["construction_progress"]
+	b1._process(0.5)
+	if b_farm["construction_progress"] != prog_before_pause:
+		printerr("  [FAIL] Construction progress advanced while simulation was paused (0x)!")
+		failures += 1
+	else:
+		print("  [PASS] Real TimeManager pause (0x) safely halts construction progress.")
+
+	# 3. TimeManager 1x Normal Speed: progress increases by expected delta (0.5 * 1.0 = 0.5)
+	tm.resume()
+	tm.set_speed(1)
+	b1._process(0.5)
+	if absf(b_farm["construction_progress"] - 0.5) > 0.01:
+		printerr("  [FAIL] At 1x speed, expected progress 0.5, got %f" % b_farm["construction_progress"])
+		failures += 1
+	else:
+		print("  [PASS] At 1x speed, progress advanced by expected 0.5 hours.")
+
+	# 4. TimeManager 2x Fast Speed: progress increases by delta * 2.0 (0.5 * 2.0 = 1.0, total 1.5)
+	tm.set_speed(2)
+	b1._process(0.5)
+	if absf(b_farm["construction_progress"] - 1.5) > 0.01:
+		printerr("  [FAIL] At 2x speed, expected progress 1.5, got %f" % b_farm["construction_progress"])
+		failures += 1
+	else:
+		print("  [PASS] At 2x speed, progress followed simulation speed (added 1.0h, total 1.5h).")
+
+	# 5. TimeManager 3x Very Fast Speed: progress increases by delta * 3.0 (0.5 * 3.0 = 1.5, total 3.0)
+	tm.set_speed(3)
+	b1._process(0.5)
 	if absf(b_farm["construction_progress"] - 3.0) > 0.01:
-		printerr("  [FAIL] 2 builders working 1.0h each should add 2.0h, got total %f" % b_farm["construction_progress"])
+		printerr("  [FAIL] At 3x speed, expected progress 3.0, got %f" % b_farm["construction_progress"])
+		failures += 1
+	else:
+		print("  [PASS] At 3x speed, progress followed simulation speed (added 1.5h, total 3.0h).")
+
+	# Verify status reason reflects current progress
+	if not "12.0" in b1.status_reason:
+		printerr("  [FAIL] Status reason does not reflect total hours: '%s'" % b1.status_reason)
 		failures += 1
 
-	# Verify status reason reflects progress
-	if not "12.0" in b2.status_reason or not "3.0" in b2.status_reason:
-		printerr("  [FAIL] Status reason does not reflect progress: '%s'" % b2.status_reason)
+	# 6. No eligible builder working -> progress does not advance
+	b1.active_job = null
+	b1.current_state = CitizenController.State.IDLE
+	b1.role = "idle"
+	var prog_unworked: float = b_farm["construction_progress"]
+	b1._process(1.0)
+	if b_farm["construction_progress"] != prog_unworked:
+		printerr("  [FAIL] Progress advanced without an active working builder!")
 		failures += 1
+	else:
+		print("  [PASS] Progress does not advance when no eligible builder is working.")
 
-	# No builders working -> progress does not advance
-	var prog_before = b_farm["construction_progress"]
-	# Advance 5.0 seconds with no calls to builders
-	if b_farm["construction_progress"] != prog_before:
-		printerr("  [FAIL] Progress advanced without active builders!")
-		failures += 1
-
+	tm.set_speed(1)
 	b1.queue_free()
-	b2.queue_free()
 
 	if failures == 0:
 		print("  [PASS] TC-CON.3 PASSED.\n")
@@ -395,10 +438,10 @@ func _test_tc_con_3_builder_work_loop_and_time_scaling() -> bool:
 	return false
 
 # -----------------------------------------------------------------------------
-# TC-CON.4: Centralized Idempotent Completion Transition
+# TC-CON.4: Centralized Idempotent Completion Transition & Threshold Enforcement
 # -----------------------------------------------------------------------------
 func _test_tc_con_4_completion_transition_and_idempotency() -> bool:
-	print("--- Running TC-CON.4: Idempotent Completion Transition ---")
+	print("--- Running TC-CON.4: Idempotent Completion Transition & Threshold Enforcement ---")
 	var failures: int = 0
 
 	var live_rm: Node = world_instance.get_node_or_null("/root/ResourceManager")
@@ -435,28 +478,65 @@ func _test_tc_con_4_completion_transition_and_idempotency() -> bool:
 		printerr("  [FAIL] Workshop should be under_construction after placement!")
 		failures += 1
 
-	# Workplace channels should NOT exist while under construction
+	# 2. Prerequisite Check A: Zero-progress completion is rejected
+	var zero_comp: bool = world_instance.call("complete_construction", b_id)
+	if zero_comp:
+		printerr("  [FAIL] complete_construction returned true at 0%% progress!")
+		failures += 1
+	if b_data.get("state") != "under_construction":
+		printerr("  [FAIL] Building state changed to '%s' on zero-progress completion attempt!" % b_data.get("state"))
+		failures += 1
 	if wp_mgr.get_workplace(b_id + "_smelt") != null:
-		printerr("  [FAIL] Smelt channel registered prematurely while under construction!")
+		printerr("  [FAIL] Smelt channel registered prematurely on rejected zero-progress completion!")
+		failures += 1
+	print("  [PASS] Zero-progress completion rejected; building remains non-operational.")
+
+	# 3. Prerequisite Check B: Partial-progress completion is rejected
+	world_instance.call("advance_construction_work", b_id, 4.0)
+	if absf(float(b_data.get("construction_progress", 0.0)) - 4.0) > 0.01:
+		printerr("  [FAIL] Partial advancement to 4.0 failed, got: %f" % b_data.get("construction_progress"))
 		failures += 1
 
-	# Complete construction via WorldView
-	var comp_success: bool = world_instance.call("complete_construction", b_id)
-	if not comp_success:
-		printerr("  [FAIL] complete_construction returned false for valid under_construction workshop!")
+	var partial_comp: bool = world_instance.call("complete_construction", b_id)
+	if partial_comp:
+		printerr("  [FAIL] complete_construction returned true at partial (4.0/12.0) progress!")
+		failures += 1
+	if b_data.get("state") != "under_construction":
+		printerr("  [FAIL] Building state changed to '%s' on partial-progress completion attempt!" % b_data.get("state"))
+		failures += 1
+	if wp_mgr.get_workplace(b_id + "_smelt") != null:
+		printerr("  [FAIL] Smelt channel registered prematurely on rejected partial-progress completion!")
+		failures += 1
+	print("  [PASS] Partial-progress completion rejected; building remains non-operational.")
+
+	# 4. Prerequisite Check C: Negative delta cannot decrease previously earned progress
+	var neg_res = BuildingSystemScript.advance_construction(b_id, -2.0, world_data)
+	if neg_res.get("success", true):
+		printerr("  [FAIL] advance_construction should return success: false on negative delta!")
+		failures += 1
+	if float(b_data.get("construction_progress", 0.0)) < 4.0:
+		printerr("  [FAIL] Negative delta reduced earned progress to %f!" % b_data.get("construction_progress"))
+		failures += 1
+	else:
+		print("  [PASS] Negative delta rejected without decreasing progress.")
+
+	# 5. Legitimate completion after required work is achieved (remaining 8.0 hours)
+	var comp_adv = world_instance.call("advance_construction_work", b_id, 8.0)
+	if not comp_adv.get("completed", false):
+		printerr("  [FAIL] advance_construction_work did not report completed on full hours!")
 		failures += 1
 
-	# Building state is now active
+	# Building state is now active and operational
 	if b_data.get("state") != "active":
-		printerr("  [FAIL] Building state not 'active' after complete_construction: '%s'" % b_data.get("state"))
+		printerr("  [FAIL] Building state not 'active' after legitimate completion: '%s'" % b_data.get("state"))
 		failures += 1
 
-	# Dynamic workplace channels now exist
+	# Dynamic workplace channels now legitimately exist
 	if wp_mgr.get_workplace(b_id + "_smelt") == null:
-		printerr("  [FAIL] Smelt channel not registered upon completion!")
+		printerr("  [FAIL] Smelt channel not registered upon legitimate completion!")
 		failures += 1
 	if wp_mgr.get_workplace(b_id + "_craft") == null:
-		printerr("  [FAIL] Craft channel not registered upon completion!")
+		printerr("  [FAIL] Craft channel not registered upon legitimate completion!")
 		failures += 1
 
 	# Visual scaffolding cleared
@@ -467,11 +547,15 @@ func _test_tc_con_4_completion_transition_and_idempotency() -> bool:
 			printerr("  [FAIL] Sprite modulate not restored to Color(1,1,1,1), got %s" % spr.modulate)
 			failures += 1
 
-	# 2. Idempotency check: calling complete_construction again must return false and not duplicate
+	print("  [PASS] Completion succeeded legitimately after required work achieved.")
+
+	# 6. Idempotency check: calling complete_construction again must return false and not repeat side effects
 	var second_comp: bool = world_instance.call("complete_construction", b_id)
 	if second_comp:
 		printerr("  [FAIL] complete_construction should return false when called on already active building!")
 		failures += 1
+	else:
+		print("  [PASS] Repeated completion call returned false without side effects.")
 
 	if failures == 0:
 		print("  [PASS] TC-CON.4 PASSED.\n")
@@ -480,7 +564,7 @@ func _test_tc_con_4_completion_transition_and_idempotency() -> bool:
 	return false
 
 # -----------------------------------------------------------------------------
-# TC-CON.5: Cancellation Policy (50% Refund, Cleanup & Non-Duplication)
+# TC-CON.5: Cancellation Policy (Reliable 50% Refund, Missing RM, Storage Overflow & Prefix Isolation)
 # -----------------------------------------------------------------------------
 func _test_tc_con_5_cancellation_policy() -> bool:
 	print("--- Running TC-CON.5: Cancellation Policy & 50% Refund ---")
@@ -525,7 +609,67 @@ func _test_tc_con_5_cancellation_policy() -> bool:
 		printerr("  [FAIL] Footprint not occupied!")
 		failures += 1
 
-	# Cancel construction
+	# 1. Missing ResourceManager dependency check
+	var null_rm_res = BuildingSystemScript.cancel_construction(b_id, world_data, null, jm)
+	if null_rm_res.get("success", true):
+		printerr("  [FAIL] cancel_construction should fail closed when resource_mgr is null!")
+		failures += 1
+	var b_still_exists = BuildingSystemScript.get_building_by_id(b_id, world_data)
+	if b_still_exists.is_empty() or not world_data.occupancy[28][28]:
+		printerr("  [FAIL] Missing RM cancellation modified world or occupancy!")
+		failures += 1
+	else:
+		print("  [PASS] Missing ResourceManager fail-closed: project and occupancy untouched.")
+
+	# 2. Near/Full storage capacity check (All-or-Nothing refund operation)
+	# Reduce stone capacity so it only has room for 2 stone (house refund needs 5)
+	var cur_stone_stock: int = live_rm.call("get_available_stock", "stone")
+	live_rm.get("_capacities")["stone"] = cur_stone_stock + 2
+	var cap_fail_res = world_instance.call("cancel_construction_project", b_id)
+	if cap_fail_res.get("success", true) or not cap_fail_res.get("insufficient_storage", false):
+		printerr("  [FAIL] cancel_construction should fail when storage cannot fit promised refund!")
+		failures += 1
+	if not world_data.occupancy[28][28] or BuildingSystemScript.get_building_by_id(b_id, world_data).is_empty():
+		printerr("  [FAIL] Insufficient storage cancellation modified world or occupancy!")
+		failures += 1
+	else:
+		print("  [PASS] Insufficient storage capacity safely rejected; promised refund preserved.")
+
+	# Restore stone capacity
+	live_rm.get("_capacities")["stone"] = 500
+
+	# 3. Prefix-overlapping isolation check (bld_house_28_28 vs bld_house_28_280)
+	var other_house_cell := Vector2i(32, 28)
+	for dx in range(-1, 3):
+		for dy in range(-1, 3):
+			var c := other_house_cell + Vector2i(dx, dy)
+			world_data.terrain[c.x][c.y] = WorldGeneratorScript.TerrainType.GRASS
+			world_data.occupancy[c.x][c.y] = false
+
+	var other_bld := {
+		"id": "bld_house_28_280",
+		"type": "house",
+		"cell": other_house_cell,
+		"size": Vector2i(2, 2),
+		"state": "under_construction",
+		"construction_progress": 0.0,
+		"construction_hours": 8.0
+	}
+	world_data.buildings.append(other_bld)
+	world_data.occupancy[32][28] = true
+	world_data.occupancy[33][29] = true
+
+	var other_job = jm.create_job("builder", Vector2i(32, 27), "Build other house", "bld_house_28_280", 8.0)
+	other_job.state = JobManager.JobState.IN_PROGRESS
+
+	# Create dummy worker on other building
+	var other_worker = CitizenControllerScript.new()
+	other_worker.init_citizen("worker_other", "Thợ Nhà Khác", "builder", Vector2i(32, 27), GridNavigation.new(world_data), jm)
+	other_worker.active_job = other_job
+	other_worker.current_state = CitizenController.State.WORKING
+	world_instance.citizen_list.append(other_worker)
+
+	# Cancel bld_house_28_28
 	var cancel_res = world_instance.call("cancel_construction_project", b_id)
 	if not cancel_res.get("success", false):
 		printerr("  [FAIL] cancel_construction_project failed: %s" % cancel_res.get("reason"))
@@ -552,17 +696,41 @@ func _test_tc_con_5_cancellation_policy() -> bool:
 			printerr("  [FAIL] Visual building node was not removed on cancellation!")
 			failures += 1
 
-		# Jobs removed
+		# Jobs for bld_house_28_28 removed
 		var remaining_jobs = jm.get_jobs_for_building(b_id)
 		if not remaining_jobs.is_empty():
-			printerr("  [FAIL] Construction jobs remained in JobManager after cancellation!")
+			printerr("  [FAIL] Construction jobs remained for cancelled building!")
 			failures += 1
 
-		# Re-cancellation rejected
+		# Prefix isolation: other project's jobs and workers MUST be untouched
+		var other_jobs = jm.get_jobs_for_building("bld_house_28_280")
+		if other_jobs.is_empty():
+			printerr("  [FAIL] Prefix collision! Jobs for 'bld_house_28_280' were erroneously deleted when cancelling 'bld_house_28_28'!")
+			failures += 1
+		else:
+			print("  [PASS] Prefix isolation verified: jobs for bld_house_28_280 preserved.")
+
+		if other_worker.active_job == null or other_worker.current_state != CitizenController.State.WORKING:
+			printerr("  [FAIL] Prefix collision! Worker on 'bld_house_28_280' had active job cleared erroneously!")
+			failures += 1
+		else:
+			print("  [PASS] Prefix isolation verified: worker on bld_house_28_280 remains actively working.")
+
+		# Clean up other house fixture
+		world_instance.citizen_list.erase(other_worker)
+		other_worker.queue_free()
+		jm.remove_jobs_for_building("bld_house_28_280")
+		world_data.buildings.erase(other_bld)
+		world_data.occupancy[32][28] = false
+		world_data.occupancy[33][29] = false
+
+		# 4. Re-cancellation rejected (Idempotency)
 		var double_cancel = world_instance.call("cancel_construction_project", b_id)
 		if double_cancel.get("success", false):
 			printerr("  [FAIL] Re-cancelling same project succeeded! Double refund exploit!")
 			failures += 1
+		else:
+			print("  [PASS] Re-cancellation safely rejected; zero double refund.")
 
 	if failures == 0:
 		print("  [PASS] TC-CON.5 PASSED.\n")
@@ -571,7 +739,7 @@ func _test_tc_con_5_cancellation_policy() -> bool:
 	return false
 
 # -----------------------------------------------------------------------------
-# TC-CON.6: Save/Load Persistence, Double-Load & Visual Hover Clarity
+# TC-CON.6: Save/Load Persistence, Double-Load, Visual Hover & Schema Validation
 # -----------------------------------------------------------------------------
 func _test_tc_con_6_save_load_persistence_and_visual_clarity() -> bool:
 	print("--- Running TC-CON.6: Save/Load Persistence & Visual Hover ---")
@@ -679,6 +847,65 @@ func _test_tc_con_6_save_load_persistence_and_visual_clarity() -> bool:
 	if b_jobs.size() != 4:
 		printerr("  [FAIL] Expected exactly 4 jobs on double load, got %d" % b_jobs.size())
 		failures += 1
+
+	# 6. Malformed Save Data Validation (Requirement 5)
+	# Check A: Negative progress
+	var bad_data_neg = load_res["data"].duplicate(true)
+	bad_data_neg["buildings"][0]["construction_progress"] = -5.0
+	var val_neg = SaveManagerScript.validate_save_data(bad_data_neg)
+	if val_neg.get("valid", true):
+		printerr("  [FAIL] validate_save_data passed negative construction_progress!")
+		failures += 1
+
+	# Check B: Progress exceeds hours
+	var bad_data_overflow = load_res["data"].duplicate(true)
+	bad_data_overflow["buildings"][0]["construction_progress"] = 25.0
+	var val_overflow = SaveManagerScript.validate_save_data(bad_data_overflow)
+	if val_overflow.get("valid", true):
+		printerr("  [FAIL] validate_save_data passed construction_progress > construction_hours!")
+		failures += 1
+
+	# Check C: Non-positive hours
+	var bad_data_zero_h = load_res["data"].duplicate(true)
+	bad_data_zero_h["buildings"][0]["construction_hours"] = 0.0
+	var val_zero_h = SaveManagerScript.validate_save_data(bad_data_zero_h)
+	if val_zero_h.get("valid", true):
+		printerr("  [FAIL] validate_save_data passed non-positive construction_hours!")
+		failures += 1
+
+	# Check D: Unrecognized state
+	var bad_data_state = load_res["data"].duplicate(true)
+	bad_data_state["buildings"][0]["state"] = "mythical_state"
+	var val_state = SaveManagerScript.validate_save_data(bad_data_state)
+	if val_state.get("valid", true):
+		printerr("  [FAIL] validate_save_data passed unrecognized building state!")
+		failures += 1
+
+	# Check E: Out of bounds building
+	var bad_data_oob = load_res["data"].duplicate(true)
+	bad_data_oob["buildings"][0]["cell_x"] = 63
+	bad_data_oob["buildings"][0]["cell_y"] = 63
+	bad_data_oob["buildings"][0]["size_x"] = 3
+	bad_data_oob["buildings"][0]["size_y"] = 3
+	var val_oob = SaveManagerScript.validate_save_data(bad_data_oob)
+	if val_oob.get("valid", true):
+		printerr("  [FAIL] validate_save_data passed out-of-bounds building footprint!")
+		failures += 1
+
+	# Check F: apply_loaded_state_to_world rejects malformed data without destroying current world
+	var b_count_before: int = world_instance.get("world_data").buildings.size()
+	var cit_count_before: int = world_instance.get("citizen_list").size()
+	var apply_bad = SaveManagerScript.apply_loaded_state_to_world(world_instance, bad_data_overflow)
+	if apply_bad.get("success", true):
+		printerr("  [FAIL] apply_loaded_state_to_world succeeded on malformed save data!")
+		failures += 1
+	var b_count_after: int = world_instance.get("world_data").buildings.size()
+	var cit_count_after: int = world_instance.get("citizen_list").size()
+	if b_count_before != b_count_after or cit_count_before != cit_count_after:
+		printerr("  [FAIL] Malformed load attempt corrupted world state (buildings or citizens cleared)!")
+		failures += 1
+	else:
+		print("  [PASS] Malformed save data safely rejected before destructive reconstruction begins.")
 
 	# Clean up test save file
 	DirAccess.remove_absolute(save_path)

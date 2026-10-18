@@ -20,6 +20,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - Amber scaffolding visual modulate `Color(0.8, 0.7, 0.5, 0.7)` and dynamic HUD hover progress percentage `[Đang xây: X%]`.
   - Save/load persistence restoring exact construction progress and hours, zero duplicate jobs/nodes, zero deduction on reload, and legacy save compatibility.
   - Comprehensive automated test suite `scripts/test/test_construction.gd` covering TC-CON.1 through TC-CON.6 (PASS, Exit Code 0).
+#### Changed / Hardened
+- Strict construction completion threshold enforcement: `BuildingSystem.complete_building()` and `WorldView.complete_construction()` strictly refuse completion unless `state == "under_construction"`, `construction_hours > 0`, and `construction_progress >= construction_hours - 0.001`.
+- Fail-closed progress delta validation: `advance_construction()` safely ignores negative or NaN/inf deltas without decrementing progress.
+- Watchtower vision state filtering: `WorldView._on_simulation_hour_passed()` now only grants vision for watchtowers with `state == "active"`; paused, damaged, or under-construction towers do not grant vision.
+- Job prefix collision immunity: `JobManager.job_matches_building()` enforces exact match or separator-aware prefix matching (`building_id + "_"`), preventing false-positive cancellation/cleanup collisions between neighboring buildings (e.g., `bld_house_28_28` vs `bld_house_28_280`).
+- Safe cancellation refund storage guarantee: `BuildingSystem.cancel_construction()` performs all-or-nothing capacity validation before modifying world state, refusing cancellation if central storage cannot hold the full 50% refund.
+- Save/load schema integrity: `SaveManager.validate_save_data()` validates building array types, blueprint names, coordinate bounds, positive finite hours, progress ranges, and valid state enums before world state deserialization begins.
 
 ### [Package 1G] - 2026-10-18
 #### Added

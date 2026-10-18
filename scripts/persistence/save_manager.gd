@@ -259,6 +259,62 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 	for sec in required_sections:
 		if not json_dict.has(sec):
 			return {"valid": false, "error": "Bản lưu bị thiếu mục cấu trúc cốt lõi: '%s'." % sec}
+
+	# Validate buildings array and construction data
+	var buildings_sec = json_dict.get("buildings")
+	if not (buildings_sec is Array):
+		return {"valid": false, "error": "Mục 'buildings' phải là một danh sách (Array)."}
+
+	for b in buildings_sec:
+		if not (b is Dictionary):
+			return {"valid": false, "error": "Bản ghi công trình không đúng định dạng Dictionary."}
+
+		var b_type: Variant = b.get("type", "")
+		if not (b_type is String) or b_type == "" or not EconomyConfig.BLUEPRINTS.has(b_type):
+			return {"valid": false, "error": "Loại công trình không hợp lệ: '%s'." % str(b_type)}
+
+		var bp: Dictionary = EconomyConfig.BLUEPRINTS[b_type]
+		var default_size: Vector2i = bp.get("footprint", Vector2i(1, 1))
+
+		var cell_x = b.get("cell_x")
+		var cell_y = b.get("cell_y")
+		if cell_x == null or cell_y == null or not (cell_x is int or cell_x is float) or not (cell_y is int or cell_y is float):
+			return {"valid": false, "error": "Tọa độ công trình '%s' không hợp lệ." % b_type}
+
+		var size_x = b.get("size_x", default_size.x)
+		var size_y = b.get("size_y", default_size.y)
+		if not (size_x is int or size_x is float) or not (size_y is int or size_y is float) or int(size_x) <= 0 or int(size_y) <= 0:
+			return {"valid": false, "error": "Kích thước công trình '%s' không hợp lệ." % b_type}
+
+		var origin := Vector2i(int(cell_x), int(cell_y))
+		var size := Vector2i(int(size_x), int(size_y))
+		if not IsoMath.is_in_bounds(origin) or not IsoMath.is_in_bounds(origin + size - Vector2i(1, 1)):
+			return {"valid": false, "error": "Vị trí hoặc kích thước công trình '%s' vượt quá giới hạn bản đồ: %s (%s)." % [b_type, origin, size]}
+
+		var b_state: Variant = b.get("state", "active")
+		if not (b_state is String):
+			return {"valid": false, "error": "Trạng thái công trình không hợp lệ."}
+		const VALID_STATES: Array[String] = ["active", "under_construction", "paused", "damaged", "destroyed", "planned"]
+		if not (b_state in VALID_STATES):
+			return {"valid": false, "error": "Trạng thái công trình không được nhận diện: '%s'." % b_state}
+
+		var default_hours: float = float(bp.get("construction_hours", 12.0))
+		var hours_val = b.get("construction_hours", default_hours)
+		if not (hours_val is int or hours_val is float):
+			return {"valid": false, "error": "Thời gian thi công không hợp lệ."}
+		var b_hours: float = float(hours_val)
+		if is_nan(b_hours) or is_inf(b_hours) or b_hours <= 0.0:
+			return {"valid": false, "error": "Thời gian thi công của '%s' phải là số dương hữu hạn: %f." % [b_type, b_hours]}
+
+		var prog_val = b.get("construction_progress", b_hours if b_state == "active" else 0.0)
+		if not (prog_val is int or prog_val is float):
+			return {"valid": false, "error": "Tiến độ thi công không hợp lệ."}
+		var b_prog: float = float(prog_val)
+		if is_nan(b_prog) or is_inf(b_prog):
+			return {"valid": false, "error": "Tiến độ thi công không phải số hữu hạn."}
+		const PROG_TOLERANCE: float = 0.001
+		if b_prog < 0.0 or b_prog > (b_hours + PROG_TOLERANCE):
+			return {"valid": false, "error": "Tiến độ thi công của '%s' nằm ngoài phạm vi hợp lệ [0, %f]: %f." % [b_type, b_hours, b_prog]}
 			
 	return {"valid": true, "error": ""}
 
@@ -294,6 +350,11 @@ static func load_from_file(filepath: String = DEFAULT_SAVE_PATH) -> Dictionary:
 static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionary) -> Dictionary:
 	if world_view == null or loaded_data.is_empty():
 		return {"success": false, "error": "WorldView hoặc dữ liệu bản lưu rỗng"}
+
+	# Validate loaded data safely before destructive world modifications begin
+	var val_res := validate_save_data(loaded_data)
+	if not val_res.get("valid", false):
+		return {"success": false, "error": val_res.get("error", "Dữ liệu bản lưu không hợp lệ")}
 
 	var CitizenControllerScript = preload("res://scripts/entities/citizen_controller.gd")
 	var citizen_tex = load("res://assets/entities/citizen.png")

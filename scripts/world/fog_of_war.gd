@@ -32,6 +32,10 @@ func get_state(cell: Vector2i) -> int:
 		return State.UNEXPLORED
 	return _grid[cell.x][cell.y]
 
+func set_state(cell: Vector2i, new_state: int) -> void:
+	if IsoMath.is_in_bounds(cell):
+		_grid[cell.x][cell.y] = new_state
+
 func is_unexplored(cell: Vector2i) -> bool:
 	return get_state(cell) == State.UNEXPLORED
 

@@ -233,7 +233,15 @@ func _test_tc_m_2_placement_and_registration() -> bool:
 	# Place Mine at legal position (29, 27) (size 2x2)
 	world_instance.set("placing_building_type", "mine")
 	var place_res: Dictionary = world_instance.call("_execute_placement", mine_origin)
-	world_instance.call("complete_construction", "bld_mine_29_27")
+
+	# Verify premature completion at 0% is rejected
+	var premature_ok: bool = world_instance.call("complete_construction", "bld_mine_29_27")
+	if premature_ok:
+		printerr("  [FAIL] Premature complete_construction at 0% should be rejected!")
+		failures += 1
+
+	# Advance construction legitimately to completion
+	world_instance.call("advance_construction_work", "bld_mine_29_27", 14.0)
 
 	if not place_res.get("success", false):
 		printerr("  [FAIL] Failed to place mine at (29, 27): %s" % place_res.get("reason", "unknown"))

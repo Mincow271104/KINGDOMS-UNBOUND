@@ -217,18 +217,29 @@ func boost_jobs_priority(job_type: String, boost_delta: int) -> int:
 func get_all_jobs() -> Array[JobData]:
 	return _jobs
 
+static func job_matches_building(job: JobData, building_id: String) -> bool:
+	if job == null or building_id == "":
+		return false
+	if job.target_building_id == building_id or job.source_workplace_id == building_id or job.workplace_channel_id == building_id:
+		return true
+	var prefix := building_id + "_"
+	if (job.target_building_id != "" and job.target_building_id.begins_with(prefix)) or \
+	   (job.source_workplace_id != "" and job.source_workplace_id.begins_with(prefix)) or \
+	   (job.workplace_channel_id != "" and job.workplace_channel_id.begins_with(prefix)):
+		return true
+	return false
+
 func get_jobs_for_building(building_id: String) -> Array[JobData]:
 	var result: Array[JobData] = []
 	for job in _jobs:
-		if job.target_building_id == building_id or job.source_workplace_id == building_id or job.workplace_channel_id == building_id or (job.target_building_id != "" and job.target_building_id.begins_with(building_id)) or (job.workplace_channel_id != "" and job.workplace_channel_id.begins_with(building_id)):
+		if job_matches_building(job, building_id):
 			result.append(job)
 	return result
 
 func remove_jobs_for_building(building_id: String) -> void:
 	var remaining: Array[JobData] = []
 	for job in _jobs:
-		var matches_bld := (job.target_building_id == building_id or job.source_workplace_id == building_id or job.workplace_channel_id == building_id or (job.target_building_id != "" and job.target_building_id.begins_with(building_id)) or (job.workplace_channel_id != "" and job.workplace_channel_id.begins_with(building_id)))
-		if not matches_bld:
+		if not job_matches_building(job, building_id):
 			remaining.append(job)
 	_jobs = remaining
 

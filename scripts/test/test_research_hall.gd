@@ -681,7 +681,20 @@ func _test_tc_rh_7_worldview_and_save_load() -> bool:
 
 	var b_data_placed = place_res.get("building", {})
 	var b_id: String = b_data_placed.get("id", "")
-	world_instance.complete_construction(b_id)
+
+	# Demonstrate premature complete_construction at 0% is rejected
+	var premature_ok: bool = world_instance.complete_construction(b_id)
+	if premature_ok:
+		printerr("FAIL: Premature complete_construction at 0% should be rejected!")
+		failures += 1
+
+	# Advance progress through the intended construction path to completion
+	var bp_rh: Dictionary = EconomyConfig.BLUEPRINTS.get("research_hall", {})
+	var rh_hours: float = float(bp_rh.get("construction_hours", 12.0))
+	var adv_res: Dictionary = world_instance.advance_construction_work(b_id, rh_hours)
+	if not adv_res.get("completed", false):
+		printerr("FAIL: Construction advancement failed for research_hall!")
+		failures += 1
 
 	# Verify exact count of research_hall records and visual nodes after placement
 	var count_placed_records: int = 0

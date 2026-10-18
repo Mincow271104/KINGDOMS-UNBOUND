@@ -598,6 +598,18 @@ func complete_construction(b_id: String) -> bool:
 	if b_data.get("state", "") != "under_construction":
 		return false # Idempotent: cannot complete if already active or other state
 
+	var total_hours: float = float(b_data.get("construction_hours", 0.0))
+	if is_nan(total_hours) or is_inf(total_hours) or total_hours <= 0.0:
+		return false
+
+	var cur_prog: float = float(b_data.get("construction_progress", 0.0))
+	if is_nan(cur_prog) or is_inf(cur_prog):
+		return false
+
+	const PROGRESS_TOLERANCE: float = 0.001
+	if cur_prog < (total_hours - PROGRESS_TOLERANCE):
+		return false # Refuse premature completion before required construction work is achieved
+
 	var rm := get_node_or_null("/root/ResourceManager")
 	var success := BuildingSystem.complete_building(b_data, world_data, rm)
 	if not success:
@@ -627,7 +639,7 @@ func complete_construction(b_id: String) -> bool:
 		job_mgr.remove_jobs_for_building(b_id)
 
 	for cit in citizen_list:
-		if cit.get("active_job") != null and cit.active_job.target_building_id == b_id:
+		if cit.get("active_job") != null and JobManager.job_matches_building(cit.active_job, b_id):
 			cit.active_job = null
 			cit.set("current_state", CitizenController.State.IDLE)
 			if cit.has_method("_update_reason"):
@@ -676,11 +688,14 @@ func cancel_construction_project(b_id: String) -> Dictionary:
 		return {"success": false, "reason": "Công trình không tồn tại"}
 
 	var rm := get_node_or_null("/root/ResourceManager")
+	if rm == null:
+		return {"success": false, "reason": "Thiếu ResourceManager để hoàn trả tài nguyên"}
+
 	var res := BuildingSystem.cancel_construction(b_data, world_data, rm, job_mgr)
 	if not res.get("success", false):
 		return res
 
-	# Free visual node
+	# Free visual node only if cancellation succeeded!
 	var origin: Vector2i = b_data.get("cell", Vector2i.ZERO)
 	var size: Vector2i = b_data.get("size", Vector2i(1, 1))
 	var type: String = b_data.get("type", "")
@@ -695,7 +710,7 @@ func cancel_construction_project(b_id: String) -> Dictionary:
 
 	# Release any citizens assigned to this building
 	for cit in citizen_list:
-		if cit.get("active_job") != null and cit.active_job.target_building_id == b_id:
+		if cit.get("active_job") != null and JobManager.job_matches_building(cit.active_job, b_id):
 			cit.active_job = null
 			cit.set("current_state", CitizenController.State.IDLE)
 			if cit.has_method("_update_reason"):
@@ -989,7 +1004,7 @@ func _on_simulation_hour_passed(hour: int, day: int) -> void:
 		# Maintain active watchtowers vision
 		if world_data != null and world_data.get("buildings") != null:
 			for b in world_data.buildings:
-				if b.get("type") == "watchtower" and b.get("state", "active") != "destroyed":
+				if b.get("type") == "watchtower" and b.get("state", "active") == "active":
 					var b_cell: Vector2i = b.get("cell", Vector2i.ZERO)
 					var bp: Dictionary = EconomyConfig.BLUEPRINTS.get("watchtower", {})
 					var v_rad: int = bp.get("vision_radius", 15)
