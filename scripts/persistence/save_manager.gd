@@ -209,6 +209,11 @@ static func serialize_world_state(world_view: Node) -> Dictionary:
 			}
 		data["workplaces"] = wp_dict
 
+	# 12. Battle Campaign
+	var campaign_mgr = world_view.get("battle_campaign_mgr")
+	if campaign_mgr != null and campaign_mgr.has_method("serialize"):
+		data["battle_campaign"] = campaign_mgr.call("serialize")
+
 	return data
 
 static func save_to_file(world_view: Node, filepath: String = DEFAULT_SAVE_PATH) -> Dictionary:
@@ -600,6 +605,12 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 		var housing_cap: int = BuildingSystem.get_total_housing_capacity(world_data)
 		hud.call("update_population_display", world_view.get("citizen_list").size(), housing_cap)
 		hud.call("_refresh_all_resources")
+
+	# 12. Restore Battle Campaign
+	var campaign_mgr = world_view.get("battle_campaign_mgr")
+	var campaign_data = loaded_data.get("battle_campaign", {})
+	if campaign_mgr != null and not campaign_data.is_empty():
+		campaign_mgr.call("deserialize", campaign_data)
 
 	print("[SaveManager] Loaded world state restored successfully (%d citizens, %d buildings)" % [world_view.get("citizen_list").size(), world_data.buildings.size()])
 	return {"success": true}

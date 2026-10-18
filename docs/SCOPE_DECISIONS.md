@@ -109,6 +109,15 @@
   - Visible rooftops and SW/SE wall facades on all multi-tile buildings.
   - Player-facing UI in Vietnamese; internal IDs, logs, code, and comments in English.
 
+### 1.11 Live War & Settlement Defense Battle Loop (Package 1K)
+- **Problem:** Declaring war had no production consequence in the game loop; `BattleResolver` was abstract without live triggers.
+- **Resolution:**
+  - **Raid Scheduling:** War declaration triggers first raid after 3 game-days; recurring raids execute every 5 game-days while war persists and enemy military power > 0.
+  - **Abstract Troops:** Mapped deterministically from faction military power: `abstract_troops = clampi(roundi(military_power / 30.0), 1, 20)`.
+  - **Guard Gating:** Defending garrison requires living citizens with `role == "guard"` AND an active Barracks. Citizens resting or seeking food count as garrison.
+  - **Zero-Troop Handling:** 0 vs 0 produces stalemate with 0 casualties; unopposed raids against undefended settlements produce 0 defender casualties and 20% resource plunder. Casualties never exceed initial force count.
+  - **Idempotent Mutations:** Raids tracked by stable ID (`faction_day_seq`); repeat processing rejected; plunder respects available (unreserved) stock.
+
 ---
 
 ## 2. Deferred & Excluded Scope for MVP

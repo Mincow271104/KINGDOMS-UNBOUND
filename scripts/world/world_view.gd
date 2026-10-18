@@ -5,6 +5,7 @@ extends Node2D
 ## Supports interactive building placement, citizen inspection, and job execution.
 
 const CitizenControllerScript = preload("res://scripts/entities/citizen_controller.gd")
+const BattleCampaignManagerScript = preload("res://scripts/combat/battle_campaign_manager.gd")
 
 @export var world_seed: int = 12345
 
@@ -31,6 +32,7 @@ var faction_mgr: FactionManager
 var active_caravan: RefCounted = null
 var immigration_mgr: ImmigrationManager
 var victory_mgr: VictoryManager
+var battle_campaign_mgr: RefCounted = null
 var autosave_enabled: bool = true
 var autosave_interval_days: int = 1
 
@@ -155,12 +157,14 @@ func _generate_and_build_world() -> void:
 	faction_mgr = FactionManager.new()
 	immigration_mgr = ImmigrationManager.new(world_seed + 777)
 	victory_mgr = VictoryManager.new()
-	
+	battle_campaign_mgr = BattleCampaignManagerScript.new(self, faction_mgr, world_seed)
+
 	job_mgr.set_barracks_checker(func(b_id: String = ""): return BuildingSystem.is_barracks_active(world_data, b_id))
 	job_mgr.set_construction_checker(func(b_id: String = ""): return BuildingSystem.is_building_under_construction(world_data, b_id))
 	if hud:
 		hud.set_research_manager(research_mgr)
 		hud.set_faction_manager(faction_mgr, self)
+		hud.set_battle_campaign_manager(battle_campaign_mgr)
 		hud.set_barracks_checker(func(b_id: String = ""): return BuildingSystem.is_barracks_active(world_data, b_id))
 		victory_mgr.victory_achieved.connect(func(report: Dictionary): hud.show_victory_panel(report))
 		victory_mgr.collapse_triggered.connect(func(report: Dictionary): hud.show_collapse_panel(report))
@@ -1224,6 +1228,10 @@ func _on_simulation_day_passed(day: int, _season: String, _year: int) -> void:
 	# Update daily faction simulation
 	if faction_mgr != null:
 		faction_mgr.update_daily_simulation(day)
+
+	# Process settlement defense battle campaign raids
+	if battle_campaign_mgr != null:
+		battle_campaign_mgr.process_daily_raids(day)
 		
 	# Scheduled visiting trade caravan arrivals (Every 5 days, starting Day 3)
 	if (day % 5 == 3) and (active_caravan == null or not active_caravan.get("is_active")):

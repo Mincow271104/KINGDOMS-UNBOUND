@@ -250,4 +250,24 @@ When Godot Editor is running with the MCP plugin:
     - **TC-BF.10 (Formula Verification):** Report details reflect the exact multi-factor formula `float(troops) * equip_bonus * morale_factor * fort_bonus * terrain`.
     - **TC-BF.11 (Fail-Closed Handling):** Invalid or null `defender_world_data` fails closed (`has_settlement_context == false`, level 0, bonus 1.0).
     - **TC-BF.12 (Backward Compatibility):** Existing direct calls to `BattleResolver.resolve_battle()` remain fully operational and compatible.
-  - *Status:* **PASSED** (2026-10-19, Exit Code 0: 12/12 tests passed).
+
+
+### Package 1K: Live War & Settlement Defense Battle Loop
+- **TC-LB.1 to TC-LB.14: Live Battle Loop Verification Suite**
+  - *Script:* `res://scripts/test/test_live_battle_loop.gd`
+  - *Acceptance Criteria:*
+    - **TC-LB.1 (War Declaration Schedules Raid with 3-Day Delay):** Declaring war schedules raid at current day + 3; raises `raid_scheduled` signal; pending raid visible in queries and HUD.
+    - **TC-LB.2 (Peace Declaration Cancels Pending Raid):** Signing peace immediately removes pending raid; raises `raid_cancelled` signal; zero battles triggered while at peace.
+    - **TC-LB.3 (Attacking Force Derivation from Faction Military Power):** Enemy force converts `military_power` into troops (`clampi(roundi(military_power / 30.0), 1, 20)`), equipment tier, and morale based on stability.
+    - **TC-LB.4 (Defending Force Guard Selection & Barracks Gate):** Living citizens with role `"guard"` assemble as defenders; if Barracks is absent or not active (`is_barracks_active(world_data) == false`), defending force strictly has 0 troops regardless of guard count.
+    - **TC-LB.5 (Authoritative Fortification Integration):** `resolve_settlement_battle` automatically applies settlement palisade fortification level to defender combat score.
+    - **TC-LB.6 (Zero-Defender / Unopposed Raid Resolution):** With 0 guards or inactive Barracks, attacker wins unopposed with 0 casualties on both sides; 20% resource plunder applied cleanly without divide-by-zero or crash.
+    - **TC-LB.7 (Zero-Attacker Edge Case Safety):** Edge case with 0 attacking troops resolves cleanly without crash or fictitious casualties.
+    - **TC-LB.8 (Zero vs Zero Stalemate Safety):** 0 vs 0 troops resolves cleanly as stalemate with 0 casualties.
+    - **TC-LB.9 (Casualty Bounds Clamping):** Casualties never exceed force size (`clampi(..., 1, troops)`); no underflow or overflow.
+    - **TC-LB.10 (Authoritative Guard Casualty Lifecycle & Job Release):** Defending casualties selected deterministically, killed via `citizen_died` signal with active job release, and removed from citizen registry.
+    - **TC-LB.11 (Enemy Military Power Reduction & Floor):** Hostile faction military power reduced by $30.0 \times \text{casualties}$, clamped to floor 0.0 without going negative.
+    - **TC-LB.12 (Resource Plunder Accounting & Reserved Stock Protection):** On attacker victory, up to 20% of food, wood, stone, and iron plundered; reserved stock is strictly protected and never touched; storage and resources stay valid.
+    - **TC-LB.13 (Recurring Raid Scheduling & War Exhaustion):** While at war with `military_power > 0`, completing a raid schedules the next raid for `day + 5`; when `military_power <= 0`, no further raid is scheduled.
+    - **TC-LB.14 (Save/Load Persistence, Replay Protection & Idempotency):** Battle campaign state (`pending_raids`, `processed_raids`, `raid_sequence`) serializes and restores cleanly across save/load; duplicate or replayed raids rejected; legacy saves without `"battle_campaign"` load safely with defaults.
+  - *Status:* **PASSED** (2026-10-19, Exit Code 0: 14/14 tests passed).

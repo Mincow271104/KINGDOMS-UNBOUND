@@ -8,6 +8,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### [Package 1K] - 2026-10-19
+#### Added
+- Live Settlement Defense Battle Loop (`BattleCampaignManager`):
+  - Authoritative settlement raid scheduler: automatically schedules an incoming raid 3 game-days after war is declared, followed by recurring raids every 5 game-days while the hostile faction maintains positive military strength.
+  - Diplomatic treaty integration: signing peace immediately cancels any pending raids and releases hostile intent cleanly.
+  - Authoritative attacking force modeling: maps `FactionData.military_power` to abstract troops (clamped 1..20), equipment tier (tier 2 for rival military, tier 1 otherwise), and morale derived from stability.
+  - Defending force construction: builds the settlement defense force from living citizens assigned to the Guard role, gated strictly by an active Barracks and including available resource stock.
+  - Zero-troop & casualty edge-case safety in `BattleResolver.resolve_battle()`: handles 0 vs 0 (stalemate with 0 casualties), unopposed raids against undefended settlements (attacker victory with 0 casualties on both sides and resource plunder), and strictly clamps casualties to not exceed initial force size.
+  - Exactly-once world outcome mutation: removes lost guards through `citizen_died` signal with job cleanup, reduces attacking military power by 30.0 per casualty without going negative, and deducts resource plunder respecting available stock without touching reserved inventory.
+  - Strict idempotency: stable raid identifiers prevent repeat processing or duplicate casualties/plunder on re-runs or save/load.
+  - Save/load persistence: serializes and restores campaign raid state via `SaveManager` (`"battle_campaign"` section) with full legacy save compatibility.
+  - Player-facing feedback: HUD banners and Diplomacy panel cards display upcoming raid days, detailed battle outcome summaries, and peace cancellations.
+  - Automated test suite `scripts/test/test_live_battle_loop.gd` covering TC-LB.1 through TC-LB.14 (PASS, Exit Code 0).
+
 ### [Package 1J] - 2026-10-19
 #### Added
 - Authoritative Settlement Battle API (`BattleResolver.resolve_settlement_battle`):

@@ -2938,9 +2938,127 @@ Implement Package 1J: connect the existing abstract `BattleResolver` to authorit
 - `docs/WORKLOG.md` (Recorded Milestone 43)
 
 ### Next Exact Step
+- Milestone 43 committed and pushed on `feature/package-1j-battle-fortification` at `2dc14ab955d0b7a522dbe2f1cb63b6f56a72686a`.
+
+---
+
+## [2026-10-19] Milestone 44: Package 1K — Live War & Settlement Defense Battle Loop ✅ VERIFIED
+
+### Context & Objective
+Implement Package 1K: the first production gameplay path for the settlement defense and battle loop:
+- Connect diplomatic war states to authoritative settlement raids using `BattleResolver.resolve_settlement_battle()`.
+- Deterministic raid scheduling:
+  - Declaring war schedules an incoming raid with a 3-day initial delay (`day + 3`).
+  - Signing peace immediately cancels pending raids and stops attacks.
+  - Recurring raids: after each battle resolution, if war continues and hostile faction has `military_power > 0`, the next raid is scheduled for `day + 5`.
+  - War exhaustion: if hostile faction reaches 0 military power, no further raids are scheduled.
+- Authoritative force derivation:
+  - Hostile attacking force: derived from faction's `military_power` (`clampi(roundi(military_power / 30.0), 1, 20)`), equipment tier, and stability morale.
+  - Defending force: living citizens with role `"guard"`, strictly gated by an active Barracks (`BuildingSystem.is_barracks_active(world_data)`). If Barracks is absent or not active, defending force has 0 troops.
+  - Authoritative fortification: settlement palisade level automatically derived from `WorldData` by `BattleResolver.resolve_settlement_battle()`.
+- Safe battle resolution & edge cases:
+  - 0 vs 0 (stalemate, 0 casualties).
+  - Attacker vs 0 guards (attacker victory, 0 casualties on both sides, 20% resource plunder, no divide-by-zero).
+  - 0 attackers (defender victory, 0 casualties).
+  - Casualties strictly clamped to force size (`clampi(..., 1, troops)`).
+- Authoritative mutation & state application:
+  - Guard casualties removed via `citizen_died` signal with active job release and registry cleanup.
+  - Enemy military power reduced by $30.0 \times \text{casualties}$, floored at 0.0.
+  - Resource plunder: up to 20% of food, wood, stone, iron deducted from available stock, never touching reserved stock.
+- Idempotency & persistence:
+  - Unique raid sequence keys and processed raid tracking prevent double-processing or replay attacks.
+  - Full save/load serialization under `"battle_campaign"` section with backward compatibility for legacy saves.
+- HUD integration:
+  - Signal listeners for `raid_scheduled`, `raid_cancelled`, `battle_resolved`.
+  - Pending raid warnings displayed on Diplomacy panel faction cards.
+- Scope discipline:
+  - No real-time tactical combat, no army sprites/marching, no manual troop movement, no fake combat UI.
+
+### Implementation Summary
+1. **Battle Resolver Hardening (`scripts/combat/battle_resolver.gd`):**
+   - Added explicit zero-troop handlers for 0 vs 0, unopposed attack against 0 defenders, and 0 attackers.
+   - Clamped casualties using `clampi(..., 1, troops)`.
+2. **Battle Campaign Manager (`scripts/combat/battle_campaign_manager.gd`):**
+   - Implemented `schedule_raid()`, `cancel_raid_for_faction()`, `process_daily_raids()`, `resolve_and_apply_raid()`, `build_attacking_force()`, `build_defending_force()`, and `get_pending_raid_for_faction()`.
+   - Wired guard casualty lifecycle to `citizen_died` signal, clearing active jobs and freeing worker assignments.
+   - Reduced enemy military power and plundered available resources safely.
+   - Implemented `serialize()` and `deserialize()` with idempotency tracking.
+3. **WorldView Integration (`scripts/world/world_view.gd`):**
+   - Preloaded `BattleCampaignManagerScript` and instantiated `battle_campaign_mgr`.
+   - Wired `process_daily_raids(day)` in `_on_simulation_day_passed()`.
+   - Connected HUD and time/faction events.
+4. **HUD Integration (`scripts/ui/hud.gd`):**
+   - Added `set_battle_campaign_manager()`.
+   - Connected signals to show banner events and display pending raid day on diplomacy faction cards.
+5. **Persistence (`scripts/persistence/save_manager.gd`):**
+   - Serialized `"battle_campaign"` section and restored it in `apply_loaded_state_to_world()` with fallback defaults.
+6. **Automated Test Suite (`scripts/test/test_live_battle_loop.gd`):**
+   - Implemented 14 test cases (TC-LB.1 through TC-LB.14) covering all specified behaviors, edge cases, and safety bounds.
+
+### Validations Performed & Results
+- **Dedicated Live Battle Loop Suite (`scripts/test/test_live_battle_loop.gd`):**
+  - Command: `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless -s scripts/test/test_live_battle_loop.gd`
+  - Result: **PASS (Exit Code 0, 14/14 tests passed)**
+- **Targeted Integration Suites:**
+  - `test_battle_fortification.gd`: **PASS (Exit Code 0, 12/12 passed)**
+  - `test_factions_and_battles.gd`: **PASS (Exit Code 0, 2/2 passed)**
+  - `test_palisade.gd`: **PASS (Exit Code 0, 7/7 passed)**
+- **Full Test Matrix (All 24 Test Suites in `scripts/test/test_*.gd`):**
+  - Result: **PASS (24/24 suites passed, Exit Code 0)**
+    - `test_audio.gd`: PASS
+    - `test_barracks.gd`: PASS
+    - `test_battle_fortification.gd`: PASS
+    - `test_citizens.gd`: PASS
+    - `test_construction.gd`: PASS
+    - `test_coordinates.gd`: PASS
+    - `test_dynamic_workplaces.gd`: PASS
+    - `test_economy.gd`: PASS
+    - `test_factions_and_battles.gd`: PASS
+    - `test_gold_transactions.gd`: PASS
+    - `test_live_battle_loop.gd`: PASS
+    - `test_logistics.gd`: PASS
+    - `test_mine.gd`: PASS
+    - `test_palisade.gd`: PASS
+    - `test_quarry.gd`: PASS
+    - `test_research_and_exploration.gd`: PASS
+    - `test_research_hall.gd`: PASS
+    - `test_save_load.gd`: PASS
+    - `test_stress_100_citizens.gd`: PASS
+    - `test_time_manager.gd`: PASS
+    - `test_victory_and_collapse.gd`: PASS
+    - `test_watchtower.gd`: PASS
+    - `test_workshop.gd`: PASS
+    - `test_world_gen.gd`: PASS
+- **Headless Scene Smoke Checks:**
+  - `scenes/ui/main_menu.tscn`: **PASS (Exit Code 0)**
+  - `scenes/world/world_view.tscn`: **PASS (Exit Code 0)**
+  - `scenes/ui/hud.tscn`: **PASS (Exit Code 0)**
+  - `scenes/test/visual_validation_test.tscn`: **PASS (Exit Code 0)**
+- **Whitespace & Formatting Check:**
+  - `git diff --check`: Clean (Exit Code 0, zero whitespace errors).
+- **Graphical Inspection Status:**
+  - Headless console testing accurately verified all deterministic combat simulations, state mutations, and HUD card updates.
+  - Real-time tactical army animation / manual combat movement was intentionally omitted per scope decision; visual validation test scene loaded with exit code 0.
+
+### Files Created / Modified
+- `scripts/combat/battle_resolver.gd` (Zero-troop safety and casualty clamping)
+- `scripts/combat/battle_campaign_manager.gd` (New battle campaign manager)
+- `scripts/world/world_view.gd` (Integrated battle campaign manager into simulation loop)
+- `scripts/ui/hud.gd` (Connected battle campaign signals and diplomacy raid display)
+- `scripts/persistence/save_manager.gd` (Serialized/restored battle campaign state)
+- `scripts/test/test_live_battle_loop.gd` (New test suite for TC-LB.1 through TC-LB.14)
+- `docs/BACKLOG.md` (Added Package 1K tasks, marked FUTURE-BATTLE-1 resolved)
+- `docs/CHANGELOG.md` (Added `[Package 1K] - 2026-10-19`)
+- `docs/GAME_RULES.md` (Added Section 8.2 Live Settlement Defense Raid Loop)
+- `docs/SCOPE_DECISIONS.md` (Added Section 1.11 Package 1K scope decisions)
+- `docs/KNOWN_ISSUES.md` (Marked ISSUE-004 resolved, added ISSUE-005)
+- `docs/TEST_PLAN.md` (Added TC-LB.1 through TC-LB.14)
+- `docs/WORKLOG.md` (Recorded Milestone 44)
+
+### Next Exact Step
 - Stage modified files explicitly:
-  `git add scripts/combat/battle_resolver.gd scripts/test/test_battle_fortification.gd docs/BACKLOG.md docs/CHANGELOG.md docs/GAME_RULES.md docs/TEST_PLAN.md docs/KNOWN_ISSUES.md docs/WORKLOG.md`
-- Commit with exact mandated message: `Integrate settlement fortification into battle resolution`.
-- Push to `origin/feature/package-1j-battle-fortification`.
+  `git add scripts/combat/battle_resolver.gd scripts/combat/battle_campaign_manager.gd scripts/world/world_view.gd scripts/ui/hud.gd scripts/persistence/save_manager.gd scripts/test/test_live_battle_loop.gd docs/BACKLOG.md docs/CHANGELOG.md docs/GAME_RULES.md docs/SCOPE_DECISIONS.md docs/KNOWN_ISSUES.md docs/TEST_PLAN.md docs/WORKLOG.md`
+- Commit with exact mandated message: `Add live settlement defense battle loop`
+- Push to `origin/feature/package-1k-live-battle-loop`.
 - Verify local HEAD equals remote HEAD.
-- Stop for independent review. Do not merge to master, do not start Package 1K.
+- Stop for independent review. Do not merge to master, do not start Package 1L.

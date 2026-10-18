@@ -220,3 +220,28 @@ Settlement battles are resolved via `BattleResolver.resolve_settlement_battle(at
 - **Input Immutability:** Both `attacker_force` and `defender_force` dictionaries are deep-cloned before calculation, guaranteeing that caller resources and unit records remain unmutated regardless of battle spoils or outcome.
 - **Deterministic Multiplier:** The defender's combat score receives a multiplier of $(1.0 + 0.30 \times \text{level})$ (Level 0: $1.0\times$, Level 1: $1.3\times$, Level 2: $1.6\times$, Level 3: $1.9\times$).
 - **Report Enrichment:** `BattleReport.details` includes `fortification_level`, `fortification_bonus`, and `has_settlement_context`.
+
+### 8.2 Live Settlement Defense Raid Loop
+The live settlement defense loop operates deterministically via `BattleCampaignManager`:
+- **Trigger & Scheduling:**
+  - Declaring war via `FactionManager.declare_war()` schedules the first incoming raid exactly **3 game-days** later.
+  - Subsequent raids recur every **5 game-days** while the faction remains hostile (`is_at_war == true`) and possesses positive military power (`military_power > 0.0`).
+  - At most one raid per eligible faction can execute per game-day.
+  - Signing peace (`propose_treaty(..., "peace")`) immediately cancels pending raids.
+- **Attacking Force Conversion:**
+  - `abstract_troops = clampi(roundi(military_power / 30.0), 1, 20)`
+  - Equipment tier: Tier 2 for `rival_military`, Tier 1 for others.
+  - Morale: `clampf(stability, 20.0, 100.0)`.
+  - Terrain multiplier: Baseline $1.0\times$.
+- **Defending Force Construction:**
+  - Living citizens with `role == "guard"`.
+  - Gated strictly by an active Barracks structure (`BuildingSystem.is_barracks_active(world_data)`). If no active Barracks exists, defending troops are $0$.
+  - Citizens with temporary needs (resting, eating) remain eligible garrison members as long as they are living.
+- **Zero-Troop & Casualty Bounds:**
+  - Unopposed raids against undefended settlements ($0$ guards) result in an attacker victory with $0$ attacker casualties, $0$ defender casualties, and $20\%$ plunder of available resources.
+  - Casualties can never exceed the initial troop count.
+- **Outcome Application (Exactly-Once):**
+  - **Guard Losses:** Selected deterministically (sorted by citizen ID), jobs released, health set to 0.0, and removed via `citizen_died` signal.
+  - **Faction Strength:** Attacking casualties reduce `military_power` by $30.0 \times \text{casualties}$, clamped at 0.0.
+  - **Plunder:** Attacker plunder deducts only available (unreserved) resources from `ResourceManager`.
+  - **Idempotency:** Unique raid identifiers prevent repeat execution or duplicate mutations on save/load.

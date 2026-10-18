@@ -167,4 +167,15 @@
 - [x] **TASK-1J.2:** Dynamic settlement fortification calculation via `BuildingSystem.calculate_fortification_level(defender_world_data)`, overriding/enforcing authoritative fortification levels (0..3) on defender forces and failing closed (level 0, bonus 1.0) on null or invalid settlement data.
 - [x] **TASK-1J.3:** Deep-clone caller input protection (`attacker_force.duplicate(true)`, `defender_force.duplicate(true)`) guaranteeing zero side effects or mutation on caller dictionaries, and enriching `BattleReport.details` with `"fortification_level"`, `"fortification_bonus"`, and `"has_settlement_context"` while maintaining backward compatibility with direct `resolve_battle()`.
 - [x] **TASK-1J.4:** Automated test suite `scripts/test/test_battle_fortification.gd` covering all 12 test conditions (TC-BF.1 through TC-BF.12) with 100% pass rate.
-- [ ] **FUTURE-BATTLE-1:** Implement live production battle trigger and troop deployment flow (deferred to future combat milestone per project scope).
+- [x] **FUTURE-BATTLE-1:** Implement live production battle trigger and troop deployment flow (Completed via Package 1K Settlement Defense Raid Loop).
+
+---
+
+## Package 1K: Live War & Settlement Defense Battle Loop (Completed)
+- [x] **TASK-1K.1:** Dedicated `BattleCampaignManager` (`scripts/combat/battle_campaign_manager.gd`) managing raid scheduling (3-day initial delay, 5-day recurring delay), eligibility checks, deterministic seed generation, and repeat execution immunity.
+- [x] **TASK-1K.2:** Authoritative force modeling: attacking troops derived from `FactionData.military_power` (1..20 troops), type equipment tier, and stability morale; defending troops derived from living Guards gated by active Barracks and available resource stock.
+- [x] **TASK-1K.3:** Zero-troop edge case handling and casualty bounding in `BattleResolver.resolve_battle()` (unopposed raids, 0 vs 0, and casualties strictly clamped $\le$ troops).
+- [x] **TASK-1K.4:** Exactly-once result application: deterministic guard casualties with clean job/lifecycle removal, attacker military power reduction without negative values, and resource plunder respecting available stock.
+- [x] **TASK-1K.5:** Player feedback integration in HUD and Diplomacy panel: expected raid warnings, battle result banners with casualty and fortification breakdowns, peace cancellation notices, and unopposed raid reporting.
+- [x] **TASK-1K.6:** Save/load persistence in `SaveManager` (`"battle_campaign"` section) supporting roundtrip preservation, replay immunity, and legacy save compatibility.
+- [x] **TASK-1K.7:** Automated test suite `scripts/test/test_live_battle_loop.gd` covering TC-LB.1 through TC-LB.14 (PASS, Exit Code 0).

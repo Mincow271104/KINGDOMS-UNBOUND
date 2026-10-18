@@ -2,15 +2,20 @@
 
 ## Active Issues
 
-### ISSUE-004: Live Production Settlement Battle Trigger Deferred to Future Combat Packages
-- **Severity:** Low / Architecture Scope Boundary (By Design for Package 1J)
-- **Symptom:** `BattleResolver.resolve_settlement_battle` provides full authoritative integration between `WorldGenerator.WorldData` palisade fortifications and deterministic battle resolution, but is not yet triggered by an active gameplay loop event (such as an enemy raid timer or manual attack command).
-- **Root Cause:** In the current game architecture, diplomatic war declarations via `FactionManager.declare_war` emit a `war_declared` signal that displays a HUD event banner, but does not deploy an army or trigger combat resolution.
-- **Resolution / Scope:** As specified in Package 1J requirements, no fake troop conversion or mock army UI was invented prematurely. The authoritative settlement battle resolution API is fully implemented and tested with 100% test coverage. Production army mobilization and real-time/timed raid triggers are tracked under `FUTURE-BATTLE-1` in `docs/BACKLOG.md` for future tactical combat milestones.
+### ISSUE-005: Real-Time Tactical Combat and Army Pathfinding Deferred to Future Milestones
+- **Severity:** Low / Architectural Scope Boundary (By Design for Package 1K)
+- **Symptom:** Combat resolution occurs as an authoritative abstract turn/tick calculation rather than real-time physical unit movement across the isometric grid.
+- **Root Cause:** By design per GDD Section 10.4 and MASTER_PROMPT constraints, combat is modeled through deterministic multi-factor formulas (`BattleResolver.resolve_settlement_battle`) rather than RTS tactical combat.
+- **Resolution / Scope:** Package 1K closed the live gameplay loop by implementing `BattleCampaignManager`, providing scheduled raids, living guard defense, deterministic casualties, and resource plunder. Physical army marching sprites, tactical field maneuvering, and manual siege controls remain deferred to post-MVP tactical combat milestones.
 
 ---
 
 ## Resolved Issues
+
+### ISSUE-004: Live Production Settlement Battle Trigger (Resolved in Package 1K)
+- **Severity:** Low / Architecture Scope Boundary
+- **Symptom:** `BattleResolver.resolve_settlement_battle` was previously not hooked into the live game loop upon war declaration.
+- **Resolution:** Implemented `BattleCampaignManager` (`scripts/combat/battle_campaign_manager.gd`), wiring `FactionManager.war_declared` to schedule incoming settlement raids (3-day initial delay, 5-day recurring interval), querying living guards gated by active Barracks, applying casualties deterministically, plundering resources, and persisting state across saves. Verified with 14 automated tests in `scripts/test/test_live_battle_loop.gd`.
 
 ### ISSUE-001: Godot Editor Did Not Auto-Connect MCP Bridge on Direct Executable Launch
 - **Severity:** Medium

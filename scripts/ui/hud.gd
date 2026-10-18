@@ -361,6 +361,62 @@ func set_faction_manager(mgr: Object, world_ref: Node = null) -> void:
 		faction_mgr.treaty_signed.connect(func(_id, treaty): show_event_banner("Ký Kết Hiệp Ước!", "Đã ký thành công hiệp ước %s" % treaty, true))
 		faction_mgr.war_declared.connect(func(_id): show_event_banner("Chiến Tranh!", "Đã nổ ra chiến tranh với thế lực!", false))
 
+var battle_campaign_mgr: Object = null
+
+func set_battle_campaign_manager(mgr: Object) -> void:
+	battle_campaign_mgr = mgr
+	if battle_campaign_mgr != null:
+		if not battle_campaign_mgr.raid_scheduled.is_connected(_on_battle_raid_scheduled):
+			battle_campaign_mgr.raid_scheduled.connect(_on_battle_raid_scheduled)
+		if not battle_campaign_mgr.raid_cancelled.is_connected(_on_battle_raid_cancelled):
+			battle_campaign_mgr.raid_cancelled.connect(_on_battle_raid_cancelled)
+		if not battle_campaign_mgr.battle_resolved.is_connected(_on_battle_resolved):
+			battle_campaign_mgr.battle_resolved.connect(_on_battle_resolved)
+
+func _on_battle_raid_scheduled(faction_id: String, scheduled_day: int, _is_first: bool) -> void:
+	var fac_name: String = faction_id
+	if faction_mgr != null:
+		var f = faction_mgr.call("get_faction", faction_id)
+		if f != null:
+			fac_name = f.get("name")
+	var msg: String = "⚠️ ĐỊCH CHUẨN BỊ TẤN CÔNG! %s sẽ mở cuộc đột kích vào Ngày %d!" % [fac_name, scheduled_day]
+	show_event_banner("Cảnh Báo Đột Kích!", msg, false, 6.0)
+	_refresh_diplomacy_ui()
+
+func _on_battle_raid_cancelled(faction_id: String, reason: String) -> void:
+	var fac_name: String = faction_id
+	if faction_mgr != null:
+		var f = faction_mgr.call("get_faction", faction_id)
+		if f != null:
+			fac_name = f.get("name")
+	var msg: String = "Kế hoạch đột kích của %s đã bị hủy bỏ: %s." % [fac_name, reason]
+	show_event_banner("Hủy Bỏ Đột Kích", msg, true, 5.0)
+	_refresh_diplomacy_ui()
+
+func _on_battle_resolved(report: BattleResolver.BattleReport, context: Dictionary) -> void:
+	var victor: String = report.victor
+	var is_win: bool = (victor == "defender")
+	var title: String = "THẮNG TRẬN!" if is_win else ("THẤT THỦ!" if victor == "attacker" else "BẤT PHÂN THẮNG BẠI!")
+	var guards_lost: int = context.get("guards_killed", []).size()
+	var enemy_lost: int = context.get("enemy_casualties", 0)
+	var fort_lvl: int = report.details.get("fortification_level", 0)
+	var fort_bonus: float = report.details.get("fortification_bonus", 1.0)
+	var spoils: Dictionary = context.get("plundered_resources", {})
+	var spoils_str: String = ""
+	if not spoils.is_empty():
+		spoils_str = " | Cướp phá: %s" % str(spoils)
+
+	var desc: String = "%s\n[Lính gác mất: %d | Địch thương vong: %d | Công sự: Cấp %d (x%.2f)%s]" % [
+		report.explanation,
+		guards_lost,
+		enemy_lost,
+		fort_lvl,
+		fort_bonus,
+		spoils_str
+	]
+	show_event_banner(title, desc, is_win, 8.0)
+	_refresh_diplomacy_ui()
+
 func _toggle_diplomacy_menu() -> void:
 	diplomacy_panel.visible = not diplomacy_panel.visible
 	if diplomacy_panel.visible:
@@ -481,6 +537,14 @@ func _refresh_diplomacy_ui() -> void:
 			"Có" if fac.get("has_alliance") else "Không"
 		]
 		vbox.add_child(info_lbl)
+
+		if fac.get("is_at_war") and battle_campaign_mgr != null:
+			var pending: Dictionary = battle_campaign_mgr.call("get_pending_raid", cur_fac_id)
+			if not pending.is_empty():
+				var raid_lbl := Label.new()
+				raid_lbl.text = "⚠️ KẾ HOẠCH ĐỘT KÍCH: Dự kiến tấn công vào Ngày %d (Đợt %d)" % [pending.get("scheduled_day"), pending.get("raid_sequence")]
+				raid_lbl.modulate = Color(1.5, 0.4, 0.2)
+				vbox.add_child(raid_lbl)
 		
 		var hbox := HBoxContainer.new()
 		hbox.add_theme_constant_override("separation", 8)
