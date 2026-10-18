@@ -159,7 +159,7 @@ When Godot Editor is running with the MCP plugin:
 | 2026-10-18 | TC-BR.3 | is_barracks_active Detection & State Checks | **PASS** | Active only detection across states (active, paused, damaged, under_construction, planned, destroyed) and building ID filtering in `test_barracks.gd` |
 | 2026-10-18 | TC-BR.4 | Guard Role Gating at UI & Controller Layers | **PASS** | Fail-closed role gating and annotation verified in `test_barracks.gd` |
 | 2026-10-18 | TC-BR.5 | Deterministic Guard Duty Loop & Perimeter Posts | **PASS** | Real TimeManager pause test, need decay (+4.167H/+4.0F), hunger>=70 release, constrained 1-post and overlapping layout isolation in `test_barracks.gd` |
-| 2026-10-18 | TC-BR.6 | Multi-Barracks Segregation & Downtime Behavior | **PASS** | Multi-barracks duty tracking, individual duty release on building downtime, role retention, and reactivation in `test_barracks.gd` |
+| 2026-10-18 | TC-BR.6 | Multi-Barracks Segregation & Downtime Behavior | **PASS** | Fail-closed guard job validation (empty building ID, missing checker, 0-arg global filter rejection), multi-barracks duty tracking, individual duty release on building downtime, role retention in `test_barracks.gd` |
 | 2026-10-18 | TC-BR.7 | WorldView Lifecycle & Save/Load Persistence | **PASS** | Placement, double-load idempotency, inactive barracks load test, legacy save compatibility, and zero resource deduction on load verified in `test_barracks.gd` |
 
 ### Phase 8: Save/Load Persistence
@@ -186,8 +186,8 @@ When Godot Editor is running with the MCP plugin:
   - *Acceptance Criteria:* All 8 procedural sound streams generate and play cleanly without external file dependencies.
   - *Status:* **PASSED** (2026-10-12, Exit Code 0: 5/5 subtests passed).
 
-### Package 1G: Barracks & Guard Integration (Review Fix)
+### Package 1G: Barracks & Guard Integration (Final Hardening)
 - **TC-BR.1 to TC-BR.7: Barracks & Guard Duty Suite**
   - *Script:* `res://scripts/test/test_barracks.gd`
-  - *Acceptance Criteria:* Authoritative blueprint, rejection coverage with 0 resource deductions, comprehensive active-state & building-ID filtering, fail-closed role gating, genuine TimeManager pause verification, working need decay (+4.167H/+4.0F), constrained layout & overlapping perimeter deduplication, multi-barracks duty segregation, double-load idempotency, inactive barracks load test, legacy save compatibility.
+  - *Acceptance Criteria:* Authoritative blueprint, rejection coverage with 0 resource deductions, comprehensive active-state & building-ID filtering, fail-closed role gating, fail-closed guard job executability (rejecting empty building IDs, 0-arg global filters, and inactive buildings), genuine TimeManager pause verification, working need decay (+4.167H/+4.0F), constrained layout & overlapping perimeter deduplication, multi-barracks duty segregation, double-load idempotency, inactive barracks load test, legacy save compatibility.
   - *Status:* **PASSED** (2026-10-18, Exit Code 0: 7/7 tests passed).

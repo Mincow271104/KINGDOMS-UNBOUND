@@ -91,17 +91,33 @@ func set_building_checker(checker: Callable) -> void:
 
 func _is_job_executable(job: JobData, wp_mgr: Object, resource_mgr: Node, custom_filter: Callable = Callable(), nav: GridNavigation = null) -> bool:
 	if job.type == "guard":
-		var b_id := job.target_building_id
+		var b_id: String = job.target_building_id
+		# Requirement 1: Guard job is invalid if target_building_id is empty
+		if b_id == "":
+			return false
+
+		# Requirement 2: Prefer a valid per-call custom_filter when supplied.
+		# It must be able to receive the specific Barracks ID and verify that building's active state.
 		if custom_filter.is_valid():
 			var argc := custom_filter.get_argument_count()
-			var ok: bool = custom_filter.call(b_id) if argc != 0 else custom_filter.call()
-			if not ok:
+			if argc == 0:
+				# Cannot verify a specific building ID
 				return false
+			if not bool(custom_filter.call(b_id)):
+				return false
+		# Requirement 3: Otherwise use barracks_checker, but only if it can check a specific Barracks ID.
 		elif barracks_checker.is_valid():
 			var argc := barracks_checker.get_argument_count()
-			var ok: bool = barracks_checker.call(b_id) if argc != 0 else barracks_checker.call()
-			if not ok:
+			if argc == 0:
+				# Cannot verify a specific building ID
 				return false
+			if not bool(barracks_checker.call(b_id)):
+				return false
+		# Requirement 4: If neither callback is available, return false.
+		else:
+			return false
+
+		# Requirement 6: Keep the existing target walkability check.
 		if nav != null and not nav.is_cell_walkable(job.target_cell):
 			return false
 		return true

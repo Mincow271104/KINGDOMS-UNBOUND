@@ -847,6 +847,84 @@ func _test_tc_br_6_barracks_downtime_inactivation() -> bool:
 		printerr("FAIL: job_active should be executable while its barracks is active")
 		failures += 1
 
+	# Fail-Closed Guard Job Validation (Final Hardening)
+	var jm_raw = JobManagerScript.new()
+	var job_no_bld_id = jm_raw.create_job("guard", Vector2i(19, 20), "No Building ID", "", 4.0, 2, true)
+	var job_with_bld_id = jm_raw.create_job("guard", Vector2i(19, 20), "With Building ID", b_active["id"], 4.0, 2, true)
+	var job_nonexistent_bld = jm_raw.create_job("guard", Vector2i(19, 20), "Nonexistent Barracks", "bld_barracks_does_not_exist", 4.0, 2, true)
+	var id_aware_cb := func(b_id: String) -> bool: return BuildingSystem.is_barracks_active(world_data, b_id)
+	var global_only_cb := func() -> bool: return true
+
+	# 1a. A guard job with no target_building_id is rejected under all circumstances
+	if jm_raw._is_job_executable(job_no_bld_id, null, null, Callable(), nav):
+		printerr("FAIL: Guard job with empty target_building_id should be rejected (no callbacks)")
+		failures += 1
+	if jm_raw._is_job_executable(job_no_bld_id, null, null, id_aware_cb, nav):
+		printerr("FAIL: Guard job with empty target_building_id should be rejected even with ID-aware filter")
+		failures += 1
+	jm_raw.set_barracks_checker(id_aware_cb)
+	if jm_raw._is_job_executable(job_no_bld_id, null, null, Callable(), nav):
+		printerr("FAIL: Guard job with empty target_building_id should be rejected even with ID-aware barracks_checker")
+		failures += 1
+
+	# 1b. A guard job with neither manager checker nor custom filter is rejected
+	jm_raw.set_barracks_checker(Callable())
+	if jm_raw._is_job_executable(job_with_bld_id, null, null, Callable(), nav):
+		printerr("FAIL: Guard job with neither checker nor custom_filter should be rejected")
+		failures += 1
+
+	# 1c. A checker that only reports global eligibility (0 args), without accepting a building ID, cannot validate an individual guard job
+	if jm_raw._is_job_executable(job_with_bld_id, null, null, global_only_cb, nav):
+		printerr("FAIL: 0-argument custom_filter should not be able to validate an individual guard job")
+		failures += 1
+	jm_raw.set_barracks_checker(global_only_cb)
+	if jm_raw._is_job_executable(job_with_bld_id, null, null, Callable(), nav):
+		printerr("FAIL: 0-argument barracks_checker on manager should not be able to validate an individual guard job")
+		failures += 1
+
+	# 1d. A job tied to an inactive or nonexistent Barracks is rejected even while another Barracks is active
+	jm_raw.set_barracks_checker(id_aware_cb)
+	if jm_raw._is_job_executable(job_paused, null, null, Callable(), nav):
+		printerr("FAIL: Guard job for paused barracks should be rejected even when another barracks is active")
+		failures += 1
+	if jm_raw._is_job_executable(job_nonexistent_bld, null, null, Callable(), nav):
+		printerr("FAIL: Guard job for nonexistent barracks should be rejected even when another barracks is active")
+		failures += 1
+
+	# 1e. A job tied to a specific active Barracks remains executable and claimable through the correct ID-aware checker
+	if not jm_raw._is_job_executable(job_with_bld_id, null, null, Callable(), nav):
+		printerr("FAIL: Guard job for active barracks should be executable with ID-aware barracks_checker")
+		failures += 1
+	if not jm_raw._is_job_executable(job_with_bld_id, null, null, id_aware_cb, nav):
+		printerr("FAIL: Guard job for active barracks should be executable with ID-aware custom_filter")
+		failures += 1
+
+	# 1f. Verify request_job() behavior with fail-closed checks
+	var cit_test_req = CitizenControllerScript.new()
+	cit_test_req.init_citizen("cit_req_test", "Request Tester", "idle", Vector2i(21, 20), nav, jm_raw, null)
+	cit_test_req.set_role("guard")
+
+	# With no checker, request_job returns null
+	jm_raw.set_barracks_checker(Callable())
+	var req_no_checker = jm_raw.request_job(cit_test_req.citizen_id, "guard", cit_test_req.current_cell, nav)
+	if req_no_checker != null:
+		printerr("FAIL: request_job should return null when no checker is available")
+		failures += 1
+
+	# With global-only filter (0-argument), request_job returns null
+	var req_global_filter = jm_raw.request_job(cit_test_req.citizen_id, "guard", cit_test_req.current_cell, nav, null, null, global_only_cb)
+	if req_global_filter != null:
+		printerr("FAIL: request_job should return null when filter cannot accept building ID")
+		failures += 1
+
+	# With ID-aware checker, request_job claims the active barracks job
+	jm_raw.set_barracks_checker(id_aware_cb)
+	var req_active = jm_raw.request_job(cit_test_req.citizen_id, "guard", cit_test_req.current_cell, nav)
+	if req_active == null or req_active.id != job_with_bld_id.id:
+		printerr("FAIL: request_job failed to claim active guard job with ID-aware checker")
+		failures += 1
+	cit_test_req.queue_free()
+
 	# When requesting work, citizen must claim job_active, NOT job_paused
 	cit._process_idle()
 	if cit.active_job == null or cit.active_job.id != job_active.id:

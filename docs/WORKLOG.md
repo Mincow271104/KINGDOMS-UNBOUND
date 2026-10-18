@@ -2101,8 +2101,64 @@ Address independent source review findings for Package 1G on branch `feature/pac
 - `docs/TEST_PLAN.md` (Updated test plan and execution logs)
 
 ### Next Exact Step
+- Proceed to Package 1G Final Hardening as requested.
+
+---
+
+## [2026-10-18] Milestone 35: Package 1G Final Hardening — Fail-Closed Guard Job Validation
+
+### Context & Objective
+Implement Package 1G final hardening on branch `feature/package-1g-barracks`:
+- In `JobManager._is_job_executable()`, guarantee that a guard job is executable only if its associated Barracks is verifiably active.
+- Require non-empty `job.target_building_id`.
+- Prefer valid per-call `custom_filter` when supplied and able to verify a specific building ID (`get_argument_count() != 0`).
+- Otherwise use `barracks_checker`, but only if it can verify a specific building ID (`get_argument_count() != 0`).
+- If neither callback is available, or the callback cannot verify a specific ID, fail closed (return `false`).
+- Disallow global "any Barracks active" callbacks from validating individual guard jobs.
+- Preserve target cell walkability check.
+- Preserve existing runtime path and global role eligibility.
+- Add regression tests in `test_barracks.gd` covering all fail-closed rejection and verification paths.
+
+### Completed Work
+1. **JobManager (`scripts/jobs/job_manager.gd`):**
+   - In `_is_job_executable()`, guard jobs with empty `target_building_id` return `false`.
+   - Rejects 0-argument `custom_filter` or `barracks_checker` callbacks (which only know global eligibility).
+   - Only validates through ID-aware callbacks, returning `false` if neither is valid or if the specific building check fails.
+   - Preserves walkability verification on `job.target_cell`.
+2. **Automated Test Suite (`scripts/test/test_barracks.gd`):**
+   - Extended TC-BR.6 with explicit assertions testing:
+     - Guard job with empty `target_building_id` is rejected without callbacks and with ID-aware callbacks.
+     - Guard job with neither manager checker nor custom filter is rejected.
+     - 0-argument callbacks (global-only) cannot validate an individual guard job (via custom_filter or manager checker).
+     - Job tied to an inactive or nonexistent Barracks is rejected even while another Barracks is active.
+     - Job tied to a specific active Barracks remains executable and claimable through ID-aware callbacks.
+     - `request_job()` fails closed with null return when callbacks are missing or 0-argument, and claims the job when ID-aware checker is provided.
+
+### Validations Performed & Results
+- **Dedicated Test Suite (`scripts/test/test_barracks.gd`):** **PASS (Exit Code 0, 7/7 passed)**
+- **Related Test Suites:**
+  - `test_citizens.gd`: **PASS (Exit Code 0)**
+  - `test_research_hall.gd`: **PASS (Exit Code 0, 7/7 passed)**
+  - `test_research_and_exploration.gd`: **PASS (Exit Code 0)**
+  - `test_save_load.gd`: **PASS (Exit Code 0, 3/3 passed)**
+- **Full 20-Suite Core Regression Matrix (Godot 4.7 Headless):**
+  - 20 passed, 0 failed (**100% pass rate**).
+- **Scene Smoke Tests:**
+  - `scenes/ui/main_menu.tscn`: **PASS (Exit Code 0)**
+  - `scenes/world/world_view.tscn`: **PASS (Exit Code 0)**
+  - `scenes/ui/hud.tscn`: **PASS (Exit Code 0)**
+- **Whitespace Check:**
+  - `git diff --check`: Clean (Exit Code 0).
+
+### Files Created / Modified
+- `scripts/jobs/job_manager.gd` (Fail-closed guard job validation requiring specific building ID and ID-aware checker)
+- `scripts/test/test_barracks.gd` (Added fail-closed regression assertions in TC-BR.6)
+- `docs/WORKLOG.md` (Documented Milestone 35)
+- `docs/TEST_PLAN.md` (Updated test plan and execution logs)
+
+### Next Exact Step
 - Stage modified files explicitly (no `git add -A`).
-- Commit with mandated message: `Fix multi-barracks guard duty eligibility and tests`.
+- Commit with mandated message: `Fail closed when validating guard job barracks`.
 - Push to origin on branch `feature/package-1g-barracks`.
 - Verify local HEAD equals remote SHA.
 - Report completion and await independent review. Do not merge into master, do not start Package 1H.
