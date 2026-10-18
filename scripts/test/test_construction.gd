@@ -546,6 +546,173 @@ func _test_tc_con_2_builder_jobs_and_concurrency() -> bool:
 	else:
 		print("  [PASS] Cleaning up bld_house_15_150 preserved all jobs for bld_house_15_15.")
 
+	# -------------------------------------------------------------------------
+	# TC-CON.2 Subcheck E: Preserve unrelated valid assignment during cleanup
+	# -------------------------------------------------------------------------
+	var unrelated_job = jm.create_job(
+		"woodcutter",
+		Vector2i(5, 5),
+		"Unrelated woodcutter job",
+		"",
+		10.0,
+		1,
+		false
+	)
+	var cit_unrelated = CitizenControllerScript.new()
+	cit_unrelated.set("citizen_id", "cit_unrelated_cit")
+	cit_unrelated.set("active_job", unrelated_job)
+	cit_unrelated.set("current_state", CitizenController.State.WORKING)
+	unrelated_job.state = JobManager.JobState.IN_PROGRESS
+	unrelated_job.worker_id = "cit_unrelated_cit"
+	world_instance.citizen_list.append(cit_unrelated)
+
+	var invalid_stale_cell := Vector2i(29, 29) # outside perimeter
+	world_data.terrain[invalid_stale_cell.x][invalid_stale_cell.y] = WorldGeneratorScript.TerrainType.GRASS
+	world_data.occupancy[invalid_stale_cell.x][invalid_stale_cell.y] = false
+	var invalid_worker_job = jm.create_job(
+		"builder",
+		invalid_stale_cell,
+		"Invalid builder job pointing to unrelated citizen",
+		"bld_house_15_15",
+		8.0,
+		2,
+		false
+	)
+	invalid_worker_job.state = JobManager.JobState.IN_PROGRESS
+	invalid_worker_job.worker_id = "cit_unrelated_cit"
+
+	world_instance.call("register_construction_jobs", b_house)
+
+	var all_jobs_e = jm.get_all_jobs()
+	if all_jobs_e.has(invalid_worker_job):
+		printerr("  [FAIL] Invalid builder job was not removed during cleanup!")
+		failures += 1
+	elif cit_unrelated.active_job != unrelated_job:
+		printerr("  [FAIL] Unrelated citizen's active_job was improperly cleared or overwritten!")
+		failures += 1
+	elif cit_unrelated.current_state != CitizenController.State.WORKING:
+		printerr("  [FAIL] Unrelated citizen's state was changed to %s instead of WORKING!" % str(cit_unrelated.current_state))
+		failures += 1
+	elif not all_jobs_e.has(unrelated_job):
+		printerr("  [FAIL] Unrelated job was improperly removed from JobManager!")
+		failures += 1
+	else:
+		print("  [PASS] Subcheck E: Preserved unrelated valid assignment when an invalid job has worker_id pointing to that citizen.")
+
+	world_instance.citizen_list.erase(cit_unrelated)
+	cit_unrelated.free()
+	jm.remove_job(unrelated_job.id)
+
+	# -------------------------------------------------------------------------
+	# TC-CON.2 Subcheck F: Clear an actual stale assignment
+	# -------------------------------------------------------------------------
+	var stale_cell_f := Vector2i(30, 30) # outside perimeter
+	world_data.terrain[stale_cell_f.x][stale_cell_f.y] = WorldGeneratorScript.TerrainType.GRASS
+	world_data.occupancy[stale_cell_f.x][stale_cell_f.y] = false
+	var stale_job_f = jm.create_job(
+		"builder",
+		stale_cell_f,
+		"Actual stale builder job",
+		"bld_house_15_15",
+		8.0,
+		2,
+		false
+	)
+	var cit_stale_f = CitizenControllerScript.new()
+	cit_stale_f.set("citizen_id", "cit_stale_f")
+	cit_stale_f.set("active_job", stale_job_f)
+	cit_stale_f.set("current_state", CitizenController.State.WORKING)
+	cit_stale_f.set("current_path", [Vector2i(30, 29), Vector2i(30, 30)])
+	stale_job_f.state = JobManager.JobState.IN_PROGRESS
+	stale_job_f.worker_id = "cit_stale_f"
+	world_instance.citizen_list.append(cit_stale_f)
+
+	# Also test a stranded citizen whose active_job is null but worker_id was set on an invalid job
+	var stale_cell_f2 := Vector2i(31, 31)
+	world_data.terrain[stale_cell_f2.x][stale_cell_f2.y] = WorldGeneratorScript.TerrainType.GRASS
+	world_data.occupancy[stale_cell_f2.x][stale_cell_f2.y] = false
+	var stale_job_f2 = jm.create_job(
+		"builder",
+		stale_cell_f2,
+		"Stranded builder job",
+		"bld_house_15_15",
+		8.0,
+		2,
+		false
+	)
+	var cit_stranded = CitizenControllerScript.new()
+	cit_stranded.set("citizen_id", "cit_stranded")
+	cit_stranded.set("active_job", null)
+	cit_stranded.set("current_state", CitizenController.State.MOVING_TO_JOB)
+	cit_stranded.set("current_path", [Vector2i(31, 30), Vector2i(31, 31)])
+	stale_job_f2.state = JobManager.JobState.RESERVED
+	stale_job_f2.worker_id = "cit_stranded"
+	world_instance.citizen_list.append(cit_stranded)
+
+	world_instance.call("register_construction_jobs", b_house)
+
+	var all_jobs_f = jm.get_all_jobs()
+	if all_jobs_f.has(stale_job_f):
+		printerr("  [FAIL] Stale job F was not cleaned up!")
+		failures += 1
+	elif cit_stale_f.active_job != null:
+		printerr("  [FAIL] Citizen referencing removed job did not have active_job cleared!")
+		failures += 1
+	elif cit_stale_f.current_state != CitizenController.State.IDLE:
+		printerr("  [FAIL] Citizen referencing removed job was not safely returned to IDLE! State: %s" % str(cit_stale_f.current_state))
+		failures += 1
+	elif not cit_stale_f.current_path.is_empty():
+		printerr("  [FAIL] Citizen referencing removed job did not have current_path cleared!")
+		failures += 1
+	elif cit_stranded.current_state != CitizenController.State.IDLE or not cit_stranded.current_path.is_empty():
+		printerr("  [FAIL] Stranded citizen was not safely released to IDLE!")
+		failures += 1
+	else:
+		print("  [PASS] Subcheck F: Actual stale assignment cleared and citizen safely returned to IDLE.")
+
+	world_instance.citizen_list.erase(cit_stale_f)
+	world_instance.citizen_list.erase(cit_stranded)
+	cit_stale_f.free()
+	cit_stranded.free()
+
+	# -------------------------------------------------------------------------
+	# TC-CON.2 Subcheck G: Exact construction-project ownership with delimited prefix
+	# -------------------------------------------------------------------------
+	var annex_cell := Vector2i(19, 19)
+	world_data.terrain[annex_cell.x][annex_cell.y] = WorldGeneratorScript.TerrainType.GRASS
+	world_data.occupancy[annex_cell.x][annex_cell.y] = false
+	var annex_job = jm.create_job(
+		"builder",
+		annex_cell,
+		"Builder job for annex",
+		"bld_house_15_15_annex",
+		8.0,
+		2,
+		false
+	)
+
+	var jobs_returned_house = world_instance.call("register_construction_jobs", b_house)
+
+	var all_jobs_g = jm.get_all_jobs()
+	if not all_jobs_g.has(annex_job):
+		printerr("  [FAIL] Annex job with delimited prefix was improperly removed by bld_house_15_15 registration!")
+		failures += 1
+	elif annex_job.target_building_id != "bld_house_15_15_annex":
+		printerr("  [FAIL] Annex job target_building_id was corrupted!")
+		failures += 1
+	else:
+		var adopted_annex := false
+		for hj in jobs_returned_house:
+			if hj.id == annex_job.id or hj.target_building_id == "bld_house_15_15_annex":
+				adopted_annex = true
+		if adopted_annex:
+			printerr("  [FAIL] House project adopted annex builder job!")
+			failures += 1
+		else:
+			print("  [PASS] Subcheck G: Exact construction-project ownership preserved; delimited prefix job 'bld_house_15_15_annex' remains unchanged.")
+
+	jm.remove_job(annex_job.id)
+
 	world_instance.set("job_mgr", old_jm)
 	world_instance.set("nav", old_nav)
 

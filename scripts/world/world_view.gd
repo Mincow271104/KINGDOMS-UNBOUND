@@ -558,12 +558,27 @@ func _safe_cleanup_construction_job(j: JobManager.JobData) -> void:
 				all_citizens.append(child)
 
 	for cit in all_citizens:
-		if cit != null and cit.get("active_job") != null:
-			if cit.active_job == j or cit.active_job.id == j.id or (j.worker_id != "" and cit.get("citizen_id") == j.worker_id):
+		if cit == null:
+			continue
+		var cit_job = cit.get("active_job")
+		if cit_job != null:
+			# Only clear active_job and interrupt when it actually matches the job being removed
+			if cit_job == j or cit_job.id == j.id:
 				cit.active_job = null
 				cit.set("current_state", CitizenController.State.IDLE)
+				cit.set("current_path", [])
 				if cit.has_method("_update_reason"):
 					cit.call("_update_reason")
+			# If the citizen has a different valid active_job, preserve that job and assignment untouched
+		else:
+			# If j.worker_id matches a citizen whose active_job is null and that citizen is visibly stranded in a job-related state, release safely
+			if j.worker_id != "" and cit.get("citizen_id") == j.worker_id:
+				var cstate = cit.get("current_state")
+				if cstate == CitizenController.State.MOVING_TO_JOB or cstate == CitizenController.State.WORKING or cstate == CitizenController.State.HAULING or cstate == CitizenController.State.GUARDING:
+					cit.set("current_state", CitizenController.State.IDLE)
+					cit.set("current_path", [])
+					if cit.has_method("_update_reason"):
+						cit.call("_update_reason")
 
 	# 2. Cancel the job through JobManager if it was reserved or in progress
 	if j.state == JobManager.JobState.RESERVED or j.state == JobManager.JobState.IN_PROGRESS:
@@ -597,11 +612,13 @@ func register_construction_jobs(b_data: Dictionary) -> Array[JobManager.JobData]
 	if nav != null and world_data != null and nav.world_data != world_data:
 		nav.world_data = world_data
 
-	# 1. Collect all builder jobs specifically matching this exact building
+	# 1. Collect all builder jobs specifically matching this exact building project
 	var all_matching_jobs := job_mgr.get_jobs_for_building(b_id)
 	var existing_builder_jobs: Array[JobManager.JobData] = []
 	for j in all_matching_jobs:
-		if j.type == "builder":
+		# Require exact project ownership: do not adopt builder jobs belonging to other projects
+		# even if they share a separator-aware prefix (e.g. bld_house_15_15_annex vs bld_house_15_15)
+		if j.type == "builder" and j.target_building_id == b_id:
 			existing_builder_jobs.append(j)
 
 	var valid_candidates: Array[JobManager.JobData] = []

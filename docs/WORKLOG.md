@@ -2572,7 +2572,101 @@ Execute the focused Package 1H Final Fix #2 on branch `feature/package-1h-constr
 - `docs/WORKLOG.md` (Documented Milestone 39)
 
 ### Next Exact Step
+- Review fixes complete. Proceed to Milestone 40 (Package 1H Final Fix #3).
+
+---
+
+## [2026-10-18] Milestone 40: Package 1H Final Fix #3 — Preserve Unrelated Citizen Assignments & Exact Project Ownership (Completed)
+
+### Context & Objective
+Execute the focused Package 1H Final Fix #3 on branch `feature/package-1h-construction` (starting base: `7e19c96194552a8fb09f117e3b7711fae16c57d7`):
+1. **Worker-Assignment Safety in `_safe_cleanup_construction_job()` (`scripts/world/world_view.gd`):**
+   - Eliminate improper citizen resets caused by matching `j.worker_id` alone.
+   - When a citizen holds a different, valid `active_job`, preserve their assignment and state untouched even if `j.worker_id` points to them.
+   - Only clear `active_job` and interrupt the citizen when their `active_job` actually matches the job being removed (`cit_job == j or cit_job.id == j.id`).
+   - For stranded citizens where `cit.active_job == null` but `j.worker_id` matches their ID, safely transition them from job states (`MOVING_TO_JOB`, `WORKING`, `HAULING`, `GUARDING`) to `State.IDLE` with cleared path.
+2. **Exact Construction Project Ownership in `register_construction_jobs()` (`scripts/world/world_view.gd`):**
+   - Prevent `register_construction_jobs()` from adopting or removing builder jobs that belong to separate projects sharing delimited prefixes (e.g., `bld_house_15_15_annex` vs `bld_house_15_15`).
+   - Require exact target building ID match (`j.type == "builder" and j.target_building_id == b_id`).
+3. **Automated Regression Tests (`scripts/test/test_construction.gd`):**
+   - Extend TC-CON.2 with Subchecks E (preserve unrelated valid assignment when invalid job points worker_id to citizen), F (clear actual stale assignment with citizen safely returning to IDLE with empty path), and G (exact construction-project ownership with delimited prefix `bld_house_15_15_annex`).
+
+### Completed Work
+1. **Hardened `_safe_cleanup_construction_job()` & `register_construction_jobs()` (`scripts/world/world_view.gd`):**
+   - In `_safe_cleanup_construction_job(j)`:
+     - Iterates over all citizens.
+     - If `cit_job != null`: checks strictly `if cit_job == j or cit_job.id == j.id:`, clearing `active_job`, resetting to `IDLE`, and clearing `current_path`. If `cit_job` is a different job, leaves it completely untouched.
+     - Else (`cit_job == null`): checks `if j.worker_id != "" and cit.get("citizen_id") == j.worker_id:`, releasing stranded citizens in job states to `IDLE` with `current_path = []`.
+   - In `register_construction_jobs(b_data)`:
+     - Enforces `if j.type == "builder" and j.target_building_id == b_id:` when filtering existing builder jobs, ensuring complete project isolation.
+2. **Extended Regression Tests (`scripts/test/test_construction.gd`):**
+   - Added Subcheck E: creates unrelated woodcutter job with assigned working citizen; injects invalid builder job with `worker_id` pointing to that citizen; asserts invalid job is cleaned up while unrelated job, citizen `active_job`, and citizen `WORKING` state remain intact.
+   - Added Subcheck F: creates actual stale builder job with working citizen; injects stranded citizen with null active_job; asserts stale job cleaned up, assigned citizen active_job cleared and state set to IDLE with empty path, and stranded citizen released to IDLE.
+   - Added Subcheck G: creates builder job for `bld_house_15_15_annex`; registers house `bld_house_15_15`; asserts annex job is neither adopted nor removed and remains unchanged in `JobManager`.
+3. **Full Validation Matrix:**
+   - Dedicated `test_construction.gd`: 6/6 passed (TC-CON.1 to TC-CON.6 including Subchecks A–G).
+   - Dedicated `test_watchtower.gd`: passed (all cases including TC-W.6).
+   - All 21 test suites in `scripts/test/test_*.gd`: passed with Exit Code 0.
+   - 4 headless scene smoke checks (`main_menu.tscn`, `world_view.tscn`, `hud.tscn`, `visual_validation_test.tscn`): passed with Exit Code 0.
+   - `git diff --check`: clean (Exit Code 0).
+
+### Validations Performed & Results
+- **Dedicated Test Suite (`scripts/test/test_construction.gd`):** **PASS (Exit Code 0, 6/6 passed)**
+  - TC-CON.1: Blueprint Verification & Placement Lifecycle: **PASS**
+  - TC-CON.2: Construction Jobs, Capacity, Subchecks A-G: **PASS**
+    - Subcheck A: Stale job outside perimeter rejected and cleaned up: **PASS**
+    - Subcheck B: Duplicate target cells deduplicated, active worker preserved: **PASS**
+    - Subcheck C: Registration is strictly idempotent across repeated calls: **PASS**
+    - Subcheck D: Project isolation preserved during cleanup of overlapping prefix building: **PASS**
+    - Subcheck E: Preserved unrelated valid assignment when invalid job points worker_id to citizen: **PASS**
+    - Subcheck F: Actual stale assignment cleared and citizen safely returned to IDLE: **PASS**
+    - Subcheck G: Exact construction-project ownership preserved with delimited prefix: **PASS**
+  - TC-CON.3: Builder Work Loop, Real TimeManager Scaling & Progress: **PASS**
+  - TC-CON.4: Completion Threshold & Fail-Closed Storage Effects: **PASS**
+  - TC-CON.5: Cancellation Policy, 50% Refund & Storage Capacity: **PASS**
+  - TC-CON.6: Save/Load Persistence, Footprint Validation & Integer Checks: **PASS**
+- **Watchtower Test Suite (`scripts/test/test_watchtower.gd`):** **PASS (Exit Code 0, all passed)**
+- **All 21 Core Regression Suites (Godot 4.7 Headless):**
+  - `test_audio.gd`: **PASS (Exit Code 0, 1.02s)**
+  - `test_barracks.gd`: **PASS (Exit Code 0, 2.03s)**
+  - `test_citizens.gd`: **PASS (Exit Code 0, 1.02s)**
+  - `test_construction.gd`: **PASS (Exit Code 0, 3.05s)**
+  - `test_coordinates.gd`: **PASS (Exit Code 0, 1.02s)**
+  - `test_dynamic_workplaces.gd`: **PASS (Exit Code 0, 2.03s)**
+  - `test_economy.gd`: **PASS (Exit Code 0, 1.02s)**
+  - `test_factions_and_battles.gd`: **PASS (Exit Code 0, 1.02s)**
+  - `test_gold_transactions.gd`: **PASS (Exit Code 0, 1.02s)**
+  - `test_logistics.gd`: **PASS (Exit Code 0, 1.02s)**
+  - `test_mine.gd`: **PASS (Exit Code 0, 2.03s)**
+  - `test_quarry.gd`: **PASS (Exit Code 0, 2.02s)**
+  - `test_research_and_exploration.gd`: **PASS (Exit Code 0, 1.02s)**
+  - `test_research_hall.gd`: **PASS (Exit Code 0, 2.02s)**
+  - `test_save_load.gd`: **PASS (Exit Code 0, 2.03s)**
+  - `test_stress_100_citizens.gd`: **PASS (Exit Code 0, 5.08s)**
+  - `test_time_manager.gd`: **PASS (Exit Code 0, 1.02s)**
+  - `test_victory_and_collapse.gd`: **PASS (Exit Code 0, 1.02s)**
+  - `test_watchtower.gd`: **PASS (Exit Code 0, 2.02s)**
+  - `test_workshop.gd`: **PASS (Exit Code 0, 2.03s)**
+  - `test_world_gen.gd`: **PASS (Exit Code 0, 1.01s)**
+- **Headless Scene Smoke Checks:**
+  - `scenes/ui/main_menu.tscn`: **PASS (Exit Code 0)**
+  - `scenes/world/world_view.tscn`: **PASS (Exit Code 0)**
+  - `scenes/ui/hud.tscn`: **PASS (Exit Code 0)**
+  - `scenes/test/visual_validation_test.tscn`: **PASS (Exit Code 0)**
+  *(Note: All scene smoke validations were executed via Godot 4.7 headless console; no manual visual GUI inspection was performed).*
+- **Whitespace Check:**
+  - `git diff --check`: Clean (Exit Code 0, zero whitespace errors).
+
+### Files Created / Modified
+- `scripts/world/world_view.gd` (Assignment safety in `_safe_cleanup_construction_job`, exact project ownership in `register_construction_jobs`)
+- `scripts/test/test_construction.gd` (TC-CON.2 Subchecks E, F, G)
+- `docs/BACKLOG.md` (Added TASK-1H.13 completion)
+- `docs/CHANGELOG.md` (Documented Package 1H Final Fix #3 details)
+- `docs/TEST_PLAN.md` (Updated TC-CON.2 specifications with Subchecks E–G)
+- `docs/WORKLOG.md` (Documented Milestone 40)
+
+### Next Exact Step
 - Stage modified files explicitly (do NOT use `git add -A`; preserve untracked files).
-- Commit with exact mandated message: `Enforce construction job perimeter validity`.
+- Commit with exact mandated message: `Preserve unrelated citizen assignments during cleanup`.
 - Push to `origin/feature/package-1h-construction`.
 - Await independent review. Do not merge into master, do not start Package 1I.
