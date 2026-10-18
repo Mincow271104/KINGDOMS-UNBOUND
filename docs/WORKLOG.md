@@ -1842,3 +1842,75 @@ Address code review findings for Package 1F:
 - Commit with mandated message: `Harden research hall state and atomic research costs`.
 - Push to origin on branch `feature/package-1f-research-hall`.
 - Await independent review. Do not merge into master, do not start Package 1G.
+
+---
+
+## [2026-10-18] Milestone 32: Package 1F Final Review Fix — Prevent Free Research When Resource Manager Is Missing
+
+### Context & Objective
+Address final code review finding for Package 1F:
+In `scripts/research/research_manager.gd`, `start_research()` previously checked `if resource_mgr != null and not cost.is_empty():`, which permitted non-free technologies to start without paying if `resource_mgr == null`.
+
+### Completed Work
+1. **Source Fix (`scripts/research/research_manager.gd`):**
+   - For any technology with a non-empty cost, require `resource_mgr != null`.
+   - Require both `reserve_cost` and `commit_cost` methods on `resource_mgr`.
+   - Return `false` fail-closed if `resource_mgr` is null, either method is absent, or `reserve_cost(cost)` returns false.
+   - Guard `active_tech_id`, progress hours, required hours, and `tech_started` signal emission so none mutate on failure.
+   - Retain cost-free technology support for genuinely free technologies (`cost.is_empty()`).
+2. **Regression Test Addition (`scripts/test/test_research_hall.gd`):**
+   - Extended `TC-RH.4` with Test 4b: with active research hall and non-empty cost tech (`crop_rotation`), called `start_research("crop_rotation", null)`.
+   - Asserted call returns `false`.
+   - Asserted `active_tech_id` remains empty `""`.
+   - Asserted `active_progress_hours` and `active_required_hours` remain unchanged.
+   - Asserted `tech_started` signal is NOT emitted.
+   - Asserted no resources are deducted and no project is activated.
+
+### Validations Performed & Results
+- **Dedicated Test Suite (`scripts/test/test_research_hall.gd`):** **PASS (Exit Code 0, 7/7 passed)**
+  - TC-RH.1 (Blueprint Validation & Spec Integrity): **PASS**
+  - TC-RH.2 (Placement Rules, 3x3 Bounds, Water, Occupancy & Atomic Deduction): **PASS**
+  - TC-RH.3 (is_research_hall_active Detection & State Transitions): **PASS**
+  - TC-RH.4 (Research Gating, Null-Manager Fail-Closed & Atomic Reservation/Commit): **PASS**
+  - TC-RH.5 (Downtime Pause Safety & Progress Retention): **PASS**
+  - TC-RH.6 (HUD Integration, Build Button, Signal & UI Warning): **PASS**
+  - TC-RH.7 (WorldView Lifecycle, Node Count & Idempotent Persistence): **PASS**
+- **Research & Exploration Test Suite (`scripts/test/test_research_and_exploration.gd`):** **PASS (Exit Code 0)**
+- **Save/Load Test Suite (`scripts/test/test_save_load.gd`):** **PASS (Exit Code 0)**
+- **Full Core Regression Matrix (19 Test Suites, Godot 4.7 Headless):**
+  - `test_coordinates.gd`: **PASS (Exit Code 0)**
+  - `test_world_gen.gd`: **PASS (Exit Code 0)**
+  - `test_citizens.gd`: **PASS (Exit Code 0)**
+  - `test_economy.gd`: **PASS (Exit Code 0)**
+  - `test_time_manager.gd`: **PASS (Exit Code 0)**
+  - `test_logistics.gd`: **PASS (Exit Code 0)**
+  - `test_audio.gd`: **PASS (Exit Code 0)**
+  - `test_save_load.gd`: **PASS (Exit Code 0)**
+  - `test_research_and_exploration.gd`: **PASS (Exit Code 0)**
+  - `test_factions_and_battles.gd`: **PASS (Exit Code 0)**
+  - `test_victory_and_collapse.gd`: **PASS (Exit Code 0)**
+  - `test_stress_100_citizens.gd`: **PASS (Exit Code 0)**
+  - `test_gold_transactions.gd`: **PASS (Exit Code 0)**
+  - `test_quarry.gd`: **PASS (Exit Code 0)**
+  - `test_mine.gd`: **PASS (Exit Code 0)**
+  - `test_workshop.gd`: **PASS (Exit Code 0)**
+  - `test_watchtower.gd`: **PASS (Exit Code 0)**
+  - `test_dynamic_workplaces.gd`: **PASS (Exit Code 0)**
+  - `test_research_hall.gd`: **PASS (Exit Code 0)**
+- **Scene Smoke Tests:**
+  - `scenes/ui/main_menu.tscn`: **PASS (Exit Code 0)**
+  - `scenes/world/world_view.tscn`: **PASS (Exit Code 0)**
+  - `scenes/ui/hud.tscn`: **PASS (Exit Code 0)**
+- **Whitespace Check:**
+  - `git diff --check`: Clean (Exit Code 0, zero whitespace errors).
+
+### Files Created / Modified
+- `scripts/research/research_manager.gd` (Require valid `resource_mgr` with atomic APIs for non-free tech)
+- `scripts/test/test_research_hall.gd` (Added null `resource_mgr` fail-closed assertions to TC-RH.4)
+- `docs/WORKLOG.md` (Documented Milestone 32)
+
+### Next Exact Step
+- Stage modified files explicitly: `scripts/research/research_manager.gd`, `scripts/test/test_research_hall.gd`, `docs/WORKLOG.md`.
+- Commit with mandated message: `Prevent free research when resource manager is missing`.
+- Push to origin on branch `feature/package-1f-research-hall`.
+- Await independent review. Do not merge into master, do not start Package 1G.

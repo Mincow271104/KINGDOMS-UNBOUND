@@ -67,8 +67,10 @@ func start_research(tech_id: String, resource_mgr: Object) -> bool:
 	var def: Dictionary = TechTree.TECHNOLOGIES[tech_id]
 	var cost: Dictionary = def.get("cost", {})
 	
-	# Atomically reserve and commit resources
-	if resource_mgr != null and not cost.is_empty():
+	# Atomically reserve and commit resources for non-free tech
+	if not cost.is_empty():
+		if resource_mgr == null:
+			return false
 		if not resource_mgr.has_method("reserve_cost") or not resource_mgr.has_method("commit_cost"):
 			return false
 

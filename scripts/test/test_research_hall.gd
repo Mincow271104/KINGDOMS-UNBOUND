@@ -434,6 +434,38 @@ func _test_tc_rh_4_research_gating() -> bool:
 		printerr("FAIL: active_tech_id should remain empty when resource_mgr lacks atomic API")
 		failures += 1
 
+	# Test 4b: Null resource_mgr with non-empty cost technology must fail closed
+	var signal_emitted := false
+	var signal_callback = func(_t_id): signal_emitted = true
+	research_mgr.tech_started.connect(signal_callback)
+
+	var prev_progress: float = research_mgr.active_progress_hours
+	var prev_required: float = research_mgr.active_required_hours
+	var prev_wood: int = rm.get_available_stock(EconomyConfig.RES_WOOD)
+	var prev_food: int = rm.get_available_stock(EconomyConfig.RES_FOOD)
+
+	var start_null_mgr = research_mgr.start_research("crop_rotation", null)
+	if start_null_mgr:
+		printerr("FAIL: start_research must return false when resource_mgr is null and cost is non-empty")
+		failures += 1
+	if research_mgr.active_tech_id != "":
+		printerr("FAIL: active_tech_id must remain empty when start_research fails with null resource_mgr")
+		failures += 1
+	if research_mgr.active_progress_hours != prev_progress:
+		printerr("FAIL: active_progress_hours changed when start_research failed with null resource_mgr")
+		failures += 1
+	if research_mgr.active_required_hours != prev_required:
+		printerr("FAIL: active_required_hours changed when start_research failed with null resource_mgr")
+		failures += 1
+	if signal_emitted:
+		printerr("FAIL: tech_started signal was emitted when start_research failed with null resource_mgr")
+		failures += 1
+	if rm.get_available_stock(EconomyConfig.RES_WOOD) != prev_wood or rm.get_available_stock(EconomyConfig.RES_FOOD) != prev_food:
+		printerr("FAIL: Resources deducted when start_research failed with null resource_mgr")
+		failures += 1
+
+	research_mgr.tech_started.disconnect(signal_callback)
+
 	# Test 5: Hall checker returns true, sufficient resources, atomic reserve & commit succeeds
 	if not research_mgr.has_active_hall():
 		printerr("FAIL: has_active_hall should return true when checker returns true")
