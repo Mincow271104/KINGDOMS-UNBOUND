@@ -255,7 +255,9 @@ func _test_tc_con_2_builder_jobs_and_concurrency() -> bool:
 
 	# Call world_instance.register_construction_jobs
 	var old_jm = world_instance.get("job_mgr")
+	var old_nav = world_instance.get("nav")
 	world_instance.set("job_mgr", jm)
+	world_instance.set("nav", nav)
 	world_instance.set("world_data", world_data)
 
 	var created_jobs = world_instance.call("register_construction_jobs", b_house)
@@ -364,6 +366,178 @@ func _test_tc_con_2_builder_jobs_and_concurrency() -> bool:
 		jm.release_job(claimed_job)
 	citizen_mock.free()
 
+	# -------------------------------------------------------------------------
+	# TC-CON.2 Subcheck A: Stale but walkable target cell
+	# -------------------------------------------------------------------------
+	var expected_perimeter = BuildingSystemScript.find_perimeter_cells(b_house["cell"], b_house["size"], world_data, 100)
+	var stale_cell := Vector2i(28, 28) # distinct walkable cell outside perimeter
+	assert(not expected_perimeter.has(stale_cell), "stale_cell must be outside perimeter")
+	world_data.terrain[stale_cell.x][stale_cell.y] = WorldGeneratorScript.TerrainType.GRASS
+	world_data.occupancy[stale_cell.x][stale_cell.y] = false
+
+	var stale_job = jm.create_job(
+		"builder",
+		stale_cell,
+		"Stale job outside perimeter",
+		"bld_house_15_15",
+		8.0,
+		2,
+		false
+	)
+	var cit_stale = CitizenControllerScript.new()
+	cit_stale.set("citizen_id", "cit_stale_builder")
+	cit_stale.set("active_job", stale_job)
+	cit_stale.set("current_state", CitizenController.State.WORKING)
+	stale_job.state = JobManager.JobState.IN_PROGRESS
+	stale_job.worker_id = "cit_stale_builder"
+	world_instance.citizen_list.append(cit_stale)
+
+	var jobs_after_stale_reg = world_instance.call("register_construction_jobs", b_house)
+	var house_jobs_sub_a = jm.get_jobs_for_building("bld_house_15_15")
+
+	var contains_stale := false
+	var distinct_cells: Dictionary = {}
+	for j in house_jobs_sub_a:
+		if j.id == stale_job.id or j.target_cell == stale_cell:
+			contains_stale = true
+		distinct_cells[j.target_cell] = true
+		if not expected_perimeter.has(j.target_cell):
+			printerr("  [FAIL] Job target_cell %s is not inside computed perimeter!" % str(j.target_cell))
+			failures += 1
+
+	if contains_stale:
+		printerr("  [FAIL] Stale job at %s was retained!" % str(stale_cell))
+		failures += 1
+	elif cit_stale.active_job != null or cit_stale.current_state != CitizenController.State.IDLE:
+		printerr("  [FAIL] Worker on stale job was not safely released to IDLE!")
+		failures += 1
+	elif distinct_cells.size() != house_jobs_sub_a.size():
+		printerr("  [FAIL] Retained jobs do not target distinct cells!")
+		failures += 1
+	elif house_jobs_sub_a.size() != 3:
+		printerr("  [FAIL] Expected 3 valid perimeter jobs after stale cleanup, got %d" % house_jobs_sub_a.size())
+		failures += 1
+	else:
+		print("  [PASS] Subcheck A: Stale job outside perimeter rejected and cleaned up, worker released, distinct perimeter jobs retained.")
+
+	world_instance.citizen_list.erase(cit_stale)
+	cit_stale.free()
+
+	# -------------------------------------------------------------------------
+	# TC-CON.2 Subcheck B: Existing duplicate target cells
+	# -------------------------------------------------------------------------
+	var dup_cell: Vector2i = expected_perimeter[0]
+	# Inject two existing duplicate builder jobs at the same perimeter cell
+	var dup_job_1 = jm.create_job(
+		"builder",
+		dup_cell,
+		"Injected duplicate job 1 at same cell",
+		"bld_house_15_15",
+		8.0,
+		2,
+		false
+	)
+	var dup_job_2 = jm.create_job(
+		"builder",
+		dup_cell,
+		"Injected duplicate job 2 at same cell",
+		"bld_house_15_15",
+		8.0,
+		2,
+		false
+	)
+
+	var cit_dup_1 = CitizenControllerScript.new()
+	cit_dup_1.set("citizen_id", "cit_dup_1_builder")
+	cit_dup_1.set("active_job", dup_job_1)
+	cit_dup_1.set("current_state", CitizenController.State.WORKING)
+	dup_job_1.state = JobManager.JobState.IN_PROGRESS
+	dup_job_1.worker_id = "cit_dup_1_builder"
+	world_instance.citizen_list.append(cit_dup_1)
+
+	var cit_dup_2 = CitizenControllerScript.new()
+	cit_dup_2.set("citizen_id", "cit_dup_2_builder")
+	cit_dup_2.set("active_job", dup_job_2)
+	cit_dup_2.set("current_state", CitizenController.State.MOVING_TO_JOB)
+	dup_job_2.state = JobManager.JobState.RESERVED
+	dup_job_2.worker_id = "cit_dup_2_builder"
+	world_instance.citizen_list.append(cit_dup_2)
+
+	var jobs_after_dup_reg = world_instance.call("register_construction_jobs", b_house)
+	var house_jobs_sub_b = jm.get_jobs_for_building("bld_house_15_15")
+
+	var dup_count_at_cell := 0
+	for j in house_jobs_sub_b:
+		if j.target_cell == dup_cell:
+			dup_count_at_cell += 1
+
+	if dup_count_at_cell > 1:
+		printerr("  [FAIL] Duplicate jobs at cell %s were not deduplicated! Count: %d" % [str(dup_cell), dup_count_at_cell])
+		failures += 1
+	elif house_jobs_sub_b.size() > 3:
+		printerr("  [FAIL] Total jobs exceed worker capacity! Count: %d, max: 3" % house_jobs_sub_b.size())
+		failures += 1
+	else:
+		# Check worker assignments:
+		# cit_dup_1 should be preserved on dup_job_1 (higher priority IN_PROGRESS)
+		# cit_dup_2 should be safely released to IDLE (dup_job_2 removed)
+		var dup_1_retained = (cit_dup_1.active_job == dup_job_1 and house_jobs_sub_b.has(dup_job_1))
+		var dup_2_released = (cit_dup_2.active_job == null and cit_dup_2.current_state == CitizenController.State.IDLE and not house_jobs_sub_b.has(dup_job_2))
+
+		if not dup_1_retained:
+			printerr("  [FAIL] Active in-progress worker cit_dup_1 was not preserved on retained job!")
+			failures += 1
+		elif not dup_2_released:
+			printerr("  [FAIL] Duplicate worker cit_dup_2 was left orphaned or not safely set to IDLE!")
+			failures += 1
+		else:
+			print("  [PASS] Subcheck B: Duplicate target cells deduplicated, active worker preserved, duplicate safely released to IDLE.")
+
+	world_instance.citizen_list.erase(cit_dup_1)
+	world_instance.citizen_list.erase(cit_dup_2)
+	cit_dup_1.free()
+	cit_dup_2.free()
+
+	# -------------------------------------------------------------------------
+	# TC-CON.2 Subcheck C: Idempotency across repeated calls
+	# -------------------------------------------------------------------------
+	var baseline_jobs = jm.get_jobs_for_building("bld_house_15_15")
+	var baseline_count = baseline_jobs.size()
+	var baseline_cells: Array[Vector2i] = []
+	for j in baseline_jobs:
+		baseline_cells.append(j.target_cell)
+
+	var idempotency_passed := true
+	for rep in range(3):
+		world_instance.call("register_construction_jobs", b_house)
+		var current_jobs = jm.get_jobs_for_building("bld_house_15_15")
+		if current_jobs.size() != baseline_count:
+			idempotency_passed = false
+			printerr("  [FAIL] Repeated call %d changed job count! Was %d, now %d" % [rep + 1, baseline_count, current_jobs.size()])
+			failures += 1
+			break
+		var current_cells: Array[Vector2i] = []
+		for j in current_jobs:
+			current_cells.append(j.target_cell)
+		for bc in baseline_cells:
+			if not current_cells.has(bc):
+				idempotency_passed = false
+				printerr("  [FAIL] Repeated call %d lost target cell %s!" % [rep + 1, str(bc)])
+				failures += 1
+				break
+	if idempotency_passed:
+		print("  [PASS] Subcheck C: Registration is strictly idempotent across repeated calls (stable count and cells).")
+
+	# -------------------------------------------------------------------------
+	# TC-CON.2 Subcheck D: Project isolation during cleanup
+	# -------------------------------------------------------------------------
+	var jobs_other_proj = jm.get_jobs_for_building("bld_house_15_150")
+	if jobs_other_proj.size() != 3:
+		printerr("  [FAIL] Project isolation failed! bld_house_15_150 has %d jobs, expected 3" % jobs_other_proj.size())
+		failures += 1
+	else:
+		print("  [PASS] Subcheck D: Project isolation preserved during cleanup of overlapping prefix building.")
+
 	# Confirm completion and cancellation continue cleaning up only jobs associated with the correct project
 	jm.remove_jobs_for_building("bld_house_15_150")
 	if jm.get_jobs_for_building("bld_house_15_15").size() != 3:
@@ -373,6 +547,7 @@ func _test_tc_con_2_builder_jobs_and_concurrency() -> bool:
 		print("  [PASS] Cleaning up bld_house_15_150 preserved all jobs for bld_house_15_15.")
 
 	world_instance.set("job_mgr", old_jm)
+	world_instance.set("nav", old_nav)
 
 	if failures == 0:
 		print("  [PASS] TC-CON.2 PASSED.\n")

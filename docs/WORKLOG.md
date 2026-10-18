@@ -2477,7 +2477,102 @@ Execute the focused Package 1H Final Review Fix on branch `feature/package-1h-co
 - `docs/WORKLOG.md` (Documented Milestone 38)
 
 ### Next Exact Step
+- Review fixes complete. Proceed to Milestone 39 (Package 1H Final Fix #2).
+
+---
+
+## [2026-10-18] Milestone 39: Package 1H Final Fix #2 — Construction Job Perimeter Validity & Deduplication (Completed)
+
+### Context & Objective
+Execute the focused Package 1H Final Fix #2 on branch `feature/package-1h-construction` (starting base: `ebe7ab111d4459e206faa2a0787af9b315c793da`):
+1. **Perimeter Containment Verification (`scripts/world/world_view.gd`):**
+   - Ensure `WorldView.register_construction_jobs(b_data)` only retains builder jobs whose `target_cell` is genuinely inside the building's computed valid perimeter (`perimeter.has(j.target_cell)`).
+   - Stale jobs targeting walkable cells outside the perimeter are rejected and cleaned up rather than consuming worker capacity.
+2. **Duplicate Target Cell Elimination & Worker Safety (`scripts/world/world_view.gd`):**
+   - Group valid builder jobs by `target_cell` so at most one job occupies any single perimeter cell.
+   - Preserve active assignments where possible (`IN_PROGRESS` prioritized over `RESERVED` prioritized over `AVAILABLE`).
+   - Clean up duplicate and excess jobs safely via `_safe_cleanup_construction_job(j)`: inspect `CitizenController` lifecycle, clear `active_job`, and transition displaced workers safely to `State.IDLE` without leaving orphaned job references.
+   - Strictly cap retained plus new jobs to `min(worker_capacity, valid_perimeter_cell_count)`.
+   - Repeated calls with unchanged state are strictly idempotent (stable count and target-cell positions).
+3. **Automated Regression Tests (`scripts/test/test_construction.gd`):**
+   - Extended TC-CON.2 with Subchecks A (stale cell outside perimeter rejected/cleaned up, worker released), B (duplicate target cells deduplicated, active worker preserved, duplicate safely released to IDLE), C (strict idempotency across repeated calls), and D (project isolation preserved during cleanup of overlapping prefix building).
+
+### Completed Work
+1. **Hardened `register_construction_jobs()` & `_safe_cleanup_construction_job()` (`scripts/world/world_view.gd`):**
+   - In `_safe_cleanup_construction_job(j)`: inspects `citizen_list` and `citizens_container` children; if any citizen holds `cit.active_job == j` or `j.worker_id`, clears `active_job`, sets state to `IDLE`, and updates reason; cancels the job in `JobManager` if reserved/in-progress; and removes the job via `job_mgr.remove_job(j.id)`.
+   - In `register_construction_jobs(b_data)`:
+     - Queries all candidate perimeter cells via `BuildingSystem.find_perimeter_cells(origin, size, world_data, max_candidate_count)`.
+     - Validates existing builder jobs for valid lifecycle state, in-bounds, walkability, and explicit containment in `perimeter`.
+     - Deduplicates valid candidates by `target_cell`, prioritizing jobs with active workers.
+     - Enforces `max_jobs = mini(capacity, perimeter.size())`, trimming excess jobs with worker safety.
+     - Spawns new jobs only up to `max_jobs` for unoccupied perimeter cells.
+     - Syncs `nav.world_data = world_data` defensively if `nav` was pointing to a different world data instance.
+2. **Extended Regression Tests (`scripts/test/test_construction.gd`):**
+   - Added Subcheck A: creates stale builder job for `bld_house_15_15` at walkable cell (28, 28) with assigned working citizen; asserts job is not retained, worker is safely released to IDLE, and retained jobs target distinct cells inside the computed perimeter.
+   - Added Subcheck B: injects two duplicate jobs at the same perimeter cell (one IN_PROGRESS with worker 1, one RESERVED with worker 2); asserts only one job remains at the cell, worker 1 is preserved on the retained job, worker 2 is safely released to IDLE, and total count is within capacity.
+   - Added Subcheck C: calls registration 3 consecutive times; asserts count and target-cell set are 100% stable.
+   - Added Subcheck D: verifies overlapping prefix building `bld_house_15_150` maintains its separate 3 jobs throughout all cleanups.
+3. **Full Validation Matrix:**
+   - Dedicated `test_construction.gd`: 6/6 passed (TC-CON.1 to TC-CON.6 including Subchecks A–D).
+   - Dedicated `test_watchtower.gd`: passed (all cases including TC-W.6).
+   - All 21 test suites in `scripts/test/test_*.gd`: passed with Exit Code 0.
+   - 4 headless scene smoke checks (`main_menu.tscn`, `world_view.tscn`, `hud.tscn`, `visual_validation_test.tscn`): passed with Exit Code 0.
+   - `git diff --check`: clean (Exit Code 0).
+
+### Validations Performed & Results
+- **Dedicated Test Suite (`scripts/test/test_construction.gd`):** **PASS (Exit Code 0, 6/6 passed)**
+  - TC-CON.1: Blueprint Verification & Placement Lifecycle: **PASS**
+  - TC-CON.2: Construction Jobs, Capacity, Subchecks A-D: **PASS**
+    - Subcheck A: Stale job outside perimeter rejected and cleaned up, worker released, distinct perimeter jobs retained: **PASS**
+    - Subcheck B: Duplicate target cells deduplicated, active worker preserved, duplicate safely released to IDLE: **PASS**
+    - Subcheck C: Registration is strictly idempotent across repeated calls (stable count and cells): **PASS**
+    - Subcheck D: Project isolation preserved during cleanup of overlapping prefix building: **PASS**
+  - TC-CON.3: Builder Work Loop, Real TimeManager Scaling & Progress: **PASS**
+  - TC-CON.4: Completion Threshold & Fail-Closed Storage Effects: **PASS**
+  - TC-CON.5: Cancellation Policy, 50% Refund & Storage Capacity: **PASS**
+  - TC-CON.6: Save/Load Persistence, Footprint Validation & Integer Checks: **PASS**
+- **Watchtower Test Suite (`scripts/test/test_watchtower.gd`):** **PASS (Exit Code 0, all passed)**
+- **All 21 Core Regression Suites (Godot 4.7 Headless):**
+  - `test_audio.gd`: **PASS (Exit Code 0)**
+  - `test_barracks.gd`: **PASS (Exit Code 0)**
+  - `test_citizens.gd`: **PASS (Exit Code 0)**
+  - `test_construction.gd`: **PASS (Exit Code 0)**
+  - `test_coordinates.gd`: **PASS (Exit Code 0)**
+  - `test_dynamic_workplaces.gd`: **PASS (Exit Code 0)**
+  - `test_economy.gd`: **PASS (Exit Code 0)**
+  - `test_factions_and_battles.gd`: **PASS (Exit Code 0)**
+  - `test_gold_transactions.gd`: **PASS (Exit Code 0)**
+  - `test_logistics.gd`: **PASS (Exit Code 0)**
+  - `test_mine.gd`: **PASS (Exit Code 0)**
+  - `test_quarry.gd`: **PASS (Exit Code 0)**
+  - `test_research_and_exploration.gd`: **PASS (Exit Code 0)**
+  - `test_research_hall.gd`: **PASS (Exit Code 0)**
+  - `test_save_load.gd`: **PASS (Exit Code 0)**
+  - `test_stress_100_citizens.gd`: **PASS (Exit Code 0)**
+  - `test_time_manager.gd`: **PASS (Exit Code 0)**
+  - `test_victory_and_collapse.gd`: **PASS (Exit Code 0)**
+  - `test_watchtower.gd`: **PASS (Exit Code 0)**
+  - `test_workshop.gd`: **PASS (Exit Code 0)**
+  - `test_world_gen.gd`: **PASS (Exit Code 0)**
+- **Headless Scene Smoke Checks:**
+  - `scenes/ui/main_menu.tscn`: **PASS (Exit Code 0)**
+  - `scenes/world/world_view.tscn`: **PASS (Exit Code 0)**
+  - `scenes/ui/hud.tscn`: **PASS (Exit Code 0)**
+  - `scenes/test/visual_validation_test.tscn`: **PASS (Exit Code 0)**
+  *(Note: All scene smoke validations were executed via Godot 4.7 headless console; no manual visual GUI inspection was performed).*
+- **Whitespace Check:**
+  - `git diff --check`: Clean (Exit Code 0, zero whitespace errors).
+
+### Files Created / Modified
+- `scripts/world/world_view.gd` (Perimeter containment verification, duplicate cell deduplication, worker safety in `_safe_cleanup_construction_job`)
+- `scripts/test/test_construction.gd` (TC-CON.2 Subchecks A–D for stale cleanup, duplicate deduplication, worker safety, idempotency, and project isolation)
+- `docs/BACKLOG.md` (Added TASK-1H.12 completion)
+- `docs/CHANGELOG.md` (Documented Package 1H Final Fix #2 details)
+- `docs/TEST_PLAN.md` (Updated TC-CON.2 specifications with Subchecks A–D)
+- `docs/WORKLOG.md` (Documented Milestone 39)
+
+### Next Exact Step
 - Stage modified files explicitly (do NOT use `git add -A`; preserve untracked files).
-- Commit with exact mandated message: `Make construction registration idempotent`.
+- Commit with exact mandated message: `Enforce construction job perimeter validity`.
 - Push to `origin/feature/package-1h-construction`.
 - Await independent review. Do not merge into master, do not start Package 1I.

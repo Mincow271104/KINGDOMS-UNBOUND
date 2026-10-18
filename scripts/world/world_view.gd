@@ -545,6 +545,33 @@ func _execute_placement(cell: Vector2i) -> Dictionary:
 
 	return res
 
+func _safe_cleanup_construction_job(j: JobManager.JobData) -> void:
+	if j == null or job_mgr == null:
+		return
+
+	# 1. Inspect CitizenController lifecycle to avoid leaving orphaned task references
+	var all_citizens: Array = []
+	all_citizens.append_array(citizen_list)
+	if citizens_container != null:
+		for child in citizens_container.get_children():
+			if child is CitizenController and not all_citizens.has(child):
+				all_citizens.append(child)
+
+	for cit in all_citizens:
+		if cit != null and cit.get("active_job") != null:
+			if cit.active_job == j or cit.active_job.id == j.id or (j.worker_id != "" and cit.get("citizen_id") == j.worker_id):
+				cit.active_job = null
+				cit.set("current_state", CitizenController.State.IDLE)
+				if cit.has_method("_update_reason"):
+					cit.call("_update_reason")
+
+	# 2. Cancel the job through JobManager if it was reserved or in progress
+	if j.state == JobManager.JobState.RESERVED or j.state == JobManager.JobState.IN_PROGRESS:
+		job_mgr.cancel_job(j, "Cleaned up invalid or duplicate construction job")
+
+	# 3. Remove the job from JobManager
+	job_mgr.remove_job(j.id)
+
 func register_construction_jobs(b_data: Dictionary) -> Array[JobManager.JobData]:
 	var result: Array[JobManager.JobData] = []
 	if job_mgr == null or world_data == null or b_data.is_empty():
@@ -563,65 +590,119 @@ func register_construction_jobs(b_data: Dictionary) -> Array[JobManager.JobData]
 	var size: Vector2i = b_data.get("size", Vector2i(1, 1))
 
 	var capacity: int = BuildingSystem.get_construction_worker_capacity(b_type)
-	var perimeter: Array[Vector2i] = BuildingSystem.find_perimeter_cells(origin, size, world_data, capacity)
+	var max_candidate_count: int = 2 * (size.x + size.y) + 16
+	var perimeter: Array[Vector2i] = BuildingSystem.find_perimeter_cells(origin, size, world_data, max_candidate_count)
 	var max_jobs: int = mini(capacity, perimeter.size())
 
-	# Collect existing builder jobs specifically matching this building
-	var existing_jobs := job_mgr.get_jobs_for_building(b_id)
-	var valid_existing: Array[JobManager.JobData] = []
+	if nav != null and world_data != null and nav.world_data != world_data:
+		nav.world_data = world_data
+
+	# 1. Collect all builder jobs specifically matching this exact building
+	var all_matching_jobs := job_mgr.get_jobs_for_building(b_id)
+	var existing_builder_jobs: Array[JobManager.JobData] = []
+	for j in all_matching_jobs:
+		if j.type == "builder":
+			existing_builder_jobs.append(j)
+
+	var valid_candidates: Array[JobManager.JobData] = []
 	var stale_jobs: Array[JobManager.JobData] = []
 
-	for j in existing_jobs:
-		if j.type == "builder":
-			var is_valid_state: bool = (j.state == JobManager.JobState.AVAILABLE or j.state == JobManager.JobState.RESERVED or j.state == JobManager.JobState.IN_PROGRESS)
-			var is_valid_cell: bool = IsoMath.is_in_bounds(j.target_cell) and (nav == null or nav.is_walkable(j.target_cell))
-			if is_valid_state and is_valid_cell:
-				valid_existing.append(j)
+	for j in existing_builder_jobs:
+		var is_valid_state: bool = (j.state == JobManager.JobState.AVAILABLE or j.state == JobManager.JobState.RESERVED or j.state == JobManager.JobState.IN_PROGRESS)
+		var is_in_bounds: bool = IsoMath.is_in_bounds(j.target_cell)
+		var is_valid_cell: bool = is_in_bounds and \
+			(nav == null or nav.is_walkable(j.target_cell)) and \
+			world_data.terrain[j.target_cell.x][j.target_cell.y] != WorldGenerator.TerrainType.WATER and \
+			not world_data.occupancy[j.target_cell.x][j.target_cell.y]
+		var is_in_perimeter: bool = perimeter.has(j.target_cell)
+
+		if is_valid_state and is_valid_cell and is_in_perimeter:
+			valid_candidates.append(j)
+		else:
+			stale_jobs.append(j)
+
+	# 2. Group valid candidates by target_cell to eliminate duplicate-position jobs
+	var jobs_by_cell: Dictionary = {}
+	for j in valid_candidates:
+		if not jobs_by_cell.has(j.target_cell):
+			jobs_by_cell[j.target_cell] = []
+		jobs_by_cell[j.target_cell].append(j)
+
+	var unique_cell_jobs: Array[JobManager.JobData] = []
+	var duplicate_jobs_to_remove: Array[JobManager.JobData] = []
+
+	for cell in jobs_by_cell:
+		var list_at_cell: Array = jobs_by_cell[cell]
+		# Preserve a valid active assignment where possible: prefer IN_PROGRESS, then RESERVED, then AVAILABLE
+		var best_job: JobManager.JobData = list_at_cell[0]
+		for k in range(1, list_at_cell.size()):
+			var cand: JobManager.JobData = list_at_cell[k]
+			var prio_cand := 2 if cand.state == JobManager.JobState.IN_PROGRESS else (1 if cand.state == JobManager.JobState.RESERVED else 0)
+			var prio_best := 2 if best_job.state == JobManager.JobState.IN_PROGRESS else (1 if best_job.state == JobManager.JobState.RESERVED else 0)
+			if prio_cand > prio_best:
+				best_job = cand
+
+		unique_cell_jobs.append(best_job)
+		for j in list_at_cell:
+			if j != best_job:
+				duplicate_jobs_to_remove.append(j)
+
+	# 3. Enforce worker capacity and valid perimeter limits
+	var retained_jobs: Array[JobManager.JobData] = []
+	var excess_jobs_to_remove: Array[JobManager.JobData] = []
+
+	if unique_cell_jobs.size() > max_jobs:
+		# Prioritize preserving active assignments
+		unique_cell_jobs.sort_custom(func(a: JobManager.JobData, b: JobManager.JobData) -> bool:
+			var prio_a := 2 if a.state == JobManager.JobState.IN_PROGRESS else (1 if a.state == JobManager.JobState.RESERVED else 0)
+			var prio_b := 2 if b.state == JobManager.JobState.IN_PROGRESS else (1 if b.state == JobManager.JobState.RESERVED else 0)
+			if prio_a != prio_b:
+				return prio_a > prio_b
+			return a.id < b.id
+		)
+		for i in range(unique_cell_jobs.size()):
+			if i < max_jobs:
+				retained_jobs.append(unique_cell_jobs[i])
 			else:
-				stale_jobs.append(j)
+				excess_jobs_to_remove.append(unique_cell_jobs[i])
+	else:
+		retained_jobs = unique_cell_jobs
 
-	# Clean up any stale or invalid jobs for this project without touching other projects
-	for sj in stale_jobs:
-		job_mgr.remove_job(sj.id)
+	# 4. Safely clean up stale, duplicate, and excess jobs
+	var all_removals: Array[JobManager.JobData] = []
+	all_removals.append_array(stale_jobs)
+	all_removals.append_array(duplicate_jobs_to_remove)
+	all_removals.append_array(excess_jobs_to_remove)
 
-	# If we already have the required valid jobs, preserve and return them
-	if valid_existing.size() >= max_jobs:
-		if valid_existing.size() > max_jobs:
-			var kept: Array[JobManager.JobData] = []
-			for j in valid_existing:
-				if kept.size() < max_jobs:
-					kept.append(j)
-				elif j.state == JobManager.JobState.AVAILABLE:
-					job_mgr.remove_job(j.id)
-				else:
-					kept.append(j)
-			return kept
-		return valid_existing
+	var seen_remove_ids: Dictionary = {}
+	for rem_j in all_removals:
+		if not seen_remove_ids.has(rem_j.id):
+			seen_remove_ids[rem_j.id] = true
+			_safe_cleanup_construction_job(rem_j)
 
-	result.append_array(valid_existing)
-
-	# Avoid duplicate positions among newly spawned jobs
+	# 5. Spawn new jobs if retained count is below max_jobs
 	var used_cells: Array[Vector2i] = []
-	for vj in valid_existing:
-		used_cells.append(vj.target_cell)
+	for rj in retained_jobs:
+		used_cells.append(rj.target_cell)
 
-	for target_cell in perimeter:
-		if result.size() >= max_jobs:
+	for cell in perimeter:
+		if retained_jobs.size() >= max_jobs:
 			break
-		if target_cell in used_cells:
+		if cell in used_cells:
 			continue
 		var job = job_mgr.create_job(
 			"builder",
-			target_cell,
+			cell,
 			"Thi công xây dựng %s" % _get_building_display_name(b_type),
 			b_id,
 			float(b_data.get("construction_hours", 12.0)),
 			2,
 			false
 		)
-		result.append(job)
-		used_cells.append(target_cell)
+		retained_jobs.append(job)
+		used_cells.append(cell)
 
+	result = retained_jobs
 	return result
 
 func advance_construction_work(b_id: String, delta_hours: float) -> Dictionary:
