@@ -162,15 +162,18 @@ static func is_research_hall_active(world_data: WorldGenerator.WorldData) -> boo
 			return true
 	return false
 
-static func is_barracks_active(world_data: WorldGenerator.WorldData) -> bool:
+static func is_barracks_active(world_data: WorldGenerator.WorldData, barracks_id: String = "") -> bool:
 	if world_data == null:
 		return false
 	for b in world_data.buildings:
-		if b.get("type", "") == "barracks" and b.get("state", "active") == "active":
-			return true
+		if b.get("type", "") == "barracks":
+			var b_id: String = b.get("id", "")
+			if barracks_id == "" or b_id == barracks_id:
+				if b.get("state", "active") == "active":
+					return true
 	return false
 
-static func find_perimeter_cells(origin: Vector2i, size: Vector2i, world_data: WorldGenerator.WorldData, max_count: int = 2) -> Array[Vector2i]:
+static func find_perimeter_cells(origin: Vector2i, size: Vector2i, world_data: WorldGenerator.WorldData, max_count: int = 2, excluded_cells: Array = []) -> Array[Vector2i]:
 	var result: Array[Vector2i] = []
 	if world_data == null:
 		return result
@@ -195,6 +198,8 @@ static func find_perimeter_cells(origin: Vector2i, size: Vector2i, world_data: W
 		if world_data.terrain[cell.x][cell.y] == WorldGenerator.TerrainType.WATER:
 			continue
 		if world_data.occupancy[cell.x][cell.y]:
+			continue
+		if excluded_cells.has(cell):
 			continue
 		if not result.has(cell):
 			result.append(cell)

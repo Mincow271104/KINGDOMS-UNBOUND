@@ -398,7 +398,7 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 
 		cit.init_citizen(cid, cname, crole, c_cell, nav, job_mgr, workplace_mgr)
 		if world_data != null and cit.has_method("set_barracks_checker"):
-			cit.call("set_barracks_checker", func(): return BuildingSystem.is_barracks_active(world_data))
+			cit.call("set_barracks_checker", func(b_id: String = ""): return BuildingSystem.is_barracks_active(world_data, b_id))
 		cit.set("hunger", c.get("hunger", 10.0))
 		cit.set("fatigue", c.get("fatigue", 10.0))
 		cit.set("health", c.get("health", 100.0))

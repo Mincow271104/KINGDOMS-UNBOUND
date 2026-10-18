@@ -1,13 +1,13 @@
 extends SceneTree
 ## Automated Test Suite for KINGDOMS UNBOUND — Package 1G: Barracks & Guard Integration
-## Covers TC-BR.1 through TC-BR.7 with fail-closed assertions:
+## Covers TC-BR.1 through TC-BR.7 with comprehensive fail-closed assertions:
 ## TC-BR.1: Blueprint validation & configuration integrity
-## TC-BR.2: Placement rules, 3x3 footprint, bounds, water, collision, and cost reservation
-## TC-BR.3: BuildingSystem.is_barracks_active detection (active vs non-active states)
+## TC-BR.2: Placement rules, 3x3 footprint, bounds, water, occupancy, access, and rejection resource preservation
+## TC-BR.3: BuildingSystem.is_barracks_active detection (active, paused, damaged, under_construction, planned, destroyed, legacy, specific ID)
 ## TC-BR.4: Role assignment gating (UI dropdown, WorldView signal, CitizenController fail-closed)
-## TC-BR.5: Deterministic guard duty loop, unique perimeter posts, time pause safety, urgent needs release
-## TC-BR.6: Barracks downtime / inactivation behavior (job release, role preservation, reason update)
-## TC-BR.7: Full WorldView lifecycle, placement execution, sprite offset, and Save/Load persistence idempotency
+## TC-BR.5: Deterministic guard duty loop, genuine pause test, need decay, urgent needs release, constrained layouts & overlapping perimeter posts
+## TC-BR.6: Multi-Barracks regression & downtime behavior (individual building tracking, duty release, role retention, reactivation)
+## TC-BR.7: WorldView lifecycle, Save/Load idempotency (double-load verification, inactive barracks, legacy compatibility, zero resource deduction on load)
 
 const WorldViewScene: PackedScene = preload("res://scenes/world/world_view.tscn")
 const EconomyConfigScript = preload("res://scripts/economy/economy_config.gd")
@@ -164,29 +164,45 @@ func _test_tc_br_1_blueprint() -> bool:
 	return false
 
 # -----------------------------------------------------------------------------
-# TC-BR.2: Placement Rules, Footprint, Bounds, Water, Collision & Costs
+# TC-BR.2: Placement Rules, Rejection Coverage & Cost Reservation
 # -----------------------------------------------------------------------------
 func _test_tc_br_2_placement() -> bool:
-	print("--- Running TC-BR.2: Placement Rules, Bounds, Water, Occupancy & Cost Reservation ---")
+	print("--- Running TC-BR.2: Placement Rules, Rejection Coverage & Deductions ---")
 	var failures: int = 0
 
 	var world_data = WorldGenerator.generate(42)
 	var poor_rm = MockTestResourceManager.new({EconomyConfig.RES_WOOD: 10, EconomyConfig.RES_STONE: 5, EconomyConfig.RES_METAL: 0})
 	var rich_rm = MockTestResourceManager.new({EconomyConfig.RES_WOOD: 100, EconomyConfig.RES_STONE: 50, EconomyConfig.RES_METAL: 20})
 
-	# 1. Unaffordable check
+	# 1. Unaffordable check (can_place_building AND place_building rejection + resource unchanged)
+	var wood_before = poor_rm.get_available_stock(EconomyConfig.RES_WOOD)
+	var stone_before = poor_rm.get_available_stock(EconomyConfig.RES_STONE)
+	var metal_before = poor_rm.get_available_stock(EconomyConfig.RES_METAL)
+
 	var res_poor = BuildingSystem.can_place_building("barracks", Vector2i(20, 20), world_data, poor_rm)
 	if res_poor.get("valid", true):
 		printerr("FAIL: can_place_building should fail when resources are insufficient")
 		failures += 1
-	elif res_poor.get("reason") != "Không đủ tài nguyên xây dựng":
-		printerr("FAIL: Expected reason 'Không đủ tài nguyên xây dựng', got: %s" % res_poor.get("reason"))
+	var place_poor = BuildingSystem.place_building("barracks", Vector2i(20, 20), world_data, poor_rm)
+	if place_poor.get("success", true):
+		printerr("FAIL: place_building should fail when resources are insufficient")
+		failures += 1
+	if poor_rm.get_available_stock(EconomyConfig.RES_WOOD) != wood_before or poor_rm.get_available_stock(EconomyConfig.RES_STONE) != stone_before or poor_rm.get_available_stock(EconomyConfig.RES_METAL) != metal_before:
+		printerr("FAIL: Resources were modified despite rejected placement due to insufficient funds")
 		failures += 1
 
 	# 2. Out of bounds check (3x3 footprint at edge)
+	wood_before = rich_rm.get_available_stock(EconomyConfig.RES_WOOD)
 	var res_oob = BuildingSystem.can_place_building("barracks", Vector2i(63, 63), world_data, rich_rm)
 	if res_oob.get("valid", true):
 		printerr("FAIL: can_place_building should fail when 3x3 footprint exceeds map bounds")
+		failures += 1
+	var place_oob = BuildingSystem.place_building("barracks", Vector2i(63, 63), world_data, rich_rm)
+	if place_oob.get("success", true):
+		printerr("FAIL: place_building should fail when out of bounds")
+		failures += 1
+	if rich_rm.get_available_stock(EconomyConfig.RES_WOOD) != wood_before:
+		printerr("FAIL: Resources modified on out-of-bounds rejection")
 		failures += 1
 
 	# 3. Water terrain check
@@ -194,6 +210,13 @@ func _test_tc_br_2_placement() -> bool:
 	var res_water = BuildingSystem.can_place_building("barracks", Vector2i(20, 20), world_data, rich_rm)
 	if res_water.get("valid", true):
 		printerr("FAIL: can_place_building should fail on water terrain")
+		failures += 1
+	var place_water = BuildingSystem.place_building("barracks", Vector2i(20, 20), world_data, rich_rm)
+	if place_water.get("success", true):
+		printerr("FAIL: place_building should fail on water terrain")
+		failures += 1
+	if rich_rm.get_available_stock(EconomyConfig.RES_WOOD) != wood_before:
+		printerr("FAIL: Resources modified on water terrain rejection")
 		failures += 1
 	world_data.terrain[20][20] = WorldGenerator.TerrainType.GRASS
 
@@ -206,19 +229,57 @@ func _test_tc_br_2_placement() -> bool:
 	if res_occ.get("valid", true):
 		printerr("FAIL: can_place_building should fail when any of the 9 cells is occupied")
 		failures += 1
+	var place_occ = BuildingSystem.place_building("barracks", Vector2i(25, 25), world_data, rich_rm)
+	if place_occ.get("success", true):
+		printerr("FAIL: place_building should fail when occupied")
+		failures += 1
+	if rich_rm.get_available_stock(EconomyConfig.RES_WOOD) != wood_before:
+		printerr("FAIL: Resources modified on occupancy collision rejection")
+		failures += 1
 	world_data.occupancy[26][26] = false
 
-	# 5. Successful atomic placement
-	var wood_before = rich_rm.get_available_stock(EconomyConfig.RES_WOOD)
-	var stone_before = rich_rm.get_available_stock(EconomyConfig.RES_STONE)
-	var metal_before = rich_rm.get_available_stock(EconomyConfig.RES_METAL)
+	# 5. Unavailable access check (all perimeter cells blocked)
+	var access_test_origin := Vector2i(10, 10)
+	for ox in range(-1, 4):
+		for oy in range(-1, 4):
+			world_data.occupancy[access_test_origin.x + ox][access_test_origin.y + oy] = true
+	# Clear building footprint cells themselves
+	for ox in range(3):
+		for oy in range(3):
+			world_data.occupancy[access_test_origin.x + ox][access_test_origin.y + oy] = false
+			world_data.terrain[access_test_origin.x + ox][access_test_origin.y + oy] = WorldGenerator.TerrainType.GRASS
+
+	var res_no_access = BuildingSystem.can_place_building("barracks", access_test_origin, world_data, rich_rm)
+	if res_no_access.get("valid", true):
+		printerr("FAIL: can_place_building should fail when no perimeter access cell is available")
+		failures += 1
+	elif res_no_access.get("reason") != "Không có vị trí tiếp cận khả dụng":
+		printerr("FAIL: Expected reason 'Không có vị trí tiếp cận khả dụng', got: %s" % res_no_access.get("reason"))
+		failures += 1
+
+	var place_no_access = BuildingSystem.place_building("barracks", access_test_origin, world_data, rich_rm)
+	if place_no_access.get("success", true):
+		printerr("FAIL: place_building should fail when no access cell is available")
+		failures += 1
+	if rich_rm.get_available_stock(EconomyConfig.RES_WOOD) != wood_before:
+		printerr("FAIL: Resources modified on access cell rejection")
+		failures += 1
+
+	# Clear access test cells
+	for ox in range(-1, 4):
+		for oy in range(-1, 4):
+			world_data.occupancy[access_test_origin.x + ox][access_test_origin.y + oy] = false
+
+	# 6. Successful atomic placement
+	wood_before = rich_rm.get_available_stock(EconomyConfig.RES_WOOD)
+	stone_before = rich_rm.get_available_stock(EconomyConfig.RES_STONE)
+	metal_before = rich_rm.get_available_stock(EconomyConfig.RES_METAL)
 	var place_res = BuildingSystem.place_building("barracks", Vector2i(25, 25), world_data, rich_rm)
 
 	if not place_res.get("success", false):
 		printerr("FAIL: place_building failed unexpectedly: %s" % place_res.get("reason"))
 		failures += 1
 	else:
-		# Check exact resource deduction: 25 wood, 20 stone, 5 metal
 		if rich_rm.get_available_stock(EconomyConfig.RES_WOOD) != wood_before - 25:
 			printerr("FAIL: 25 wood was not deducted correctly")
 			failures += 1
@@ -229,7 +290,6 @@ func _test_tc_br_2_placement() -> bool:
 			printerr("FAIL: 5 metal was not deducted correctly")
 			failures += 1
 
-		# Check all 9 cells occupied
 		var all_occ: bool = true
 		for ox in range(3):
 			for oy in range(3):
@@ -239,7 +299,6 @@ func _test_tc_br_2_placement() -> bool:
 			printerr("FAIL: Not all 9 cells were marked as occupied for 3x3 barracks")
 			failures += 1
 
-		# Check building record
 		var b_data = place_res.get("building", {})
 		if b_data.get("type") != "barracks" or b_data.get("size") != Vector2i(3, 3) or b_data.get("state") != "active":
 			printerr("FAIL: Building data improperly recorded: %s" % str(b_data))
@@ -249,30 +308,36 @@ func _test_tc_br_2_placement() -> bool:
 	rich_rm.queue_free()
 
 	if failures == 0:
-		print("PASS TC-BR.2: Placement rules, 3x3 bounds, water, occupancy and atomic cost deduction verified")
+		print("PASS TC-BR.2: Placement rules, bounds, water, occupancy, access and rejection coverage verified")
 		return true
 	return false
 
 # -----------------------------------------------------------------------------
-# TC-BR.3: BuildingSystem.is_barracks_active Detection
+# TC-BR.3: BuildingSystem.is_barracks_active Detection & State Transitions
 # -----------------------------------------------------------------------------
 func _test_tc_br_3_barracks_detection() -> bool:
-	print("--- Running TC-BR.3: BuildingSystem.is_barracks_active Detection ---")
+	print("--- Running TC-BR.3: BuildingSystem.is_barracks_active Comprehensive State Coverage ---")
 	var failures: int = 0
 
 	var world_data = WorldGenerator.generate(123)
 
 	# 1. Null check
 	if BuildingSystem.is_barracks_active(null):
-		printerr("FAIL: is_barracks_active returned true for null world_data")
+		printerr("FAIL: is_barracks_active returned true for null world_data (global)")
+		failures += 1
+	if BuildingSystem.is_barracks_active(null, "some_id"):
+		printerr("FAIL: is_barracks_active returned true for null world_data with id")
 		failures += 1
 
 	# 2. Fresh world (no barracks)
 	if BuildingSystem.is_barracks_active(world_data):
-		printerr("FAIL: is_barracks_active returned true on fresh world with no barracks")
+		printerr("FAIL: is_barracks_active returned true on fresh world with no barracks (global)")
+		failures += 1
+	if BuildingSystem.is_barracks_active(world_data, "non_existent"):
+		printerr("FAIL: is_barracks_active returned true on fresh world with specific id")
 		failures += 1
 
-	# 3. Add barracks with different states
+	# 3. Add single barracks across all states:
 	var b_data = {
 		"id": "bld_barracks_test",
 		"type": "barracks",
@@ -287,11 +352,17 @@ func _test_tc_br_3_barracks_detection() -> bool:
 	if not BuildingSystem.is_barracks_active(world_data):
 		printerr("FAIL: is_barracks_active should return true when state is 'active'")
 		failures += 1
+	if not BuildingSystem.is_barracks_active(world_data, "bld_barracks_test"):
+		printerr("FAIL: is_barracks_active should return true for matching active id")
+		failures += 1
 
 	# State 'paused' -> false
 	b_data["state"] = "paused"
 	if BuildingSystem.is_barracks_active(world_data):
 		printerr("FAIL: is_barracks_active should return false when state is 'paused'")
+		failures += 1
+	if BuildingSystem.is_barracks_active(world_data, "bld_barracks_test"):
+		printerr("FAIL: is_barracks_active(id) should return false when state is 'paused'")
 		failures += 1
 
 	# State 'damaged' -> false
@@ -306,17 +377,60 @@ func _test_tc_br_3_barracks_detection() -> bool:
 		printerr("FAIL: is_barracks_active should return false when state is 'under_construction'")
 		failures += 1
 
+	# State 'planned' -> false
+	b_data["state"] = "planned"
+	if BuildingSystem.is_barracks_active(world_data):
+		printerr("FAIL: is_barracks_active should return false when state is 'planned'")
+		failures += 1
+
 	# State 'destroyed' -> false
 	b_data["state"] = "destroyed"
 	if BuildingSystem.is_barracks_active(world_data):
 		printerr("FAIL: is_barracks_active should return false when state is 'destroyed'")
 		failures += 1
 
-	# Remove test building
+	# Legacy record without 'state' property -> true (documented default is active)
+	b_data.erase("state")
+	if not BuildingSystem.is_barracks_active(world_data):
+		printerr("FAIL: is_barracks_active should return true for legacy building without state property")
+		failures += 1
+	if not BuildingSystem.is_barracks_active(world_data, "bld_barracks_test"):
+		printerr("FAIL: is_barracks_active(id) should return true for legacy building without state property")
+		failures += 1
+
+	# 4. Specific Building ID filtering across multiple Barracks:
+	b_data["state"] = "active"
+	var b_data_2 = {
+		"id": "bld_barracks_2",
+		"type": "barracks",
+		"cell": Vector2i(25, 25),
+		"size": Vector2i(3, 3),
+		"state": "paused",
+		"health": 100
+	}
+	world_data.buildings.append(b_data_2)
+
+	# Global active: true because b_data is active
+	if not BuildingSystem.is_barracks_active(world_data):
+		printerr("FAIL: Global is_barracks_active should be true when one of multiple barracks is active")
+		failures += 1
+	# Specific active: true for b_data, false for b_data_2
+	if not BuildingSystem.is_barracks_active(world_data, "bld_barracks_test"):
+		printerr("FAIL: is_barracks_active(bld_barracks_test) should be true")
+		failures += 1
+	if BuildingSystem.is_barracks_active(world_data, "bld_barracks_2"):
+		printerr("FAIL: is_barracks_active(bld_barracks_2) should be false because it is paused")
+		failures += 1
+	if BuildingSystem.is_barracks_active(world_data, "non_existent_id"):
+		printerr("FAIL: is_barracks_active(non_existent_id) should be false")
+		failures += 1
+
+	# Clean up test buildings
 	world_data.buildings.erase(b_data)
+	world_data.buildings.erase(b_data_2)
 
 	if failures == 0:
-		print("PASS TC-BR.3: is_barracks_active returns true ONLY for state == 'active'")
+		print("PASS TC-BR.3: is_barracks_active comprehensive state coverage and building-ID filtering verified")
 		return true
 	return false
 
@@ -340,14 +454,13 @@ func _test_tc_br_4_role_gating() -> bool:
 
 	# 1. Without active barracks:
 	var state_dict := {"active": false}
-	cit.set_barracks_checker(func(): return state_dict["active"])
-	hud.set_barracks_checker(func(): return state_dict["active"])
+	cit.set_barracks_checker(func(_b_id: String = ""): return state_dict["active"])
+	hud.set_barracks_checker(func(_b_id: String = ""): return state_dict["active"])
 
 	if hud.is_barracks_active():
 		printerr("FAIL: hud.is_barracks_active() should be false when checker returns false")
 		failures += 1
 
-	# Verify UI option 7 is disabled and annotated
 	var role_btn: OptionButton = hud.get_node_or_null("CitizenInspectPanel/MarginContainer/VBoxContainer/RoleHBox/RoleOptionBtn")
 	if role_btn == null:
 		printerr("FAIL: RoleOptionBtn not found in HUD")
@@ -372,9 +485,8 @@ func _test_tc_br_4_role_gating() -> bool:
 		printerr("FAIL: Expected status_reason 'Cần Doanh Trại đang hoạt động', got: %s" % cit.status_reason)
 		failures += 1
 
-	# Inspect citizen in HUD
+	# Inspect citizen in HUD and attempt selection via UI
 	hud.show_citizen_inspector(cit)
-	# Attempt to select option 7 via UI handler
 	hud._on_role_option_selected(7)
 	if cit.role != "idle":
 		printerr("FAIL: Citizen role changed via UI selection despite inactive barracks")
@@ -412,43 +524,26 @@ func _test_tc_br_4_role_gating() -> bool:
 	return false
 
 # -----------------------------------------------------------------------------
-# TC-BR.5: Deterministic Guard Duty Loop & Unique Perimeter Posts
+# TC-BR.5: Deterministic Guard Duty Loop, Genuine Pause Test & Need Decay
 # -----------------------------------------------------------------------------
 func _test_tc_br_5_guard_duty_loop() -> bool:
-	print("--- Running TC-BR.5: Deterministic Guard Duty Loop & Perimeter Posts ---")
+	print("--- Running TC-BR.5: Guard Duty Loop, Genuine Pause, Needs & Constrained Positions ---")
 	var failures: int = 0
 
 	var world_data = WorldGenerator.generate(77)
 	var origin := Vector2i(20, 20)
 	var size := Vector2i(3, 3)
 
-	# Ensure perimeter is clear of water / occupancy
 	for ox in range(-1, size.x + 1):
 		for oy in range(-1, size.y + 1):
 			var c := origin + Vector2i(ox, oy)
 			world_data.terrain[c.x][c.y] = WorldGenerator.TerrainType.GRASS
 			world_data.occupancy[c.x][c.y] = false
 
-	# Mark building footprint as occupied
 	for ox in range(size.x):
 		for oy in range(size.y):
 			world_data.occupancy[origin.x + ox][origin.y + oy] = true
 
-	var perimeter = BuildingSystem.find_perimeter_cells(origin, size, world_data, 2)
-	if perimeter.size() < 2:
-		printerr("FAIL: find_perimeter_cells returned fewer than 2 cells: %d" % perimeter.size())
-		failures += 1
-	elif perimeter[0] == perimeter[1]:
-		printerr("FAIL: find_perimeter_cells returned duplicate cells: %s" % str(perimeter))
-		failures += 1
-
-	for cell in perimeter:
-		# Check not inside footprint
-		if cell.x >= origin.x and cell.x < origin.x + size.x and cell.y >= origin.y and cell.y < origin.y + size.y:
-			printerr("FAIL: Perimeter cell %s is inside the building footprint" % str(cell))
-			failures += 1
-
-	# Test duty loop execution
 	var nav = GridNavigationScript.new(world_data)
 	var jm = JobManagerScript.new()
 
@@ -461,17 +556,17 @@ func _test_tc_br_5_guard_duty_loop() -> bool:
 	}
 	world_data.buildings.append(b_data)
 
-	# Register 2 guard jobs targeting perimeter
+	var perimeter = BuildingSystem.find_perimeter_cells(origin, size, world_data, 2)
 	var job1 = jm.create_job("guard", perimeter[0], "Canh gác vị trí 1", b_data["id"], 4.0, 2, true)
 	var job2 = jm.create_job("guard", perimeter[1], "Canh gác vị trí 2", b_data["id"], 4.0, 2, true)
 
 	var cit = CitizenControllerScript.new()
 	cit.init_citizen("cit_guard_loop", "Guard Tester", "idle", origin + Vector2i(5, 5), nav, jm, null)
-	cit.set_barracks_checker(func(): return BuildingSystem.is_barracks_active(world_data))
+	cit.set_barracks_checker(func(b_id: String = ""): return BuildingSystem.is_barracks_active(world_data, b_id))
 	cit.set_role("guard")
 	world_instance.add_child(cit)
 
-	# Process idle: should request job and start moving towards perimeter[0]
+	# 1. Process idle: citizen claims job and starts moving
 	cit._process_idle()
 	if cit.current_state != CitizenControllerScript.State.MOVING_TO_JOB:
 		printerr("FAIL: Citizen should be in MOVING_TO_JOB state, got: %d" % cit.current_state)
@@ -480,7 +575,7 @@ func _test_tc_br_5_guard_duty_loop() -> bool:
 		printerr("FAIL: Citizen did not acquire a guard job")
 		failures += 1
 
-	# Move directly to destination
+	# 2. Arrive at destination: switches to State.GUARDING
 	cit.position = IsoMathScript.map_to_local(cit.active_job.target_cell)
 	cit.current_cell = cit.active_job.target_cell
 	cit.current_path.clear()
@@ -496,122 +591,332 @@ func _test_tc_br_5_guard_duty_loop() -> bool:
 		printerr("FAIL: Expected status reason 'Đang canh gác tại Doanh Trại', got: %s" % cit.status_reason)
 		failures += 1
 
-	# Time pause safety: when speed == 0, delta_hours is 0
-	var work_before = cit.active_job.work_hours_done
-	cit._process_guarding(1.0) # TimeManager mock speed default is 1 if root has TimeManager
-	# Test urgent needs release while guarding
-	cit.hunger = 75.0 # >= 70 threshold
+	# 3. Fix D: Genuine TimeManager Pause Test
+	var tm = world_instance.get_node_or_null("/root/TimeManager")
+	var saved_speed: int = tm.current_speed if tm != null else 1
+	if tm != null:
+		tm.pause()
+		if not tm.is_paused():
+			printerr("FAIL: TimeManager.is_paused() should be true after pause()")
+			failures += 1
+
+	var work_before: float = cit.active_job.work_hours_done
+	var pos_before: Vector2 = cit.position
+
+	# Exercise actual citizen processing paths while paused
+	cit._process(1.0)
+	cit._process_guarding(1.0)
+
+	# Assert job progress and position do not change during pause
+	if cit.active_job.work_hours_done != work_before:
+		printerr("FAIL: Guard job progressed while paused! Before: %f, After: %f" % [work_before, cit.active_job.work_hours_done])
+		failures += 1
+	if cit.position != pos_before:
+		printerr("FAIL: Citizen moved while paused! Before: %s, After: %s" % [str(pos_before), str(cit.position)])
+		failures += 1
+
+	# Restore previous game speed reliably
+	if tm != null:
+		tm.set_speed(saved_speed)
+
+	# 4. Duty progress while unpaused
+	cit._process_guarding(1.0)
+	if cit.active_job.work_hours_done != work_before + 1.0:
+		printerr("FAIL: Guard job did not advance by 1.0 hr when unpaused. Got: %f" % cit.active_job.work_hours_done)
+		failures += 1
+
+	# Complete shift (remaining 3.0 hrs)
+	cit._process_guarding(3.0)
+	if cit.active_job != null:
+		printerr("FAIL: Citizen active_job should be cleared upon shift completion")
+		failures += 1
+	if cit.current_state != CitizenControllerScript.State.IDLE:
+		printerr("FAIL: Citizen should return to IDLE upon shift completion, got: %d" % cit.current_state)
+		failures += 1
+	if cit.status_reason != "Hoàn thành ca gác, sẵn sàng nhiệm vụ mới":
+		printerr("FAIL: Status reason mismatch post-shift: %s" % cit.status_reason)
+		failures += 1
+
+	# 5. Fix C: Work-related Need Decay during Guard Duty
+	cit.position = IsoMathScript.map_to_local(job1.target_cell)
+	cit.current_cell = job1.target_cell
+	cit.active_job = job1
+	job1.state = JobManagerScript.JobState.IN_PROGRESS
+	cit.current_state = CitizenControllerScript.State.GUARDING
+	cit.hunger = 20.0
+	cit.fatigue = 20.0
+
+	# Call _on_hour_passed
+	cit._on_hour_passed(1, 1)
+	if is_equal_approx(cit.hunger, 20.0):
+		printerr("FAIL: Guarding state did not increase hunger during _on_hour_passed")
+		failures += 1
+	elif not is_equal_approx(cit.hunger, 24.167):
+		printerr("FAIL: Expected hunger ~24.167, got: %f" % cit.hunger)
+		failures += 1
+
+	if is_equal_approx(cit.fatigue, 20.0):
+		printerr("FAIL: Guarding state did not increase fatigue during _on_hour_passed")
+		failures += 1
+	elif not is_equal_approx(cit.fatigue, 24.0):
+		printerr("FAIL: Expected fatigue ~24.0, got: %f" % cit.fatigue)
+		failures += 1
+
+	# 6. Urgent Needs Interruption while Guarding
+	cit.hunger = 72.0 # Threshold >= 70
 	cit._process_guarding(1.0)
 	if cit.active_job != null:
-		printerr("FAIL: Active job should have been released due to hunger >= 70")
+		printerr("FAIL: Active guard job should be released when hunger >= 70")
 		failures += 1
 	if cit.current_state != CitizenControllerScript.State.SEEKING_FOOD:
-		printerr("FAIL: Citizen should switch to SEEKING_FOOD, got state: %d" % cit.current_state)
+		printerr("FAIL: Citizen should switch to SEEKING_FOOD, got: %d" % cit.current_state)
+		failures += 1
+	if cit.role != "guard":
+		printerr("FAIL: Citizen role must remain 'guard' when seeking food, got: %s" % cit.role)
+		failures += 1
+
+	# 7. Constrained layout: only 1 valid perimeter post available
+	var constr_origin := Vector2i(40, 40)
+	for ox in range(-1, 4):
+		for oy in range(-1, 4):
+			world_data.terrain[constr_origin.x + ox][constr_origin.y + oy] = WorldGenerator.TerrainType.WATER
+	# Make footprint and exactly 1 perimeter post walkable
+	for ox in range(3):
+		for oy in range(3):
+			world_data.terrain[constr_origin.x + ox][constr_origin.y + oy] = WorldGenerator.TerrainType.GRASS
+			world_data.occupancy[constr_origin.x + ox][constr_origin.y + oy] = true
+	var single_valid_post := constr_origin + Vector2i(0, 3)
+	world_data.terrain[single_valid_post.x][single_valid_post.y] = WorldGenerator.TerrainType.GRASS
+	world_data.occupancy[single_valid_post.x][single_valid_post.y] = false
+
+	var constr_b_data := {
+		"id": "bld_barracks_constr",
+		"type": "barracks",
+		"cell": constr_origin,
+		"size": Vector2i(3, 3),
+		"state": "active"
+	}
+	world_data.buildings.append(constr_b_data)
+
+	var constr_jobs = world_instance.register_barracks_jobs(constr_b_data, world_data)
+	if constr_jobs.size() != 1:
+		printerr("FAIL: Expected exactly 1 guard job for constrained barracks with 1 post, got: %d" % constr_jobs.size())
+		failures += 1
+	elif constr_jobs[0].target_cell != single_valid_post:
+		printerr("FAIL: Constrained job target mismatch. Expected %s, got: %s" % [str(single_valid_post), str(constr_jobs[0].target_cell)])
+		failures += 1
+
+	# 8. Overlapping Barracks Perimeter Posts Test
+	var bld_near_1 := {
+		"id": "bld_barracks_near_1",
+		"type": "barracks",
+		"cell": Vector2i(4, 4),
+		"size": Vector2i(3, 3),
+		"state": "active"
+	}
+	var bld_near_2 := {
+		"id": "bld_barracks_near_2",
+		"type": "barracks",
+		"cell": Vector2i(8, 4), # Separated by 1 cell (x=7 is shared perimeter boundary)
+		"size": Vector2i(3, 3),
+		"state": "active"
+	}
+	for ox in range(2, 13):
+		for oy in range(2, 9):
+			world_data.terrain[ox][oy] = WorldGenerator.TerrainType.GRASS
+			world_data.occupancy[ox][oy] = false
+
+	for ox in range(3):
+		for oy in range(3):
+			world_data.occupancy[4 + ox][4 + oy] = true
+			world_data.occupancy[8 + ox][4 + oy] = true
+
+	world_data.buildings.append(bld_near_1)
+	world_data.buildings.append(bld_near_2)
+
+	var near_jobs_1 = world_instance.register_barracks_jobs(bld_near_1, world_data)
+	var near_jobs_2 = world_instance.register_barracks_jobs(bld_near_2, world_data)
+
+	if near_jobs_1.size() > 2 or near_jobs_2.size() > 2:
+		printerr("FAIL: Guard jobs exceeded configured capacity (2)")
+		failures += 1
+
+	var all_near_cells: Array[Vector2i] = []
+	for j in near_jobs_1:
+		all_near_cells.append(j.target_cell)
+	for j in near_jobs_2:
+		if all_near_cells.has(j.target_cell):
+			printerr("FAIL: Conflicting overlapping guard post detected between barracks: %s" % str(j.target_cell))
+			failures += 1
+		all_near_cells.append(j.target_cell)
+
+	# 9. Guard Post Becomes Occupied
+	cit.position = IsoMathScript.map_to_local(job2.target_cell)
+	cit.current_cell = job2.target_cell
+	cit.active_job = job2
+	job2.state = JobManagerScript.JobState.IN_PROGRESS
+	cit.current_state = CitizenControllerScript.State.GUARDING
+	cit.hunger = 10.0
+	cit.fatigue = 10.0
+
+	# Mark the post occupied
+	world_data.occupancy[job2.target_cell.x][job2.target_cell.y] = true
+	cit._process_guarding(1.0)
+	if cit.active_job != null:
+		printerr("FAIL: Guard duty should be released when guard post becomes occupied")
+		failures += 1
+	if cit.status_reason != "Không thể tiếp cận nơi làm việc (bị chặn đường)":
+		printerr("FAIL: Status reason mismatch on occupied post: %s" % cit.status_reason)
 		failures += 1
 
 	cit.queue_free()
+	world_instance.job_mgr.remove_jobs_for_building("bld_barracks_constr")
+	world_instance.job_mgr.remove_jobs_for_building("bld_barracks_near_1")
+	world_instance.job_mgr.remove_jobs_for_building("bld_barracks_near_2")
 	world_data.buildings.erase(b_data)
+	world_data.buildings.erase(constr_b_data)
+	world_data.buildings.erase(bld_near_1)
+	world_data.buildings.erase(bld_near_2)
 
 	if failures == 0:
-		print("PASS TC-BR.5: Deterministic guard duty loop, unique posts, and urgent needs release verified")
+		print("PASS TC-BR.5: Guard duty loop, genuine pause test, need decay, urgent needs & unique posts verified")
 		return true
 	return false
 
 # -----------------------------------------------------------------------------
-# TC-BR.6: Barracks Downtime / Inactivation Behavior
+# TC-BR.6: Multi-Barracks Regression & Downtime Behavior (Fix E)
 # -----------------------------------------------------------------------------
 func _test_tc_br_6_barracks_downtime_inactivation() -> bool:
-	print("--- Running TC-BR.6: Barracks Downtime & Inactivation Behavior ---")
+	print("--- Running TC-BR.6: Multi-Barracks Regression & Downtime Behavior ---")
 	var failures: int = 0
 
 	var world_data = WorldGenerator.generate(88)
 	var nav = GridNavigationScript.new(world_data)
 	var jm = JobManagerScript.new()
 
-	var b_data := {
-		"id": "bld_barracks_downtime",
+	# Create two Barracks records with distinct IDs
+	var b_active := {
+		"id": "bld_barracks_active",
 		"type": "barracks",
 		"cell": Vector2i(20, 20),
 		"size": Vector2i(3, 3),
 		"state": "active"
 	}
-	world_data.buildings.append(b_data)
+	var b_paused := {
+		"id": "bld_barracks_paused",
+		"type": "barracks",
+		"cell": Vector2i(30, 20),
+		"size": Vector2i(3, 3),
+		"state": "paused"
+	}
+	world_data.buildings.append(b_active)
+	world_data.buildings.append(b_paused)
 
-	var job = jm.create_job("guard", Vector2i(19, 20), "Canh gác", b_data["id"], 4.0, 2, true)
+	# Global Guard eligibility is true when active barracks exists
+	if not BuildingSystem.is_barracks_active(world_data):
+		printerr("FAIL: Global is_barracks_active should be true with one active barracks")
+		failures += 1
+
+	# Clear surrounding cells
+	for ox in range(-1, 4):
+		for oy in range(-1, 4):
+			world_data.terrain[20 + ox][20 + oy] = WorldGenerator.TerrainType.GRASS
+			world_data.occupancy[20 + ox][20 + oy] = false
+			world_data.terrain[30 + ox][20 + oy] = WorldGenerator.TerrainType.GRASS
+			world_data.occupancy[30 + ox][20 + oy] = false
+
+	# Register jobs for both buildings
+	var job_active = jm.create_job("guard", Vector2i(19, 20), "Canh gác Active", b_active["id"], 4.0, 2, true)
+	var job_paused = jm.create_job("guard", Vector2i(29, 20), "Canh gác Paused", b_paused["id"], 4.0, 2, true)
+
+	jm.set_barracks_checker(func(b_id: String = ""): return BuildingSystem.is_barracks_active(world_data, b_id))
 
 	var cit = CitizenControllerScript.new()
-	cit.init_citizen("cit_guard_down", "Guard Downtime Tester", "idle", Vector2i(19, 20), nav, jm, null)
-	cit.set_barracks_checker(func(): return BuildingSystem.is_barracks_active(world_data))
+	cit.init_citizen("cit_multi_barracks", "Multi-Barracks Guard", "idle", Vector2i(25, 20), nav, jm, null)
+	cit.set_barracks_checker(func(b_id: String = ""): return BuildingSystem.is_barracks_active(world_data, b_id))
 	cit.set_role("guard")
 	world_instance.add_child(cit)
 
-	# Assign job and enter GUARDING state
-	cit.active_job = job
-	job.state = JobManagerScript.JobState.IN_PROGRESS
-	job.worker_id = cit.citizen_id
-	cit.current_state = CitizenControllerScript.State.GUARDING
-	cit._update_reason()
-
-	if cit.status_reason != "Đang canh gác tại Doanh Trại":
-		printerr("FAIL: Initial guarding reason mismatch: %s" % cit.status_reason)
+	# 1. Job selection excludes paused barracks job
+	# Verify directly that job_paused is not executable
+	if jm._is_job_executable(job_paused, null, null, Callable(), nav):
+		printerr("FAIL: job_paused should not be executable while its barracks is paused")
 		failures += 1
 
-	# Deactivate Barracks (simulate damage / pause)
-	b_data["state"] = "paused"
-	if BuildingSystem.is_barracks_active(world_data):
-		printerr("FAIL: Barracks should not be active when paused")
+	if not jm._is_job_executable(job_active, null, null, Callable(), nav):
+		printerr("FAIL: job_active should be executable while its barracks is active")
 		failures += 1
 
-	# Citizen runs guarding process while barracks is inactive
+	# When requesting work, citizen must claim job_active, NOT job_paused
+	cit._process_idle()
+	if cit.active_job == null or cit.active_job.id != job_active.id:
+		printerr("FAIL: Citizen claimed wrong job. Expected %s, got: %s" % [job_active.id, "null" if cit.active_job == null else cit.active_job.id])
+		failures += 1
+
+	# Arrive at duty post
+	cit.position = IsoMathScript.map_to_local(job_active.target_cell)
+	cit.current_cell = job_active.target_cell
+	cit.current_path.clear()
+	cit._arrive_at_destination()
+
+	if cit.current_state != CitizenControllerScript.State.GUARDING:
+		printerr("FAIL: Citizen should be in GUARDING state")
+		failures += 1
+
+	# 2. Deactivating the specific Barracks tied to this job releases duty even when another Barracks is active!
+	b_active["state"] = "paused"
+	b_paused["state"] = "active" # Swap: another barracks is active, but b_active is paused!
+
+	# Global active is still true!
+	if not BuildingSystem.is_barracks_active(world_data):
+		printerr("FAIL: Global is_barracks_active should still be true")
+		failures += 1
+
 	cit._process_guarding(0.5)
 
 	if cit.active_job != null:
-		printerr("FAIL: Citizen should have released active job upon barracks inactivation")
+		printerr("FAIL: Active job should have been released because ITS specific barracks was paused")
 		failures += 1
 	if cit.current_state != CitizenControllerScript.State.IDLE:
-		printerr("FAIL: Citizen should return to IDLE state upon inactivation, got: %d" % cit.current_state)
+		printerr("FAIL: Citizen should return to IDLE upon specific barracks pause")
 		failures += 1
 	if cit.role != "guard":
-		printerr("FAIL: Citizen role must NOT be erased during downtime, got: %s" % cit.role)
+		printerr("FAIL: Citizen role must remain 'guard', got: %s" % cit.role)
 		failures += 1
 	if cit.status_reason != "Cần Doanh Trại đang hoạt động":
 		printerr("FAIL: Expected status reason 'Cần Doanh Trại đang hoạt động', got: %s" % cit.status_reason)
 		failures += 1
 
-	# Verify job was released back to AVAILABLE (not destroyed or corrupted)
-	if job.state != JobManagerScript.JobState.AVAILABLE:
-		printerr("FAIL: Guard job was not restored to AVAILABLE state: %d" % job.state)
+	# 3. Citizen can now claim the other active barracks job
+	cit._process_idle()
+	if cit.active_job == null or cit.active_job.id != job_paused.id:
+		printerr("FAIL: Citizen should now claim job for the currently active barracks")
 		failures += 1
 
-	# Citizen in idle tries to request job while barracks is inactive
-	cit._process_idle()
-	if cit.active_job != null:
-		printerr("FAIL: Guard should not acquire jobs while barracks is inactive")
-		failures += 1
-	if cit.status_reason != "Cần Doanh Trại đang hoạt động":
-		printerr("FAIL: Status reason should stay 'Cần Doanh Trại đang hoạt động', got: %s" % cit.status_reason)
-		failures += 1
-
-	# Reactivate Barracks
-	b_data["state"] = "active"
-	cit._process_idle()
-	if cit.active_job == null:
-		printerr("FAIL: Guard should re-acquire guard job once barracks is active again")
+	# 4. Reactivation of b_active restores eligibility without duplicate jobs
+	b_active["state"] = "active"
+	var initial_jobs = world_instance.register_barracks_jobs(b_active, world_data)
+	var count_after_first = world_instance.job_mgr.get_jobs_for_building(b_active["id"]).size()
+	var reactivated_jobs = world_instance.register_barracks_jobs(b_active, world_data)
+	if world_instance.job_mgr.get_jobs_for_building(b_active["id"]).size() != count_after_first:
+		printerr("FAIL: Duplicate jobs created on barracks reactivation")
 		failures += 1
 
 	cit.queue_free()
-	world_data.buildings.erase(b_data)
+	world_instance.job_mgr.remove_jobs_for_building(b_active["id"])
+	world_data.buildings.erase(b_active)
+	world_data.buildings.erase(b_paused)
 
 	if failures == 0:
-		print("PASS TC-BR.6: Barracks downtime preserves role and gracefully pauses duty loop")
+		print("PASS TC-BR.6: Multi-barracks tracking, individual duty release and role retention verified")
 		return true
 	return false
 
 # -----------------------------------------------------------------------------
-# TC-BR.7: WorldView Lifecycle, Placement & Save/Load Persistence Idempotency
+# TC-BR.7: WorldView Lifecycle, Idempotency & Save/Load Persistence (Fix F)
 # -----------------------------------------------------------------------------
 func _test_tc_br_7_worldview_and_save_load() -> bool:
-	print("--- Running TC-BR.7: WorldView Lifecycle & Save/Load Persistence ---")
+	print("--- Running TC-BR.7: WorldView Placement, Double-Load Idempotency & Legacy Compatibility ---")
 	var failures: int = 0
 
 	if world_instance == null:
@@ -671,13 +976,24 @@ func _test_tc_br_7_worldview_and_save_load() -> bool:
 	var b_data = place_res.get("building")
 	var b_id: String = b_data.get("id")
 
-	# Check guard jobs created
 	var guard_jobs = world_instance.job_mgr.get_jobs_for_building(b_id)
 	if guard_jobs.size() != 2:
 		printerr("FAIL: Expected exactly 2 guard jobs for barracks, got: %d" % guard_jobs.size())
 		failures += 1
 
-	# 4. Save & Load persistence
+	# Assign citizen 1 to Guard role
+	var test_cit = world_instance.citizen_list[0]
+	test_cit.set_role("guard")
+	if test_cit.role != "guard":
+		printerr("FAIL: Failed to assign citizen to guard role")
+		failures += 1
+
+	# Record resources before save
+	var wood_before_save: int = rm.get_available_stock(EconomyConfig.RES_WOOD)
+	var stone_before_save: int = rm.get_available_stock(EconomyConfig.RES_STONE)
+	var metal_before_save: int = rm.get_available_stock(EconomyConfig.RES_METAL)
+
+	# 4. Save to file
 	var save_path := "user://test_package_1g_barracks.json"
 	var save_res = SaveManagerScript.save_to_file(world_instance, save_path)
 	if not save_res.get("success", false):
@@ -691,26 +1007,101 @@ func _test_tc_br_7_worldview_and_save_load() -> bool:
 		failures += 1
 		return false
 
-	# Apply loaded state to world_instance
-	var apply_res = SaveManagerScript.apply_loaded_state_to_world(world_instance, load_res["data"])
-	if not apply_res.get("success", false):
-		printerr("FAIL: SaveManager.apply_loaded_state_to_world failed: %s" % apply_res.get("error"))
+	# 5. First Load Application
+	var apply_res_1 = SaveManagerScript.apply_loaded_state_to_world(world_instance, load_res["data"])
+	if not apply_res_1.get("success", false):
+		printerr("FAIL: First apply_loaded_state_to_world failed: %s" % apply_res_1.get("error"))
 		failures += 1
 		return false
 
-	# Verify zero node duplication
+	# Assert building record, node count, guard role and jobs
 	var count_placed_nodes: int = 0
 	for child in world_instance.buildings_container.get_children():
 		if "barracks" in child.name:
 			count_placed_nodes += 1
 	if count_placed_nodes != 1:
-		printerr("FAIL: Expected exactly 1 visual barracks node after load, got: %d" % count_placed_nodes)
+		printerr("FAIL: Expected exactly 1 visual barracks node after 1st load, got: %d" % count_placed_nodes)
 		failures += 1
 
-	# Verify zero job duplication after load
-	var jobs_after_load = world_instance.job_mgr.get_jobs_for_building(b_id)
-	if jobs_after_load.size() != 2:
-		printerr("FAIL: Expected exactly 2 guard jobs after load, got: %d" % jobs_after_load.size())
+	var jobs_load_1 = world_instance.job_mgr.get_jobs_for_building(b_id)
+	if jobs_load_1.size() != 2:
+		printerr("FAIL: Expected exactly 2 guard jobs after 1st load, got: %d" % jobs_load_1.size())
+		failures += 1
+
+	var cit_restored = world_instance.citizens_by_id.get(test_cit.citizen_id)
+	if cit_restored == null or cit_restored.role != "guard":
+		printerr("FAIL: Citizen guard role was not preserved after 1st load")
+		failures += 1
+
+	# Fix F (Requirement 9): Verify load never deducts construction resources again
+	if rm.get_available_stock(EconomyConfig.RES_WOOD) != wood_before_save or rm.get_available_stock(EconomyConfig.RES_STONE) != stone_before_save or rm.get_available_stock(EconomyConfig.RES_METAL) != metal_before_save:
+		printerr("FAIL: Resources were deducted during load!")
+		failures += 1
+
+	# 6. Fix F (Requirements 6 & 7): Double-Load Idempotency Test
+	var apply_res_2 = SaveManagerScript.apply_loaded_state_to_world(world_instance, load_res["data"])
+	if not apply_res_2.get("success", false):
+		printerr("FAIL: Second apply_loaded_state_to_world failed: %s" % apply_res_2.get("error"))
+		failures += 1
+		return false
+
+	var count_nodes_2: int = 0
+	for child in world_instance.buildings_container.get_children():
+		if "barracks" in child.name:
+			count_nodes_2 += 1
+	if count_nodes_2 != 1:
+		printerr("FAIL: Node duplication detected after 2nd load! Expected 1, got: %d" % count_nodes_2)
+		failures += 1
+
+	var jobs_load_2 = world_instance.job_mgr.get_jobs_for_building(b_id)
+	if jobs_load_2.size() != 2:
+		printerr("FAIL: Job duplication detected after 2nd load! Expected 2, got: %d" % jobs_load_2.size())
+		failures += 1
+
+	if jobs_load_2.size() == 2 and jobs_load_2[0].target_cell == jobs_load_2[1].target_cell:
+		printerr("FAIL: Target cell duplicated on 2nd load: %s" % str(jobs_load_2[0].target_cell))
+		failures += 1
+
+	if rm.get_available_stock(EconomyConfig.RES_WOOD) != wood_before_save:
+		printerr("FAIL: Resources changed on 2nd load application")
+		failures += 1
+
+	# 7. Fix F (Requirement 8): Inactive Barracks Save/Load test
+	# Modify building record in loaded_data to paused state
+	var inactive_save_data = load_res["data"].duplicate(true)
+	for b in inactive_save_data["buildings"]:
+		if b.get("type") == "barracks":
+			b["state"] = "paused"
+
+	var apply_res_inactive = SaveManagerScript.apply_loaded_state_to_world(world_instance, inactive_save_data)
+	if not apply_res_inactive.get("success", false):
+		printerr("FAIL: Inactive save apply failed")
+		failures += 1
+
+	# Inactive barracks must remain paused and must NOT receive executable guard jobs
+	if BuildingSystem.is_barracks_active(world_instance.world_data, b_id):
+		printerr("FAIL: Inactive barracks became active after load!")
+		failures += 1
+
+	var inactive_jobs = world_instance.job_mgr.get_jobs_for_building(b_id)
+	if not inactive_jobs.is_empty():
+		printerr("FAIL: Inactive barracks received guard jobs on load: %d" % inactive_jobs.size())
+		failures += 1
+
+	# 8. Fix F (Requirement 8): Legacy save without Barracks compatibility
+	var legacy_save_data = load_res["data"].duplicate(true)
+	var legacy_buildings: Array = []
+	for b in legacy_save_data["buildings"]:
+		if b.get("type") != "barracks":
+			legacy_buildings.append(b)
+	legacy_save_data["buildings"] = legacy_buildings
+
+	var apply_res_legacy = SaveManagerScript.apply_loaded_state_to_world(world_instance, legacy_save_data)
+	if not apply_res_legacy.get("success", false):
+		printerr("FAIL: Legacy save without barracks failed to apply: %s" % apply_res_legacy.get("error"))
+		failures += 1
+	if BuildingSystem.is_barracks_active(world_instance.world_data):
+		printerr("FAIL: is_barracks_active should be false on legacy save without barracks")
 		failures += 1
 
 	# Clean up save file
@@ -721,6 +1112,6 @@ func _test_tc_br_7_worldview_and_save_load() -> bool:
 		dir.remove(save_path + ".bak")
 
 	if failures == 0:
-		print("PASS TC-BR.7: WorldView placement, guard job creation, and Save/Load idempotency verified")
+		print("PASS TC-BR.7: WorldView placement, double-load idempotency & legacy compatibility verified")
 		return true
 	return false

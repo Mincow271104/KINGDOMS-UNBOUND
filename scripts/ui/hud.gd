@@ -89,9 +89,12 @@ func set_barracks_checker(checker: Callable) -> void:
 	barracks_checker = checker
 	_refresh_role_options()
 
-func is_barracks_active() -> bool:
+func is_barracks_active(barracks_id: String = "") -> bool:
 	if barracks_checker.is_valid():
-		return barracks_checker.call()
+		var argc := barracks_checker.get_argument_count()
+		if argc != 0:
+			return bool(barracks_checker.call(barracks_id))
+		return bool(barracks_checker.call())
 	return false
 
 func _ready() -> void:

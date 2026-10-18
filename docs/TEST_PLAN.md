@@ -155,12 +155,12 @@ When Godot Editor is running with the MCP plugin:
 | 2026-10-12 | TC-9.1 | 100 Citizen Simulation Stress Test | **PASS** | 145.5 FPS at 1x (6.87 ms), 144.9 FPS at 3x (6.90 ms); 72 continuous simulation hours executed in 238.65 ms in `test_stress_100_citizens.gd` |
 | 2026-10-12 | TC-9.2 | Procedural Audio Synthesis Subsystem | **PASS** | 8 16-bit PCM streams, polyphonic pool, volume curves, mute toggle verified in `test_audio.gd` |
 | 2026-10-18 | TC-BR.1 | Barracks Blueprint Validation & Configuration | **PASS** | Footprint 3x3, cost 25W/20S/5M, 2 guards verified in `test_barracks.gd` |
-| 2026-10-18 | TC-BR.2 | Barracks Placement, Bounds, Water & Deductions | **PASS** | Placement validity, atomic deduction, 9-cell occupancy verified in `test_barracks.gd` |
-| 2026-10-18 | TC-BR.3 | is_barracks_active Detection & State Checks | **PASS** | Active only detection across states (active, paused, damaged, destroyed) in `test_barracks.gd` |
+| 2026-10-18 | TC-BR.2 | Barracks Placement, Bounds, Water & Deductions | **PASS** | Placement validity, rejection coverage (zero deduction), 9-cell occupancy verified in `test_barracks.gd` |
+| 2026-10-18 | TC-BR.3 | is_barracks_active Detection & State Checks | **PASS** | Active only detection across states (active, paused, damaged, under_construction, planned, destroyed) and building ID filtering in `test_barracks.gd` |
 | 2026-10-18 | TC-BR.4 | Guard Role Gating at UI & Controller Layers | **PASS** | Fail-closed role gating and annotation verified in `test_barracks.gd` |
-| 2026-10-18 | TC-BR.5 | Deterministic Guard Duty Loop & Perimeter Posts | **PASS** | Unique perimeter post navigation, shift completion, needs release in `test_barracks.gd` |
-| 2026-10-18 | TC-BR.6 | Barracks Downtime & Duty Inactivation Behavior | **PASS** | Duty pause, status reason update, role retention in `test_barracks.gd` |
-| 2026-10-18 | TC-BR.7 | WorldView Lifecycle & Save/Load Persistence | **PASS** | Placement, zero node/job duplication after load verified in `test_barracks.gd` |
+| 2026-10-18 | TC-BR.5 | Deterministic Guard Duty Loop & Perimeter Posts | **PASS** | Real TimeManager pause test, need decay (+4.167H/+4.0F), hunger>=70 release, constrained 1-post and overlapping layout isolation in `test_barracks.gd` |
+| 2026-10-18 | TC-BR.6 | Multi-Barracks Segregation & Downtime Behavior | **PASS** | Multi-barracks duty tracking, individual duty release on building downtime, role retention, and reactivation in `test_barracks.gd` |
+| 2026-10-18 | TC-BR.7 | WorldView Lifecycle & Save/Load Persistence | **PASS** | Placement, double-load idempotency, inactive barracks load test, legacy save compatibility, and zero resource deduction on load verified in `test_barracks.gd` |
 
 ### Phase 8: Save/Load Persistence
 - **TC-8.1: Save → Load → Save Canonical Equivalence**
@@ -186,8 +186,8 @@ When Godot Editor is running with the MCP plugin:
   - *Acceptance Criteria:* All 8 procedural sound streams generate and play cleanly without external file dependencies.
   - *Status:* **PASSED** (2026-10-12, Exit Code 0: 5/5 subtests passed).
 
-### Package 1G: Barracks & Guard Integration
+### Package 1G: Barracks & Guard Integration (Review Fix)
 - **TC-BR.1 to TC-BR.7: Barracks & Guard Duty Suite**
   - *Script:* `res://scripts/test/test_barracks.gd`
-  - *Acceptance Criteria:* Blueprint validity, 3x3 footprint placement, active-only state detection, fail-closed Guard role gating, deterministic perimeter sentry loop, downtime pause safety, and idempotent save/load persistence.
+  - *Acceptance Criteria:* Authoritative blueprint, rejection coverage with 0 resource deductions, comprehensive active-state & building-ID filtering, fail-closed role gating, genuine TimeManager pause verification, working need decay (+4.167H/+4.0F), constrained layout & overlapping perimeter deduplication, multi-barracks duty segregation, double-load idempotency, inactive barracks load test, legacy save compatibility.
   - *Status:* **PASSED** (2026-10-18, Exit Code 0: 7/7 tests passed).

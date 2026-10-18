@@ -75,13 +75,16 @@ func init_citizen(p_id: String, p_name: String, p_role: String, p_cell: Vector2i
 func set_barracks_checker(checker: Callable) -> void:
 	barracks_checker = checker
 
-func is_barracks_active() -> bool:
+func is_barracks_active(barracks_id: String = "") -> bool:
 	if barracks_checker.is_valid():
+		var argc := barracks_checker.get_argument_count()
+		if argc != 0:
+			return bool(barracks_checker.call(barracks_id))
 		return bool(barracks_checker.call())
 	if is_inside_tree():
 		var wv = get_tree().root.find_child("WorldView", true, false)
 		if wv != null and wv.get("world_data") != null:
-			return BuildingSystem.is_barracks_active(wv.world_data)
+			return BuildingSystem.is_barracks_active(wv.world_data, barracks_id)
 	return false
 
 func select() -> void:
@@ -131,7 +134,8 @@ func _process_idle() -> void:
 			return
 
 		var rm_node: Node = get_node_or_null("/root/ResourceManager") if (is_inside_tree() and has_node("/root/ResourceManager")) else null
-		var job = job_mgr.request_job(citizen_id, role, current_cell, nav, workplace_mgr, rm_node)
+		var filter_cb := func(b_id: String) -> bool: return is_barracks_active(b_id) if role == "guard" else true
+		var job = job_mgr.request_job(citizen_id, role, current_cell, nav, workplace_mgr, rm_node, filter_cb)
 		if job != null:
 			active_job = job
 			var target_dest: Vector2i = job.source_cell if job.type == "hauler" else job.target_cell
@@ -297,12 +301,21 @@ func _process_guarding(delta: float) -> void:
 		current_state = State.IDLE
 		return
 
-	# If barracks becomes inactive while on duty, stop duty
-	if not is_barracks_active():
+	# If the specific barracks for this job becomes inactive while on duty, stop duty
+	var target_b_id: String = active_job.target_building_id if active_job != null else ""
+	if not is_barracks_active(target_b_id):
 		job_mgr.release_job(active_job)
 		active_job = null
 		current_state = State.IDLE
 		status_reason = "Cần Doanh Trại đang hoạt động"
+		return
+
+	# If guard post became occupied/unwalkable, release duty
+	if nav != null and not nav.is_cell_walkable(current_cell):
+		job_mgr.release_job(active_job)
+		active_job = null
+		current_state = State.IDLE
+		status_reason = "Không thể tiếp cận nơi làm việc (bị chặn đường)"
 		return
 
 	# Check urgent needs
@@ -359,7 +372,7 @@ func _seek_rest() -> void:
 
 func _on_hour_passed(_hour: int, _day: int) -> void:
 	match current_state:
-		State.WORKING, State.HAULING:
+		State.WORKING, State.HAULING, State.GUARDING:
 			hunger = minf(100.0, hunger + 4.167)
 			fatigue = minf(100.0, fatigue + 4.0)
 		State.IDLE:

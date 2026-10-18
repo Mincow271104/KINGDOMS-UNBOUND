@@ -128,3 +128,4 @@
 - [x] **TASK-1G.6:** WorldView lifecycle integration, guard job registration, save/load workplace sync, and citizen checker attachment.
 - [x] **TASK-1G.7:** Save/Load persistence hardening attaching barracks checker to restored citizens, with zero node/job duplication.
 - [x] **TASK-1G.8:** Automated test suite `scripts/test/test_barracks.gd` covering TC-BR.1 through TC-BR.7 (PASS, Exit Code 0).
+- [x] **TASK-1G.9:** Package 1G Review Fix — Multi-barracks specific building ID tracking, unique guard positions deduplication, work-related need decay in State.GUARDING, genuine TimeManager pause verification, and comprehensive regression test suite (PASS, Exit Code 0).

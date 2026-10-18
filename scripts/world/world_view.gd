@@ -152,10 +152,11 @@ func _generate_and_build_world() -> void:
 	immigration_mgr = ImmigrationManager.new(world_seed + 777)
 	victory_mgr = VictoryManager.new()
 	
+	job_mgr.set_barracks_checker(func(b_id: String = ""): return BuildingSystem.is_barracks_active(world_data, b_id))
 	if hud:
 		hud.set_research_manager(research_mgr)
 		hud.set_faction_manager(faction_mgr, self)
-		hud.set_barracks_checker(func(): return BuildingSystem.is_barracks_active(world_data))
+		hud.set_barracks_checker(func(b_id: String = ""): return BuildingSystem.is_barracks_active(world_data, b_id))
 		victory_mgr.victory_achieved.connect(func(report: Dictionary): hud.show_victory_panel(report))
 		victory_mgr.collapse_triggered.connect(func(report: Dictionary): hud.show_collapse_panel(report))
 		victory_mgr.crisis_warning_issued.connect(func(warning: Dictionary): hud.show_crisis_warning(warning))
@@ -353,7 +354,7 @@ func _spawn_starter_citizens() -> void:
 		cit.add_child(spr)
 		
 		cit.init_citizen(cid, cname, crole, cell, nav, job_mgr, workplace_mgr)
-		cit.set_barracks_checker(func(): return BuildingSystem.is_barracks_active(world_data))
+		cit.set_barracks_checker(func(b_id: String = ""): return BuildingSystem.is_barracks_active(world_data, b_id))
 		citizens_container.add_child(cit)
 		
 		citizens_by_id[cid] = cit
@@ -388,7 +389,7 @@ func _spawn_immigrant_wave(immigrants: Array) -> void:
 		cit.add_child(spr)
 		
 		cit.init_citizen(cid, cname, crole, cell, nav, job_mgr, workplace_mgr)
-		cit.set_barracks_checker(func(): return BuildingSystem.is_barracks_active(world_data))
+		cit.set_barracks_checker(func(b_id: String = ""): return BuildingSystem.is_barracks_active(world_data, b_id))
 		citizens_container.add_child(cit)
 		
 		citizens_by_id[cid] = cit
@@ -651,9 +652,14 @@ func register_dynamic_workplace(b_data: Dictionary) -> WorkplaceManager.Workplac
 	print("[WorldView] Registered dynamic workplace '%s' (%s) with %d jobs at %s" % [b_id, b_type, max_workers, access_cell])
 	return wp
 
-func register_barracks_jobs(b_data: Dictionary) -> Array[JobManager.JobData]:
+func register_barracks_jobs(b_data: Dictionary, p_world_data: WorldGenerator.WorldData = null) -> Array[JobManager.JobData]:
+	var w_data: WorldGenerator.WorldData = p_world_data if p_world_data != null else world_data
 	var result: Array[JobManager.JobData] = []
-	if job_mgr == null or world_data == null:
+	if job_mgr == null or w_data == null:
+		return result
+
+	# Inactive barracks do not receive executable guard jobs
+	if b_data.get("state", "active") != "active":
 		return result
 
 	var b_id: String = b_data.get("id", "")
@@ -668,26 +674,21 @@ func register_barracks_jobs(b_data: Dictionary) -> Array[JobManager.JobData]:
 	if not existing_jobs.is_empty():
 		return existing_jobs
 
+	# Collect guard posts already in use by other buildings to avoid conflicting positions
+	var occupied_guard_posts: Array = []
+	for j in job_mgr.get_all_jobs():
+		if j.type == "guard" and j.target_building_id != b_id:
+			occupied_guard_posts.append(j.target_cell)
+
 	var bp: Dictionary = EconomyConfig.BLUEPRINTS.get("barracks", {})
 	var guard_capacity: int = bp.get("guard_capacity", 2)
-	var perimeter_cells := BuildingSystem.find_perimeter_cells(origin, size, world_data, guard_capacity)
+	var perimeter_cells := BuildingSystem.find_perimeter_cells(origin, size, w_data, guard_capacity, occupied_guard_posts)
 
-	if perimeter_cells.is_empty():
-		var access_cell := BuildingSystem.find_access_cell(origin, size, world_data)
-		if access_cell != Vector2i(-1, -1):
-			perimeter_cells.append(access_cell)
-
-	for i in range(guard_capacity):
-		var target_cell: Vector2i = origin
-		if i < perimeter_cells.size():
-			target_cell = perimeter_cells[i]
-		elif not perimeter_cells.is_empty():
-			target_cell = perimeter_cells[0]
-		else:
-			target_cell = BuildingSystem.find_access_cell(origin, size, world_data)
-			if target_cell == Vector2i(-1, -1):
-				target_cell = origin
-
+	# Strictly create at most mini(guard_capacity, perimeter_cells.size()) jobs
+	# Do NOT duplicate cells or fall back to duplicate posts
+	var num_jobs: int = mini(guard_capacity, perimeter_cells.size())
+	for i in range(num_jobs):
+		var target_cell: Vector2i = perimeter_cells[i]
 		var desc := "Tuần tra và canh gác tại Doanh Trại (Vị trí %d)" % (i + 1)
 		var job := job_mgr.create_job("guard", target_cell, desc, b_id, 4.0, 2, true)
 		result.append(job)
@@ -719,7 +720,8 @@ func sync_workplaces_after_load(saved_workplaces_data: Dictionary = {}) -> void:
 				continue
 			register_dynamic_workplace(b)
 		elif b_type == "barracks":
-			register_barracks_jobs(b)
+			if b.get("state", "active") == "active":
+				register_barracks_jobs(b)
 
 	# 3. Restore buffer amounts
 	if saved_workplaces_data is Dictionary and not saved_workplaces_data.is_empty():

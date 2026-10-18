@@ -2027,8 +2027,82 @@ Establish buildable Barracks (Doanh Trại) with 3x3 footprint, active state det
 - `docs/WORKLOG.md` (Documented Milestone 33)
 
 ### Next Exact Step
-- Stage modified and created files explicitly (no `git add -A`).
-- Commit with mandated message: `Add Barracks and guard duty integration`.
+- Proceed to Package 1G Review Fix as requested by independent source review.
+
+---
+
+## [2026-10-18] Milestone 34: Package 1G Review Fix — Multi-Barracks Guard Duty Eligibility and Tests
+
+### Context & Objective
+Address independent source review findings for Package 1G on branch `feature/package-1g-barracks`:
+1. **Fix A — Tie each guard job to its own Barracks:** Multi-building support in `BuildingSystem.is_barracks_active(world_data, barracks_id)`, building-specific checks in `JobManager._is_job_executable()`, building-specific checks in `CitizenController._process_guarding()`, individual duty release on specific building downtime with role retention and reason `"Cần Doanh Trại đang hoạt động"`.
+2. **Fix B — Enforce unique guard positions and capacity:** Strict registration of up to `guard_capacity` (2) jobs without duplicate fallback posts, cross-barracks perimeter exclusion in `WorldView.register_barracks_jobs()` via `occupied_guard_posts` collection and `BuildingSystem.find_perimeter_cells()`, no jobs for inactive barracks.
+3. **Fix C — Work-related need decay in `State.GUARDING`:** Included `State.GUARDING` in `CitizenController._on_hour_passed()` for work-related need decay (+4.167 Hunger, +4.0 Fatigue), preserving hunger >= 70 and fatigue >= 85 release.
+4. **Fix D — Genuine TimeManager pause test:** Real engine TimeManager pause test in `test_barracks.gd` verifying zero job progress and zero movement during pause, followed by safe game speed restoration.
+5. **Fix E — Regression test suite expansion:** Comprehensive active-state coverage (`active`, `paused`, `damaged`, `under_construction`, `planned`, `destroyed`, legacy default), multi-barracks segregation, single-post constrained layout, overlapping perimeter post exclusion, and full placement rejection coverage with zero resource deductions.
+6. **Fix F — Save/Load persistence hardening:** Double-load idempotency, inactive barracks load test, legacy save compatibility, and zero resource deduction on load.
+7. **Fix G — Strict package boundary preservation:** Zero bleed into combat formulas, troop recruitment, or refactors outside Package 1G.
+
+### Completed Work
+1. **BuildingSystem (`scripts/economy/building_system.gd`):**
+   - Updated `is_barracks_active(world_data, barracks_id: String = "") -> bool`: supports both global check (when `barracks_id == ""`) and specific building lookup (when `barracks_id != ""`). Requires `state == "active"`, defaulting legacy records without `state` to `"active"`.
+   - Updated `find_perimeter_cells(origin, size, world_data, max_count, excluded_cells: Array = []) -> Array[Vector2i]`: filters out cells present in `excluded_cells` to avoid cross-barracks guard post collisions.
+2. **JobManager (`scripts/jobs/job_manager.gd`):**
+   - Added `barracks_checker: Callable`, `set_barracks_checker()`, and `set_building_checker()`.
+   - Updated `_is_job_executable()`: for guard jobs, evaluates `custom_filter` or `barracks_checker` against `job.target_building_id`, and verifies `nav.is_cell_walkable(job.target_cell)`.
+   - Updated `request_job()` to accept `job_filter: Callable` and pass `nav` to `_is_job_executable()`.
+3. **CitizenController (`scripts/entities/citizen_controller.gd`):**
+   - Updated `is_barracks_active(barracks_id: String = "")` to pass `barracks_id` to `barracks_checker`.
+   - In `_process_idle()`, passed building-aware `filter_cb` to `job_mgr.request_job()`.
+   - In `_process_guarding(delta)`, validated `active_job.target_building_id` specifically; releases job if its barracks becomes inactive or if the guard cell becomes unwalkable/occupied, setting reason `"Cần Doanh Trại đang hoạt động"` or `"Không thể tiếp cận nơi làm việc (bị chặn đường)"` while retaining role `"guard"`.
+   - In `_on_hour_passed()`, included `State.GUARDING` alongside `State.WORKING` and `State.HAULING` (+4.167 Hunger, +4.0 Fatigue).
+4. **HUD & WorldView (`scripts/ui/hud.gd`, `scripts/world/world_view.gd`):**
+   - Updated HUD `is_barracks_active(barracks_id: String = "")` forwarding `barracks_id`.
+   - In WorldView, set building-aware barracks checkers on `job_mgr`, `hud`, and citizens.
+   - Updated `register_barracks_jobs(b_data, p_world_data = null)`: early returns if `state != "active"`, collects `occupied_guard_posts` from other guard jobs, passes `excluded_cells` to `find_perimeter_cells`, and caps job creation strictly to `mini(guard_capacity, perimeter_cells.size())` without duplicate posts.
+   - In `sync_workplaces_after_load()`, skips inactive barracks from job registration.
+5. **SaveManager (`scripts/persistence/save_manager.gd`):**
+   - Attached barracks checker supporting `barracks_id` parameter to loaded citizens.
+6. **Automated Test Suite (`scripts/test/test_barracks.gd`):**
+   - Completely rewritten to cover TC-BR.1 through TC-BR.7 with full failure-path and edge-case assertions.
+
+### Validations Performed & Results
+- **Dedicated Test Suite (`scripts/test/test_barracks.gd`):** **PASS (Exit Code 0, 7/7 passed)**
+  - TC-BR.1 (Authoritative Blueprint Spec): **PASS**
+  - TC-BR.2 (Placement Rejections & Zero Deduction): **PASS**
+  - TC-BR.3 (Comprehensive is_barracks_active States & ID Filtering): **PASS**
+  - TC-BR.4 (Role Gating UI & Controller Fail-Closed): **PASS**
+  - TC-BR.5 (Guard Duty Loop, Genuine Pause, Need Decay & Unique Posts): **PASS**
+  - TC-BR.6 (Multi-Barracks Segregation, Individual Release & Downtime): **PASS**
+  - TC-BR.7 (WorldView Lifecycle, Double-Load Idempotency & Legacy Compatibility): **PASS**
+- **Related Package Test Suites:**
+  - `test_research_hall.gd`: **PASS (Exit Code 0, 7/7 passed)**
+  - `test_workshop.gd`: **PASS (Exit Code 0, 7/7 passed)**
+  - `test_save_load.gd`: **PASS (Exit Code 0, 3/3 passed)**
+- **Full 20-Suite Regression Matrix (Godot 4.7 Headless):**
+  - 20 passed, 0 failed (**100% pass rate**).
+- **Scene Smoke Tests:**
+  - `scenes/ui/main_menu.tscn`: **PASS (Exit Code 0)**
+  - `scenes/world/world_view.tscn`: **PASS (Exit Code 0)**
+  - `scenes/ui/hud.tscn`: **PASS (Exit Code 0)**
+- **Whitespace Check:**
+  - `git diff --check`: Clean (Exit Code 0).
+
+### Files Created / Modified
+- `scripts/economy/building_system.gd` (Added `barracks_id` parameter to `is_barracks_active`, `excluded_cells` to `find_perimeter_cells`)
+- `scripts/jobs/job_manager.gd` (Building-specific executability checks, `barracks_checker` support, `request_job` filter)
+- `scripts/entities/citizen_controller.gd` (Guard need decay in `_on_hour_passed`, building-specific downtime release, unwalkable cell release)
+- `scripts/ui/hud.gd` (Forward `barracks_id` in `is_barracks_active`)
+- `scripts/world/world_view.gd` (Deduplicated guard post registration, `sync_workplaces_after_load` active state check, `p_world_data` parameter)
+- `scripts/persistence/save_manager.gd` (Set building-aware barracks checker on restored citizens)
+- `scripts/test/test_barracks.gd` (Comprehensive review fix test suite TC-BR.1 to TC-BR.7)
+- `docs/WORKLOG.md` (Documented Milestone 34)
+- `docs/BACKLOG.md` (Updated Task 1G.9)
+- `docs/TEST_PLAN.md` (Updated test plan and execution logs)
+
+### Next Exact Step
+- Stage modified files explicitly (no `git add -A`).
+- Commit with mandated message: `Fix multi-barracks guard duty eligibility and tests`.
 - Push to origin on branch `feature/package-1g-barracks`.
 - Verify local HEAD equals remote SHA.
-- Await independent review. Do not merge into master, do not start Package 1H.
+- Report completion and await independent review. Do not merge into master, do not start Package 1H.

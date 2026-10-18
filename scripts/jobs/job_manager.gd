@@ -81,7 +81,31 @@ func create_hauling_job(workplace_id: String, source: Vector2i, dest: Vector2i, 
 	_jobs.append(job)
 	return job
 
-func _is_job_executable(job: JobData, wp_mgr: Object, resource_mgr: Node) -> bool:
+var barracks_checker: Callable = Callable()
+
+func set_barracks_checker(checker: Callable) -> void:
+	barracks_checker = checker
+
+func set_building_checker(checker: Callable) -> void:
+	barracks_checker = checker
+
+func _is_job_executable(job: JobData, wp_mgr: Object, resource_mgr: Node, custom_filter: Callable = Callable(), nav: GridNavigation = null) -> bool:
+	if job.type == "guard":
+		var b_id := job.target_building_id
+		if custom_filter.is_valid():
+			var argc := custom_filter.get_argument_count()
+			var ok: bool = custom_filter.call(b_id) if argc != 0 else custom_filter.call()
+			if not ok:
+				return false
+		elif barracks_checker.is_valid():
+			var argc := barracks_checker.get_argument_count()
+			var ok: bool = barracks_checker.call(b_id) if argc != 0 else barracks_checker.call()
+			if not ok:
+				return false
+		if nav != null and not nav.is_cell_walkable(job.target_cell):
+			return false
+		return true
+
 	if job.type != "smith" or job.recipe_id == "":
 		return true
 	if wp_mgr == null or resource_mgr == null:
@@ -102,7 +126,7 @@ func _is_job_executable(job: JobData, wp_mgr: Object, resource_mgr: Node) -> boo
 	return true
 
 ## Finds the best reachable job matching the citizen's role, prioritized by priority score.
-func request_job(citizen_id: String, role: String, citizen_cell: Vector2i, nav: GridNavigation, wp_mgr: Object = null, resource_mgr: Node = null) -> JobData:
+func request_job(citizen_id: String, role: String, citizen_cell: Vector2i, nav: GridNavigation, wp_mgr: Object = null, resource_mgr: Node = null, job_filter: Callable = Callable()) -> JobData:
 	if role == "idle":
 		return null
 		
@@ -115,8 +139,8 @@ func request_job(citizen_id: String, role: String, citizen_cell: Vector2i, nav: 
 		if job.type != role:
 			continue
 			
-		# Check executability for crafting jobs
-		if not _is_job_executable(job, wp_mgr, resource_mgr):
+		# Check executability for crafting and guard jobs
+		if not _is_job_executable(job, wp_mgr, resource_mgr, job_filter, nav):
 			continue
 
 		# Check reachability
