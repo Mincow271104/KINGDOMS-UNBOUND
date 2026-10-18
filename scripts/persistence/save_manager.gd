@@ -366,6 +366,11 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 				return {"valid": false, "error": "last_upkeep_day phải là số nguyên hợp lệ: %s." % str(last_upkeep)}
 			if int(last_upkeep) < -1:
 				return {"valid": false, "error": "last_upkeep_day không được nhỏ hơn -1: %s." % str(last_upkeep)}
+			if json_dict.has("game_clock") and (json_dict["game_clock"] is Dictionary):
+				var clock_day = json_dict["game_clock"].get("current_day")
+				if clock_day != null and _is_valid_integer_val(clock_day):
+					if int(last_upkeep) > int(clock_day):
+						return {"valid": false, "error": "last_upkeep_day (%d) không được lớn hơn ngày hiện tại trong game_clock (%d)." % [int(last_upkeep), int(clock_day)]}
 		if army_val.has("is_supplied") and not (army_val.get("is_supplied") is bool):
 			return {"valid": false, "error": "Trạng thái tiếp tế is_supplied phải là boolean."}
 			
@@ -652,6 +657,9 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 		else:
 			# Legacy save or empty player_army: reset to clean default state (0 soldiers)
 			army_mgr.call("deserialize", {})
+
+	if hud and hud.has_method("_refresh_army_panel"):
+		hud.call("_refresh_army_panel")
 
 	print("[SaveManager] Loaded world state restored successfully (%d citizens, %d buildings)" % [world_view.get("citizen_list").size(), world_data.buildings.size()])
 	return {"success": true}

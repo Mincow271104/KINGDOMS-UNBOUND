@@ -281,3 +281,11 @@ The live settlement defense loop operates deterministically via `BattleCampaignM
 - **Casualty Absorption Order:**
   1. Defender casualties are deducted first from recruited army soldiers in `PlayerArmyManager.remove_casualties()`. Abstract soldier casualties do not emit `citizen_died` signals.
   2. Any remaining overflow casualties beyond the recruited army are applied deterministically to living citizen Guards (ordered by `citizen_id`), executing their normal death lifecycle.
+
+### 9.5 Save Validation & Upkeep Evasion Prevention
+- **Clock Day Validation:** `SaveManager.validate_save_data()` enforces that `last_upkeep_day` cannot exceed the saved `game_clock.current_day`. Saves with `last_upkeep_day > clock_day` are rejected fail-closed to prevent corrupted or tampered saves from evading daily food upkeep indefinitely.
+- **Fail-Closed Deserialization Clamping:** In `PlayerArmyManager.deserialize()`, if `last_upkeep_day` is greater than `TimeManager.current_day`, it is clamped to `TimeManager.current_day` to guarantee that upkeep resumes on the next scheduled simulation tick without double-charging the current day.
+
+### 9.6 Barracks Lifecycle & Dynamic Interface Synchronization
+- **Dynamic Cost Formatting:** Recruitment cost descriptions in the HUD `ArmyPanel` are built dynamically from `EconomyConfig.ARMY_RECRUIT_COST` and localized via `EconomyConfig.RESOURCE_NAMES_VI`.
+- **Live State Propagation:** Barracks completion, damage, reactivation, and demolition trigger `PlayerArmyManager.notify_capacity_changed()` and update `ArmyPanel` state immediately, ensuring UI accuracy without polling while safely preserving existing soldiers.

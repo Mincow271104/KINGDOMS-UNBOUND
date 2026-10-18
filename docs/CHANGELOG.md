@@ -22,6 +22,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - Save/load persistence: full serialization and deserialization of `soldier_count`, `is_supplied`, and `last_upkeep_day` under `"player_army"` in `SaveManager` with legacy save compatibility and schema validation.
   - HUD Military Interface: added `MilitaryBtn` (`"⚔️ Quân Đội (U)"`) on `BottomBar`, non-modal `ArmyPanel` dialog with live stats, barracks capacity, upkeep rate, recruitment button with failure diagnostics, and hotkey `U`/`ESC` bindings.
   - Dedicated automated test suite `scripts/test/test_player_army.gd` covering TC-ARMY.1 through TC-ARMY.30 (PASS, Exit Code 0), and extension of `scripts/test/test_live_battle_loop.gd` with TC-LB.4C and TC-LB.7B (PASS, Exit Code 0).
+#### Fixed & Hardened
+- Upkeep day clock validation: `SaveManager.validate_save_data()` validates `last_upkeep_day <= clock_day` when `game_clock.current_day` is present, rejecting future upkeep days fail-closed to prevent corrupted or tampered saves from evading daily upkeep indefinitely.
+- Fail-closed deserialization normalization: `PlayerArmyManager.deserialize()` clamps future `last_upkeep_day` to `TimeManager.current_day`.
+- Dynamic Barracks capacity & HUD synchronization: wired `complete_construction`, `cancel_construction_project`, `set_building_state`, and `demolish_building_project` in `WorldView` to notify `PlayerArmyManager.notify_capacity_changed()` and update HUD `ArmyPanel` in real time, preserving recruited soldiers across damage/demolition; formatted recruitment costs dynamically from `EconomyConfig.ARMY_RECRUIT_COST` and `EconomyConfig.RESOURCE_NAMES_VI`.
+- Comprehensive integration testing: verified real citizen guard casualty lifecycle in `WorldView` (idempotent removal, job release, single combat event) in TC-ARMY.28, added full `SaveManager` world roundtrip and double load idempotency in TC-ARMY.29B, legacy world save reset in TC-ARMY.30B, clock day validation in TC-ARMY.31, and live Barracks capacity & dynamic HUD refresh in TC-ARMY.32 (all 32 tests passed).
 
 ### [Package 1K] - 2026-10-19
 #### Added

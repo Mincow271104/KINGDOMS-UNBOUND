@@ -32,9 +32,13 @@ extends SceneTree
 ##   TC-ARMY.26: Overflow casualties beyond recruited army apply to citizen guards
 ##   TC-ARMY.27: Recruited army casualties do NOT fire citizen_died or affect citizens
 ##   TC-ARMY.28: Citizen guard casualties fire normal citizen death lifecycle
-## Persistence & Inactive Barracks:
-##   TC-ARMY.29: Save/load roundtrip preserves soldier_count, is_supplied, last_upkeep_day
-##   TC-ARMY.30: Legacy save load without player_army cleanly resets to 0 soldiers
+## Persistence, Roundtrip & Edge Cases:
+##   TC-ARMY.29: Unit serialization roundtrip preserves soldier_count, is_supplied, last_upkeep_day
+##   TC-ARMY.29B: Full SaveManager world-state roundtrip, double load idempotency & Save->Load->Save stability
+##   TC-ARMY.30: Unit legacy save load without player_army cleanly resets to 0 soldiers
+##   TC-ARMY.30B: Full legacy world save load resets world army to 0 soldiers cleanly
+##   TC-ARMY.31: Upkeep day validation against game_clock.current_day & indefinite evasion prevention
+##   TC-ARMY.32: Live Barracks capacity, state transitions (active/damage/demolish) & HUD UI refresh
 
 const PlayerArmyManagerScript = preload("res://scripts/military/player_army_manager.gd")
 const BattleCampaignManagerScript = preload("res://scripts/combat/battle_campaign_manager.gd")
@@ -44,6 +48,7 @@ const EconomyConfigScript = preload("res://scripts/economy/economy_config.gd")
 const FactionManagerScript = preload("res://scripts/factions/faction_manager.gd")
 const WorldGeneratorScript = preload("res://scripts/world/world_generator.gd")
 const CitizenControllerScript = preload("res://scripts/entities/citizen_controller.gd")
+const JobManagerScript = preload("res://scripts/jobs/job_manager.gd")
 const SaveManagerScript = preload("res://scripts/persistence/save_manager.gd")
 const WorldViewScene: PackedScene = preload("res://scenes/world/world_view.tscn")
 
@@ -733,25 +738,121 @@ func _test_group_defense_and_casualties() -> void:
 
 	# TC-ARMY.28: Citizen Guard Casualties Fire Normal Lifecycle
 	print("\n--- Running TC-ARMY.28: Guard Casualty Normal Death Lifecycle ---")
-	# Verify that guards who died had their citizen_died signal captured
-	# If any guard was killed in TC-ARMY.26, died_signals should have captured their ID
-	print("  [PASS] TC-ARMY.28: Citizen guard casualty lifecycle confirmed via signal connections.")
 	guard_1.free()
 	guard_2.free()
 
+	# Create a real Guard CitizenController and integrate with world_instance
+	var test_guard := CitizenControllerScript.new()
+	var test_guard_id := "guard_tc28_integration"
+	test_guard.name = test_guard_id
+	test_guard.citizen_id = test_guard_id
+	test_guard.citizen_name = "Vệ Binh Kiểm Thử"
+	test_guard.role = "guard"
+	test_guard.health = 100.0
+	test_guard.current_state = CitizenControllerScript.State.WORKING
+
+	# Assign an active job in job_mgr
+	var jm = world_instance.get("job_mgr")
+	var rm = world_instance.get_node_or_null("/root/ResourceManager")
+	var em = world_instance.get_node_or_null("/root/EventManager")
+	var test_job = null
+	if jm != null:
+		test_job = jm.create_job("guard", Vector2i(10, 10), "Tuần tra bảo vệ", "bld_barracks_test", 12.0, 1, false)
+		test_job.state = JobManagerScript.JobState.IN_PROGRESS
+		test_job.worker_id = test_guard_id
+		test_guard.active_job = test_job
+
+	world_instance.get("citizens_by_id")[test_guard_id] = test_guard
+	world_instance.get("citizen_list").append(test_guard)
+	world_instance.get("deceased_citizen_ids").erase(test_guard_id)
+	if rm != null:
+		rm.active_population = world_instance.get("citizen_list").size()
+
+	var pop_before: int = world_instance.get("citizen_list").size()
+
+	# Capture EventManager events
+	var captured_death_events: Array = []
+	var death_event_conn = func(id: String, title: String, _desc: String, _pos: bool, payload: Dictionary):
+		if id == "citizen_died":
+			captured_death_events.append({"id": id, "title": title, "payload": payload})
+
+	if em != null:
+		em.event_triggered.connect(death_event_conn)
+
+	# 1. Trigger guard death through the authoritative world connection
+	test_guard.health = 0.0
+	test_guard.status_reason = "Tử trận khi bảo vệ định cư"
+	if test_guard.active_job != null and jm != null:
+		jm.release_job(test_guard.active_job)
+		test_guard.active_job = null
+
+	# Execute death handler
+	world_instance.call("_on_citizen_died", test_guard_id)
+
+	# 2. Assert guard was cleanly removed from citizen registry
+	if world_instance.get("citizens_by_id").has(test_guard_id):
+		printerr("  [FAIL] TC-ARMY.28: Dead guard was not removed from citizens_by_id!")
+		failures += 1
+	elif world_instance.get("citizen_list").has(test_guard):
+		printerr("  [FAIL] TC-ARMY.28: Dead guard was not removed from citizen_list!")
+		failures += 1
+	elif not world_instance.get("deceased_citizen_ids").has(test_guard_id):
+		printerr("  [FAIL] TC-ARMY.28: Dead guard ID not recorded in deceased_citizen_ids!")
+		failures += 1
+	elif world_instance.get("citizen_list").size() != pop_before - 1:
+		printerr("  [FAIL] TC-ARMY.28: Population not decremented by 1! Before: %d, Now: %d" % [pop_before, world_instance.get("citizen_list").size()])
+		failures += 1
+	elif rm != null and rm.active_population != world_instance.get("citizen_list").size():
+		printerr("  [FAIL] TC-ARMY.28: ResourceManager active_population out of sync! RM: %d, List: %d" % [rm.active_population, world_instance.get("citizen_list").size()])
+		failures += 1
+	elif captured_death_events.size() != 1:
+		printerr("  [FAIL] TC-ARMY.28: Expected exactly 1 death event, got %d" % captured_death_events.size())
+		failures += 1
+	elif captured_death_events[0]["title"] != "Chiến Binh Tử Trận" or captured_death_events[0]["payload"].get("cause") != "combat":
+		printerr("  [FAIL] TC-ARMY.28: Combat death event title/cause mismatch: %s" % str(captured_death_events[0]))
+		failures += 1
+	else:
+		print("  [PASS] TC-ARMY.28: Citizen guard casualty cleanly processed through WorldView death lifecycle.")
+
+	# 3. Assert idempotency on duplicate death call
+	world_instance.call("_on_citizen_died", test_guard_id)
+	if captured_death_events.size() != 1:
+		printerr("  [FAIL] TC-ARMY.28: Duplicate death call emitted another event! Size: %d" % captured_death_events.size())
+		failures += 1
+	elif world_instance.get("citizen_list").size() != pop_before - 1:
+		printerr("  [FAIL] TC-ARMY.28: Duplicate death call decremented population again!")
+		failures += 1
+	else:
+		print("  [PASS] TC-ARMY.28: Repeated death call for same citizen ID strictly idempotent.")
+
+	# 4. Assert abstract army casualties do NOT emit citizen death events
+	captured_death_events.clear()
+	var test_army_unit_loss = army_mgr.remove_casualties(1)
+	if captured_death_events.size() != 0:
+		printerr("  [FAIL] TC-ARMY.28: Abstract army casualty emitted citizen death events!")
+		failures += 1
+	elif world_instance.get("citizen_list").size() != pop_before - 1:
+		printerr("  [FAIL] TC-ARMY.28: Abstract army casualty altered citizen list!")
+		failures += 1
+	else:
+		print("  [PASS] TC-ARMY.28: Abstract army casualties emit zero citizen death events.")
+
+	if em != null:
+		em.event_triggered.disconnect(death_event_conn)
+
 # -----------------------------------------------------------------------------
-# GROUP 4: PERSISTENCE & INACTIVE BARRACKS (TC-ARMY.29 - TC-ARMY.30)
+# GROUP 4: PERSISTENCE, SAVEMANAGER ROUNDTRIP & LIVE UI (TC-ARMY.29 - TC-ARMY.32)
 # -----------------------------------------------------------------------------
 func _test_group_persistence_and_edge_cases() -> void:
-	print("\n=== GROUP 4: PERSISTENCE & EDGE CASES (TC-ARMY.29 - TC-ARMY.30) ===")
+	print("\n=== GROUP 4: PERSISTENCE & EDGE CASES (TC-ARMY.29 - TC-ARMY.32) ===")
 
 	var army_mgr := PlayerArmyManagerScript.new()
 	army_mgr.soldier_count = 7
 	army_mgr.is_supplied = false
 	army_mgr.last_upkeep_day = 8
 
-	# TC-ARMY.29: Save/Load Roundtrip
-	print("--- Running TC-ARMY.29: Save/Load Serialization Roundtrip ---")
+	# TC-ARMY.29: Unit-Level Serialization Roundtrip
+	print("--- Running TC-ARMY.29: Unit-Level Serialization Roundtrip ---")
 	var serialized = army_mgr.serialize()
 	if serialized.get("soldier_count") != 7 or serialized.get("is_supplied") != false or serialized.get("last_upkeep_day") != 8:
 		printerr("  [FAIL] TC-ARMY.29: serialize() produced incorrect payload: %s" % str(serialized))
@@ -769,7 +870,85 @@ func _test_group_persistence_and_edge_cases() -> void:
 			printerr("  [FAIL] TC-ARMY.29: Deserialized last_upkeep_day expected 8, got %d" % fresh_mgr.last_upkeep_day)
 			failures += 1
 		else:
-			print("  [PASS] TC-ARMY.29: Serialization roundtrip strictly preserved count (7), unsupplied (false), and upkeep day (8).")
+			print("  [PASS] TC-ARMY.29: Unit serialization roundtrip strictly preserved count (7), unsupplied (false), and upkeep day (8).")
+
+	# TC-ARMY.29B: Full SaveManager World-State Roundtrip & Double-Load Integration
+	print("\n--- Running TC-ARMY.29B: SaveManager End-to-End Roundtrip & Double-Load ---")
+	var wv_army_mgr = world_instance.get("player_army_mgr")
+	if wv_army_mgr == null:
+		wv_army_mgr = PlayerArmyManagerScript.new(world_instance)
+		world_instance.set("player_army_mgr", wv_army_mgr)
+
+	var tm = world_instance.get_node_or_null("/root/TimeManager")
+	if tm != null:
+		tm.set("current_day", 5)
+
+	# 1. Set actual army state to non-default values
+	wv_army_mgr.soldier_count = 7
+	wv_army_mgr.is_supplied = false
+	wv_army_mgr.last_upkeep_day = 3
+
+	# 2. Serialize world state via SaveManager
+	var saved_state: Dictionary = SaveManagerScript.serialize_world_state(world_instance)
+	if not saved_state.has("player_army"):
+		printerr("  [FAIL] TC-ARMY.29B: Serialized world state missing 'player_army' section!")
+		failures += 1
+	else:
+		var a_sec: Dictionary = saved_state["player_army"]
+		if a_sec.get("soldier_count") != 7 or a_sec.get("is_supplied") != false or a_sec.get("last_upkeep_day") != 3:
+			printerr("  [FAIL] TC-ARMY.29B: Serialized player_army section incorrect: %s" % str(a_sec))
+			failures += 1
+		else:
+			print("  [PASS] TC-ARMY.29B: World state serialized player_army correctly.")
+
+	# 3. Reset army to clean default before loading
+	wv_army_mgr.deserialize({})
+	if wv_army_mgr.get_army_count() != 0:
+		printerr("  [FAIL] TC-ARMY.29B: Pre-load reset failed")
+		failures += 1
+
+	# 4. Apply loaded state to world
+	var apply_res_1 = SaveManagerScript.apply_loaded_state_to_world(world_instance, saved_state)
+	if not apply_res_1.get("success", false):
+		printerr("  [FAIL] TC-ARMY.29B: apply_loaded_state_to_world failed: %s" % str(apply_res_1))
+		failures += 1
+	elif wv_army_mgr.get_army_count() != 7:
+		printerr("  [FAIL] TC-ARMY.29B: Loaded soldier_count expected 7, got %d" % wv_army_mgr.get_army_count())
+		failures += 1
+	elif wv_army_mgr.is_supplied != false:
+		printerr("  [FAIL] TC-ARMY.29B: Loaded is_supplied expected false")
+		failures += 1
+	elif wv_army_mgr.last_upkeep_day != 3:
+		printerr("  [FAIL] TC-ARMY.29B: Loaded last_upkeep_day expected 3, got %d" % wv_army_mgr.last_upkeep_day)
+		failures += 1
+	else:
+		print("  [PASS] TC-ARMY.29B: First load restored all army fields accurately.")
+
+	# 5. Apply the same loaded state a second time (double load idempotency)
+	var apply_res_2 = SaveManagerScript.apply_loaded_state_to_world(world_instance, saved_state)
+	if not apply_res_2.get("success", false):
+		printerr("  [FAIL] TC-ARMY.29B: Second apply_loaded_state_to_world failed: %s" % str(apply_res_2))
+		failures += 1
+	elif wv_army_mgr.get_army_count() != 7:
+		printerr("  [FAIL] TC-ARMY.29B: Double-load created duplicate soldiers! Got %d" % wv_army_mgr.get_army_count())
+		failures += 1
+	elif wv_army_mgr.is_supplied != false:
+		printerr("  [FAIL] TC-ARMY.29B: Double-load altered supply state!")
+		failures += 1
+	elif wv_army_mgr.last_upkeep_day != 3:
+		printerr("  [FAIL] TC-ARMY.29B: Double-load altered last_upkeep_day!")
+		failures += 1
+	else:
+		print("  [PASS] TC-ARMY.29B: Double load strictly idempotent (zero duplicate soldiers/state).")
+
+	# 6. Re-serialize and verify Save -> Load -> Save roundtrip stability
+	var resaved_state: Dictionary = SaveManagerScript.serialize_world_state(world_instance)
+	var resaved_army: Dictionary = resaved_state.get("player_army", {})
+	if resaved_army.get("soldier_count") != 7 or resaved_army.get("is_supplied") != false or resaved_army.get("last_upkeep_day") != 3:
+		printerr("  [FAIL] TC-ARMY.29B: Re-serialized army state divergent: %s" % str(resaved_army))
+		failures += 1
+	else:
+		print("  [PASS] TC-ARMY.29B: Save -> Load -> Save roundtrip stability verified.")
 
 	# TC-ARMY.30: Legacy Save Load (Missing player_army Section)
 	print("\n--- Running TC-ARMY.30: Legacy Save Load Reset ---")
@@ -778,7 +957,6 @@ func _test_group_persistence_and_edge_cases() -> void:
 	dirty_mgr.is_supplied = false
 	dirty_mgr.last_upkeep_day = 20
 
-	# Deserialize empty dictionary to simulate legacy save
 	dirty_mgr.deserialize({})
 	if dirty_mgr.get_army_count() != 0:
 		printerr("  [FAIL] TC-ARMY.30: Legacy save did not reset soldier_count to 0, got %d" % dirty_mgr.get_army_count())
@@ -790,59 +968,221 @@ func _test_group_persistence_and_edge_cases() -> void:
 		printerr("  [FAIL] TC-ARMY.30: Legacy save did not reset last_upkeep_day to -1, got %d" % dirty_mgr.last_upkeep_day)
 		failures += 1
 	else:
-		print("  [PASS] TC-ARMY.30: Legacy save safely resets army to 0 soldiers, supplied, with 0 errors.")
+		print("  [PASS] TC-ARMY.30: Unit legacy save safely resets army to 0 soldiers, supplied, with 0 errors.")
 
-	# Extra: Inactive Barracks Edge Case
-	print("\n--- Running Extra: Inactive Barracks Soldier Retention ---")
-	var world_data := WorldGeneratorScript.generate(999)
-	world_data.buildings.clear()
-	world_data.buildings.append({
-		"id": "b1",
-		"type": "barracks",
-		"cell": Vector2i(5, 5),
-		"state": "active"
-	})
-	var inactive_test_mgr := PlayerArmyManagerScript.new()
-	inactive_test_mgr.set_custom_world_data(world_data)
-	inactive_test_mgr.soldier_count = 5
-
-	# Deactivate barracks (damaged/destroyed)
-	world_data.buildings[0]["state"] = "damaged"
-	if inactive_test_mgr.get_army_capacity() != 0:
-		printerr("  [FAIL] Extra: Damaged barracks still provides capacity: %d" % inactive_test_mgr.get_army_capacity())
+	# TC-ARMY.30B: Legacy Save Full World Integration
+	print("\n--- Running TC-ARMY.30B: Legacy Save Full World State Load ---")
+	var legacy_world_save = saved_state.duplicate(true)
+	legacy_world_save.erase("player_army")
+	var legacy_apply = SaveManagerScript.apply_loaded_state_to_world(world_instance, legacy_world_save)
+	if not legacy_apply.get("success", false):
+		printerr("  [FAIL] TC-ARMY.30B: Failed to apply legacy world save: %s" % str(legacy_apply))
 		failures += 1
-	elif inactive_test_mgr.get_army_count() != 5:
-		printerr("  [FAIL] Extra: Soldiers deleted when barracks damaged! Count: %d" % inactive_test_mgr.get_army_count())
+	elif wv_army_mgr.get_army_count() != 0:
+		printerr("  [FAIL] TC-ARMY.30B: World army count not reset to 0 on legacy save! Got %d" % wv_army_mgr.get_army_count())
 		failures += 1
-	elif inactive_test_mgr.can_recruit(1).get("can_recruit", true) != false:
-		printerr("  [FAIL] Extra: Recruitment allowed with damaged barracks")
+	elif wv_army_mgr.is_supplied != true:
+		printerr("  [FAIL] TC-ARMY.30B: World army is_supplied not reset to true on legacy save!")
+		failures += 1
+	elif wv_army_mgr.last_upkeep_day != -1:
+		printerr("  [FAIL] TC-ARMY.30B: World army last_upkeep_day not reset to -1 on legacy save!")
 		failures += 1
 	else:
-		print("  [PASS] Extra: Inactive barracks correctly retains soldiers while blocking recruitment.")
+		print("  [PASS] TC-ARMY.30B: Legacy world save application cleanly resets army to 0 soldiers without errors.")
 
-	# Extra: Save Data Validation for Malformed player_army
-	print("\n--- Running Extra: Save Validation Malformed Data ---")
-	var valid_base_save: Dictionary = {
+	# TC-ARMY.31: Upkeep Day Validation Against Game Clock & Indefinite Evasion Prevention
+	print("\n--- Running TC-ARMY.31: Upkeep Day Clock Validation & Evasion Prevention ---")
+	var val_clock_save: Dictionary = {
 		"schema_version": SaveManagerScript.SAVE_SCHEMA_VERSION,
 		"metadata": {},
 		"resources": {},
 		"buildings": [],
-		"citizens": []
+		"citizens": [],
+		"game_clock": {
+			"current_day": 5
+		}
 	}
-	# 1. Negative soldiers
-	valid_base_save["player_army"] = {"soldier_count": -5}
-	var res_neg = SaveManagerScript.validate_save_data(valid_base_save)
-	if res_neg.get("valid", true) != false:
-		printerr("  [FAIL] Extra: validate_save_data accepted negative soldier_count")
-		failures += 1
-	else:
-		print("  [PASS] Extra: Negative soldier_count properly rejected by save validator.")
 
-	# 2. Non-integer soldier_count
-	valid_base_save["player_army"] = {"soldier_count": "three"}
-	var res_str = SaveManagerScript.validate_save_data(valid_base_save)
-	if res_str.get("valid", true) != false:
-		printerr("  [FAIL] Extra: validate_save_data accepted string soldier_count")
+	# 1. Valid past upkeep day (Day 3 on Clock Day 5)
+	val_clock_save["player_army"] = {"soldier_count": 5, "last_upkeep_day": 3}
+	var res_past = SaveManagerScript.validate_save_data(val_clock_save)
+	if not res_past.get("valid", false):
+		printerr("  [FAIL] TC-ARMY.31: Valid past upkeep day rejected: %s" % res_past.get("error", ""))
 		failures += 1
 	else:
-		print("  [PASS] Extra: Non-integer soldier_count properly rejected by save validator.")
+		print("  [PASS] TC-ARMY.31: Valid past upkeep day (3 <= 5) accepted.")
+
+	# 2. Valid current upkeep day (Day 5 on Clock Day 5)
+	val_clock_save["player_army"] = {"soldier_count": 5, "last_upkeep_day": 5}
+	var res_cur = SaveManagerScript.validate_save_data(val_clock_save)
+	if not res_cur.get("valid", false):
+		printerr("  [FAIL] TC-ARMY.31: Valid current upkeep day rejected: %s" % res_cur.get("error", ""))
+		failures += 1
+	else:
+		print("  [PASS] TC-ARMY.31: Valid current upkeep day (5 <= 5) accepted.")
+
+	# 3. Valid initial upkeep day (-1 on Clock Day 5)
+	val_clock_save["player_army"] = {"soldier_count": 5, "last_upkeep_day": -1}
+	var res_init = SaveManagerScript.validate_save_data(val_clock_save)
+	if not res_init.get("valid", false):
+		printerr("  [FAIL] TC-ARMY.31: Valid initial upkeep day (-1) rejected: %s" % res_init.get("error", ""))
+		failures += 1
+	else:
+		print("  [PASS] TC-ARMY.31: Valid initial upkeep day (-1 <= 5) accepted.")
+
+	# 4. Future upkeep day relative to saved game day (Day 6 on Clock Day 5) -> REJECTED
+	val_clock_save["player_army"] = {"soldier_count": 5, "last_upkeep_day": 6}
+	var res_future = SaveManagerScript.validate_save_data(val_clock_save)
+	if res_future.get("valid", true) != false:
+		printerr("  [FAIL] TC-ARMY.31: Future upkeep day (6 > 5) was permitted!")
+		failures += 1
+	else:
+		print("  [PASS] TC-ARMY.31: Future upkeep day (6 > 5) strictly rejected by save validator.")
+
+	# 5. Extreme future upkeep day (Day 99999 on Clock Day 5) -> REJECTED
+	val_clock_save["player_army"] = {"soldier_count": 5, "last_upkeep_day": 99999}
+	var res_extreme = SaveManagerScript.validate_save_data(val_clock_save)
+	if res_extreme.get("valid", true) != false:
+		printerr("  [FAIL] TC-ARMY.31: Extreme future upkeep day was permitted!")
+		failures += 1
+	else:
+		print("  [PASS] TC-ARMY.31: Extreme future upkeep day (99999) strictly rejected by save validator.")
+
+	# 6. Non-integer and negative-invalid upkeep day
+	val_clock_save["player_army"] = {"soldier_count": 5, "last_upkeep_day": "three"}
+	var res_bad_str = SaveManagerScript.validate_save_data(val_clock_save)
+	val_clock_save["player_army"] = {"soldier_count": 5, "last_upkeep_day": -2}
+	var res_bad_neg = SaveManagerScript.validate_save_data(val_clock_save)
+	if res_bad_str.get("valid", true) != false or res_bad_neg.get("valid", true) != false:
+		printerr("  [FAIL] TC-ARMY.31: Malformed upkeep day values accepted!")
+		failures += 1
+	else:
+		print("  [PASS] TC-ARMY.31: Non-integer and negative-invalid upkeep days strictly rejected.")
+
+	# 7. Fail-closed deserialize normalization on TimeManager current_day
+	var norm_army := PlayerArmyManagerScript.new(world_instance)
+	norm_army.deserialize({"soldier_count": 4, "last_upkeep_day": 99999})
+	# Since TimeManager current_day is 5, it must be capped to 5, preventing indefinite upkeep evasion!
+	if norm_army.last_upkeep_day > 5:
+		printerr("  [FAIL] TC-ARMY.31: deserialize did not clamp future upkeep day to current_day! Got %d" % norm_army.last_upkeep_day)
+		failures += 1
+	else:
+		print("  [PASS] TC-ARMY.31: deserialize fail-closed normalization clamps future upkeep day to current_day (%d)." % norm_army.last_upkeep_day)
+
+	# TC-ARMY.32: Live Barracks Capacity & HUD UI State Refresh
+	print("\n--- Running TC-ARMY.32: Live Barracks Capacity & HUD Refresh ---")
+	var hud = world_instance.get("hud")
+	var test_wd = world_instance.get("world_data")
+	var initial_barracks = []
+	for b in test_wd.buildings:
+		if b.get("type") == "barracks":
+			initial_barracks.append(b)
+
+	# Clear barracks for controlled testing
+	for b in initial_barracks:
+		test_wd.buildings.erase(b)
+
+	# Force army manager to use test_wd
+	wv_army_mgr.set_custom_world_data(test_wd)
+	wv_army_mgr.notify_capacity_changed()
+
+	if hud != null and hud.has_method("_refresh_army_panel"):
+		hud.call("_refresh_army_panel")
+
+	# 1. With 0 barracks, capacity is 0 and recruit button is disabled
+	var cap_0 = wv_army_mgr.get_army_capacity()
+	if cap_0 != 0:
+		printerr("  [FAIL] TC-ARMY.32: Expected 0 capacity with 0 barracks, got %d" % cap_0)
+		failures += 1
+	elif hud != null and hud.get("recruit_btn") != null and not hud.get("recruit_btn").disabled:
+		printerr("  [FAIL] TC-ARMY.32: Recruit button enabled with 0 barracks capacity!")
+		failures += 1
+	else:
+		print("  [PASS] TC-ARMY.32: 0 barracks -> 0 capacity, recruit button disabled.")
+
+	# 2. Place barracks in under_construction state -> capacity remains 0
+	var b_test_id := "bld_barracks_live_test"
+	var test_b_data := {
+		"id": b_test_id,
+		"type": "barracks",
+		"cell": Vector2i(25, 25),
+		"size": Vector2i(3, 3),
+		"state": "under_construction",
+		"construction_progress": 0.0,
+		"construction_hours": 12.0
+	}
+	test_wd.buildings.append(test_b_data)
+	wv_army_mgr.notify_capacity_changed()
+	if hud != null and hud.has_method("_refresh_army_panel"):
+		hud.call("_refresh_army_panel")
+
+	if wv_army_mgr.get_army_capacity() != 0:
+		printerr("  [FAIL] TC-ARMY.32: under_construction barracks granted capacity: %d" % wv_army_mgr.get_army_capacity())
+		failures += 1
+	else:
+		print("  [PASS] TC-ARMY.32: under_construction barracks provides strictly 0 capacity.")
+
+	# 3. Premature completion refused, then complete construction -> capacity dynamically expands to 5 and HUD updates
+	var premature_res = world_instance.call("complete_construction", b_test_id)
+	if premature_res != false or wv_army_mgr.get_army_capacity() != 0:
+		printerr("  [FAIL] TC-ARMY.32: Premature barracks completion permitted at 0.0h progress!")
+		failures += 1
+
+	test_b_data["construction_progress"] = 12.0
+	var complete_res = world_instance.call("complete_construction", b_test_id)
+	if not complete_res or wv_army_mgr.get_army_capacity() != 5:
+		printerr("  [FAIL] TC-ARMY.32: Completed barracks did not update capacity to 5! Got %d" % wv_army_mgr.get_army_capacity())
+		failures += 1
+	elif hud != null and hud.get("army_count_label") != null and not hud.get("army_count_label").text.contains("/ 5"):
+		printerr("  [FAIL] TC-ARMY.32: HUD army_count_label did not reflect capacity 5: %s" % hud.get("army_count_label").text)
+		failures += 1
+	else:
+		print("  [PASS] TC-ARMY.32: Barracks completion dynamically refreshed capacity to 5 and updated HUD.")
+
+	# 4. Deactivate barracks (damage) -> capacity drops to 0, existing soldiers preserved
+	wv_army_mgr.soldier_count = 3
+	world_instance.call("set_building_state", b_test_id, "damaged")
+	if wv_army_mgr.get_army_capacity() != 0:
+		printerr("  [FAIL] TC-ARMY.32: Damaged barracks still provides capacity: %d" % wv_army_mgr.get_army_capacity())
+		failures += 1
+	elif wv_army_mgr.get_army_count() != 3:
+		printerr("  [FAIL] TC-ARMY.32: Existing soldiers deleted on barracks damage! Got %d" % wv_army_mgr.get_army_count())
+		failures += 1
+	elif hud != null and hud.get("recruit_btn") != null and not hud.get("recruit_btn").disabled:
+		printerr("  [FAIL] TC-ARMY.32: Recruit button enabled with damaged barracks!")
+		failures += 1
+	else:
+		print("  [PASS] TC-ARMY.32: Barracks damage dynamically dropped capacity to 0 and disabled recruit button; 3 soldiers preserved.")
+
+	# 5. Restore barracks to active -> capacity restores to 5 and recruit button re-enables
+	world_instance.call("set_building_state", b_test_id, "active")
+	if wv_army_mgr.get_army_capacity() != 5:
+		printerr("  [FAIL] TC-ARMY.32: Restored barracks did not restore capacity 5! Got %d" % wv_army_mgr.get_army_capacity())
+		failures += 1
+	else:
+		print("  [PASS] TC-ARMY.32: Barracks reactivation dynamically restored capacity to 5.")
+
+	# 6. Demolish barracks -> capacity drops to 0, existing soldiers preserved
+	world_instance.call("demolish_building_project", b_test_id)
+	if wv_army_mgr.get_army_capacity() != 0:
+		printerr("  [FAIL] TC-ARMY.32: Demolished barracks still provides capacity!")
+		failures += 1
+	elif wv_army_mgr.get_army_count() != 3:
+		printerr("  [FAIL] TC-ARMY.32: Demolishing barracks deleted existing soldiers! Got %d" % wv_army_mgr.get_army_count())
+		failures += 1
+	else:
+		print("  [PASS] TC-ARMY.32: Barracks demolition dropped capacity to 0 while preserving soldiers.")
+
+	# 7. Dynamic recruitment cost display in HUD
+	if hud != null and hud.get("recruit_cost_label") != null:
+		var cost_text: String = hud.get("recruit_cost_label").text
+		if not cost_text.contains("20 Vàng") or not cost_text.contains("2 Kim loại") or not cost_text.contains("5 Lương thực"):
+			printerr("  [FAIL] TC-ARMY.32: HUD recruit_cost_label did not format EconomyConfig values: %s" % cost_text)
+			failures += 1
+		else:
+			print("  [PASS] TC-ARMY.32: HUD recruit_cost_label dynamically formatted from EconomyConfig (%s)." % cost_text)
+
+	# Restore initial barracks
+	test_wd.buildings.append_array(initial_barracks)
+	wv_army_mgr.set_custom_world_data(null)
+	wv_army_mgr.notify_capacity_changed()

@@ -845,11 +845,15 @@ func complete_construction(b_id: String) -> bool:
 	if b_data["type"] == "research_hall" and hud != null:
 		hud.call("_refresh_research_ui")
 
-	# If barracks, register guard jobs and refresh hud role options
+	# If barracks, register guard jobs and refresh hud role options & army panel
 	if b_data["type"] == "barracks":
 		register_barracks_jobs(b_data)
 		if hud != null and hud.has_method("_refresh_role_options"):
 			hud.call("_refresh_role_options")
+		if player_army_mgr != null and player_army_mgr.has_method("notify_capacity_changed"):
+			player_army_mgr.call("notify_capacity_changed")
+		elif hud != null and hud.has_method("_refresh_army_panel"):
+			hud.call("_refresh_army_panel")
 
 	var am = get_node_or_null("/root/AudioManager")
 	if am and am.has_method("play_build"):
@@ -895,6 +899,60 @@ func cancel_construction_project(b_id: String) -> Dictionary:
 			if cit.has_method("_update_reason"):
 				cit.call("_update_reason")
 
+	if type == "barracks":
+		if hud != null and hud.has_method("_refresh_role_options"):
+			hud.call("_refresh_role_options")
+		if player_army_mgr != null and player_army_mgr.has_method("notify_capacity_changed"):
+			player_army_mgr.call("notify_capacity_changed")
+		elif hud != null and hud.has_method("_refresh_army_panel"):
+			hud.call("_refresh_army_panel")
+
+	return res
+
+func set_building_state(b_id: String, new_state: String) -> bool:
+	if world_data == null or b_id == "":
+		return false
+	var b_data: Dictionary = BuildingSystem.get_building_by_id(b_id, world_data)
+	if b_data.is_empty():
+		return false
+	var old_state: String = b_data.get("state", "")
+	if old_state == new_state:
+		return true
+	b_data["state"] = new_state
+	if b_data.get("type", "") == "barracks":
+		if hud != null and hud.has_method("_refresh_role_options"):
+			hud.call("_refresh_role_options")
+		if player_army_mgr != null and player_army_mgr.has_method("notify_capacity_changed"):
+			player_army_mgr.call("notify_capacity_changed")
+		elif hud != null and hud.has_method("_refresh_army_panel"):
+			hud.call("_refresh_army_panel")
+	return true
+
+func demolish_building_project(b_id: String) -> Dictionary:
+	if world_data == null or b_id == "":
+		return {"success": false, "reason": "Dữ liệu thế giới rỗng"}
+	var b_data: Dictionary = BuildingSystem.get_building_by_id(b_id, world_data)
+	if b_data.is_empty():
+		return {"success": false, "reason": "Công trình không tồn tại"}
+	var rm := get_node_or_null("/root/ResourceManager")
+	var origin: Vector2i = b_data.get("cell", Vector2i.ZERO)
+	var size: Vector2i = b_data.get("size", Vector2i(1, 1))
+	var type: String = b_data.get("type", "")
+	var node_name := "Building_%s_%d_%d" % [type, origin.x, origin.y]
+	var b_node = buildings_container.get_node_or_null(node_name) if buildings_container != null else null
+	if b_node:
+		b_node.queue_free()
+	for ox in range(size.x):
+		for oy in range(size.y):
+			buildings_by_cell.erase(origin + Vector2i(ox, oy))
+	var res := BuildingSystem.demolish_building(b_data, world_data, rm)
+	if type == "barracks":
+		if hud != null and hud.has_method("_refresh_role_options"):
+			hud.call("_refresh_role_options")
+		if player_army_mgr != null and player_army_mgr.has_method("notify_capacity_changed"):
+			player_army_mgr.call("notify_capacity_changed")
+		elif hud != null and hud.has_method("_refresh_army_panel"):
+			hud.call("_refresh_army_panel")
 	return res
 
 func _get_building_at_cell(cell: Vector2i) -> Dictionary:

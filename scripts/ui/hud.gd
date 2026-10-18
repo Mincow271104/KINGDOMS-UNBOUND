@@ -519,7 +519,12 @@ func _refresh_army_panel() -> void:
 		upkeep_label.text = "🌾 Chi phí duy trì: %d Lương thực / ngày" % upkeep
 
 	if recruit_cost_label:
-		recruit_cost_label.text = "💰 Chi phí mỗi lính: 20 Vàng, 2 Kim loại, 5 Lương thực"
+		var cost_parts: Array[String] = []
+		for res_id in EconomyConfig.ARMY_RECRUIT_COST:
+			var amt: int = EconomyConfig.ARMY_RECRUIT_COST[res_id]
+			var r_name: String = EconomyConfig.RESOURCE_NAMES_VI.get(res_id, res_id.capitalize())
+			cost_parts.append("%d %s" % [amt, r_name])
+		recruit_cost_label.text = "💰 Chi phí mỗi lính: " + ", ".join(cost_parts)
 
 	var check: Dictionary = player_army_mgr.call("can_recruit", 1)
 	var can_r: bool = check.get("can_recruit", false)
@@ -961,6 +966,8 @@ func _on_hour_passed(_hour: int, _day: int) -> void:
 
 func _on_day_passed(_day: int, _season: String, _year: int) -> void:
 	_update_time_display()
+	if army_panel and army_panel.visible:
+		_refresh_army_panel()
 
 func _update_time_display() -> void:
 	if not get_node_or_null("/root/TimeManager"):

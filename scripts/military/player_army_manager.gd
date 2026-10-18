@@ -84,6 +84,9 @@ func get_army_capacity() -> int:
 func get_remaining_capacity() -> int:
 	return maxi(0, get_army_capacity() - soldier_count)
 
+func notify_capacity_changed() -> void:
+	army_changed.emit(soldier_count, get_army_capacity())
+
 func get_recruitment_cost(count: int = 1) -> Dictionary:
 	if count <= 0:
 		return {}
@@ -273,6 +276,22 @@ func deserialize(data: Dictionary) -> void:
 
 	soldier_count = clampi(int(data.get("soldier_count", 0)), 0, 1000)
 	is_supplied = bool(data.get("is_supplied", true))
-	last_upkeep_day = int(data.get("last_upkeep_day", -1))
+	var raw_last_upkeep: int = int(data.get("last_upkeep_day", -1))
+	if raw_last_upkeep < -1:
+		raw_last_upkeep = -1
+
+	# Fail-closed normalization: if world_view or singleton TimeManager has current_day,
+	# ensure last_upkeep_day does not exceed current_day so upkeep cannot be avoided indefinitely
+	var tm = null
+	if is_instance_valid(world_view) and world_view.is_inside_tree():
+		tm = world_view.get_node_or_null("/root/TimeManager")
+	elif Engine.has_singleton("TimeManager"):
+		tm = Engine.get_singleton("TimeManager")
+	if tm != null and tm.get("current_day") != null:
+		var cur_day: int = int(tm.get("current_day"))
+		if raw_last_upkeep > cur_day:
+			raw_last_upkeep = cur_day
+
+	last_upkeep_day = raw_last_upkeep
 	army_changed.emit(soldier_count, get_army_capacity())
 	supply_status_changed.emit(is_supplied)

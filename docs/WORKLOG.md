@@ -3307,3 +3307,62 @@ Implement Package 1L — Player Army Recruitment & Upkeep in `Mincow271104/KINGD
 - Push branch `feature/package-1l-army-recruitment-upkeep` to remote.
 - Verify remote HEAD matches local HEAD.
 - Stop for independent review. Do not merge to master, do not start Package 1M.
+
+---
+
+## [2026-10-19] Milestone 48: Package 1L Review Fix — Upkeep Clock Validation & Integration Hardening (Completed)
+
+### Context & Objective
+Address four independent code-review findings in Package 1L on branch `feature/package-1l-army-recruitment-upkeep` starting from commit `94167a6b106bd55211658deeb0fa5bfde81aeae0`. The objective is to eliminate upkeep evasion through save file tampering, make the Army HUD dynamically reactive to Barracks lifecycle events and dynamically format recruitment costs, thoroughly verify the citizen guard casualty lifecycle in WorldView (TC-ARMY.28), and implement full SaveManager world roundtrip, double-load idempotency, clock validation, and live capacity tests (TC-ARMY.29B, TC-ARMY.30B, TC-ARMY.31, TC-ARMY.32).
+
+### Completed Work
+1. **Clock Day Save Validation & Normalization:**
+   - In `SaveManager.validate_save_data()`: Enforced that when `game_clock.current_day` is present and valid, `last_upkeep_day` cannot exceed `clock_day` (`last_upkeep_day > clock_day` returns `valid: false`). Preserves `-1` and `last_upkeep_day <= clock_day`.
+   - In `PlayerArmyManager.deserialize()`: Added fail-closed normalization clamping `last_upkeep_day` to `TimeManager.current_day` if present, preventing malformed saves from skipping future daily food deductions indefinitely.
+2. **Authoritative Barracks Lifecycle & Dynamic Army HUD:**
+   - In `WorldView`: Wired `complete_construction()`, `cancel_construction_project()`, `set_building_state()`, and `demolish_building_project()` to invoke `player_army_mgr.notify_capacity_changed()` and `hud._refresh_army_panel()`.
+   - In `PlayerArmyManager`: Added `notify_capacity_changed()` method emitting `army_changed(soldier_count, get_army_capacity())`.
+   - In `HUD`: Formatted recruitment costs dynamically from `EconomyConfig.ARMY_RECRUIT_COST` and localized via `EconomyConfig.RESOURCE_NAMES_VI`. Added refresh on daily clock transitions and post-save load in `SaveManager.apply_loaded_state_to_world()`.
+3. **Guard Casualty WorldView Lifecycle Verification (TC-ARMY.28):**
+   - Replaced placeholder assertions with complete integration tests using `world_instance`: verified guard removal from `citizens_by_id` & `citizen_list`, immediate job release, population accounting update, single combat death event with `cause == "combat"`, strict idempotency on duplicate death call without ghost notifications, and zero citizen death events on abstract army casualties.
+4. **End-to-End Save/Load & Integration Test Expansion:**
+   - Added TC-ARMY.29B: Full `SaveManager.serialize_world_state` and `SaveManager.apply_loaded_state_to_world` roundtrip, non-default state verification, double load idempotency, and Save -> Load -> Save roundtrip stability.
+   - Added TC-ARMY.30B: Legacy world save application resetting world army to 0 soldiers, supplied, day -1.
+   - Added TC-ARMY.31: Upkeep day clock validation and evasion prevention.
+   - Added TC-ARMY.32: Live Barracks capacity & HUD dynamic refresh across construction, completion, damage, reactivation, and demolition.
+
+### Validations Performed & Results
+- **Dedicated Player Army Test Suite (`scripts/test/test_player_army.gd`):**
+  - Command: `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless -s res://scripts/test/test_player_army.gd`
+  - Result: **PASS (Exit Code 0, 32/32 tests passed)**
+- **Targeted Integration Suite (`scripts/test/test_live_battle_loop.gd`):**
+  - Command: `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless -s res://scripts/test/test_live_battle_loop.gd`
+  - Result: **PASS (Exit Code 0, 19/19 + TC-LB.4C + TC-LB.7B passed)**
+- **Full Test Matrix (All 25 Test Suites in `scripts/test/test_*.gd`):**
+  - Result: **PASS (25/25 suites passed, Exit Code 0)**
+- **Headless Scene Smoke Checks:**
+  - `scenes/ui/main_menu.tscn`: **PASS (Exit Code 0)**
+  - `scenes/world/world_view.tscn`: **PASS (Exit Code 0)**
+  - `scenes/ui/hud.tscn`: **PASS (Exit Code 0)**
+  - `scenes/test/visual_validation_test.tscn`: **PASS (Exit Code 0)**
+  - `scenes/entities/citizen.tscn`: **PASS (Exit Code 0)**
+- **Whitespace & Formatting Check:**
+  - `git diff --check`: Clean (Exit Code 0, zero whitespace errors).
+
+### Files Created / Modified
+- `scripts/persistence/save_manager.gd` (Upkeep clock day validation, post-load HUD refresh)
+- `scripts/military/player_army_manager.gd` (Capacity changed notification, fail-closed deserialization clamping)
+- `scripts/world/world_view.gd` (Barracks lifecycle hooks for capacity notification)
+- `scripts/ui/hud.gd` (Dynamic recruitment cost formatting, day-tick refresh)
+- `scripts/test/test_player_army.gd` (Expanded TC-ARMY.28 lifecycle assertions, added TC-ARMY.29B, TC-ARMY.30B, TC-ARMY.31, TC-ARMY.32)
+- `docs/TEST_PLAN.md` (Updated Package 1L criteria for TC-ARMY.28 to TC-ARMY.32)
+- `docs/GAME_RULES.md` (Documented save validation rule for last_upkeep_day <= current_day and HUD dynamic cost formatting)
+- `docs/CHANGELOG.md` (Added review fix notes under Package 1L)
+- `docs/WORKLOG.md` (Recorded Milestone 48)
+
+### Next Exact Step
+- Inspect git status and stage only intended Package 1L review-fix files (never `git add -A`).
+- Commit with exact mandated message: `Harden Package 1L upkeep and integration validation`
+- Push branch `feature/package-1l-army-recruitment-upkeep` to remote.
+- Verify remote HEAD matches local HEAD and report parent SHA (`94167a6b106bd55211658deeb0fa5bfde81aeae0`).
+- Stop for independent review. Do not merge to master, do not start Package 1M.
