@@ -300,7 +300,7 @@ func _test_tc_br_2_placement() -> bool:
 			failures += 1
 
 		var b_data = place_res.get("building", {})
-		if b_data.get("type") != "barracks" or b_data.get("size") != Vector2i(3, 3) or b_data.get("state") != "active":
+		if b_data.get("type") != "barracks" or b_data.get("size") != Vector2i(3, 3) or (b_data.get("state") != "active" and b_data.get("state") != "under_construction"):
 			printerr("FAIL: Building data improperly recorded: %s" % str(b_data))
 			failures += 1
 
@@ -1053,6 +1053,7 @@ func _test_tc_br_7_worldview_and_save_load() -> bool:
 
 	var b_data = place_res.get("building")
 	var b_id: String = b_data.get("id")
+	world_instance.complete_construction(b_id)
 
 	var guard_jobs = world_instance.job_mgr.get_jobs_for_building(b_id)
 	if guard_jobs.size() != 2:

@@ -82,12 +82,16 @@ func create_hauling_job(workplace_id: String, source: Vector2i, dest: Vector2i, 
 	return job
 
 var barracks_checker: Callable = Callable()
+var construction_checker: Callable = Callable()
 
 func set_barracks_checker(checker: Callable) -> void:
 	barracks_checker = checker
 
 func set_building_checker(checker: Callable) -> void:
 	barracks_checker = checker
+
+func set_construction_checker(checker: Callable) -> void:
+	construction_checker = checker
 
 func _is_job_executable(job: JobData, wp_mgr: Object, resource_mgr: Node, custom_filter: Callable = Callable(), nav: GridNavigation = null) -> bool:
 	if job.type == "guard":
@@ -118,6 +122,30 @@ func _is_job_executable(job: JobData, wp_mgr: Object, resource_mgr: Node, custom
 			return false
 
 		# Requirement 6: Keep the existing target walkability check.
+		if nav != null and not nav.is_cell_walkable(job.target_cell):
+			return false
+		return true
+
+	if job.type == "builder":
+		var b_id: String = job.target_building_id
+		if b_id == "":
+			return false
+
+		if custom_filter.is_valid():
+			var argc := custom_filter.get_argument_count()
+			if argc == 0:
+				return false
+			if not bool(custom_filter.call(b_id)):
+				return false
+		elif construction_checker.is_valid():
+			var argc := construction_checker.get_argument_count()
+			if argc == 0:
+				return false
+			if not bool(construction_checker.call(b_id)):
+				return false
+		else:
+			return false
+
 		if nav != null and not nav.is_cell_walkable(job.target_cell):
 			return false
 		return true

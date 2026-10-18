@@ -2162,3 +2162,109 @@ Implement Package 1G final hardening on branch `feature/package-1g-barracks`:
 - Push to origin on branch `feature/package-1g-barracks`.
 - Verify local HEAD equals remote SHA.
 - Report completion and await independent review. Do not merge into master, do not start Package 1H.
+
+---
+
+## [2026-10-18] Milestone 36: Implement Builder & Construction Lifecycle (Package 1H) ✅ VERIFIED
+
+### Context & Objective
+Implement Package 1H: Builder & Construction Lifecycle directly in the local repository on branch `feature/package-1h-construction` adhering strictly to GDD Section 7.3:
+- Placed buildings start in state `under_construction` with `construction_progress = 0.0` and `construction_hours` defined per blueprint in `EconomyConfig.BLUEPRINTS`.
+- Full footprint occupied immediately; costs deducted atomically once upon placement (fail-closed on null `ResourceManager`).
+- Dynamic builder jobs (`job.type == "builder"`) generated up to concurrent capacity (1x1: 2, 2x2: 3, 3x3: 4), capped at available perimeter cells.
+- Real builder work loop in `CitizenController` advancing shared project progress by `delta_hours` per working builder, respecting pause and time speed (1x, 2x, 3x).
+- Centralized idempotent completion transition (`complete_construction`) unlocking building operational features (workplace channels, guard posts, research UI, watchtower vision, housing cap, storehouse capacity) and resetting amber scaffolding modulate.
+- Cancellation policy refunding 50% blueprint costs atomically, releasing occupancy, removing jobs, and freeing visual nodes idempotently.
+- Visual scaffolding amber modulate `Color(0.8, 0.7, 0.5, 0.7)` and dynamic HUD hover progress percentage `[Đang xây: X%]`.
+- Save/load persistence preserving exact progress, zero duplicate jobs/nodes, zero reload deductions, and legacy save compatibility.
+
+### Completed Work
+1. **Building Placement & Lifecycle Machine (`scripts/economy/building_system.gd`):**
+   - Configured `place_building()` with `initial_state = "under_construction"`, initializing `construction_progress = 0.0` and `construction_hours = EconomyConfig.BLUEPRINTS[type]["construction_hours"]`.
+   - Enforced fail-closed cost check on null `ResourceManager` or insufficient funds.
+   - Implemented `get_construction_worker_capacity(building_id)` returning 2 (1x1), 3 (2x2), 4 (3x3).
+   - Implemented `advance_construction(world_data, building_id, delta_hours)` advancing shared progress capped at total hours.
+   - Implemented `complete_building(world_data, building_id)` with idempotent transition to `active`.
+   - Implemented `cancel_construction(world_data, building_id, resource_mgr, job_mgr)` refunding exactly 50% floor costs atomically, clearing occupancy, and removing jobs idempotently.
+   - Filtered `get_total_housing_capacity()` and `is_town_hall_active()` strictly for `state == "active"`.
+2. **Fail-Closed Builder Job Management (`scripts/jobs/job_manager.gd`):**
+   - Added `construction_checker: Callable` and `set_construction_checker(checker: Callable)`.
+   - In `_is_job_executable()`, validated builder jobs fail closed on empty building ID or missing checker, returning true only if target building is verifiably under construction and perimeter cell is walkable.
+3. **Builder Citizen Work Loop (`scripts/entities/citizen_controller.gd`):**
+   - Added `construction_checker`, `construction_handler`, `world_view`, `world_data`, and setters.
+   - In `_process_idle()`, added builder role filter callback and status reason `"Chờ công trình cần xây dựng"`.
+   - In `_process_working()`, routed builder jobs to `_process_building_work(delta_hours)` with need interruption (hunger >= 70, fatigue >= 85), building cancellation/completion handling, and explainable status reason `"Đang thi công [Tên công trình]: X%"`.
+4. **WorldView Lifecycle & Visual Scaffolding (`scripts/world/world_view.gd`):**
+   - Added amber scaffolding modulate `Color(0.8, 0.7, 0.5, 0.7)` to `_instantiate_building_node()` when `state == "under_construction"`.
+   - In `_execute_placement()`, places buildings in `under_construction` and registers builder jobs up to capacity at walkable perimeter cells.
+   - Implemented `register_construction_jobs(b_data)`, `advance_construction_work(b_id, delta_hours)`, `complete_construction(b_id)`, `cancel_construction_project(b_id)`.
+   - Centralized `complete_construction(b_id)`: activates state, resets modulate, frees builder jobs, and calls `_apply_building_operational_integration(b_data)` once.
+   - Updated `_update_tile_hover()` to append `[Đang xây: X%]` when hovering unbuilt structures.
+   - In `sync_workplaces_after_load()`, registers construction jobs for `under_construction` buildings.
+5. **Save/Load Persistence (`scripts/persistence/save_manager.gd`):**
+   - Serialized `construction_progress` and `construction_hours`.
+   - In `apply_loaded_state_to_world`, restored exact progress, hours, `under_construction` state, and passed state to `_instantiate_building_node`.
+   - Restored builder checkers on loaded citizens.
+6. **Automated Test Suite (`scripts/test/test_construction.gd`):**
+   - Implemented comprehensive automated test suite covering TC-CON.1 through TC-CON.6.
+
+### Validations Performed & Results
+- **Dedicated Test Suite (`scripts/test/test_construction.gd`):** **PASS (Exit Code 0, 6/6 passed)**
+  - TC-CON.1: Blueprint Verification & Placement Lifecycle (Positive hours, capacity withheld): **PASS**
+  - TC-CON.2: Construction Jobs & Concurrent Capacity (1x1: 2, 2x2: 3, 3x3: 4): **PASS**
+  - TC-CON.3: Builder Work Loop, Scaling & Progress (Active advancement, pause safety, 1x/2x/3x speeds): **PASS**
+  - TC-CON.4: Idempotent Completion Transition (Operational unlocking, visual reset): **PASS**
+  - TC-CON.5: Cancellation Policy & 50% Refund (Atomic refund, occupancy released, node freed): **PASS**
+  - TC-CON.6: Save/Load Persistence & Visual Hover (Progress preserved, zero double-load duplication): **PASS**
+- **All Core Regression Suites (Godot 4.7 Headless):**
+  - `test_workshop.gd` (7/7): **PASS (Exit Code 0)**
+  - `test_barracks.gd` (7/7): **PASS (Exit Code 0)**
+  - `test_research_hall.gd` (7/7): **PASS (Exit Code 0)**
+  - `test_audio.gd`: **PASS (Exit Code 0)**
+  - `test_citizens.gd`: **PASS (Exit Code 0)**
+  - `test_coordinates.gd`: **PASS (Exit Code 0)**
+  - `test_economy.gd`: **PASS (Exit Code 0)**
+  - `test_factions_and_battles.gd`: **PASS (Exit Code 0)**
+  - `test_gold_transactions.gd`: **PASS (Exit Code 0)**
+  - `test_logistics.gd`: **PASS (Exit Code 0)**
+  - `test_time_manager.gd`: **PASS (Exit Code 0)**
+  - `test_victory_and_collapse.gd`: **PASS (Exit Code 0)**
+  - `test_world_gen.gd`: **PASS (Exit Code 0)**
+  - `test_stress_100_citizens.gd`: **PASS (Exit Code 0)**
+  - `test_research_and_exploration.gd`: **PASS (Exit Code 0)**
+  - `test_save_load.gd`: **PASS (Exit Code 0)**
+  - `test_dynamic_workplaces.gd`: **PASS (Exit Code 0)**
+  - `test_mine.gd`: **PASS (Exit Code 0)**
+  - `test_quarry.gd`: **PASS (Exit Code 0)**
+  - `test_watchtower.gd`: **PASS (Exit Code 0)**
+- **Headless Scene Smoke Checks:**
+  - `scenes/ui/main_menu.tscn`: **PASS (Exit Code 0)**
+  - `scenes/world/world_view.tscn`: **PASS (Exit Code 0)**
+  - `scenes/ui/hud.tscn`: **PASS (Exit Code 0)**
+- **Whitespace Check:**
+  - `git diff --check`: Clean (Exit Code 0, zero whitespace errors).
+
+### Files Created / Modified
+- `scripts/economy/building_system.gd` (Placement state machine, progress advancement, completion, cancellation with 50% refund, housing/townhall active filters)
+- `scripts/jobs/job_manager.gd` (Fail-closed builder job validation, construction checker wiring)
+- `scripts/entities/citizen_controller.gd` (Builder role processing loop, need interruption, cancellation/completion safety, status reason)
+- `scripts/world/world_view.gd` (Visual amber scaffolding modulate, builder job registration, progress advancement, completion integration, cancellation, hover progress)
+- `scripts/persistence/save_manager.gd` (Serialization and restoration of construction progress, state, and builder checker wiring)
+- `scripts/test/test_construction.gd` (Automated unit and regression test suite TC-CON.1 to TC-CON.6)
+- `scripts/test/test_dynamic_workplaces.gd` (Added complete_construction in operational test)
+- `scripts/test/test_mine.gd` (Added complete_construction in operational test)
+- `scripts/test/test_quarry.gd` (Added complete_construction in operational test)
+- `scripts/test/test_watchtower.gd` (Added complete_construction in operational test)
+- `scripts/test/test_workshop.gd` (Added complete_construction in operational test)
+- `scripts/test/test_barracks.gd` (Updated TC-BR.2 under_construction state and TC-BR.7 complete_construction)
+- `scripts/test/test_research_hall.gd` (Updated TC-RH.2 under_construction state and TC-RH.7 complete_construction)
+- `docs/BACKLOG.md` (Added Package 1H completed tasks)
+- `docs/CHANGELOG.md` (Added Package 1H changelog entry)
+- `docs/TEST_PLAN.md` (Updated test plan table and detailed specifications)
+- `docs/WORKLOG.md` (Documented Milestone 36)
+
+### Next Exact Step
+- Stage Package 1H files explicitly (no `git add -A`).
+- Commit with exact mandated message: `Implement builder construction lifecycle`.
+- Push to origin on branch `feature/package-1h-construction`.
+- Await independent review. Do not merge into master, do not start Package 1I.

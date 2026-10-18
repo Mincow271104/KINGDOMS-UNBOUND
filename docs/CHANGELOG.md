@@ -8,6 +8,19 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### [Package 1H] - 2026-10-18
+#### Added
+- Full builder construction lifecycle adhering strictly to GDD Section 7.3:
+  - Player-placed buildings now start in `under_construction` state with `construction_progress = 0.0` and `construction_hours` defined per blueprint in `EconomyConfig.BLUEPRINTS`.
+  - Immediate 100% footprint occupancy and atomic resource reservation/deduction upon site placement (fail-closed on null `ResourceManager`).
+  - Dynamic builder jobs (`job.type == "builder"`) with concurrent worker capacity scaling by footprint (1x1: 2, 2x2: 3, 3x3: 4), bounded by walkable perimeter cells.
+  - Real builder work loop in `CitizenController` advancing shared project progress by `delta_hours` per working builder; respects pause and time speed (1x, 2x, 3x).
+  - Centralized idempotent completion transition (`complete_construction`) unlocking building operational features (workplace channels, guard posts, research UI, watchtower vision, housing capacity, storehouse capacity) and resetting amber scaffolding modulate.
+  - Construction cancellation policy refunding 50% blueprint costs atomically, clearing footprint occupancy and visual node, and removing builder jobs.
+  - Amber scaffolding visual modulate `Color(0.8, 0.7, 0.5, 0.7)` and dynamic HUD hover progress percentage `[Đang xây: X%]`.
+  - Save/load persistence restoring exact construction progress and hours, zero duplicate jobs/nodes, zero deduction on reload, and legacy save compatibility.
+  - Comprehensive automated test suite `scripts/test/test_construction.gd` covering TC-CON.1 through TC-CON.6 (PASS, Exit Code 0).
+
 ### [Package 1G] - 2026-10-18
 #### Added
 - Buildable Barracks (Doanh Trại) with 3x3 footprint, cost (25 Wood, 20 Stone, 5 Metal), and 2 guard capacity slots.

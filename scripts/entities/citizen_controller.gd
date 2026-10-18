@@ -24,6 +24,10 @@ var current_cell: Vector2i = Vector2i(32, 32)
 var current_state: int = State.IDLE
 var status_reason: String = "Đang nghỉ ngơi tại quảng trường"
 var barracks_checker: Callable = Callable()
+var construction_checker: Callable = Callable()
+var construction_handler: Callable = Callable()
+var world_view: Node = null
+var world_data: WorldGenerator.WorldData = null
 
 # Needs (0..100)
 var hunger: float = 10.0
@@ -75,16 +79,46 @@ func init_citizen(p_id: String, p_name: String, p_role: String, p_cell: Vector2i
 func set_barracks_checker(checker: Callable) -> void:
 	barracks_checker = checker
 
+func set_construction_checker(checker: Callable) -> void:
+	construction_checker = checker
+
+func set_construction_handler(handler: Callable) -> void:
+	construction_handler = handler
+
+func set_world_view(wv: Node) -> void:
+	world_view = wv
+
+func _get_world_view() -> Node:
+	if world_view != null:
+		return world_view
+	if is_inside_tree():
+		return get_tree().root.find_child("WorldView", true, false)
+	return null
+
+func is_building_under_construction(b_id: String = "") -> bool:
+	if b_id == "":
+		return false
+	if construction_checker.is_valid():
+		var argc := construction_checker.get_argument_count()
+		if argc != 0:
+			return bool(construction_checker.call(b_id))
+		return bool(construction_checker.call())
+	var wv = _get_world_view()
+	if wv != null and wv.get("world_data") != null:
+		return BuildingSystem.is_building_under_construction(wv.world_data, b_id)
+	if world_data != null:
+		return BuildingSystem.is_building_under_construction(world_data, b_id)
+	return false
+
 func is_barracks_active(barracks_id: String = "") -> bool:
 	if barracks_checker.is_valid():
 		var argc := barracks_checker.get_argument_count()
 		if argc != 0:
 			return bool(barracks_checker.call(barracks_id))
 		return bool(barracks_checker.call())
-	if is_inside_tree():
-		var wv = get_tree().root.find_child("WorldView", true, false)
-		if wv != null and wv.get("world_data") != null:
-			return BuildingSystem.is_barracks_active(wv.world_data, barracks_id)
+	var wv = _get_world_view()
+	if wv != null and wv.get("world_data") != null:
+		return BuildingSystem.is_barracks_active(wv.world_data, barracks_id)
 	return false
 
 func select() -> void:
@@ -134,7 +168,12 @@ func _process_idle() -> void:
 			return
 
 		var rm_node: Node = get_node_or_null("/root/ResourceManager") if (is_inside_tree() and has_node("/root/ResourceManager")) else null
-		var filter_cb := func(b_id: String) -> bool: return is_barracks_active(b_id) if role == "guard" else true
+		var filter_cb := func(b_id: String) -> bool:
+			if role == "guard":
+				return is_barracks_active(b_id)
+			elif role == "builder":
+				return is_building_under_construction(b_id)
+			return true
 		var job = job_mgr.request_job(citizen_id, role, current_cell, nav, workplace_mgr, rm_node, filter_cb)
 		if job != null:
 			active_job = job
@@ -156,6 +195,8 @@ func _process_idle() -> void:
 					status_reason = "Cần Doanh Trại đang hoạt động"
 				else:
 					status_reason = "Đang chờ phân công vị trí canh gác"
+			elif role == "builder":
+				status_reason = "Chờ công trình cần thi công xây dựng"
 			else:
 				status_reason = "Chờ công việc phù hợp với vai trò: " + role
 	else:
@@ -266,6 +307,10 @@ func _process_working(delta: float) -> void:
 	var tm := _get_time_manager()
 	if tm != null:
 		delta_hours = delta * float(tm.current_speed)
+
+	if active_job.type == "builder":
+		_process_building_work(delta_hours)
+		return
 		
 	var completed := job_mgr.progress_job(active_job, delta_hours)
 	if completed:
@@ -295,6 +340,66 @@ func _process_working(delta: float) -> void:
 						status_reason = "Thiếu nguyên liệu chế tác tại xưởng"
 		active_job = null
 		current_state = State.IDLE
+
+func _process_building_work(delta_hours: float) -> void:
+	if active_job == null or job_mgr == null:
+		current_state = State.IDLE
+		return
+
+	# Urgent needs interrupt work
+	if hunger >= 70.0:
+		job_mgr.release_job(active_job)
+		active_job = null
+		_seek_food()
+		return
+	if fatigue >= 85.0:
+		job_mgr.release_job(active_job)
+		active_job = null
+		_seek_rest()
+		return
+
+	var b_id: String = active_job.target_building_id
+	if b_id == "":
+		job_mgr.cancel_job(active_job)
+		active_job = null
+		current_state = State.IDLE
+		_update_reason()
+		return
+
+	# Advance construction
+	var res: Dictionary = {}
+	if construction_handler.is_valid():
+		var argc := construction_handler.get_argument_count()
+		if argc >= 2:
+			res = construction_handler.call(b_id, delta_hours)
+		else:
+			res = construction_handler.call(delta_hours)
+	else:
+		var wv = _get_world_view()
+		if wv != null and wv.has_method("advance_construction_work"):
+			res = wv.advance_construction_work(b_id, delta_hours)
+		elif world_data != null:
+			res = BuildingSystem.advance_construction(b_id, delta_hours, world_data)
+			if res.get("completed", false):
+				var rm_node: Node = get_node_or_null("/root/ResourceManager") if (is_inside_tree() and has_node("/root/ResourceManager")) else null
+				BuildingSystem.complete_building(b_id, world_data, rm_node)
+
+	if not res.get("success", false):
+		active_job = null
+		current_state = State.IDLE
+		status_reason = "Công trình xây dựng đã hoàn thành hoặc bị hủy"
+		return
+
+	if res.get("completed", false):
+		active_job = null
+		current_state = State.IDLE
+		status_reason = "Công trình đã hoàn thành thi công"
+		return
+
+	status_reason = "Đang thi công xây dựng công trình (%.1f / %.1f giờ)" % [
+		res.get("progress", 0.0),
+		res.get("hours", 0.0)
+	]
 
 func _process_guarding(delta: float) -> void:
 	if active_job == null or job_mgr == null:
@@ -440,6 +545,8 @@ func _update_reason() -> void:
 		State.WORKING:
 			if active_job != null and active_job.type == "smith":
 				status_reason = "Đang luyện kim hoặc rèn công cụ tại xưởng"
+			elif active_job != null and active_job.type == "builder":
+				status_reason = "Đang thi công xây dựng công trình"
 			else:
 				status_reason = "Đang tích cực lao động sản xuất"
 		State.GUARDING:

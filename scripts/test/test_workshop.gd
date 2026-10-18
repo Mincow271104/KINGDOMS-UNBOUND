@@ -271,6 +271,7 @@ func _test_tc_ws_2_placement_and_registration() -> bool:
 	# Place Workshop at legal position (26, 23)
 	world_instance.set("placing_building_type", "workshop")
 	var place_res: Dictionary = world_instance.call("_execute_placement", ws_origin)
+	world_instance.call("complete_construction", "bld_workshop_26_23")
 
 	if not place_res.get("success", false):
 		printerr("  [FAIL] Failed to place workshop at (26, 23): %s" % place_res.get("reason", "unknown"))

@@ -129,3 +129,16 @@
 - [x] **TASK-1G.7:** Save/Load persistence hardening attaching barracks checker to restored citizens, with zero node/job duplication.
 - [x] **TASK-1G.8:** Automated test suite `scripts/test/test_barracks.gd` covering TC-BR.1 through TC-BR.7 (PASS, Exit Code 0).
 - [x] **TASK-1G.9:** Package 1G Review Fix — Multi-barracks specific building ID tracking, unique guard positions deduplication, work-related need decay in State.GUARDING, genuine TimeManager pause verification, and comprehensive regression test suite (PASS, Exit Code 0).
+
+---
+
+## Package 1H: Builder & Construction Lifecycle (Completed)
+- [x] **TASK-1H.1:** Construction Site Placement & State Machine (`under_construction`, `construction_progress = 0.0`, `construction_hours` from blueprints, immediate full footprint occupancy).
+- [x] **TASK-1H.2:** Cost reservation & atomic deduction on placement, fail-closed on null `ResourceManager` or insufficient funds.
+- [x] **TASK-1H.3:** Dynamic builder job generation (`job.type == "builder"`) with concurrent worker capacities (1x1: 2, 2x2: 3, 3x3: 4) bounded by walkable perimeter cells.
+- [x] **TASK-1H.4:** Real builder work loop in `CitizenController` advancing shared building progress by `delta_hours` per active working builder, respecting time pause and speeds (1x, 2x, 3x).
+- [x] **TASK-1H.5:** Centralized idempotent completion transition (`complete_construction`) unlocking building operations (workplaces, guard jobs, research UI, watchtower vision, housing, storehouse capacity) and resetting visual scaffolding modulate.
+- [x] **TASK-1H.6:** Cancellation policy refunding 50% blueprint costs atomically, releasing occupancy, removing jobs, and freeing visual nodes idempotently.
+- [x] **TASK-1H.7:** Visual scaffolding amber modulate `Color(0.8, 0.7, 0.5, 0.7)` and dynamic HUD hover progress percentage `[Đang xây: X%]`.
+- [x] **TASK-1H.8:** Save/Load persistence preserving construction progress and hours, zero duplicate jobs/nodes, zero deduction on reload, and legacy save compatibility.
+- [x] **TASK-1H.9:** Automated test suite `scripts/test/test_construction.gd` covering TC-CON.1 through TC-CON.6 (PASS, Exit Code 0).

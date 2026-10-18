@@ -181,6 +181,7 @@ func _test_tc_q_2_placement_and_registration() -> bool:
 	# Place Quarry at legal position (29, 27) (size 2x2)
 	world_instance.set("placing_building_type", "quarry")
 	var place_res: Dictionary = world_instance.call("_execute_placement", quarry_origin)
+	world_instance.call("complete_construction", "bld_quarry_29_27")
 
 	if not place_res.get("success", false):
 		printerr("  [FAIL] Failed to place quarry at (29, 27): %s" % place_res.get("reason", "unknown"))

@@ -83,15 +83,23 @@ static func serialize_world_state(world_view: Node) -> Dictionary:
 	if world_data != null and world_data.get("buildings") != null:
 		var b_list: Array = []
 		for b in world_data.buildings:
+			var b_state: String = b.get("state", "active")
+			var b_type: String = b.get("type", "")
+			var bp: Dictionary = EconomyConfig.BLUEPRINTS.get(b_type, {})
+			var default_hours: float = float(bp.get("construction_hours", 12.0))
+			var b_hours: float = float(b.get("construction_hours", default_hours))
+			var b_prog: float = float(b.get("construction_progress", b_hours if b_state == "active" else 0.0))
 			b_list.append({
 				"id": b.get("id", ""),
-				"type": b.get("type", ""),
+				"type": b_type,
 				"cell_x": b.get("cell", Vector2i.ZERO).x,
 				"cell_y": b.get("cell", Vector2i.ZERO).y,
 				"size_x": b.get("size", Vector2i.ONE).x,
 				"size_y": b.get("size", Vector2i.ONE).y,
-				"state": b.get("state", "active"),
-				"health": b.get("health", 100)
+				"state": b_state,
+				"health": b.get("health", 100),
+				"construction_progress": b_prog,
+				"construction_hours": b_hours
 			})
 		data["buildings"] = b_list
 
@@ -340,14 +348,21 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 			var b_size := Vector2i(b["size_x"], b["size_y"])
 			var b_type: String = b["type"]
 			var b_id: String = b["id"]
+			var b_state: String = b.get("state", "active")
+			var bp: Dictionary = EconomyConfig.BLUEPRINTS.get(b_type, {})
+			var default_hours: float = float(bp.get("construction_hours", 12.0))
+			var b_hours: float = float(b.get("construction_hours", default_hours))
+			var b_prog: float = float(b.get("construction_progress", b_hours if b_state == "active" else 0.0))
 			
 			var b_dict := {
 				"id": b_id,
 				"type": b_type,
 				"cell": b_origin,
 				"size": b_size,
-				"state": b.get("state", "active"),
-				"health": b.get("health", 100)
+				"state": b_state,
+				"health": b.get("health", 100),
+				"construction_progress": b_prog,
+				"construction_hours": b_hours
 			}
 			world_data.buildings.append(b_dict)
 			
@@ -360,7 +375,7 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 						world_data.occupancy[cx][cy] = true
 						world_view.get("buildings_by_cell")[Vector2i(cx, cy)] = b_type
 						
-			world_view.call("_instantiate_building_node", b_type, b_origin, b_size)
+			world_view.call("_instantiate_building_node", b_type, b_origin, b_size, b_state)
 
 	# 3b. Sync Workplaces & Logistics Buffers
 	if world_view.has_method("sync_workplaces_after_load"):
@@ -399,6 +414,10 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 		cit.init_citizen(cid, cname, crole, c_cell, nav, job_mgr, workplace_mgr)
 		if world_data != null and cit.has_method("set_barracks_checker"):
 			cit.call("set_barracks_checker", func(b_id: String = ""): return BuildingSystem.is_barracks_active(world_data, b_id))
+		if world_data != null and cit.has_method("set_construction_checker"):
+			cit.call("set_construction_checker", func(b_id: String = ""): return BuildingSystem.is_building_under_construction(world_data, b_id))
+		if cit.has_method("set_world_view"):
+			cit.call("set_world_view", world_view)
 		cit.set("hunger", c.get("hunger", 10.0))
 		cit.set("fatigue", c.get("fatigue", 10.0))
 		cit.set("health", c.get("health", 100.0))

@@ -370,6 +370,7 @@ func _run_world_integration_checks() -> void:
 		live_rm2.add_resource("wood", 100)
 		live_rm2.add_resource("stone", 100)
 	world_instance.call("_execute_placement", tower_cell)
+	world_instance.call("complete_construction", "bld_watchtower_%d_%d" % [tower_cell.x, tower_cell.y])
 
 	# Boundary check: dist 15 must be VISIBLE
 	if not fow.is_visible(pt_dist_15):

@@ -153,6 +153,7 @@ func _generate_and_build_world() -> void:
 	victory_mgr = VictoryManager.new()
 	
 	job_mgr.set_barracks_checker(func(b_id: String = ""): return BuildingSystem.is_barracks_active(world_data, b_id))
+	job_mgr.set_construction_checker(func(b_id: String = ""): return BuildingSystem.is_building_under_construction(world_data, b_id))
 	if hud:
 		hud.set_research_manager(research_mgr)
 		hud.set_faction_manager(faction_mgr, self)
@@ -204,12 +205,12 @@ func _render_terrain() -> void:
 
 func _spawn_starter_buildings() -> void:
 	for bld in world_data.buildings:
-		_instantiate_building_node(bld["type"], bld["cell"], bld["size"])
+		_instantiate_building_node(bld["type"], bld["cell"], bld["size"], bld.get("state", "active"))
 
-func _instantiate_building_node(type: String, origin: Vector2i, size: Vector2i) -> void:
+func _instantiate_building_node(type: String, origin: Vector2i, size: Vector2i, state: String = "active") -> Node2D:
 	var tex: Texture2D = building_textures.get(type)
 	if not tex:
-		return
+		return null
 		
 	var b_node := Node2D.new()
 	b_node.name = "Building_%s_%d_%d" % [type, origin.x, origin.y]
@@ -220,9 +221,14 @@ func _instantiate_building_node(type: String, origin: Vector2i, size: Vector2i) 
 	b_node.position = IsoMath.map_to_local(base_vertex)
 	
 	var spr := Sprite2D.new()
+	spr.name = "Sprite2D"
 	spr.texture = tex
 	spr.centered = false
 	spr.offset = _get_building_sprite_offset(type)
+	if state == "under_construction":
+		spr.modulate = Color(0.8, 0.7, 0.5, 0.7)
+	else:
+		spr.modulate = Color(1.0, 1.0, 1.0, 1.0)
 			
 	b_node.add_child(spr)
 	buildings_container.add_child(b_node)
@@ -231,6 +237,8 @@ func _instantiate_building_node(type: String, origin: Vector2i, size: Vector2i) 
 	for ox in range(size.x):
 		for oy in range(size.y):
 			buildings_by_cell[origin + Vector2i(ox, oy)] = type
+
+	return b_node
 
 func _get_building_sprite_offset(type: String) -> Vector2:
 	match type:
@@ -355,6 +363,8 @@ func _spawn_starter_citizens() -> void:
 		
 		cit.init_citizen(cid, cname, crole, cell, nav, job_mgr, workplace_mgr)
 		cit.set_barracks_checker(func(b_id: String = ""): return BuildingSystem.is_barracks_active(world_data, b_id))
+		cit.set_construction_checker(func(b_id: String = ""): return BuildingSystem.is_building_under_construction(world_data, b_id))
+		cit.set_world_view(self)
 		citizens_container.add_child(cit)
 		
 		citizens_by_id[cid] = cit
@@ -390,6 +400,8 @@ func _spawn_immigrant_wave(immigrants: Array) -> void:
 		
 		cit.init_citizen(cid, cname, crole, cell, nav, job_mgr, workplace_mgr)
 		cit.set_barracks_checker(func(b_id: String = ""): return BuildingSystem.is_barracks_active(world_data, b_id))
+		cit.set_construction_checker(func(b_id: String = ""): return BuildingSystem.is_building_under_construction(world_data, b_id))
+		cit.set_world_view(self)
 		citizens_container.add_child(cit)
 		
 		citizens_by_id[cid] = cit
@@ -435,6 +447,12 @@ func _update_tile_hover() -> void:
 		if hud:
 			var t_name := _get_terrain_name(world_data.terrain[cell.x][cell.y])
 			var b_name := _get_building_display_name(buildings_by_cell.get(cell, ""))
+			var bld := _get_building_at_cell(cell)
+			if not bld.is_empty() and bld.get("state", "") == "under_construction":
+				var prog: float = float(bld.get("construction_progress", 0.0))
+				var total: float = float(bld.get("construction_hours", 12.0))
+				var pct: int = int((prog / total) * 100.0) if total > 0.0 else 0
+				b_name += " [Đang xây: %d%%]" % pct
 			hud.set_tile_info(cell, t_name, b_name)
 			
 		# Handle ghost building placement preview
@@ -505,37 +523,15 @@ func _on_build_requested(type: String) -> void:
 
 func _execute_placement(cell: Vector2i) -> Dictionary:
 	var rm := get_node_or_null("/root/ResourceManager")
-	var res: Dictionary = BuildingSystem.place_building(placing_building_type, cell, world_data, rm)
+	var res: Dictionary = BuildingSystem.place_building(placing_building_type, cell, world_data, rm, "under_construction")
 	
 	if res["success"]:
 		var b_data: Dictionary = res["building"]
-		_instantiate_building_node(b_data["type"], b_data["cell"], b_data["size"])
-		print("[WorldView] Successfully constructed %s at %s" % [b_data["type"], cell])
-		var housing_cap: int = BuildingSystem.get_total_housing_capacity(world_data)
-		if hud:
-			hud.update_population_display(citizen_list.size(), housing_cap)
+		_instantiate_building_node(b_data["type"], b_data["cell"], b_data["size"], "under_construction")
+		print("[WorldView] Successfully placed construction site for %s at %s" % [b_data["type"], cell])
 
-		# If farm, woodcutter, quarry, mine, or workshop, register dynamic workplace and create jobs
-		if b_data["type"] in ["farm", "woodcutter", "quarry", "mine", "workshop"]:
-			register_dynamic_workplace(b_data)
-
-		# If watchtower, reveal vision and update POI discovery immediately
-		if b_data["type"] == "watchtower" and fog_of_war != null:
-			var bp: Dictionary = EconomyConfig.BLUEPRINTS.get("watchtower", {})
-			var v_rad: int = bp.get("vision_radius", 15)
-			fog_of_war.reveal_circle(cell, v_rad)
-			if poi_mgr != null:
-				poi_mgr.update_discovery(fog_of_war)
-
-		# If research_hall, refresh research UI in hud
-		if b_data["type"] == "research_hall" and hud != null:
-			hud.call("_refresh_research_ui")
-
-		# If barracks, register guard jobs and refresh hud role options
-		if b_data["type"] == "barracks":
-			register_barracks_jobs(b_data)
-			if hud != null and hud.has_method("_refresh_role_options"):
-				hud.call("_refresh_role_options")
+		# Register builder jobs for the construction site
+		register_construction_jobs(b_data)
 
 		var am = get_node_or_null("/root/AudioManager")
 		if am:
@@ -548,6 +544,174 @@ func _execute_placement(cell: Vector2i) -> Dictionary:
 			am.play_error()
 
 	return res
+
+func register_construction_jobs(b_data: Dictionary) -> Array[JobManager.JobData]:
+	var result: Array[JobManager.JobData] = []
+	if job_mgr == null or world_data == null or b_data.is_empty():
+		return result
+
+	var b_id: String = b_data.get("id", "")
+	var b_type: String = b_data.get("type", "")
+	var origin: Vector2i = b_data.get("cell", Vector2i.ZERO)
+	var size: Vector2i = b_data.get("size", Vector2i(1, 1))
+
+	var capacity: int = BuildingSystem.get_construction_worker_capacity(b_type)
+	var perimeter: Array[Vector2i] = BuildingSystem.find_perimeter_cells(origin, size, world_data, capacity)
+	var job_count: int = mini(capacity, perimeter.size())
+
+	for i in range(job_count):
+		var target_cell: Vector2i = perimeter[i]
+		var job = job_mgr.create_job(
+			"builder",
+			target_cell,
+			"Thi công xây dựng %s" % _get_building_display_name(b_type),
+			b_id,
+			float(b_data.get("construction_hours", 12.0)),
+			2,
+			false
+		)
+		result.append(job)
+
+	return result
+
+func advance_construction_work(b_id: String, delta_hours: float) -> Dictionary:
+	if world_data == null:
+		return {"success": false, "completed": false, "progress": 0.0, "hours": 0.0}
+
+	var res := BuildingSystem.advance_construction(b_id, delta_hours, world_data)
+	if not res.get("success", false):
+		return res
+
+	if res.get("completed", false):
+		complete_construction(b_id)
+
+	return res
+
+func complete_construction(b_id: String) -> bool:
+	if world_data == null or b_id == "":
+		return false
+
+	var b_data: Dictionary = BuildingSystem.get_building_by_id(b_id, world_data)
+	if b_data.is_empty():
+		return false
+
+	if b_data.get("state", "") != "under_construction":
+		return false # Idempotent: cannot complete if already active or other state
+
+	var rm := get_node_or_null("/root/ResourceManager")
+	var success := BuildingSystem.complete_building(b_data, world_data, rm)
+	if not success:
+		return false
+
+	# 1. Update visual: clear scaffolding / amber modulate back to normal Color(1, 1, 1, 1)
+	var origin: Vector2i = b_data.get("cell", Vector2i.ZERO)
+	var b_type: String = b_data.get("type", "")
+	var node_name := "Building_%s_%d_%d" % [b_type, origin.x, origin.y]
+	var b_node = buildings_container.get_node_or_null(node_name)
+	if b_node:
+		var spr: Sprite2D = b_node.get_node_or_null("Sprite2D")
+		if spr == null:
+			for child in b_node.get_children():
+				if child is Sprite2D:
+					spr = child
+					break
+		if spr:
+			spr.modulate = Color(1.0, 1.0, 1.0, 1.0)
+
+	# 2. Release & complete builder jobs and workers for this building
+	if job_mgr:
+		var b_jobs := job_mgr.get_jobs_for_building(b_id)
+		for j in b_jobs:
+			if j.type == "builder":
+				job_mgr.complete_job(j)
+		job_mgr.remove_jobs_for_building(b_id)
+
+	for cit in citizen_list:
+		if cit.get("active_job") != null and cit.active_job.target_building_id == b_id:
+			cit.active_job = null
+			cit.set("current_state", CitizenController.State.IDLE)
+			if cit.has_method("_update_reason"):
+				cit.call("_update_reason")
+
+	# 3. Operational integrations (activated exactly once)
+	var housing_cap: int = BuildingSystem.get_total_housing_capacity(world_data)
+	if hud:
+		hud.update_population_display(citizen_list.size(), housing_cap)
+
+	# If farm, woodcutter, quarry, mine, or workshop, register dynamic workplace
+	if b_data["type"] in ["farm", "woodcutter", "quarry", "mine", "workshop"]:
+		register_dynamic_workplace(b_data)
+
+	# If watchtower, reveal vision and update POI discovery
+	if b_data["type"] == "watchtower" and fog_of_war != null:
+		var bp: Dictionary = EconomyConfig.BLUEPRINTS.get("watchtower", {})
+		var v_rad: int = bp.get("vision_radius", 15)
+		fog_of_war.reveal_circle(b_data["cell"], v_rad)
+		if poi_mgr != null:
+			poi_mgr.update_discovery(fog_of_war)
+
+	# If research_hall, refresh research UI in hud
+	if b_data["type"] == "research_hall" and hud != null:
+		hud.call("_refresh_research_ui")
+
+	# If barracks, register guard jobs and refresh hud role options
+	if b_data["type"] == "barracks":
+		register_barracks_jobs(b_data)
+		if hud != null and hud.has_method("_refresh_role_options"):
+			hud.call("_refresh_role_options")
+
+	var am = get_node_or_null("/root/AudioManager")
+	if am and am.has_method("play_build"):
+		am.play_build()
+
+	print("[WorldView] Construction completed for %s (%s)" % [b_id, b_data.get("type", "")])
+	return true
+
+func cancel_construction_project(b_id: String) -> Dictionary:
+	if world_data == null:
+		return {"success": false, "reason": "Dữ liệu thế giới rỗng"}
+
+	var b_data: Dictionary = BuildingSystem.get_building_by_id(b_id, world_data)
+	if b_data.is_empty():
+		return {"success": false, "reason": "Công trình không tồn tại"}
+
+	var rm := get_node_or_null("/root/ResourceManager")
+	var res := BuildingSystem.cancel_construction(b_data, world_data, rm, job_mgr)
+	if not res.get("success", false):
+		return res
+
+	# Free visual node
+	var origin: Vector2i = b_data.get("cell", Vector2i.ZERO)
+	var size: Vector2i = b_data.get("size", Vector2i(1, 1))
+	var type: String = b_data.get("type", "")
+	var node_name := "Building_%s_%d_%d" % [type, origin.x, origin.y]
+	var b_node = buildings_container.get_node_or_null(node_name)
+	if b_node:
+		b_node.queue_free()
+
+	for ox in range(size.x):
+		for oy in range(size.y):
+			buildings_by_cell.erase(origin + Vector2i(ox, oy))
+
+	# Release any citizens assigned to this building
+	for cit in citizen_list:
+		if cit.get("active_job") != null and cit.active_job.target_building_id == b_id:
+			cit.active_job = null
+			cit.set("current_state", CitizenController.State.IDLE)
+			if cit.has_method("_update_reason"):
+				cit.call("_update_reason")
+
+	return res
+
+func _get_building_at_cell(cell: Vector2i) -> Dictionary:
+	if world_data == null:
+		return {}
+	for b in world_data.buildings:
+		var origin: Vector2i = b.get("cell", Vector2i(-1, -1))
+		var size: Vector2i = b.get("size", Vector2i(1, 1))
+		if cell.x >= origin.x and cell.x < origin.x + size.x and cell.y >= origin.y and cell.y < origin.y + size.y:
+			return b
+	return {}
 
 func register_dynamic_workplace(b_data: Dictionary) -> WorkplaceManager.WorkplaceData:
 	if workplace_mgr == null or job_mgr == null or world_data == null:
@@ -710,17 +874,20 @@ func sync_workplaces_after_load(saved_workplaces_data: Dictionary = {}) -> void:
 	for wp in workplace_mgr.get_all_workplaces():
 		wp.buffer_amount = 0
 
-	# 2. Re-register dynamic workplaces and barracks jobs from world_data.buildings
+	# 2. Re-register dynamic workplaces, barracks jobs, or construction jobs from world_data.buildings
 	for b in world_data.buildings:
 		var b_type: String = b.get("type", "")
-		if b_type in ["farm", "woodcutter", "quarry", "mine", "workshop"]:
+		var b_state: String = b.get("state", "active")
+		if b_state == "under_construction":
+			register_construction_jobs(b)
+		elif b_type in ["farm", "woodcutter", "quarry", "mine", "workshop"]:
 			var b_cell: Vector2i = b.get("cell", Vector2i.ZERO)
 			# Skip starter workplaces
 			if (b_type == "farm" and b_cell == Vector2i(36, 35)) or (b_type == "woodcutter" and b_cell == Vector2i(26, 30)) or b.get("id", "") in starter_ids:
 				continue
 			register_dynamic_workplace(b)
 		elif b_type == "barracks":
-			if b.get("state", "active") == "active":
+			if b_state == "active":
 				register_barracks_jobs(b)
 
 	# 3. Restore buffer amounts

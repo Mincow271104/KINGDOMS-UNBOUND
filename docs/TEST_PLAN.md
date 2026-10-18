@@ -161,6 +161,12 @@ When Godot Editor is running with the MCP plugin:
 | 2026-10-18 | TC-BR.5 | Deterministic Guard Duty Loop & Perimeter Posts | **PASS** | Real TimeManager pause test, need decay (+4.167H/+4.0F), hunger>=70 release, constrained 1-post and overlapping layout isolation in `test_barracks.gd` |
 | 2026-10-18 | TC-BR.6 | Multi-Barracks Segregation & Downtime Behavior | **PASS** | Fail-closed guard job validation (empty building ID, missing checker, 0-arg global filter rejection), multi-barracks duty tracking, individual duty release on building downtime, role retention in `test_barracks.gd` |
 | 2026-10-18 | TC-BR.7 | WorldView Lifecycle & Save/Load Persistence | **PASS** | Placement, double-load idempotency, inactive barracks load test, legacy save compatibility, and zero resource deduction on load verified in `test_barracks.gd` |
+| 2026-10-18 | TC-CON.1 | Blueprint Verification & Placement Lifecycle | **PASS** | Positive construction hours, storehouse capacity withheld while under construction in `test_construction.gd` |
+| 2026-10-18 | TC-CON.2 | Construction Jobs & Concurrent Capacity | **PASS** | Dynamic job registration scaling (1x1: 2, 2x2: 3, 3x3: 4), perimeter cell capping, zero duplicate registration in `test_construction.gd` |
+| 2026-10-18 | TC-CON.3 | Builder Work Loop, Scaling & Progress | **PASS** | Active builders advance progress, pause safety, game speed scaling (1x, 2x, 3x), zero progress when idle in `test_construction.gd` |
+| 2026-10-18 | TC-CON.4 | Idempotent Completion Transition | **PASS** | Transition to active, job cleanup, operational activation (workplace channels, guard posts, research UI, watchtower vision, housing cap), zero double-completion in `test_construction.gd` |
+| 2026-10-18 | TC-CON.5 | Cancellation Policy & 50% Refund | **PASS** | 50% refund, occupancy released, visual node freed, jobs removed, zero double refund in `test_construction.gd` |
+| 2026-10-18 | TC-CON.6 | Save/Load Persistence & Visual Hover | **PASS** | Unfinished progress preserved, zero reload deduction, zero job/node duplication on double load, legacy save compatibility in `test_construction.gd` |
 
 ### Phase 8: Save/Load Persistence
 - **TC-8.1: Save → Load → Save Canonical Equivalence**
@@ -191,3 +197,9 @@ When Godot Editor is running with the MCP plugin:
   - *Script:* `res://scripts/test/test_barracks.gd`
   - *Acceptance Criteria:* Authoritative blueprint, rejection coverage with 0 resource deductions, comprehensive active-state & building-ID filtering, fail-closed role gating, fail-closed guard job executability (rejecting empty building IDs, 0-arg global filters, and inactive buildings), genuine TimeManager pause verification, working need decay (+4.167H/+4.0F), constrained layout & overlapping perimeter deduplication, multi-barracks duty segregation, double-load idempotency, inactive barracks load test, legacy save compatibility.
   - *Status:* **PASSED** (2026-10-18, Exit Code 0: 7/7 tests passed).
+
+### Package 1H: Builder & Construction Lifecycle
+- **TC-CON.1 to TC-CON.6: Construction Lifecycle Suite**
+  - *Script:* `res://scripts/test/test_construction.gd`
+  - *Acceptance Criteria:* Positive construction_hours across blueprints, storehouse capacity withheld while under construction, atomic cost reservation/deduction, concurrent builder job capacities (1x1: 2, 2x2: 3, 3x3: 4) bounded by perimeter cells, active builder progress accumulation (`delta_hours` per working builder), pause safety, speed scaling (1x, 2x, 3x), idempotent completion transition activating operational features (workplace channels, guard posts, research UI, watchtower vision, housing cap, storehouse capacity) and resetting amber modulate, cancellation policy with 50% atomic refund, save/load persistence preserving exact progress, zero duplicate nodes/jobs on double load, zero resource deduction on load, legacy save compatibility.
+  - *Status:* **PASSED** (2026-10-18, Exit Code 0: 6/6 tests passed).
