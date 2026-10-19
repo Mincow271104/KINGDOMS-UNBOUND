@@ -1,11 +1,11 @@
 extends SceneTree
 ## Automated Test Suite for KINGDOMS UNBOUND — Package 1M: Player Army Marching & Garrison Deployment
-## Covers TC-MOVE.1 through TC-MOVE.28 across 5 test groups:
+## Covers TC-MOVE.1 through TC-MOVE.31 across 5 test groups:
 ## Group 1: Authoritative State, Rally Point & Basic Navigation (TC-MOVE.1 - TC-MOVE.7)
-## Group 2: Interruption, Dynamic Obstruction & Simulation Clock (TC-MOVE.8 - TC-MOVE.13)
+## Group 2: Interruption, Dynamic Obstruction, Simulation Clock & Return Home (TC-MOVE.8 - TC-MOVE.13, TC-MOVE.29)
 ## Group 3: Defense Eligibility, Raid Casualties & Recruitment Gate (TC-MOVE.14 - TC-MOVE.18)
 ## Group 4: Persistence, Save/Load Validation & Recovery (TC-MOVE.19 - TC-MOVE.24)
-## Group 5: HUD Wiring & Targeting Mode (TC-MOVE.25 - TC-MOVE.28)
+## Group 5: HUD Wiring, Targeting Mode, Mutual Exclusion & Contract (TC-MOVE.25 - TC-MOVE.28, TC-MOVE.30, TC-MOVE.31)
 
 const PlayerArmyManagerScript = preload("res://scripts/military/player_army_manager.gd")
 const BattleCampaignManagerScript = preload("res://scripts/combat/battle_campaign_manager.gd")
@@ -453,6 +453,66 @@ func _test_group_interruption_and_clock() -> void:
 	else:
 		print("  [PASS] TC-MOVE.13: Trapped path safely halted at %s with IDLE_AT_FIELD." % str(army_mgr.get_current_cell()))
 
+	# TC-MOVE.29: Return Home Before First Movement Step (Finding B)
+	print("--- Running TC-MOVE.29: Return Home Before First Movement Step ---")
+	var b_rm := MockResourceManager.new()
+	var b_world_data := WorldGeneratorScript.generate(54321)
+	var b_nav := GridNavigation.new(b_world_data)
+	var b_mgr := PlayerArmyManagerScript.new()
+	b_mgr.set_custom_resource_manager(b_rm)
+	b_mgr.set_custom_world_data(b_world_data)
+	b_mgr.set_custom_nav(b_nav)
+	b_world_data.buildings.append({
+		"id": "bld_barracks_tc29",
+		"type": "barracks",
+		"cell": Vector2i(20, 20),
+		"size": Vector2i(3, 3),
+		"state": "active",
+		"construction_progress": 18.0,
+		"construction_hours": 18.0
+	})
+	b_mgr.notify_capacity_changed()
+	b_mgr.recruit(4)
+	var b_rally: Vector2i = b_mgr.get_rally_cell()
+	var distant_dest := Vector2i(b_rally.x + 4, b_rally.y)
+	if not b_nav.is_cell_walkable(distant_dest):
+		distant_dest = Vector2i(b_rally.x, b_rally.y + 4)
+
+	# Issue movement order to distant cell
+	var b_move_res := b_mgr.order_move(distant_dest)
+	if not b_move_res.get("success", false):
+		printerr("  [FAIL] TC-MOVE.29: Initial move order failed: %s" % str(b_move_res))
+		failures += 1
+	elif b_mgr.get_movement_state() != PlayerArmyManagerScript.MovementState.MARCHING:
+		printerr("  [FAIL] TC-MOVE.29: State not MARCHING after move order")
+		failures += 1
+	elif b_mgr.is_defense_eligible():
+		printerr("  [FAIL] TC-MOVE.29: Army should NOT be defense eligible while marching outbound!")
+		failures += 1
+	else:
+		# Without advancing any movement step, call order_return_home()
+		var ret_res := b_mgr.order_return_home()
+		if not ret_res.get("success", false):
+			printerr("  [FAIL] TC-MOVE.29: order_return_home() failed before first step: %s" % str(ret_res))
+			failures += 1
+		elif b_mgr.get_current_cell() != b_rally:
+			printerr("  [FAIL] TC-MOVE.29: Army current_cell moved away from rally: %s" % str(b_mgr.get_current_cell()))
+			failures += 1
+		elif b_mgr.get_destination_cell() != b_rally:
+			printerr("  [FAIL] TC-MOVE.29: destination_cell not reset to rally: %s" % str(b_mgr.get_destination_cell()))
+			failures += 1
+		elif b_mgr.get_movement_state() != PlayerArmyManagerScript.MovementState.GARRISONED:
+			printerr("  [FAIL] TC-MOVE.29: State not reset to GARRISONED: %d" % b_mgr.get_movement_state())
+			failures += 1
+		elif not b_mgr.get_current_path().is_empty():
+			printerr("  [FAIL] TC-MOVE.29: Outbound path was not cleared: %s" % str(b_mgr.get_current_path()))
+			failures += 1
+		elif not b_mgr.is_defense_eligible():
+			printerr("  [FAIL] TC-MOVE.29: Army defense eligibility was NOT restored!")
+			failures += 1
+		else:
+			print("  [PASS] TC-MOVE.29: Returning home before first step cleanly cancels outbound march and restores garrison defense eligibility.")
+
 # -----------------------------------------------------------------------------
 # GROUP 3: DEFENSE ELIGIBILITY, RAID CASUALTIES & RECRUITMENT (TC-MOVE.14 - TC-MOVE.18)
 # -----------------------------------------------------------------------------
@@ -652,9 +712,44 @@ func _test_group_persistence_and_recovery() -> void:
 		else:
 			print("  [PASS] TC-MOVE.19: Movement state, path, and coordinates preserved through serialization roundtrip.")
 
-	# TC-MOVE.20: SaveManager End-to-End & Double Load Idempotency
+	# TC-MOVE.20: SaveManager End-to-End & Double Load Idempotency (Strengthened Integration Test)
 	print("--- Running TC-MOVE.20: SaveManager End-to-End & Double Load ---")
+	var live_army_mgr: PlayerArmyManager = world_instance.get("player_army_mgr")
+	var live_world_data = world_instance.get("world_data")
+	var live_nav = world_instance.get("nav")
+
+	# Add an active barracks to ensure capacity
+	live_world_data.buildings.append({
+		"id": "bld_barracks_persist_test",
+		"type": "barracks",
+		"cell": Vector2i(26, 26),
+		"size": Vector2i(3, 3),
+		"state": "active",
+		"construction_progress": 18.0,
+		"construction_hours": 18.0
+	})
+	live_army_mgr.notify_capacity_changed()
+	live_army_mgr.soldier_count = 5
+	live_army_mgr.is_supplied = true
+	live_army_mgr.refresh_rally_cell()
+	var live_rally: Vector2i = live_army_mgr.get_rally_cell()
+	var live_target := Vector2i(live_rally.x + 3, live_rally.y)
+	if not live_nav.is_cell_walkable(live_target):
+		live_target = Vector2i(live_rally.x, live_rally.y + 3)
+
+	var move_order_res: Dictionary = live_army_mgr.order_move(live_target)
+	if not move_order_res.get("success", false) or live_army_mgr.get_movement_state() != PlayerArmyManagerScript.MovementState.MARCHING:
+		printerr("  [FAIL] TC-MOVE.20: Could not order movement on live world instance army: %s" % str(move_order_res))
+		failures += 1
+
+	var initial_live_route: Array = live_army_mgr.get_current_path().duplicate()
+	var next_adjacent_cell: Vector2i = initial_live_route[0]
+
 	var save_dict := SaveManagerScript.serialize_world_state(world_instance)
+	if not save_dict.has("player_army") or save_dict["player_army"]["movement_state"] != "marching":
+		printerr("  [FAIL] TC-MOVE.20: Serialized world state does not have player_army in marching state!")
+		failures += 1
+
 	var apply_res_1 := SaveManagerScript.apply_loaded_state_to_world(world_instance, save_dict)
 	if not apply_res_1.get("success", false):
 		printerr("  [FAIL] TC-MOVE.20: First apply_loaded_state_to_world failed: %s" % apply_res_1.get("error", ""))
@@ -678,8 +773,26 @@ func _test_group_persistence_and_recovery() -> void:
 	if marker_count_1 != 1 or marker_count_2 != 1:
 		printerr("  [FAIL] TC-MOVE.20: Node duplication detected for ArmyMarker: count1=%d, count2=%d" % [marker_count_1, marker_count_2])
 		failures += 1
+	elif live_army_mgr.get_army_count() != 5:
+		printerr("  [FAIL] TC-MOVE.20: Soldier count changed during double reload: %d != 5" % live_army_mgr.get_army_count())
+		failures += 1
+	elif live_army_mgr.get_movement_state() != PlayerArmyManagerScript.MovementState.MARCHING:
+		printerr("  [FAIL] TC-MOVE.20: Movement state after double reload not MARCHING: %d" % live_army_mgr.get_movement_state())
+		failures += 1
+	elif live_army_mgr.get_current_path() != initial_live_route:
+		printerr("  [FAIL] TC-MOVE.20: Restored path mismatch after reload: %s != %s" % [str(live_army_mgr.get_current_path()), str(initial_live_route)])
+		failures += 1
 	else:
-		print("  [PASS] TC-MOVE.20: Double load strictly idempotent with zero ArmyMarker node duplication.")
+		# Advance 1 step and ensure it advances to adjacent route point, not destination
+		live_army_mgr.advance_movement(0.5, 1.0)
+		if live_army_mgr.get_current_cell() != next_adjacent_cell:
+			printerr("  [FAIL] TC-MOVE.20: Post-reload movement step did not advance to adjacent cell (%s), got: %s" % [str(next_adjacent_cell), str(live_army_mgr.get_current_cell())])
+			failures += 1
+		elif live_army_mgr.get_current_cell() == live_target:
+			printerr("  [FAIL] TC-MOVE.20: Post-reload movement step jumped directly to destination %s instead of next waypoint!" % str(live_target))
+			failures += 1
+		else:
+			print("  [PASS] TC-MOVE.20: Live marching army serialized, restored, double-load strictly idempotent, and advanced 1 step to adjacent cell (%s)." % str(next_adjacent_cell))
 
 	# TC-MOVE.21: Legacy Save Compatibility
 	print("--- Running TC-MOVE.21: Legacy Save Compatibility ---")
@@ -706,30 +819,45 @@ func _test_group_persistence_and_recovery() -> void:
 
 	# TC-MOVE.22: Save Validation Rejections (Fail-Closed)
 	print("--- Running TC-MOVE.22: Save Validation Fail-Closed Checks ---")
+	var base_rally := [32, 33]
 	var bad_saves := [
-		{"player_army": {"current_cell": [-5, 10]}},
-		{"player_army": {"current_cell": [65, 10]}},
-		{"player_army": {"rally_cell": "not_an_array"}},
-		{"player_army": {"movement_state": "flying"}},
-		{"player_army": {"current_path": [[10, 10], [99, 99]]}}
+		# Syntax / out-of-bounds
+		{"desc": "current_cell x < 0", "patch": {"current_cell": [-5, 10]}},
+		{"desc": "current_cell x >= 64", "patch": {"current_cell": [65, 10]}},
+		{"desc": "rally_cell non-array", "patch": {"rally_cell": "not_an_array"}},
+		{"desc": "movement_state invalid enum string", "patch": {"movement_state": "flying"}},
+		{"desc": "current_path waypoint out of bounds", "patch": {"current_path": [[10, 10], [99, 99]]}},
+
+		# Cardinal continuity & cross-field invariants (Finding A)
+		{"desc": "marching with non-adjacent first step", "patch": {"movement_state": "marching", "current_cell": [32, 33], "destination_cell": [35, 33], "current_path": [[34, 33], [35, 33]]}},
+		{"desc": "marching with non-adjacent intermediate step", "patch": {"movement_state": "marching", "current_cell": [32, 33], "destination_cell": [35, 33], "current_path": [[33, 33], [35, 33]]}},
+		{"desc": "marching with final step != destination", "patch": {"movement_state": "marching", "current_cell": [32, 33], "destination_cell": [35, 33], "current_path": [[33, 33], [34, 33]]}},
+		{"desc": "marching with destination == current_cell", "patch": {"movement_state": "marching", "current_cell": [32, 33], "rally_cell": base_rally, "destination_cell": [32, 33], "current_path": [[33, 33], [32, 33]]}},
+		{"desc": "marching with empty path", "patch": {"movement_state": "marching", "current_cell": [32, 33], "rally_cell": base_rally, "destination_cell": [35, 33], "current_path": []}},
+		{"desc": "garrisoned with current_cell != rally_cell", "patch": {"movement_state": "garrisoned", "current_cell": [40, 40], "rally_cell": base_rally, "destination_cell": base_rally, "current_path": []}},
+		{"desc": "garrisoned with non-empty path", "patch": {"movement_state": "garrisoned", "current_cell": base_rally, "rally_cell": base_rally, "destination_cell": base_rally, "current_path": [[33, 33]]}},
+		{"desc": "garrisoned with destination != rally_cell", "patch": {"movement_state": "garrisoned", "current_cell": base_rally, "rally_cell": base_rally, "destination_cell": [35, 33], "current_path": []}},
+		{"desc": "idle_at_field with current_cell == rally_cell", "patch": {"movement_state": "idle_at_field", "current_cell": base_rally, "rally_cell": base_rally, "destination_cell": base_rally, "current_path": []}},
+		{"desc": "idle_at_field with destination != current_cell", "patch": {"movement_state": "idle_at_field", "current_cell": [40, 40], "rally_cell": base_rally, "destination_cell": [41, 40], "current_path": []}},
+		{"desc": "idle_at_field with non-empty path", "patch": {"movement_state": "idle_at_field", "current_cell": [40, 40], "rally_cell": base_rally, "destination_cell": [40, 40], "current_path": [[41, 40]]}}
 	]
 	var all_val_rejected := true
 	for bs in bad_saves:
 		var test_doc := save_dict.duplicate(true)
-		for k in bs["player_army"]:
-			test_doc["player_army"][k] = bs["player_army"][k]
+		for k in bs["patch"]:
+			test_doc["player_army"][k] = bs["patch"][k]
 		var val_res := SaveManagerScript.validate_save_data(test_doc)
 		if val_res.get("valid", true):
 			all_val_rejected = false
-			printerr("  [FAIL] TC-MOVE.22: Corrupted player_army payload accepted! %s" % str(bs))
+			printerr("  [FAIL] TC-MOVE.22: Corrupted player_army payload accepted! Case: %s" % bs["desc"])
 			failures += 1
 
 	if all_val_rejected:
-		print("  [PASS] TC-MOVE.22: Save validator strictly rejected all 5 malformed movement payloads.")
+		print("  [PASS] TC-MOVE.22: Save validator strictly rejected all %d malformed movement payloads." % bad_saves.size())
 
-	# TC-MOVE.23: Blocked Cell Recovery on Load
-	print("--- Running TC-MOVE.23: Blocked Cell Recovery on Load ---")
-	# Create a save where current_cell is inside Town Hall footprint (blocked)
+	# TC-MOVE.23: Blocked Cell & Route Recovery on Load
+	print("--- Running TC-MOVE.23: Blocked Cell & Route Recovery on Load ---")
+	# Subcheck A: current_cell blocked inside Town Hall footprint -> recovers to walkable rally cell
 	var blocked_load_data := {
 		"soldier_count": 3,
 		"is_supplied": true,
@@ -754,8 +882,96 @@ func _test_group_persistence_and_recovery() -> void:
 	elif recovery_mgr.get_movement_state() != PlayerArmyManagerScript.MovementState.GARRISONED:
 		printerr("  [FAIL] TC-MOVE.23: Recovered state not GARRISONED: %d" % recovery_mgr.get_movement_state())
 		failures += 1
+
+	# Subcheck B: Blocked waypoint in route -> repairs path without teleporting army
+	var start_tile := rally
+	var final_target := Vector2i(rally.x + 3, rally.y)
+	var blocked_waypoint := Vector2i(rally.x + 1, rally.y)
+	world_data.occupancy[blocked_waypoint.x][blocked_waypoint.y] = true # Dynamically block waypoint
+	var nav_with_obstacle := GridNavigation.new(world_data)
+
+	var blocked_route_data := {
+		"soldier_count": 3,
+		"is_supplied": true,
+		"last_upkeep_day": 1,
+		"current_cell": [start_tile.x, start_tile.y],
+		"rally_cell": [rally.x, rally.y],
+		"destination_cell": [final_target.x, final_target.y],
+		"movement_state": "marching",
+		"current_path": [[blocked_waypoint.x, blocked_waypoint.y], [rally.x + 2, rally.y], [final_target.x, final_target.y]]
+	}
+	var route_recover_mgr := PlayerArmyManagerScript.new()
+	route_recover_mgr.set_custom_world_data(world_data)
+	route_recover_mgr.set_custom_nav(nav_with_obstacle)
+	route_recover_mgr.deserialize(blocked_route_data)
+
+	if route_recover_mgr.get_current_cell() != start_tile:
+		printerr("  [FAIL] TC-MOVE.23: Army teleported during path repair: %s != %s" % [str(route_recover_mgr.get_current_cell()), str(start_tile)])
+		failures += 1
+	elif route_recover_mgr.get_current_path().has(blocked_waypoint):
+		printerr("  [FAIL] TC-MOVE.23: Repaired path still contains blocked waypoint %s!" % str(blocked_waypoint))
+		failures += 1
+	elif route_recover_mgr.get_movement_state() != PlayerArmyManagerScript.MovementState.MARCHING:
+		printerr("  [FAIL] TC-MOVE.23: Repaired state not MARCHING when alternative path exists!")
+		failures += 1
+
+	# Subcheck C: Blocked destination -> halts safely at current_cell without teleporting
+	var blocked_dest := Vector2i(31, 31) # Town hall blocked
+	var blocked_dest_data := {
+		"soldier_count": 3,
+		"is_supplied": true,
+		"last_upkeep_day": 1,
+		"current_cell": [rally.x + 2, rally.y],
+		"rally_cell": [rally.x, rally.y],
+		"destination_cell": [blocked_dest.x, blocked_dest.y],
+		"movement_state": "marching",
+		"current_path": [[rally.x + 1, rally.y], [blocked_dest.x, blocked_dest.y]]
+	}
+	var dest_recover_mgr := PlayerArmyManagerScript.new()
+	dest_recover_mgr.set_custom_world_data(world_data)
+	dest_recover_mgr.set_custom_nav(nav)
+	dest_recover_mgr.deserialize(blocked_dest_data)
+
+	if dest_recover_mgr.get_current_cell() != Vector2i(rally.x + 2, rally.y):
+		printerr("  [FAIL] TC-MOVE.23: Army teleported on blocked destination load!")
+		failures += 1
+	elif not dest_recover_mgr.get_current_path().is_empty():
+		printerr("  [FAIL] TC-MOVE.23: Path not cleared on blocked destination load!")
+		failures += 1
+	elif dest_recover_mgr.get_movement_state() != PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD:
+		printerr("  [FAIL] TC-MOVE.23: State not normalized to IDLE_AT_FIELD on blocked destination: %d" % dest_recover_mgr.get_movement_state())
+		failures += 1
+
+	# Subcheck D: Mid-transit valid route restores accurately at current position
+	var mid_cur := Vector2i(rally.x + 2, rally.y)
+	var mid_dest := Vector2i(rally.x + 4, rally.y)
+	var mid_path := [Vector2i(rally.x + 3, rally.y), mid_dest]
+	world_data.occupancy[blocked_waypoint.x][blocked_waypoint.y] = false # Restore occupancy
+	var nav_clean := GridNavigation.new(world_data)
+
+	var mid_data := {
+		"soldier_count": 3,
+		"is_supplied": true,
+		"last_upkeep_day": 1,
+		"current_cell": [mid_cur.x, mid_cur.y],
+		"rally_cell": [rally.x, rally.y],
+		"destination_cell": [mid_dest.x, mid_dest.y],
+		"movement_state": "marching",
+		"current_path": [[mid_path[0].x, mid_path[0].y], [mid_dest.x, mid_dest.y]]
+	}
+	var mid_mgr := PlayerArmyManagerScript.new()
+	mid_mgr.set_custom_world_data(world_data)
+	mid_mgr.set_custom_nav(nav_clean)
+	mid_mgr.deserialize(mid_data)
+
+	if mid_mgr.get_current_cell() != mid_cur or mid_mgr.get_destination_cell() != mid_dest:
+		printerr("  [FAIL] TC-MOVE.23: Mid-transit restore corrupted coordinates: cur=%s, dest=%s" % [str(mid_mgr.get_current_cell()), str(mid_mgr.get_destination_cell())])
+		failures += 1
+	elif mid_mgr.get_current_path().size() != 2:
+		printerr("  [FAIL] TC-MOVE.23: Mid-transit restore path size mismatch: %d != 2" % mid_mgr.get_current_path().size())
+		failures += 1
 	else:
-		print("  [PASS] TC-MOVE.23: Army loaded on blocked tile safely recovered to walkable rally cell (%s)." % str(recovery_mgr.get_current_cell()))
+		print("  [PASS] TC-MOVE.23: Blocked cell, route repair, blocked destination, and mid-transit restoration verified without teleportation.")
 
 	# TC-MOVE.24: ArmyMarker Display & Visual Synchronization
 	print("--- Running TC-MOVE.24: ArmyMarker Display & Synchronization ---")
@@ -874,3 +1090,94 @@ func _test_group_hud_and_targeting() -> void:
 		failures += 1
 	else:
 		print("  [PASS] TC-MOVE.28: ESC key cleanly canceled army targeting mode.")
+
+	# TC-MOVE.30: Mutual Exclusion of Construction & Army Targeting (Finding C)
+	print("--- Running TC-MOVE.30: Mutual Exclusion of Construction & Army Targeting ---")
+	var live_hud = world_instance.get("hud")
+	var live_army = world_instance.get("player_army_mgr")
+	if live_hud != null and live_army != null:
+		if live_army.get_army_count() <= 0:
+			live_army.soldier_count = 3
+			live_army.notify_capacity_changed()
+
+		# Case 1: Start building placement, then start army targeting -> placement cancelled, ghost hidden
+		world_instance._on_build_requested("house")
+		if world_instance.get("placing_building_type") != "house":
+			printerr("  [FAIL] TC-MOVE.30: Building placement 'house' not active!")
+			failures += 1
+
+		var ghost_node = world_instance.get("ghost_building_node")
+		if ghost_node != null and not ghost_node.visible:
+			printerr("  [FAIL] TC-MOVE.30: Ghost building node not visible during placement!")
+			failures += 1
+
+		live_hud.call("start_army_move_targeting")
+		if not live_hud.call("is_army_move_targeting"):
+			printerr("  [FAIL] TC-MOVE.30: Army move targeting failed to activate!")
+			failures += 1
+		elif world_instance.get("placing_building_type") != "":
+			printerr("  [FAIL] TC-MOVE.30: Active building placement was NOT cancelled when army targeting started!")
+			failures += 1
+		elif ghost_node != null and ghost_node.visible:
+			printerr("  [FAIL] TC-MOVE.30: Ghost building node still visible after army targeting started!")
+			failures += 1
+
+		# Case 2: While army targeting is active, request building placement -> army targeting cancelled
+		world_instance._on_build_requested("farm")
+		if live_hud.call("is_army_move_targeting"):
+			printerr("  [FAIL] TC-MOVE.30: Army targeting was NOT cancelled when building placement requested!")
+			failures += 1
+		elif world_instance.get("placing_building_type") != "farm":
+			printerr("  [FAIL] TC-MOVE.30: Building placement 'farm' not active!")
+			failures += 1
+
+		# Case 3: Cancel placement -> clears ghost state cleanly
+		world_instance._cancel_placement()
+		if world_instance.get("placing_building_type") != "":
+			printerr("  [FAIL] TC-MOVE.30: _cancel_placement() did not clear placing_building_type!")
+			failures += 1
+		elif ghost_node != null and ghost_node.visible:
+			printerr("  [FAIL] TC-MOVE.30: Ghost node still visible after _cancel_placement!")
+			failures += 1
+
+		# Case 4: Click routing when only army targeting is active
+		live_hud.call("start_army_move_targeting")
+		var target_tile := Vector2i(live_army.get_rally_cell().x + 2, live_army.get_rally_cell().y)
+		var pre_buildings_count: int = world_instance.get("world_data").buildings.size()
+		live_hud.call("execute_army_move_target", target_tile)
+		var post_buildings_count: int = world_instance.get("world_data").buildings.size()
+
+		if post_buildings_count != pre_buildings_count:
+			printerr("  [FAIL] TC-MOVE.30: Building was placed during army movement click!")
+			failures += 1
+		elif live_hud.call("is_army_move_targeting"):
+			printerr("  [FAIL] TC-MOVE.30: Army targeting not exited after execution!")
+			failures += 1
+		else:
+			print("  [PASS] TC-MOVE.30: Construction placement and army targeting are strictly mutually exclusive.")
+
+	# TC-MOVE.31: HUD Contract Verification (Finding 5)
+	print("--- Running TC-MOVE.31: HUD Contract Verification ---")
+	var contract_mgr := PlayerArmyManagerScript.new()
+	var c_wd := WorldGeneratorScript.generate(9999)
+	var c_nav := GridNavigation.new(c_wd)
+	contract_mgr.set_custom_world_data(c_wd)
+	contract_mgr.set_custom_nav(c_nav)
+	contract_mgr.soldier_count = 3
+	var c_rally := contract_mgr.get_rally_cell()
+	var c_target := Vector2i(c_rally.x + 3, c_rally.y)
+	if not c_nav.is_cell_walkable(c_target):
+		c_target = Vector2i(c_rally.x, c_rally.y + 3)
+
+	var c_res := contract_mgr.order_move(c_target)
+	if not c_res.get("success", false):
+		printerr("  [FAIL] TC-MOVE.31: Contract move order failed: %s" % str(c_res))
+		failures += 1
+	elif not c_res.has("steps") or int(c_res["steps"]) <= 0:
+		printerr("  [FAIL] TC-MOVE.31: order_move() return dictionary missing positive 'steps': %s" % str(c_res))
+		failures += 1
+	elif not c_res.has("path_length") or c_res["steps"] != c_res["path_length"]:
+		printerr("  [FAIL] TC-MOVE.31: 'steps' (%s) does not match 'path_length' (%s)" % [str(c_res.get("steps")), str(c_res.get("path_length"))])
+		failures += 1
+	else:
+		print("  [PASS] TC-MOVE.31: order_move() returns consistent 'steps' (%d) and 'path_length' (%d)." % [c_res["steps"], c_res["path_length"]])

@@ -275,6 +275,9 @@ static func _is_valid_coord_arr(arr: Variant) -> bool:
 	var y := int(arr[1])
 	return IsoMath.is_in_bounds(Vector2i(x, y))
 
+static func _is_cardinal_adjacent(a: Vector2i, b: Vector2i) -> bool:
+	return abs(a.x - b.x) + abs(a.y - b.y) == 1
+
 static func validate_save_data(json_dict: Variant) -> Dictionary:
 	if not (json_dict is Dictionary):
 		return {"valid": false, "error": "Dữ liệu JSON không đúng định dạng Dictionary gốc."}
@@ -398,26 +401,74 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 						return {"valid": false, "error": "last_upkeep_day (%d) không được lớn hơn ngày hiện tại trong game_clock (%d)." % [int(last_upkeep), int(clock_day)]}
 		if army_val.has("is_supplied") and not (army_val.get("is_supplied") is bool):
 			return {"valid": false, "error": "Trạng thái tiếp tế is_supplied phải là boolean."}
-		if army_val.has("current_cell"):
+
+		# Cross-field and route continuity validation (Package 1M)
+		var has_move_state: bool = army_val.has("movement_state")
+		var has_current: bool = army_val.has("current_cell")
+		var has_rally: bool = army_val.has("rally_cell")
+		var has_dest: bool = army_val.has("destination_cell")
+		var has_path: bool = army_val.has("current_path")
+
+		if has_move_state or has_current or has_rally or has_dest or has_path:
+			if not (has_move_state and has_current and has_rally and has_dest and has_path):
+				return {"valid": false, "error": "Bản lưu player_army thiếu các trường di chuyển đồng bộ."}
+
 			if not _is_valid_coord_arr(army_val.get("current_cell")):
 				return {"valid": false, "error": "Tọa độ current_cell của player_army không hợp lệ hoặc nằm ngoài bản đồ: %s." % str(army_val.get("current_cell"))}
-		if army_val.has("rally_cell"):
 			if not _is_valid_coord_arr(army_val.get("rally_cell")):
 				return {"valid": false, "error": "Tọa độ rally_cell của player_army không hợp lệ hoặc nằm ngoài bản đồ: %s." % str(army_val.get("rally_cell"))}
-		if army_val.has("destination_cell"):
 			if not _is_valid_coord_arr(army_val.get("destination_cell")):
 				return {"valid": false, "error": "Tọa độ destination_cell của player_army không hợp lệ hoặc nằm ngoài bản đồ: %s." % str(army_val.get("destination_cell"))}
-		if army_val.has("movement_state"):
-			var m_state = army_val.get("movement_state")
-			if not (m_state is String) or not (m_state in ["garrisoned", "marching", "idle_at_field"]):
-				return {"valid": false, "error": "Trạng thái di chuyển movement_state của player_army không hợp lệ: %s." % str(m_state)}
-		if army_val.has("current_path"):
+
+			var m_state_raw = army_val.get("movement_state")
+			if not (m_state_raw is String) or not (m_state_raw in ["garrisoned", "marching", "idle_at_field"]):
+				return {"valid": false, "error": "Trạng thái di chuyển movement_state của player_army không hợp lệ: %s." % str(m_state_raw)}
+
 			var path_val = army_val.get("current_path")
 			if not (path_val is Array):
 				return {"valid": false, "error": "current_path của player_army phải là danh sách (Array)."}
+
+			var cur_arr = army_val.get("current_cell")
+			var ral_arr = army_val.get("rally_cell")
+			var dst_arr = army_val.get("destination_cell")
+			var m_state: String = String(m_state_raw)
+
+			var cur_cell := Vector2i(int(cur_arr[0]), int(cur_arr[1]))
+			var ral_cell := Vector2i(int(ral_arr[0]), int(ral_arr[1]))
+			var dst_cell := Vector2i(int(dst_arr[0]), int(dst_arr[1]))
+
+			var path_points: Array[Vector2i] = []
 			for step in path_val:
 				if not _is_valid_coord_arr(step):
 					return {"valid": false, "error": "Điểm nút trong current_path của player_army không hợp lệ: %s." % str(step)}
+				path_points.append(Vector2i(int(step[0]), int(step[1])))
+
+			if m_state == "garrisoned":
+				if not path_points.is_empty():
+					return {"valid": false, "error": "Quân đội ở trạng thái garrisoned nhưng current_path không rỗng."}
+				if cur_cell != ral_cell:
+					return {"valid": false, "error": "Quân đội ở trạng thái garrisoned nhưng current_cell (%s) khác rally_cell (%s)." % [str(cur_cell), str(ral_cell)]}
+				if dst_cell != ral_cell:
+					return {"valid": false, "error": "Quân đội ở trạng thái garrisoned nhưng destination_cell (%s) khác rally_cell (%s)." % [str(dst_cell), str(ral_cell)]}
+			elif m_state == "idle_at_field":
+				if not path_points.is_empty():
+					return {"valid": false, "error": "Quân đội ở trạng thái idle_at_field nhưng current_path không rỗng."}
+				if dst_cell != cur_cell:
+					return {"valid": false, "error": "Quân đội ở trạng thái idle_at_field nhưng destination_cell (%s) khác current_cell (%s)." % [str(dst_cell), str(cur_cell)]}
+				if cur_cell == ral_cell:
+					return {"valid": false, "error": "Quân đội ở trạng thái idle_at_field nhưng current_cell lại trùng với rally_cell (%s)." % str(cur_cell)}
+			elif m_state == "marching":
+				if path_points.is_empty():
+					return {"valid": false, "error": "Quân đội ở trạng thái marching nhưng current_path lại rỗng."}
+				if dst_cell == cur_cell:
+					return {"valid": false, "error": "Quân đội ở trạng thái marching nhưng destination_cell lại trùng với current_cell (%s)." % str(cur_cell)}
+				if not _is_cardinal_adjacent(cur_cell, path_points[0]):
+					return {"valid": false, "error": "Điểm đầu tiên trong current_path (%s) không kề cạnh trực tiếp (cardinally adjacent) với current_cell (%s)." % [str(path_points[0]), str(cur_cell)]}
+				for i in range(path_points.size() - 1):
+					if not _is_cardinal_adjacent(path_points[i], path_points[i + 1]):
+						return {"valid": false, "error": "Các điểm liên tiếp trong current_path (%s -> %s) không kề cạnh trực tiếp (cardinally adjacent)." % [str(path_points[i]), str(path_points[i + 1])]}
+				if path_points[-1] != dst_cell:
+					return {"valid": false, "error": "Điểm cuối cùng trong current_path (%s) không khớp với destination_cell (%s)." % [str(path_points[-1]), str(dst_cell)]}
 			
 	return {"valid": true, "error": ""}
 

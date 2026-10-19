@@ -545,6 +545,12 @@ func _update_tile_hover() -> void:
 			ghost_building_node.visible = false
 
 func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo:
+		var k: InputEventKey = event as InputEventKey
+		if k.keycode == KEY_ESCAPE:
+			if placing_building_type != "":
+				_cancel_placement()
+
 	if event is InputEventMouseButton and event.pressed:
 		var mb: InputEventMouseButton = event as InputEventMouseButton
 		var mouse_local := terrain_layer.get_local_mouse_position()
@@ -589,6 +595,8 @@ func _on_citizen_role_changed(cid: String, new_role: String) -> void:
 		print("[WorldView] Reassigned %s to role: %s" % [cid, new_role])
 
 func _on_build_requested(type: String) -> void:
+	if hud != null and hud.has_method("is_army_move_targeting") and hud.call("is_army_move_targeting"):
+		hud.call("cancel_army_move_targeting")
 	placing_building_type = type
 	var tex: Texture2D = building_textures.get(type)
 	if tex:

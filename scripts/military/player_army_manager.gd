@@ -409,7 +409,7 @@ func order_move(target_cell: Vector2i) -> Dictionary:
 	step_accumulator = 0.0
 	movement_state = MovementState.MARCHING
 	movement_state_changed.emit(movement_state, current_cell, destination_cell)
-	return {"success": true, "reason": "Đã nhận lệnh hành quân", "path_length": path.size()}
+	return {"success": true, "reason": "Đã nhận lệnh hành quân", "steps": path.size(), "path_length": path.size()}
 
 func cancel_move() -> Dictionary:
 	if movement_state != MovementState.MARCHING:
@@ -425,6 +425,27 @@ func cancel_move() -> Dictionary:
 	return {"success": true, "reason": "Đã dừng hành quân tại vị trí hiện tại"}
 
 func order_return_home() -> Dictionary:
+	if soldier_count <= 0:
+		return {"success": false, "reason": "Không có binh sĩ để điều động"}
+
+	if current_cell == rally_cell:
+		if movement_state == MovementState.MARCHING:
+			current_path.clear()
+			step_accumulator = 0.0
+			destination_cell = rally_cell
+			movement_state = MovementState.GARRISONED
+			movement_state_changed.emit(movement_state, current_cell, destination_cell)
+			return {"success": true, "reason": "Đã hủy hành quân, quân đội tiếp tục đóng quân tại căn cứ"}
+		elif movement_state == MovementState.IDLE_AT_FIELD:
+			current_path.clear()
+			step_accumulator = 0.0
+			destination_cell = rally_cell
+			movement_state = MovementState.GARRISONED
+			movement_state_changed.emit(movement_state, current_cell, destination_cell)
+			return {"success": true, "reason": "Quân đội đã trở về đóng quân tại căn cứ"}
+		else:
+			return {"success": true, "reason": "Quân đội đã ở căn cứ"}
+
 	return order_move(rally_cell)
 
 func advance_movement(delta: float, speed_mult: float = 1.0) -> void:
@@ -610,8 +631,13 @@ func deserialize(data: Dictionary) -> void:
 
 	# Safety check: if current_cell is blocked, recover safely to nearest walkable cell or rally cell
 	var nav = get_nav()
+	if nav != null and not nav.is_cell_walkable(rally_cell):
+		rally_cell = def_rally
+		if not nav.is_cell_walkable(rally_cell):
+			rally_cell = get_default_rally_cell()
+
 	if nav != null and not nav.is_cell_walkable(current_cell):
-		var safe_cell := def_rally
+		var safe_cell := rally_cell
 		if not nav.is_cell_walkable(safe_cell):
 			safe_cell = get_default_rally_cell()
 		current_cell = safe_cell
@@ -619,23 +645,69 @@ func deserialize(data: Dictionary) -> void:
 		destination_cell = current_cell
 		movement_state = MovementState.GARRISONED
 
-	# Mutual consistency enforcement:
+	# Mutual consistency and route walkability enforcement:
 	if soldier_count == 0:
 		movement_state = MovementState.GARRISONED
 		current_cell = rally_cell
 		destination_cell = rally_cell
 		current_path.clear()
 	elif movement_state == MovementState.GARRISONED:
-		destination_cell = current_cell
 		current_path.clear()
-	elif movement_state == MovementState.MARCHING and current_path.is_empty():
-		movement_state = MovementState.GARRISONED if current_cell == rally_cell else MovementState.IDLE_AT_FIELD
+		if current_cell == rally_cell:
+			destination_cell = rally_cell
+		else:
+			movement_state = MovementState.IDLE_AT_FIELD
+			destination_cell = current_cell
+	elif movement_state == MovementState.IDLE_AT_FIELD:
+		current_path.clear()
 		destination_cell = current_cell
+		if current_cell == rally_cell:
+			movement_state = MovementState.GARRISONED
+	elif movement_state == MovementState.MARCHING:
+		var route_valid := true
+		if current_path.is_empty() or destination_cell == current_cell:
+			route_valid = false
+		elif not _is_cardinal_adjacent(current_cell, current_path[0]):
+			route_valid = false
+		elif current_path[-1] != destination_cell:
+			route_valid = false
+		else:
+			for i in range(current_path.size() - 1):
+				if not _is_cardinal_adjacent(current_path[i], current_path[i + 1]):
+					route_valid = false
+					break
+			if route_valid and nav != null:
+				for step in current_path:
+					if not nav.is_cell_walkable(step):
+						route_valid = false
+						break
+				if route_valid and not nav.is_cell_walkable(destination_cell):
+					route_valid = false
+
+		if not route_valid:
+			# Route or destination is obstructed or malformed.
+			# Attempt to repair path if destination is walkable and reachable without teleporting.
+			var repaired := false
+			if nav != null and IsoMath.is_in_bounds(destination_cell) and nav.is_cell_walkable(destination_cell) and destination_cell != current_cell:
+				var new_path: Array[Vector2i] = nav.find_path(current_cell, destination_cell)
+				if new_path.size() > 0 and new_path[0] == current_cell:
+					new_path.remove_at(0)
+				if not new_path.is_empty():
+					current_path = new_path
+					repaired = true
+
+			if not repaired:
+				current_path.clear()
+				destination_cell = current_cell
+				movement_state = MovementState.GARRISONED if current_cell == rally_cell else MovementState.IDLE_AT_FIELD
 
 	step_accumulator = 0.0
 	army_changed.emit(soldier_count, get_army_capacity())
 	supply_status_changed.emit(is_supplied)
 	movement_state_changed.emit(movement_state, current_cell, destination_cell)
+
+static func _is_cardinal_adjacent(a: Vector2i, b: Vector2i) -> bool:
+	return abs(a.x - b.x) + abs(a.y - b.y) == 1
 
 static func _parse_coord(val, default_val: Vector2i) -> Vector2i:
 	if val is Array and val.size() >= 2:

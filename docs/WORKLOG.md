@@ -3588,3 +3588,64 @@ Address remaining independent-review findings in Package 1L on branch `feature/p
 - Commit with exact suggested message: `Implement Package 1M army marching and garrison deployment`
 - Push to remote `feature/package-1m-army-marching`.
 - Report commit hash, parent hash, and test results for independent review.
+- Completed as commit `0f8f28558dff630a320101182b6b3ff73511f60d`.
+
+---
+
+## [Milestone 53] - 2026-10-20: Package 1M Review Fix: Movement Save Integrity, Return Order & Input Modes (Completed)
+
+### Context & Goal
+Address independent source review findings for Package 1M on branch `feature/package-1m-army-marching` starting from commit `0f8f28558dff630a320101182b6b3ff73511f60d`:
+1. **Finding A — Movement Save Integrity & Route Continuity:** Validate route continuity, cardinal adjacency ($|dx| + |dy| == 1$), first step adjacency to `current_cell`, final step matching `destination_cell`, and strict state invariants across `current_cell`, `rally_cell`, `destination_cell`, `movement_state`, and `current_path`. In `deserialize()`, validate against live navigation walkability; repair obstructed routes without teleporting; safely halt on blocked destinations; normalize contradictory garrison states.
+2. **Finding B — Return Home Before First Movement Step:** When an army is ordered to march but is still logically at `rally_cell`, `order_return_home()` must cancel the outbound order, clear the route, reset destination to rally, set `GARRISONED`, and restore defense eligibility immediately with zero teleportation.
+3. **Finding C — Mutual Exclusion of Construction & Army Targeting:** Make construction placement and army targeting strictly mutually exclusive. Starting army targeting cancels building placement and hides ghost preview; selecting a building in HUD cancels army targeting; pressing ESC cancels building placement.
+4. **Minor HUD Contract Fix:** Align `PlayerArmyManager.order_move()` return contract (`"steps"` and `"path_length"`) with HUD consumer expectations so event banners display positive step counts.
+5. **Strengthened Integration & Regression Tests:** Strengthen TC-MOVE.20 (live marching army in world instance, double-load idempotency, 1-step post-reload advance), TC-MOVE.22 (16 malformed payload rejections), TC-MOVE.23 (walkability recovery), TC-MOVE.29 (return home before step 1), TC-MOVE.30 (mutual exclusion), TC-MOVE.31 (HUD contract).
+
+### Work Completed
+1. `scripts/military/player_army_manager.gd`:
+   - Contract alignment: `order_move()` returns both `"steps": path.size()` and `"path_length": path.size()`.
+   - Finding B: `order_return_home()` checks if `current_cell == rally_cell`. If marching, clears path, resets step accumulator to 0.0, resets destination to `rally_cell`, sets `movement_state = MovementState.GARRISONED`, emits `movement_state_changed`, and returns success. Restores defense eligibility immediately.
+   - Finding A: Added `_is_cardinal_adjacent(a, b)` helper. In `deserialize()`, validates rally cell walkability (recovering to default if obstructed). Checks `current_cell` walkability (recovering to rally if blocked). Validates route continuity and walkability: if intermediate waypoints are blocked, attempts A* path repair via `nav.find_path()` without teleporting; if destination is blocked or route cannot be repaired, safely halts at `current_cell` with empty path (`GARRISONED` if at rally, else `IDLE_AT_FIELD`); normalizes field garrison anomalies to `IDLE_AT_FIELD`.
+2. `scripts/persistence/save_manager.gd`:
+   - Added `_is_cardinal_adjacent(a: Vector2i, b: Vector2i) -> bool` helper.
+   - Finding A: In `validate_save_data()`, enforced synchronized presence of all movement fields when any is present. Validated coordinates and enum strings. Enforced cardinal adjacency between consecutive waypoints ($|dx| + |dy| == 1$), first step cardinal adjacency to `current_cell`, final waypoint equality with `destination_cell`. Enforced cross-field state invariants for `garrisoned` (empty path, cur == rally, dest == rally), `idle_at_field` (empty path, dest == cur, cur != rally), and `marching` (non-empty path, dest != cur).
+3. `scripts/world/world_view.gd` & `scripts/ui/hud.gd`:
+   - Finding C: In `world_view._on_build_requested()` and `hud._select_building()`, cancels active army move targeting mode.
+   - In `hud.start_army_move_targeting()`, cancels active building placement in `world_view_ref` via `_cancel_placement()` and hides ghost preview node.
+   - In `world_view._unhandled_input()`, handles KEY_ESCAPE to cancel active building placement cleanly.
+4. `scripts/test/test_army_movement.gd`:
+   - Strengthened TC-MOVE.20: configures live `world_instance` army to `MARCHING` with a non-empty route, serializes world state, tests double-load idempotency with zero duplicate `ArmyMarker` nodes and zero resource/troop changes, and verifies that advancing 1 step advances to the adjacent next waypoint rather than jumping to destination.
+   - Strengthened TC-MOVE.22: verifies fail-closed rejection of 16 malformed movement payloads (non-adjacent steps, final step mismatch, contradictory states).
+   - Strengthened TC-MOVE.23: verifies blocked cell recovery, route waypoint repair without teleporting, blocked destination safe halt without teleporting, and mid-transit valid route restoration.
+   - Added TC-MOVE.29: tests return home before first movement step with deterministic paused/mock-time setup.
+   - Added TC-MOVE.30: tests mutual exclusion of building placement and army targeting, ghost preview clearing, click routing integrity, and state hygiene.
+   - Added TC-MOVE.31: tests HUD contract step count consistency.
+5. Documentation:
+   - Updated `docs/TEST_PLAN.md`, `docs/CHANGELOG.md`, and `docs/WORKLOG.md`.
+
+### Verification Evidence
+- `scripts/test/test_army_movement.gd`: **PASS (Exit Code 0: 31/31 tests passed)**
+- `scripts/test/test_player_army.gd`: **PASS (Exit Code 0: 32/32 tests passed)**
+- `scripts/test/test_live_battle_loop.gd`: **PASS (Exit Code 0: 19/19 + TC-LB.4C + TC-LB.7B passed)**
+- Full project test suite matrix (all 26 suites in `scripts/test/test_*.gd`): **PASS (26 passed, 0 failed, Exit Code 0)**
+- Headless scene smoke checks (`world_view.tscn`, `hud.tscn`): **PASS (Exit Code 0)**
+- `git diff --check`: Clean (Exit Code 0, 0 whitespace errors)
+- **Visual Verification Limitation:** Headless command-line execution verifies simulation state, path calculations, signal wiring, and data persistence, but cannot verify real-time viewport rendering, screen pixel coordinates, or physical OS mouse clicks. Visual GUI rendering remains unverified without live display testing. ISSUE-005 foundation complete; tactical field combat, enemy movement, and siege controls remain deferred.
+
+### Files Modified
+- `scripts/military/player_army_manager.gd`
+- `scripts/persistence/save_manager.gd`
+- `scripts/world/world_view.gd`
+- `scripts/ui/hud.gd`
+- `scripts/test/test_army_movement.gd`
+- `docs/TEST_PLAN.md`
+- `docs/CHANGELOG.md`
+- `docs/WORKLOG.md`
+
+### Next Exact Step
+- Stage only intended Package 1M review fix files.
+- Commit with exact message: `Harden Package 1M movement state and input handling`.
+- Push to remote `feature/package-1m-army-marching`.
+- Verify local HEAD equals remote HEAD and report commit SHA and parent SHA.
+- Stop for independent ChatGPT source review. Do not merge to master and do not start Package 1N.

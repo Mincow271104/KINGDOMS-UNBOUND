@@ -605,6 +605,18 @@ func start_army_move_targeting() -> void:
 	if count <= 0:
 		show_event_banner("Chưa Có Binh Sĩ", "Cần tuyển ít nhất 1 binh sĩ để điều động quân đội.", false, 3.0)
 		return
+
+	# Mutually exclusive input modes: cancel active building placement and clear ghost preview
+	var wv = world_view_ref if world_view_ref != null else (get_parent() if get_parent() != null else null)
+	if wv != null and wv.get("placing_building_type") != "":
+		if wv.has_method("_cancel_placement"):
+			wv.call("_cancel_placement")
+		else:
+			wv.set("placing_building_type", "")
+			var ghost = wv.get("ghost_building_node")
+			if ghost:
+				ghost.visible = false
+
 	_army_move_targeting = true
 	if army_panel:
 		army_panel.visible = false
@@ -984,6 +996,8 @@ func _toggle_build_menu() -> void:
 	build_menu_panel.visible = not build_menu_panel.visible
 
 func _select_building(type: String) -> void:
+	if _army_move_targeting:
+		cancel_army_move_targeting()
 	build_menu_panel.visible = false
 	build_requested.emit(type)
 
