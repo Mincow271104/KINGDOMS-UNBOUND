@@ -3469,4 +3469,38 @@ Address remaining independent-review findings in Package 1L on branch `feature/p
 - Commit with exact message: `Fix duplicate citizen death signal emission`
 - Push to remote `feature/package-1l-army-recruitment-upkeep`.
 - Verify remote HEAD matches local HEAD and report commit SHA and parent SHA (`f23ff8b564c8ca53ac9a7481404f0b63fd178aba`).
+- Completed as commit `849700dd820dc97c2567546324ee6f0cf1ba8dab`.
+
+---
+
+## [Milestone 51] - 2026-10-19: Package 1L Guard Job Death Lifecycle Assertion Tightening
+
+### Context & Goal
+- Independent code review noted that in `scripts/test/test_player_army.gd`, `TC-ARMY.28` currently fails only if `test_job.worker_id == test_guard_id` or `test_job.state == JobState.IN_PROGRESS`. This did not strictly verify the documented expected state.
+- Goal: Make the `TC-ARMY.28` post-death assertion require both exact conditions: `test_job.state == JobManagerScript.JobState.AVAILABLE` and `test_job.worker_id == ""`, failing if either condition is not met. Keep all other checks intact.
+
+### Work Completed
+1. `scripts/test/test_player_army.gd`:
+   - Updated `TC-ARMY.28`: replaced the disjunctive negative check with strict assertion:
+     `elif test_job.state != JobManagerScript.JobState.AVAILABLE or test_job.worker_id != "":`
+     reporting clear failure diagnostic if state is not `AVAILABLE` or `worker_id` is not `""`.
+2. Documentation:
+   - Updated `docs/CHANGELOG.md` and `docs/WORKLOG.md`.
+
+### Verification Evidence
+- `scripts/test/test_player_army.gd`: **PASS (Exit Code 0: 32/32 tests passed)**
+- `scripts/test/test_live_battle_loop.gd`: **PASS (Exit Code 0: 19/19 + TC-LB.4C + TC-LB.7B passed)**
+- Full test matrix (all 25 suites): **PASS (25 passed, 0 failed, Exit Code 0)**
+- `git diff --check`: Clean (Exit Code 0, 0 whitespace errors)
+
+### Files Modified
+- `scripts/test/test_player_army.gd`
+- `docs/CHANGELOG.md`
+- `docs/WORKLOG.md`
+
+### Next Exact Step
+- Stage only intended files: `scripts/test/test_player_army.gd`, `docs/CHANGELOG.md`, `docs/WORKLOG.md`.
+- Commit with exact message: `Tighten guard job death lifecycle assertion`
+- Push to remote `feature/package-1l-army-recruitment-upkeep`.
+- Verify remote HEAD matches local HEAD and report commit SHA and parent SHA (`849700dd820dc97c2567546324ee6f0cf1ba8dab`).
 - Stop for independent review. Do not merge to master and do not start Package 1M.

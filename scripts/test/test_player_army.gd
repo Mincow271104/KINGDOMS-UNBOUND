@@ -817,8 +817,8 @@ func _test_group_defense_and_casualties() -> void:
 	elif test_guard.active_job != null:
 		printerr("  [FAIL] TC-ARMY.28: Guard controller still holds active_job after death!")
 		failures += 1
-	elif test_job.worker_id == test_guard_id or test_job.state == JobManagerScript.JobState.IN_PROGRESS:
-		printerr("  [FAIL] TC-ARMY.28: Job was not released/available upon guard death (worker_id: '%s', state: %d)!" % [test_job.worker_id, test_job.state])
+	elif test_job.state != JobManagerScript.JobState.AVAILABLE or test_job.worker_id != "":
+		printerr("  [FAIL] TC-ARMY.28: Expected job state AVAILABLE and worker_id empty upon guard death (worker_id: '%s', state: %d)!" % [test_job.worker_id, test_job.state])
 		failures += 1
 	# 3. Verify removal from citizens_by_id and citizen_list, the deceased ID registry, population accounting,
 	# and exactly one combat-death event with the correct cause.
