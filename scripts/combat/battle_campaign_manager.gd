@@ -347,19 +347,22 @@ func resolve_and_apply_raid(faction_id: String, current_day: int = -1) -> Dictio
 		var c_id: String = cit.get("citizen_id")
 		guards_killed.append(c_id)
 
-		# Release active job safely
-		if cit.get("active_job") != null and jm != null:
-			jm.release_job(cit.active_job)
-			cit.active_job = null
+		# Release active job safely and trigger citizen death lifecycle
+		if cit.has_method("die"):
+			cit.die("Tử trận khi bảo vệ định cư")
+		else:
+			if cit.get("active_job") != null and jm != null:
+				jm.release_job(cit.active_job)
+				cit.active_job = null
 
-		# Update citizen status and mark deceased with combat reason
-		cit.health = 0.0
-		cit.status_reason = "Tử trận khi bảo vệ định cư"
-		cit.current_state = 0 # State.IDLE
-		if cit.get("current_path") != null:
-			cit.current_path.clear()
+			# Update citizen status and mark deceased with combat reason
+			cit.health = 0.0
+			cit.status_reason = "Tử trận khi bảo vệ định cư"
+			cit.current_state = 0 # State.IDLE
+			if cit.get("current_path") != null:
+				cit.current_path.clear()
 
-		cit.citizen_died.emit(c_id)
+			cit.citizen_died.emit(c_id)
 
 		# Standalone test safety: ensure removal from custom citizen list if world_view signal not active
 		if not _custom_citizen_list.is_empty():

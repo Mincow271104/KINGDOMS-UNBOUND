@@ -3366,3 +3366,60 @@ Address four independent code-review findings in Package 1L on branch `feature/p
 - Push branch `feature/package-1l-army-recruitment-upkeep` to remote.
 - Verify remote HEAD matches local HEAD and report parent SHA (`94167a6b106bd55211658deeb0fa5bfde81aeae0`).
 - Stop for independent review. Do not merge to master, do not start Package 1M.
+
+---
+
+## [2026-10-19] Milestone 49: Package 1L Final Review Fix — Real Citizen Death Lifecycle & Load Validation Hardening (Completed)
+
+### Context & Objective
+Address remaining independent-review findings in Package 1L on branch `feature/package-1l-army-recruitment-upkeep` starting from commit `88bdc4b7e29a9e0be97a2cc2dcaebb8c324bb633`. The objectives are:
+1. Exercise the real `CitizenController` death path in TC-ARMY.28 without manually releasing jobs or nulling `active_job` in the test.
+2. Strengthen TC-ARMY.29B to rigorously assert load side effects (zero duplicated soldiers, citizens, HUD nodes, or signals on double load; zero resource deductions or upkeep on load; same-day upkeep idempotency; Package 1K campaign state preservation; legacy save safety).
+3. Fail closed in `SaveManager.validate_save_data()` when `game_clock.current_day` is present but malformed, and verify `apply_loaded_state_to_world()` rejects invalid saves before destructive world reconstruction.
+
+### Completed Work
+1. **Canonical CitizenController Death Lifecycle (`CitizenController.die`):**
+   - Added canonical `die(reason: String = "Đã qua đời vì suy kiệt")` method to `CitizenController` that sets health to 0, updates `status_reason`, transitions to `IDLE`, clears movement paths, releases active jobs in `JobManager` (resetting job worker assignment to empty and state to `AVAILABLE`), sets `active_job = null`, and emits `citizen_died(citizen_id)`.
+   - Wired `BattleCampaignManager.resolve_and_apply_raid()` to invoke `cit.die("Tử trận khi bảo vệ định cư")` when processing casualties, preserving fallback for mock test citizens.
+   - Refactored `TC-ARMY.28` to create a real `CitizenController` guard connected to `WorldView._on_citizen_died()`, assigned to an active guard job, and triggered via `test_guard.die("Tử trận khi bảo vệ định cư")`. Asserted job released to `AVAILABLE` with empty worker ID, `active_job == null`, removal from registries, recording in `deceased_citizen_ids`, population decrement, single combat death event, idempotency on repeat death, and civilian population immunity to abstract army losses.
+2. **Comprehensive Load Side-Effect Verification (TC-ARMY.29B & TC-ARMY.30B):**
+   - Extended TC-ARMY.29B with before/after snapshots verifying that double load does not duplicate soldiers (remains 7), citizens, HUD nodes, or signal connections.
+   - Verified that loading does not deduct recruitment resources or trigger extra upkeep charges, and verified same-day daily upkeep idempotency.
+   - Set up non-default Package 1K campaign state and verified its preservation through multiple loads and through legacy save application lacking `player_army`.
+3. **Fail-Closed Malformed Clock Day Validation (TC-ARMY.31):**
+   - Updated `SaveManager.validate_save_data()` to enforce that if `game_clock` is present, it must be a Dictionary, and if `current_day` is present, it must be a valid integer $\ge 1$. Rejects malformed clock days (strings, floats, zero, negative, arrays, non-dictionaries) fail-closed.
+   - Verified that `SaveManager.apply_loaded_state_to_world()` rejects malformed clock saves before any destructive world reconstruction begins (world day and population untouched).
+
+### Validations Performed & Results
+- **Dedicated Player Army Test Suite (`scripts/test/test_player_army.gd`):**
+  - Command: `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless -s res://scripts/test/test_player_army.gd`
+  - Result: **PASS (Exit Code 0, 32/32 tests passed)**
+- **Targeted Integration Suite (`scripts/test/test_live_battle_loop.gd`):**
+  - Command: `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless -s res://scripts/test/test_live_battle_loop.gd`
+  - Result: **PASS (Exit Code 0, 19/19 + TC-LB.4C + TC-LB.7B passed)**
+- **Full Test Matrix (All 25 Test Suites in `scripts/test/test_*.gd`):**
+  - Result: **PASS (25/25 suites passed, Exit Code 0)**
+- **Headless Scene Smoke Checks:**
+  - `scenes/ui/main_menu.tscn`: **PASS (Exit Code 0)**
+  - `scenes/world/world_view.tscn`: **PASS (Exit Code 0)**
+  - `scenes/ui/hud.tscn`: **PASS (Exit Code 0)**
+  - `scenes/test/visual_validation_test.tscn`: **PASS (Exit Code 0)**
+  - `scenes/entities/citizen.tscn`: **PASS (Exit Code 0)**
+- **Whitespace & Formatting Check:**
+  - `git diff --check`: Clean (Exit Code 0, zero whitespace errors).
+
+### Files Created / Modified
+- `scripts/entities/citizen_controller.gd` (Canonical die() method releasing job and emitting citizen_died)
+- `scripts/combat/battle_campaign_manager.gd` (Use cit.die() when available for guard casualties)
+- `scripts/persistence/save_manager.gd` (Fail-closed malformed clock day validation)
+- `scripts/test/test_player_army.gd` (Updated TC-ARMY.28 real death lifecycle, strengthened TC-ARMY.29B, TC-ARMY.30B, TC-ARMY.31)
+- `docs/TEST_PLAN.md` (Updated Package 1L test criteria)
+- `docs/CHANGELOG.md` (Documented final review fix changes)
+- `docs/WORKLOG.md` (Recorded Milestone 49)
+
+### Next Exact Step
+- Inspect git status and stage only intended Package 1L final review-fix files (never `git add -A`).
+- Commit with exact mandated message: `Close Package 1L citizen lifecycle and load validation gaps`
+- Push branch `feature/package-1l-army-recruitment-upkeep` to remote.
+- Verify remote HEAD matches local HEAD and report parent SHA (`88bdc4b7e29a9e0be97a2cc2dcaebb8c324bb633`).
+- Stop for independent review. Do not merge to master, do not start Package 1M.

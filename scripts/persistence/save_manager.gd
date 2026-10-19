@@ -349,6 +349,16 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 		if b_prog < 0.0 or b_prog > (b_hours + PROG_TOLERANCE):
 			return {"valid": false, "error": "Tiến độ thi công của '%s' nằm ngoài phạm vi hợp lệ [0, %f]: %f." % [b_type, b_hours, b_prog]}
 
+	# Validate optional game_clock section
+	if json_dict.has("game_clock"):
+		var clock_val = json_dict.get("game_clock")
+		if not (clock_val is Dictionary):
+			return {"valid": false, "error": "Mục 'game_clock' phải là Dictionary."}
+		if clock_val.has("current_day"):
+			var c_day = clock_val.get("current_day")
+			if not _is_valid_integer_val(c_day) or int(c_day) < 1:
+				return {"valid": false, "error": "current_day trong game_clock phải là số nguyên hợp lệ >= 1: %s." % str(c_day)}
+
 	# Validate optional Player Army section (Package 1L)
 	if json_dict.has("player_army"):
 		var army_val = json_dict.get("player_army")
@@ -366,9 +376,13 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 				return {"valid": false, "error": "last_upkeep_day phải là số nguyên hợp lệ: %s." % str(last_upkeep)}
 			if int(last_upkeep) < -1:
 				return {"valid": false, "error": "last_upkeep_day không được nhỏ hơn -1: %s." % str(last_upkeep)}
-			if json_dict.has("game_clock") and (json_dict["game_clock"] is Dictionary):
-				var clock_day = json_dict["game_clock"].get("current_day")
-				if clock_day != null and _is_valid_integer_val(clock_day):
+			if json_dict.has("game_clock"):
+				if not (json_dict["game_clock"] is Dictionary):
+					return {"valid": false, "error": "Mục 'game_clock' phải là Dictionary."}
+				if json_dict["game_clock"].has("current_day"):
+					var clock_day = json_dict["game_clock"].get("current_day")
+					if not _is_valid_integer_val(clock_day) or int(clock_day) < 1:
+						return {"valid": false, "error": "current_day trong game_clock phải là số nguyên hợp lệ >= 1: %s." % str(clock_day)}
 					if int(last_upkeep) > int(clock_day):
 						return {"valid": false, "error": "last_upkeep_day (%d) không được lớn hơn ngày hiện tại trong game_clock (%d)." % [int(last_upkeep), int(clock_day)]}
 		if army_val.has("is_supplied") and not (army_val.get("is_supplied") is bool):

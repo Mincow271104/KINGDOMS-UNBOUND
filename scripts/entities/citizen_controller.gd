@@ -502,16 +502,26 @@ func _on_hour_passed(_hour: int, _day: int) -> void:
 		# Stage 2: Health drops by ~5%/day (-0.208/hr)
 		health = maxf(0.0, health - 0.208)
 		if health <= 0.0:
-			health = 0.0
-			status_reason = "Đã qua đời vì suy kiệt"
-			if active_job != null and job_mgr != null:
-				job_mgr.release_job(active_job)
-				active_job = null
-			citizen_died.emit(citizen_id)
+			die("Đã qua đời vì suy kiệt")
 	else:
 		# Recovery: when well-fed and not starving, health recovers by ~10%/day (+0.417/hr)
 		if hunger < 50.0 and health < 100.0:
 			health = minf(100.0, health + 0.417)
+
+func die(reason: String = "Đã qua đời vì suy kiệt") -> void:
+	if not is_alive() and health == 0.0 and active_job == null and (current_path == null or current_path.is_empty()):
+		# Already dead and cleaned up, emit signal idempotently
+		citizen_died.emit(citizen_id)
+		return
+	health = 0.0
+	status_reason = reason
+	current_state = State.IDLE
+	if current_path != null:
+		current_path.clear()
+	if active_job != null and job_mgr != null:
+		job_mgr.release_job(active_job)
+		active_job = null
+	citizen_died.emit(citizen_id)
 
 func is_alive() -> bool:
 	return health > 0.0
