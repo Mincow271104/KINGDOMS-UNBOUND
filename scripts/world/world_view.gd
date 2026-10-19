@@ -7,6 +7,7 @@ extends Node2D
 const CitizenControllerScript = preload("res://scripts/entities/citizen_controller.gd")
 const BattleCampaignManagerScript = preload("res://scripts/combat/battle_campaign_manager.gd")
 const PlayerArmyManagerScript = preload("res://scripts/military/player_army_manager.gd")
+const ArmyMarkerScript = preload("res://scripts/military/army_marker.gd")
 
 @export var world_seed: int = 12345
 
@@ -35,6 +36,7 @@ var immigration_mgr: ImmigrationManager
 var victory_mgr: VictoryManager
 var battle_campaign_mgr: RefCounted = null
 var player_army_mgr: RefCounted = null
+var army_marker: Node2D = null
 var autosave_enabled: bool = true
 var autosave_interval_days: int = 1
 
@@ -182,6 +184,7 @@ func _generate_and_build_world() -> void:
 	_spawn_props()
 	_spawn_pois()
 	_spawn_starter_citizens()
+	_setup_army_marker()
 
 func _setup_workplaces() -> void:
 	# Farm at (36, 35)
@@ -464,8 +467,42 @@ func _on_citizen_died(died_id: String) -> void:
 	if hud:
 		hud.update_population_display(citizen_list.size(), housing_cap)
 
-func _process(_delta: float) -> void:
+func _setup_army_marker() -> void:
+	if citizens_container == null:
+		return
+	if army_marker != null and is_instance_valid(army_marker):
+		if not army_marker.is_inside_tree():
+			citizens_container.add_child(army_marker)
+		army_marker.set_player_army_manager(player_army_mgr)
+		army_marker.update_display()
+		return
+
+	var existing = citizens_container.get_node_or_null("ArmyMarker")
+	if existing != null:
+		army_marker = existing
+		army_marker.set_player_army_manager(player_army_mgr)
+		army_marker.update_display()
+		return
+
+	army_marker = ArmyMarkerScript.new()
+	army_marker.name = "ArmyMarker"
+	citizens_container.add_child(army_marker)
+	army_marker.set_player_army_manager(player_army_mgr)
+
+func get_army_marker() -> Node2D:
+	return army_marker
+
+func _process(delta: float) -> void:
 	_update_tile_hover()
+	if player_army_mgr != null and player_army_mgr.has_method("advance_movement"):
+		var speed_mult: float = 1.0
+		var tm = get_node_or_null("/root/TimeManager")
+		if tm != null:
+			if tm.has_method("is_paused") and tm.is_paused():
+				speed_mult = 0.0
+			elif tm.get("current_speed") != null:
+				speed_mult = float(tm.get("current_speed"))
+		player_army_mgr.advance_movement(delta, speed_mult)
 
 func _update_tile_hover() -> void:
 	var mouse_local := terrain_layer.get_local_mouse_position()
@@ -484,6 +521,8 @@ func _update_tile_hover() -> void:
 				var total: float = float(bld.get("construction_hours", 12.0))
 				var pct: int = int((prog / total) * 100.0) if total > 0.0 else 0
 				b_name += " [Đang xây: %d%%]" % pct
+			if hud.has_method("is_army_move_targeting") and hud.call("is_army_move_targeting"):
+				b_name += " [Nhấp để điều động]"
 			hud.set_tile_info(cell, t_name, b_name)
 			
 		# Handle ghost building placement preview
@@ -516,6 +555,11 @@ func _unhandled_input(event: InputEvent) -> void:
 				_execute_placement(cell)
 			elif mb.button_index == MOUSE_BUTTON_RIGHT:
 				_cancel_placement()
+		elif hud != null and hud.has_method("is_army_move_targeting") and hud.call("is_army_move_targeting"):
+			if mb.button_index == MOUSE_BUTTON_LEFT:
+				hud.call("execute_army_move_target", cell)
+			elif mb.button_index == MOUSE_BUTTON_RIGHT:
+				hud.call("cancel_army_move_targeting")
 		else:
 			if mb.button_index == MOUSE_BUTTON_LEFT:
 				_check_citizen_click(cell)

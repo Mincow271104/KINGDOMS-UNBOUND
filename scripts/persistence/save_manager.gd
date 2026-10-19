@@ -264,6 +264,17 @@ static func _is_valid_integer_val(val: Variant) -> bool:
 		return not is_nan(val) and not is_inf(val) and floor(val) == val
 	return false
 
+static func _is_valid_coord_arr(arr: Variant) -> bool:
+	if not (arr is Array):
+		return false
+	if arr.size() != 2:
+		return false
+	if not _is_valid_integer_val(arr[0]) or not _is_valid_integer_val(arr[1]):
+		return false
+	var x := int(arr[0])
+	var y := int(arr[1])
+	return IsoMath.is_in_bounds(Vector2i(x, y))
+
 static func validate_save_data(json_dict: Variant) -> Dictionary:
 	if not (json_dict is Dictionary):
 		return {"valid": false, "error": "Dữ liệu JSON không đúng định dạng Dictionary gốc."}
@@ -387,6 +398,26 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 						return {"valid": false, "error": "last_upkeep_day (%d) không được lớn hơn ngày hiện tại trong game_clock (%d)." % [int(last_upkeep), int(clock_day)]}
 		if army_val.has("is_supplied") and not (army_val.get("is_supplied") is bool):
 			return {"valid": false, "error": "Trạng thái tiếp tế is_supplied phải là boolean."}
+		if army_val.has("current_cell"):
+			if not _is_valid_coord_arr(army_val.get("current_cell")):
+				return {"valid": false, "error": "Tọa độ current_cell của player_army không hợp lệ hoặc nằm ngoài bản đồ: %s." % str(army_val.get("current_cell"))}
+		if army_val.has("rally_cell"):
+			if not _is_valid_coord_arr(army_val.get("rally_cell")):
+				return {"valid": false, "error": "Tọa độ rally_cell của player_army không hợp lệ hoặc nằm ngoài bản đồ: %s." % str(army_val.get("rally_cell"))}
+		if army_val.has("destination_cell"):
+			if not _is_valid_coord_arr(army_val.get("destination_cell")):
+				return {"valid": false, "error": "Tọa độ destination_cell của player_army không hợp lệ hoặc nằm ngoài bản đồ: %s." % str(army_val.get("destination_cell"))}
+		if army_val.has("movement_state"):
+			var m_state = army_val.get("movement_state")
+			if not (m_state is String) or not (m_state in ["garrisoned", "marching", "idle_at_field"]):
+				return {"valid": false, "error": "Trạng thái di chuyển movement_state của player_army không hợp lệ: %s." % str(m_state)}
+		if army_val.has("current_path"):
+			var path_val = army_val.get("current_path")
+			if not (path_val is Array):
+				return {"valid": false, "error": "current_path của player_army phải là danh sách (Array)."}
+			for step in path_val:
+				if not _is_valid_coord_arr(step):
+					return {"valid": false, "error": "Điểm nút trong current_path của player_army không hợp lệ: %s." % str(step)}
 			
 	return {"valid": true, "error": ""}
 
@@ -520,6 +551,8 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 	var citizens_container = world_view.get("citizens_container")
 	if citizens_container:
 		for child in citizens_container.get_children():
+			if child.name == "ArmyMarker":
+				continue
 			child.queue_free()
 	world_view.get("citizens_by_id").clear()
 	world_view.get("citizen_list").clear()
@@ -671,6 +704,9 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 		else:
 			# Legacy save or empty player_army: reset to clean default state (0 soldiers)
 			army_mgr.call("deserialize", {})
+
+	if world_view.has_method("_setup_army_marker"):
+		world_view.call("_setup_army_marker")
 
 	if hud and hud.has_method("_refresh_army_panel"):
 		hud.call("_refresh_army_panel")

@@ -2,11 +2,11 @@
 
 ## Active Issues
 
-### ISSUE-005: Real-Time Tactical Combat and Army Pathfinding Deferred to Future Milestones
-- **Severity:** Low / Architectural Scope Boundary (By Design for Package 1K)
-- **Symptom:** Combat resolution occurs as an authoritative abstract turn/tick calculation rather than real-time physical unit movement across the isometric grid.
-- **Root Cause:** By design per GDD Section 10.4 and MASTER_PROMPT constraints, combat is modeled through deterministic multi-factor formulas (`BattleResolver.resolve_settlement_battle`) rather than RTS tactical combat.
-- **Resolution / Scope:** Package 1K closed the live gameplay loop by implementing `BattleCampaignManager`, providing scheduled raids, living guard defense, deterministic casualties, and resource plunder. Physical army marching sprites, tactical field maneuvering, and manual siege controls remain deferred to post-MVP tactical combat milestones.
+### ISSUE-005: Real-Time Tactical Field Combat Deferred to Future Milestones
+- **Severity:** Low / Architectural Scope Boundary
+- **Symptom:** Tactical unit-on-unit RTS micro combat (stances, manual targeting, enemy field patrol engagements) is not simulated in real time.
+- **Root Cause:** By design per GDD Section 10.4 and MASTER_PROMPT constraints, combat resolution is modeled through deterministic multi-factor formulas rather than RTS tactical micro-combat.
+- **Resolution / Scope Progress:** Package 1M resolved player army physical marching, discrete A* navigation on the 64×64 logical grid, visual `ArmyMarker` rendering, dynamic obstruction rerouting, and garrison/field defense state transitions. Real-time tactical micro-combat, enemy field movement, and manual siege controls remain deferred to post-MVP milestones.
 
 ---
 

@@ -289,3 +289,28 @@ The live settlement defense loop operates deterministically via `BattleCampaignM
 ### 9.6 Barracks Lifecycle & Dynamic Interface Synchronization
 - **Dynamic Cost Formatting:** Recruitment cost descriptions in the HUD `ArmyPanel` are built dynamically from `EconomyConfig.ARMY_RECRUIT_COST` and localized via `EconomyConfig.RESOURCE_NAMES_VI`.
 - **Live State Propagation:** Barracks completion, damage, reactivation, and demolition trigger `PlayerArmyManager.notify_capacity_changed()` and update `ArmyPanel` state immediately, ensuring UI accuracy without polling while safely preserving existing soldiers.
+
+---
+
+## 10. Player Army Marching, Navigation & Garrison Deployment (Package 1M)
+
+### 10.1 Movement State Machine
+`PlayerArmyManager` governs army location and movement via three authoritative states:
+1. `GARRISONED` ($0$): Stationed at the home settlement rally point (`current_cell == rally_cell`). The army is fully eligible for settlement defense and eligible to recruit reinforcements.
+2. `MARCHING` ($1$): In transit along an active A* route on the 64×64 logical grid. The army is outside the settlement walls and not defense-eligible.
+3. `IDLE_AT_FIELD` ($2$): Stationed at a field destination away from the home rally point. The army does not participate in settlement defense.
+
+### 10.2 Rally Point & Discrete Navigation
+- **Home Rally Point:** Defaulted to the plaza immediately south of the Town Hall (`Vector2i(32, 33)`). If obstructed, a deterministic outward radial search identifies the closest walkable cell.
+- **A* Route Calculation:** Movement commands invoke `GridNavigation.find_path(current_cell, target_cell)` respecting terrain, water, and building occupancy.
+- **Atomic Validation:** Orders to out-of-bounds cells, unwalkable cells, or the army's current cell fail closed with zero mutation to position, destination, or path.
+- **Pacing & Speed Scaling:** Movement proceeds discretely at $1$ cell per $0.5$ seconds (`CELL_STEP_DURATION = 0.5s`) at $1\times$ speed, scaling proportionally with simulation speed ($2\times \to 0.25\text{s}$, $3\times \to 0.167\text{s}$) and freezing strictly when paused ($0\times$).
+
+### 10.3 Dynamic Obstruction & Interruption Handling
+- **Mid-Transit Obstruction:** If a future waypoint is blocked during transit (e.g., palisade/building constructed), `PlayerArmyManager` recalculates an alternative route to the destination. If all paths are trapped or unreachable, the army halts safely at its current cell and transitions to `IDLE_AT_FIELD`.
+- **Cancellation & Return:** `cancel_move()` immediately clears the path and halts at `current_cell`. `order_return_home()` plots a direct route back to `rally_cell`.
+
+### 10.4 Defense Eligibility & Raid Casualties
+- **Garrison Gating:** Standing army soldiers only join settlement defense (`construct_defending_force`) if `is_defense_eligible() == true` (`soldier_count > 0`, `movement_state == GARRISONED`, `current_cell == rally_cell`, `current_path.is_empty()`).
+- **Raid Immunity for Absent Troops:** When the army is in the field or marching, it cannot defend the settlement; settlement raids resolve without army soldiers, and absent troops take zero raid casualties.
+- **Wipeout Auto-Recovery:** If casualties deplete the army to $0$, it automatically resets to `GARRISONED` at `rally_cell`.

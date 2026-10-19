@@ -3504,3 +3504,87 @@ Address remaining independent-review findings in Package 1L on branch `feature/p
 - Push to remote `feature/package-1l-army-recruitment-upkeep`.
 - Verify remote HEAD matches local HEAD and report commit SHA and parent SHA (`849700dd820dc97c2567546324ee6f0cf1ba8dab`).
 - Stop for independent review. Do not merge to master and do not start Package 1M.
+- Completed as commit `2217e5d4c732f49a1ac057e1c5de0fb8db60bee2`.
+
+---
+
+## [Milestone 52] - 2026-10-20: Package 1M: Player Army Marching & Garrison Deployment (Completed)
+
+### Context & Goal
+- Following accepted baseline commit `2217e5d4c732f49a1ac057e1c5de0fb8db60bee2` on `feature/package-1m-army-marching`.
+- Implement player army marching and garrison deployment (foundation for Issue ISSUE-005):
+  1. Authoritative movement state machine in `PlayerArmyManager` (`GARRISONED`, `MARCHING`, `IDLE_AT_FIELD`).
+  2. Integration with `GridNavigation` A* pathfinder on 64×64 logical grid with obstacle/water avoidance and discrete step duration (`CELL_STEP_DURATION = 0.5s`).
+  3. Dynamic obstruction rerouting when in-flight waypoints become blocked; safe halting if trapped.
+  4. Simulation clock speed scaling (1x, 2x, 3x) and strictly frozen movement during pause.
+  5. Settlement defense eligibility: standing army only participates in defense when garrisoned at the home Town Hall plaza rally point (`Vector2i(32, 33)`). Absent armies are excluded from defense battles and take zero raid casualties.
+  6. Recruitment gating: recruiting new soldiers requires army to be garrisoned at the home rally point.
+  7. Visual `ArmyMarker` node in `WorldView` with dimetric Y-sorting, ground-contact foot pivot `(-12, -30)`, troop count indicator (`🛡️` garrisoned, `⚔️` deployed), and smooth position interpolation.
+  8. In-Game HUD military enhancements: `DeploymentLabel` in Vietnamese, `MoveArmyBtn` ("🚩 Điều động hành quân"), `ReturnHomeBtn` ("🏠 Rút về căn cứ"), map click-to-move targeting mode, and ESC key cancellation.
+  9. Persistence: `SaveManager` serialization and deserialization of all movement fields, rigorous fail-closed coordinate/enum validation, double-load idempotency with zero duplicate nodes, and legacy save compatibility.
+  10. Automated test suite `scripts/test/test_army_movement.gd` covering TC-MOVE.1 through TC-MOVE.28 (28/28 passed, Exit Code 0).
+
+### Work Completed
+1. `scripts/military/player_army_manager.gd`:
+   - Added `MovementState` enum (`GARRISONED = 0`, `MARCHING = 1`, `IDLE_AT_FIELD = 2`).
+   - Added authoritative variables: `current_cell`, `rally_cell`, `destination_cell`, `current_path`, `movement_state`, `step_accumulator`, `CELL_STEP_DURATION = 0.5`.
+   - Added signals: `movement_state_changed`, `army_moved`.
+   - Implemented `get_default_rally_cell()` with deterministic outward radial search fallback around Town Hall plaza `(32, 33)`.
+   - Implemented `order_move(target_cell)` with atomic fail-closed rejection on non-positive soldier count, out-of-bounds, unwalkable cells, or same-cell orders without mutating state.
+   - Implemented `cancel_move()`, `order_return_home()`, and `advance_movement(delta, speed_mult)`.
+   - Implemented `is_defense_eligible() -> bool`: requires `soldier_count > 0`, `movement_state == GARRISONED`, `current_cell == rally_cell`, and `current_path.is_empty()`.
+   - Updated `can_recruit()` to reject recruitment when marching or in the field with clear Vietnamese feedback.
+   - Updated `remove_casualties()` to automatically recover to `GARRISONED` at `rally_cell` if wiped out.
+   - Updated `serialize()` and `deserialize()` with movement field persistence and recovery from blocked tiles.
+2. `scripts/combat/battle_campaign_manager.gd`:
+   - Updated `construct_defending_force()`: queries `army_mgr.is_defense_eligible()`; excludes absent army (`army_soldiers = 0`) when marching or away in the field.
+   - Updated `resolve_and_apply_raid()`: checks `army_can_defend`; absent army takes 0 raid casualties, sparing standing army units outside the settlement.
+3. `scripts/military/army_marker.gd`:
+   - Created lightweight `ArmyMarker` extending `Node2D` with dimetric Y-sorting, ground-contact foot pivot `(-12, -30)`, troop count label, and smooth position interpolation. Hides when `soldier_count <= 0`.
+4. `scenes/ui/hud.tscn` & `scripts/ui/hud.gd`:
+   - Added `DeploymentLabel`, `MoveArmyBtn` ("🚩 Điều động hành quân"), `ReturnHomeBtn` ("🏠 Rút về căn cứ").
+   - Added map click-to-move targeting mode (`start_army_move_targeting`, `execute_army_move_target`, `cancel_army_move_targeting`).
+   - Wired ESC key to cancel targeting mode before closing panels.
+5. `scripts/world/world_view.gd`:
+   - Added `army_marker` reference and `_setup_army_marker()` / `get_army_marker()`.
+   - Advanced army movement in `_process(delta)` synchronized with `TimeManager`.
+   - Handled click-to-move input in `_unhandled_input()` when targeting mode is active.
+6. `scripts/persistence/save_manager.gd`:
+   - Added `_is_valid_coord_arr()` helper.
+   - Hardened `validate_save_data()` to reject invalid coordinates, non-integers, invalid movement state enums, and malformed paths.
+   - Preserved `ArmyMarker` across `apply_loaded_state_to_world()` citizen reconstruction with double-load idempotency.
+7. `scripts/test/test_army_movement.gd`:
+   - Created automated test suite covering TC-MOVE.1 through TC-MOVE.28 (28/28 tests passed, Exit Code 0).
+8. Documentation:
+   - Updated `docs/TEST_PLAN.md`, `docs/CHANGELOG.md`, `docs/GAME_RULES.md`, `docs/SCOPE_DECISIONS.md`, `docs/ARCHITECTURE.md`, `docs/KNOWN_ISSUES.md`, and `docs/WORKLOG.md`.
+
+### Verification Evidence
+- `scripts/test/test_army_movement.gd`: **PASS (Exit Code 0: 28/28 tests passed)**
+- `scripts/test/test_player_army.gd`: **PASS (Exit Code 0: 32/32 tests passed)**
+- `scripts/test/test_live_battle_loop.gd`: **PASS (Exit Code 0: 19/19 + TC-LB.4C + TC-LB.7B passed)**
+- Full test matrix (all 26 test suites in `scripts/test/test_*.gd`): **PASS (26 passed, 0 failed, Exit Code 0)**
+- Scene execution check: `world_view.tscn` simulated up to Day 65+ cleanly with 0 errors.
+- `git diff --check`: Clean (Exit Code 0, 0 whitespace errors)
+
+### Files Modified / Created
+- Created: `scripts/military/army_marker.gd`
+- Created: `scripts/test/test_army_movement.gd`
+- Modified: `scripts/military/player_army_manager.gd`
+- Modified: `scripts/combat/battle_campaign_manager.gd`
+- Modified: `scripts/world/world_view.gd`
+- Modified: `scenes/ui/hud.tscn`
+- Modified: `scripts/ui/hud.gd`
+- Modified: `scripts/persistence/save_manager.gd`
+- Modified: `docs/CHANGELOG.md`
+- Modified: `docs/TEST_PLAN.md`
+- Modified: `docs/GAME_RULES.md`
+- Modified: `docs/SCOPE_DECISIONS.md`
+- Modified: `docs/ARCHITECTURE.md`
+- Modified: `docs/KNOWN_ISSUES.md`
+- Modified: `docs/WORKLOG.md`
+
+### Next Exact Step
+- Stage intended Package 1M files explicitly.
+- Commit with exact suggested message: `Implement Package 1M army marching and garrison deployment`
+- Push to remote `feature/package-1m-army-marching`.
+- Report commit hash, parent hash, and test results for independent review.

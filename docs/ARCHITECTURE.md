@@ -167,3 +167,18 @@ To ensure entities sort naturally behind and in front of buildings and foliage w
    - Signals: Past tense or action noun (`resource_changed`, `day_passed`).
    - Constants: `UPPER_SNAKE_CASE` (`MAX_MAP_WIDTH = 64`).
 3. **No Hidden State:** No magic global variables; all state mutations flow through documented APIs.
+
+---
+
+## 8. Military & Army Architecture (Packages 1L & 1M)
+
+### 8.1 Standing Army Domain Model (`PlayerArmyManager`)
+- **Abstract Numerical Reserve:** `PlayerArmyManager` maintains a centralized standing army reserve (`soldier_count`, `is_supplied`, `last_upkeep_day`). It decouples military recruitment from civilian citizen counts to prevent workforce distortion.
+- **Movement State Machine:** Tracks army positioning via `movement_state`: `GARRISONED` (0), `MARCHING` (1), and `IDLE_AT_FIELD` (2).
+- **Navigation Integration:** Leverages `GridNavigation` to generate discrete A* routes on the 64×64 logical grid, stepping at 0.5s per cell with simulation clock synchronization.
+- **Dynamic Obstruction Rerouting:** Reacts to mid-path collisions by querying `GridNavigation.find_path()` to bypass obstacles or safely halting if isolated.
+
+### 8.2 Presentation & Marker Node (`ArmyMarker`)
+- **Single Presentation Node:** `ArmyMarker` extends `Node2D` and renders a gold-uniformed military company with ground pivot `Vector2(-12, -30)` for dimetric Y-sorting.
+- **Live Stance Display:** Shows live troop numbers and icon: `🛡️` for garrisoned defense readiness, `⚔️` for field deployment.
+- **Smooth Interpolation:** Visual position interpolates smoothly toward authoritative grid coordinates (`IsoMath.map_to_local(current_cell)`), freezing when simulation is paused.

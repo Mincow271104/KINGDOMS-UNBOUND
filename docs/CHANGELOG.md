@@ -8,6 +8,23 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### [Package 1M] - 2026-10-20
+#### Added
+- Player Army Marching & Garrison Deployment (`PlayerArmyManager` & `ArmyMarker`):
+  - Added movement state machine to `PlayerArmyManager`: `MovementState` enum (`GARRISONED = 0`, `MARCHING = 1`, `IDLE_AT_FIELD = 2`).
+  - Grid navigation and discrete pathing: integrates existing `GridNavigation` A* pathfinder on 64×64 logical grid, enforcing collision and water avoidance with discrete step pacing (`CELL_STEP_DURATION = 0.5` seconds per tile).
+  - Home settlement rally point: derives default rally point at Town Hall south plaza (`Vector2i(32, 33)`) with deterministic outward radial search fallback.
+  - Authoritative movement commands: `order_move(target_cell)`, `cancel_move()`, and `order_return_home()` with atomic fail-closed rejection on out-of-bounds, blocked cells, zero soldiers, or same-cell orders.
+  - Dynamic obstruction rerouting: mid-transit obstruction detection recalculates alternative path; safely halts and transitions to `IDLE_AT_FIELD` if route is completely trapped.
+  - Simulation clock scaling: movement accumulator scales proportionally with simulation speeds (1x, 2x, 3x) and strictly freezes during pause (`TimeManager.is_paused()`).
+  - Defense eligibility gating: standing army units participate in settlement defense (`construct_defending_force`) only when garrisoned at home rally point (`is_defense_eligible()`); absent armies are excluded from defense battles and take zero raid casualties.
+  - Recruitment gating: recruiting soldiers requires army to be garrisoned at home rally point; returns clear Vietnamese diagnostics if deployed in field or marching.
+  - Auto-recovery on wipeout: total casualty wipeout automatically recovers army to clean `GARRISONED` state at home rally point with cleared path.
+  - Visual Army Marker (`ArmyMarker`): lightweight dimetric isometric 2:1 visual marker in `WorldView` with Y-sorting, ground-contact foot pivot `(-12, -30)`, live troop count label (`🛡️` for garrison, `⚔️` for field), and smooth position interpolation. Hides when army count is zero.
+  - In-Game HUD military enhancements: added `DeploymentLabel` with Vietnamese status, `MoveArmyBtn` (`"🚩 Điều động hành quân"`), `ReturnHomeBtn` (`"🏠 Rút về căn cứ"`), map click-to-move targeting mode with cursor hover info, and ESC key cancellation.
+  - Save/load persistence & fail-closed validation: extended `SaveManager` to serialize/deserialize all movement fields under `"player_army"`; added rigorous bounds/type/enum validation; double-load idempotency with zero duplicate nodes; legacy save compatibility.
+  - Automated test suite `scripts/test/test_army_movement.gd` covering TC-MOVE.1 through TC-MOVE.28 (28/28 tests passed, Exit Code 0).
+
 ### [Package 1L] - 2026-10-19
 #### Added
 - Player Army Recruitment & Upkeep System (`PlayerArmyManager`):

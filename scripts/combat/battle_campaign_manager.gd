@@ -221,7 +221,14 @@ func construct_defending_force() -> Dictionary:
 	var army_mgr = get_player_army_manager()
 	var army_soldiers: int = 0
 	var army_morale: float = EconomyConfigScript.ARMY_MORALE_SUPPLIED
-	if army_mgr != null and army_mgr.has_method("get_army_count"):
+	var is_eligible: bool = true
+	if army_mgr != null:
+		if army_mgr.has_method("is_defense_eligible"):
+			is_eligible = bool(army_mgr.call("is_defense_eligible"))
+		elif army_mgr.has_method("is_garrisoned"):
+			is_eligible = bool(army_mgr.call("is_garrisoned"))
+
+	if is_eligible and army_mgr != null and army_mgr.has_method("get_army_count"):
 		army_soldiers = maxi(0, int(army_mgr.call("get_army_count")))
 		if army_mgr.has_method("get_combat_morale"):
 			army_morale = float(army_mgr.call("get_combat_morale"))
@@ -328,7 +335,14 @@ func resolve_and_apply_raid(faction_id: String, current_day: int = -1) -> Dictio
 	var total_def_casualties: int = maxi(0, report.defender_casualties)
 	var army_casualties: int = 0
 	var army_mgr = get_player_army_manager()
-	if army_mgr != null and army_mgr.has_method("get_army_count"):
+	var army_can_defend: bool = true
+	if army_mgr != null:
+		if army_mgr.has_method("is_defense_eligible"):
+			army_can_defend = bool(army_mgr.call("is_defense_eligible"))
+		elif army_mgr.has_method("is_garrisoned"):
+			army_can_defend = bool(army_mgr.call("is_garrisoned"))
+
+	if army_can_defend and army_mgr != null and army_mgr.has_method("get_army_count"):
 		var cur_army: int = maxi(0, int(army_mgr.call("get_army_count")))
 		army_casualties = mini(total_def_casualties, cur_army)
 		if army_casualties > 0 and army_mgr.has_method("remove_casualties"):

@@ -127,6 +127,16 @@
   - **Daily Food Upkeep:** 1 Food per soldier charged on daily simulation ticks. Starvation transitions army to unsupplied (morale 45.0) without deleting soldiers or partially draining food.
   - **Casualty Absorption Priority:** Settlement battles deduct casualties from recruited army first, sparing civilian guards until army reserves are exhausted. Abstract army casualties do not trigger citizen death events.
 
+### 1.13 Player Army Marching & Garrison Deployment (Package 1M)
+- **Problem:** In Package 1L, recruited armies were purely abstract numbers locked to the settlement without physical presence or strategic positioning. However, full RTS squad micromanagement (individual soldier pathing, attack-move stances, formations) would overcomplicate the vertical slice.
+- **Resolution (Issue ISSUE-005 Foundation):**
+  - **Single Authoritative Army:** The recruited army acts as a unified company stationed at `current_cell`. No individual soldier node spam.
+  - **Lightweight ArmyMarker:** One single dimetric visual node `ArmyMarker` displays company position, troop count, and deployment stance (`🛡️` for garrison, `⚔️` for field).
+  - **Discrete Grid Marching:** Army navigates via existing `GridNavigation` A* pathfinder on the 64×64 simulation grid at $0.5$s per tile.
+  - **Dynamic Obstruction Rerouting:** Obstacles built mid-march trigger automatic dynamic rerouting; trapped routes safely halt without crashing.
+  - **Garrison Deployment Rule:** Armies in the field or in transit cannot participate in settlement defense and do not take raid casualties. Only armies garrisoned at the home Town Hall plaza rally point contribute to settlement defense.
+  - **Deferred Combat Extensions:** Field battles against wandering mobs, manual siege controls, and multi-army management remain deferred to later combat packages.
+
 ---
 
 ## 2. Deferred & Excluded Scope for MVP

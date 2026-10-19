@@ -49,14 +49,18 @@ signal citizen_role_changed(citizen_id: String, new_role: String)
 @onready var army_panel: Control = get_node_or_null("ArmyPanel")
 @onready var army_count_label: Label = get_node_or_null("ArmyPanel/MarginContainer/VBoxContainer/ArmyStatsVBox/ArmyCountLabel")
 @onready var barracks_count_label: Label = get_node_or_null("ArmyPanel/MarginContainer/VBoxContainer/ArmyStatsVBox/BarracksCountLabel")
+@onready var deployment_label: Label = get_node_or_null("ArmyPanel/MarginContainer/VBoxContainer/ArmyStatsVBox/DeploymentLabel")
 @onready var supply_status_label: Label = get_node_or_null("ArmyPanel/MarginContainer/VBoxContainer/ArmyStatsVBox/SupplyStatusLabel")
 @onready var upkeep_label: Label = get_node_or_null("ArmyPanel/MarginContainer/VBoxContainer/ArmyStatsVBox/UpkeepLabel")
 @onready var recruit_cost_label: Label = get_node_or_null("ArmyPanel/MarginContainer/VBoxContainer/ArmyStatsVBox/RecruitCostLabel")
 @onready var recruit_btn: Button = get_node_or_null("ArmyPanel/MarginContainer/VBoxContainer/RecruitBtn")
+@onready var move_army_btn: Button = get_node_or_null("ArmyPanel/MarginContainer/VBoxContainer/MoveArmyBtn")
+@onready var return_home_btn: Button = get_node_or_null("ArmyPanel/MarginContainer/VBoxContainer/ReturnHomeBtn")
 @onready var recruit_reason_label: Label = get_node_or_null("ArmyPanel/MarginContainer/VBoxContainer/RecruitReasonLabel")
 @onready var close_army_btn: Button = get_node_or_null("ArmyPanel/MarginContainer/VBoxContainer/CloseArmyBtn")
 
 var player_army_mgr: Object = null
+var _army_move_targeting: bool = false
 
 # Event Banner
 @onready var event_banner: Control = $EventBanner
@@ -212,6 +216,10 @@ func _ready() -> void:
 		close_army_btn.pressed.connect(func(): if army_panel: army_panel.visible = false)
 	if recruit_btn:
 		recruit_btn.pressed.connect(_on_recruit_btn_pressed)
+	if move_army_btn:
+		move_army_btn.pressed.connect(start_army_move_targeting)
+	if return_home_btn:
+		return_home_btn.pressed.connect(_on_return_home_btn_pressed)
 
 	# Victory & Collapse dialog controls
 	if continue_victory_btn:
@@ -462,6 +470,10 @@ func set_player_army_manager(mgr: Object) -> void:
 			player_army_mgr.supply_status_changed.connect(_on_army_supply_changed)
 		if not player_army_mgr.recruitment_completed.is_connected(_on_recruitment_completed):
 			player_army_mgr.recruitment_completed.connect(_on_recruitment_completed)
+		if player_army_mgr.has_signal("movement_state_changed") and not player_army_mgr.movement_state_changed.is_connected(_on_army_movement_state_changed):
+			player_army_mgr.movement_state_changed.connect(_on_army_movement_state_changed)
+		if player_army_mgr.has_signal("army_moved") and not player_army_mgr.army_moved.is_connected(_on_army_moved):
+			player_army_mgr.army_moved.connect(_on_army_moved)
 	_refresh_army_panel()
 
 func _on_army_changed(_count: int, _cap: int) -> void:
@@ -474,9 +486,17 @@ func _on_recruitment_completed(_count: int, _cost: Dictionary) -> void:
 	_refresh_army_panel()
 	_refresh_all_resources()
 
+func _on_army_movement_state_changed(_state: int, _cur: Vector2i, _dest: Vector2i) -> void:
+	_refresh_army_panel()
+
+func _on_army_moved(_new_cell: Vector2i) -> void:
+	_refresh_army_panel()
+
 func _toggle_army_menu() -> void:
 	if not army_panel:
 		return
+	if _army_move_targeting:
+		cancel_army_move_targeting()
 	army_panel.visible = not army_panel.visible
 	if army_panel.visible:
 		build_menu_panel.visible = false
@@ -491,6 +511,8 @@ func _refresh_army_panel() -> void:
 	if player_army_mgr == null:
 		if army_count_label: army_count_label.text = "⚔️ Quân số chính quy: 0 / 0 lính"
 		if recruit_btn: recruit_btn.disabled = true
+		if move_army_btn: move_army_btn.disabled = true
+		if return_home_btn: return_home_btn.disabled = true
 		if recruit_reason_label: recruit_reason_label.text = "Hệ thống quân đội chưa khởi tạo"
 		return
 
@@ -506,6 +528,23 @@ func _refresh_army_panel() -> void:
 
 	if army_count_label:
 		army_count_label.text = "⚔️ Quân số chính quy: %d / %d lính" % [count, cap]
+
+	if deployment_label:
+		var m_state_int: int = player_army_mgr.get("movement_state") if player_army_mgr.get("movement_state") != null else 0
+		var cur_cell: Vector2i = player_army_mgr.call("get_current_cell") if player_army_mgr.has_method("get_current_cell") else Vector2i.ZERO
+		var deploy_text: String = ""
+		match m_state_int:
+			0: # GARRISONED
+				deploy_text = "🛡️ Trạng thái: Đóng quân tại căn cứ (%d, %d)" % [cur_cell.x, cur_cell.y]
+				deployment_label.modulate = Color(0.6, 1.0, 0.6)
+			1: # MARCHING
+				var dest_cell: Vector2i = player_army_mgr.get("destination_cell") if player_army_mgr.get("destination_cell") != null else cur_cell
+				deploy_text = "🚩 Trạng thái: Đang hành quân đến (%d, %d)" % [dest_cell.x, dest_cell.y]
+				deployment_label.modulate = Color(1.0, 0.85, 0.3)
+			2: # IDLE_AT_FIELD
+				deploy_text = "⚔️ Trạng thái: Dã chiến tại (%d, %d) [Không thủ thành]" % [cur_cell.x, cur_cell.y]
+				deployment_label.modulate = Color(1.0, 0.6, 0.4)
+		deployment_label.text = deploy_text
 
 	if supply_status_label:
 		if is_sup:
@@ -535,6 +574,12 @@ func _refresh_army_panel() -> void:
 	if recruit_reason_label:
 		recruit_reason_label.text = reason if not can_r else ""
 
+	if move_army_btn:
+		move_army_btn.disabled = (count <= 0)
+	if return_home_btn:
+		var is_home: bool = player_army_mgr.call("is_defense_eligible") if player_army_mgr.has_method("is_defense_eligible") else true
+		return_home_btn.disabled = (count <= 0 or is_home)
+
 func _on_recruit_btn_pressed() -> void:
 	if player_army_mgr == null:
 		return
@@ -549,6 +594,58 @@ func _on_recruit_btn_pressed() -> void:
 		show_event_banner("Chiêu Mộ Thất Bại", res.get("reason", "Không thể chiêu mộ binh sĩ"), false, 4.0)
 	_refresh_army_panel()
 	_refresh_all_resources()
+
+func is_army_move_targeting() -> bool:
+	return _army_move_targeting
+
+func start_army_move_targeting() -> void:
+	if player_army_mgr == null:
+		return
+	var count: int = player_army_mgr.call("get_army_count")
+	if count <= 0:
+		show_event_banner("Chưa Có Binh Sĩ", "Cần tuyển ít nhất 1 binh sĩ để điều động quân đội.", false, 3.0)
+		return
+	_army_move_targeting = true
+	if army_panel:
+		army_panel.visible = false
+	show_event_banner("Điều Động Quân Đội", "Nhấp chuột trái vào ô trên bản đồ để hành quân. Nhấp chuột phải hoặc ESC để hủy.", true, 4.0)
+
+func cancel_army_move_targeting() -> void:
+	if _army_move_targeting:
+		_army_move_targeting = false
+		show_event_banner("Hủy Điều Động", "Đã hủy chế độ điều động quân đội.", false, 2.0)
+
+func execute_army_move_target(target_cell: Vector2i) -> void:
+	if not _army_move_targeting:
+		return
+	if player_army_mgr == null:
+		_army_move_targeting = false
+		return
+	var res: Dictionary = player_army_mgr.call("order_move", target_cell)
+	if res.get("success", false):
+		_army_move_targeting = false
+		var steps: int = int(res.get("steps", 0))
+		var am = get_node_or_null("/root/AudioManager")
+		if am and am.has_method("play_click"): am.play_click()
+		show_event_banner("Hành Quân!", "Quân đội bắt đầu hành quân đến ô (%d, %d) (%d bước)." % [target_cell.x, target_cell.y, steps], true, 3.0)
+	else:
+		var am = get_node_or_null("/root/AudioManager")
+		if am and am.has_method("play_error"): am.play_error()
+		show_event_banner("Không Thể Di Chuyển", res.get("reason", "Vị trí đích không hợp lệ."), false, 3.0)
+
+func _on_return_home_btn_pressed() -> void:
+	if player_army_mgr == null:
+		return
+	var res: Dictionary = player_army_mgr.call("order_return_home")
+	if res.get("success", false):
+		var am = get_node_or_null("/root/AudioManager")
+		if am and am.has_method("play_click"): am.play_click()
+		show_event_banner("Rút Về Căn Cứ", "Quân đội đang hành quân trở về căn cứ doanh trại.", true, 3.0)
+	else:
+		var am = get_node_or_null("/root/AudioManager")
+		if am and am.has_method("play_error"): am.play_error()
+		show_event_banner("Lệnh Thất Bại", res.get("reason", "Không thể ra lệnh rút về."), false, 3.0)
+	_refresh_army_panel()
 
 var _diplomacy_feedback_message: String = ""
 var _diplomacy_feedback_is_error: bool = false
@@ -769,7 +866,9 @@ func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		var k: InputEventKey = event as InputEventKey
 		if k.keycode == KEY_ESCAPE:
-			if citizen_panel.visible:
+			if _army_move_targeting:
+				cancel_army_move_targeting()
+			elif citizen_panel.visible:
 				citizen_panel.visible = false
 			elif build_menu_panel.visible:
 				build_menu_panel.visible = false
