@@ -776,6 +776,10 @@ func _test_group_defense_and_casualties() -> void:
 	# Connect citizen_died signal to WorldView handler in the exact production manner
 	test_guard.citizen_died.connect(func(died_id: String): world_instance.call("_on_citizen_died", died_id))
 
+	# Separate probe listener that counts actual CitizenController.citizen_died signal emissions
+	var guard_death_signals: Array = []
+	test_guard.citizen_died.connect(func(died_id: String): guard_death_signals.append(died_id))
+
 	# Assign an active job in job_mgr
 	var test_job = null
 	if jm != null:
@@ -804,9 +808,13 @@ func _test_group_defense_and_casualties() -> void:
 	# Note: Do not manually release the job or null active_job in the test before death!
 	test_guard.die("Tử trận khi bảo vệ định cư")
 
+	# Assert exactly one signal emission from the controller probe
+	if guard_death_signals.size() != 1 or guard_death_signals[0] != test_guard_id:
+		printerr("  [FAIL] TC-ARMY.28: Expected exactly 1 citizen_died signal from controller probe, got %d" % guard_death_signals.size())
+		failures += 1
 	# 2. Verify that the job is released/available and no longer assigned to the dead guard,
 	# and that the controller has no active job after its real death path.
-	if test_guard.active_job != null:
+	elif test_guard.active_job != null:
 		printerr("  [FAIL] TC-ARMY.28: Guard controller still holds active_job after death!")
 		failures += 1
 	elif test_job.worker_id == test_guard_id or test_job.state == JobManagerScript.JobState.IN_PROGRESS:
@@ -838,29 +846,39 @@ func _test_group_defense_and_casualties() -> void:
 	else:
 		print("  [PASS] TC-ARMY.28: Citizen guard casualty cleanly processed through WorldView death lifecycle.")
 
-	# 4. Trigger duplicate death processing and verify it creates no duplicate event or population change
+	# 4. Trigger duplicate death processing and verify signal and world state are strictly idempotent
 	test_guard.die("Tử trận khi bảo vệ định cư")
 	world_instance.call("_on_citizen_died", test_guard_id)
-	if captured_death_events.size() != 1:
+	if guard_death_signals.size() != 1:
+		printerr("  [FAIL] TC-ARMY.28: Duplicate die() call re-emitted citizen_died signal! Signal count: %d" % guard_death_signals.size())
+		failures += 1
+	elif captured_death_events.size() != 1:
 		printerr("  [FAIL] TC-ARMY.28: Duplicate death call emitted another event! Size: %d" % captured_death_events.size())
 		failures += 1
 	elif world_instance.get("citizen_list").size() != pop_before - 1:
 		printerr("  [FAIL] TC-ARMY.28: Duplicate death call decremented population again!")
 		failures += 1
+	elif rm != null and rm.active_population != world_instance.get("citizen_list").size():
+		printerr("  [FAIL] TC-ARMY.28: Duplicate death call desynced active_population! RM: %d, List: %d" % [rm.active_population, world_instance.get("citizen_list").size()])
+		failures += 1
 	else:
-		print("  [PASS] TC-ARMY.28: Repeated death call for same citizen ID strictly idempotent.")
+		print("  [PASS] TC-ARMY.28: Repeated death call for same citizen ID strictly idempotent (signal and event counts remain 1).")
 
-	# 5. Verify that abstract army casualties do NOT emit citizen death events or alter civilian population
+	# 5. Verify that abstract army casualties do NOT emit citizen death signals or alter civilian population
 	captured_death_events.clear()
+	guard_death_signals.clear()
 	var test_army_unit_loss = army_mgr.remove_casualties(1)
-	if captured_death_events.size() != 0:
+	if guard_death_signals.size() != 0:
+		printerr("  [FAIL] TC-ARMY.28: Abstract army casualty emitted citizen_died signal!")
+		failures += 1
+	elif captured_death_events.size() != 0:
 		printerr("  [FAIL] TC-ARMY.28: Abstract army casualty emitted citizen death events!")
 		failures += 1
 	elif world_instance.get("citizen_list").size() != pop_before - 1:
 		printerr("  [FAIL] TC-ARMY.28: Abstract army casualty altered citizen list!")
 		failures += 1
 	else:
-		print("  [PASS] TC-ARMY.28: Abstract army casualties emit zero citizen death events.")
+		print("  [PASS] TC-ARMY.28: Abstract army casualties emit zero citizen death events or signals.")
 
 	if em != null:
 		em.event_triggered.disconnect(death_event_conn)

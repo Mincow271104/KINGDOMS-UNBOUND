@@ -37,6 +37,7 @@ var morale: float = 70.0
 
 var current_path: Array[Vector2i] = []
 var active_job: JobManager.JobData = null
+var _death_processed: bool = false
 
 var nav: GridNavigation = null
 var job_mgr: JobManager = null
@@ -73,6 +74,7 @@ func init_citizen(p_id: String, p_name: String, p_role: String, p_cell: Vector2i
 	nav = p_nav
 	job_mgr = p_job_mgr
 	workplace_mgr = p_workplace_mgr
+	_death_processed = false
 	position = IsoMath.map_to_local(current_cell)
 	_update_reason()
 
@@ -509,22 +511,31 @@ func _on_hour_passed(_hour: int, _day: int) -> void:
 			health = minf(100.0, health + 0.417)
 
 func die(reason: String = "Đã qua đời vì suy kiệt") -> void:
-	if not is_alive() and health == 0.0 and active_job == null and (current_path == null or current_path.is_empty()):
-		# Already dead and cleaned up, emit signal idempotently
-		citizen_died.emit(citizen_id)
+	var cleanup_complete := (
+		health <= 0.0
+		and active_job == null
+		and (current_path == null or current_path.is_empty())
+		and current_state == State.IDLE
+	)
+	if _death_processed and cleanup_complete:
 		return
+
 	health = 0.0
 	status_reason = reason
 	current_state = State.IDLE
 	if current_path != null:
 		current_path.clear()
-	if active_job != null and job_mgr != null:
-		job_mgr.release_job(active_job)
+	if active_job != null:
+		if job_mgr != null:
+			job_mgr.release_job(active_job)
 		active_job = null
-	citizen_died.emit(citizen_id)
+
+	if not _death_processed:
+		_death_processed = true
+		citizen_died.emit(citizen_id)
 
 func is_alive() -> bool:
-	return health > 0.0
+	return health > 0.0 and not _death_processed
 
 func set_role(new_role: String) -> bool:
 	if new_role == "guard" and not is_barracks_active():

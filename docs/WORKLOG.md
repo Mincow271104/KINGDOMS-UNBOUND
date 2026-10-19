@@ -3422,4 +3422,51 @@ Address remaining independent-review findings in Package 1L on branch `feature/p
 - Commit with exact mandated message: `Close Package 1L citizen lifecycle and load validation gaps`
 - Push branch `feature/package-1l-army-recruitment-upkeep` to remote.
 - Verify remote HEAD matches local HEAD and report parent SHA (`88bdc4b7e29a9e0be97a2cc2dcaebb8c324bb633`).
-- Stop for independent review. Do not merge to master, do not start Package 1M.
+- Completed as commit `f23ff8b564c8ca53ac9a7481404f0b63fd178aba`.
+
+---
+
+## [Milestone 50] - 2026-10-19: Package 1L Citizen Death Signal Idempotency Fix
+
+### Context & Goal
+- Independent code review identified that `CitizenController.die()` emitted `citizen_died` again when called on an already dead and cleaned-up citizen. While `WorldView` suppressed downstream processing via `deceased_citizen_ids`, re-emitting the public signal was not truly idempotent and could trigger other connected listeners multiple times.
+- Goal: Make `CitizenController.die()` strictly idempotent (no repeat signal emission when already dead and cleaned up), complete cleanup safely before emitting the single effective death signal if cleanup was incomplete on entry, and strengthen `TC-ARMY.28` with an independent probe listener to verify signal idempotency.
+
+### Work Completed
+1. `scripts/entities/citizen_controller.gd`:
+   - Added `var _death_processed: bool = false` state variable.
+   - Initialized `_death_processed = false` in `init_citizen()`.
+   - Updated `die(reason: String = "Đã qua đời vì suy kiệt") -> void`:
+     - Checks `cleanup_complete := health <= 0.0 and active_job == null and (current_path == null or current_path.is_empty()) and current_state == State.IDLE`.
+     - Returns immediately without emitting `citizen_died` if `_death_processed and cleanup_complete`.
+     - Completes any remaining cleanup safely (`health = 0.0`, `status_reason = reason`, `current_state = State.IDLE`, `current_path.clear()`, releases `active_job` via `job_mgr.release_job(active_job)` and nulls `active_job`).
+     - Emits `citizen_died.emit(citizen_id)` exactly once if `not _death_processed`, setting `_death_processed = true`.
+   - Updated `is_alive() -> bool`: returns `health > 0.0 and not _death_processed`.
+2. `scripts/test/test_player_army.gd`:
+   - Strengthened `TC-ARMY.28`:
+     - Added independent signal probe listener counting actual `CitizenController.citizen_died` emissions on `test_guard`.
+     - After first real `die()` call: asserted `guard_death_signals.size() == 1`, `test_guard.active_job == null`, job released to `AVAILABLE`, removed from `citizens_by_id` & `citizen_list`, recorded in `deceased_citizen_ids`, population decremented by 1, and exactly one combat death event.
+     - After second `die()` call: asserted `guard_death_signals.size() == 1` (zero re-emitted signals), `captured_death_events.size() == 1`, population unchanged, and `rm.active_population` consistent.
+     - Retained assertion that abstract army unit loss emits zero `citizen_died` signals and zero citizen death events.
+3. Documentation:
+   - Updated `docs/TEST_PLAN.md`, `docs/CHANGELOG.md`, `docs/WORKLOG.md`.
+
+### Verification Evidence
+- `scripts/test/test_player_army.gd`: **PASS (Exit Code 0: 32/32 tests passed)**
+- `scripts/test/test_live_battle_loop.gd`: **PASS (Exit Code 0: 19/19 + TC-LB.4C + TC-LB.7B passed)**
+- Full test matrix (all 25 suites): **PASS (25 passed, 0 failed, Exit Code 0)**
+- `git diff --check`: Clean (Exit Code 0, 0 whitespace errors)
+
+### Files Modified
+- `scripts/entities/citizen_controller.gd`
+- `scripts/test/test_player_army.gd`
+- `docs/TEST_PLAN.md`
+- `docs/CHANGELOG.md`
+- `docs/WORKLOG.md`
+
+### Next Exact Step
+- Stage only intended files: `scripts/entities/citizen_controller.gd`, `scripts/test/test_player_army.gd`, `docs/TEST_PLAN.md`, `docs/CHANGELOG.md`, `docs/WORKLOG.md`.
+- Commit with exact message: `Fix duplicate citizen death signal emission`
+- Push to remote `feature/package-1l-army-recruitment-upkeep`.
+- Verify remote HEAD matches local HEAD and report commit SHA and parent SHA (`f23ff8b564c8ca53ac9a7481404f0b63fd178aba`).
+- Stop for independent review. Do not merge to master and do not start Package 1M.
