@@ -9,6 +9,17 @@ extends RefCounted
 const OPINION_PENALTY_OFFENSIVE_CAMPAIGN: float = 8.0
 const OPINION_PENALTY_SETTLEMENT_RAID: float = 10.0
 
+const ASCENSION_MIN_POPULATION: int = 45
+const ASCENSION_MIN_DAY: int = 10
+const ASCENSION_MIN_WOOD: int = 60
+const ASCENSION_MIN_HERBS: int = 30
+const ASCENSION_MIN_STABILITY: float = 50.0
+
+const ASCENSION_NEW_TYPE: String = "emerging_power"
+const ASCENSION_NEW_NAME: String = "Liên Minh Rừng Thiêng"
+const ASCENSION_NEW_MILITARY_POWER: float = 55.0
+const ASCENSION_NEW_STABILITY: float = 85.0
+
 signal relation_changed(faction_id: String, new_opinion: float, disposition: int)
 signal treaty_signed(faction_id: String, treaty_type: String)
 signal war_declared(faction_id: String)
@@ -167,15 +178,41 @@ func declare_war(faction_id: String) -> Dictionary:
 	relation_changed.emit(fac.id, fac.opinion, fac.disposition)
 	return {"success": true, "message": "Đã tuyên chiến với %s!" % fac.name}
 
+func has_emerging_power() -> bool:
+	for fac in _factions.values():
+		if fac != null and fac.type == ASCENSION_NEW_TYPE:
+			return true
+	return false
+
+func can_emerging_faction_ascend(day: int) -> bool:
+	var tribe: FactionData = get_faction("neutral_tribe")
+	if tribe == null or tribe.type != "neutral_tribe":
+		return false
+	if has_emerging_power():
+		return false
+	if tribe.population < ASCENSION_MIN_POPULATION:
+		return false
+	if day < ASCENSION_MIN_DAY:
+		return false
+	if tribe.stability < ASCENSION_MIN_STABILITY:
+		return false
+	var wood: int = int(tribe.resources.get(EconomyConfig.RES_WOOD, 0))
+	if wood < ASCENSION_MIN_WOOD:
+		return false
+	var herbs: int = int(tribe.resources.get(EconomyConfig.RES_HERBS, 0))
+	if herbs < ASCENSION_MIN_HERBS:
+		return false
+	return true
+
 ## Simulation tick: checks periodic faction evolution (GDD 10.3)
 func update_daily_simulation(day: int) -> void:
 	# Check emerging faction ascent for neutral tribe
 	var tribe: FactionData = get_faction("neutral_tribe")
 	if tribe != null and tribe.type == "neutral_tribe":
 		tribe.population += 1
-		if tribe.population >= 45 and day >= 10:
-			tribe.type = "emerging_power"
-			tribe.name = "Liên Minh Rừng Thiêng"
-			tribe.military_power = 55.0
-			tribe.stability = 85.0
+		if can_emerging_faction_ascend(day):
+			tribe.type = ASCENSION_NEW_TYPE
+			tribe.name = ASCENSION_NEW_NAME
+			tribe.military_power = ASCENSION_NEW_MILITARY_POWER
+			tribe.stability = ASCENSION_NEW_STABILITY
 			emerging_faction_ascended.emit(tribe.id, tribe.name)

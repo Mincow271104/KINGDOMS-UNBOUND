@@ -395,6 +395,12 @@ func set_faction_manager(mgr: Object, world_ref: Node = null) -> void:
 		faction_mgr.relation_changed.connect(func(_id, _op, _disp): _refresh_diplomacy_ui())
 		faction_mgr.treaty_signed.connect(func(_id, treaty): show_event_banner("Ký Kết Hiệp Ước!", "Đã ký thành công hiệp ước %s" % treaty, true))
 		faction_mgr.war_declared.connect(func(_id): show_event_banner("Chiến Tranh!", "Đã nổ ra chiến tranh với thế lực!", false))
+		if faction_mgr.has_signal("emerging_faction_ascended") and not faction_mgr.emerging_faction_ascended.is_connected(_on_emerging_faction_ascended):
+			faction_mgr.emerging_faction_ascended.connect(_on_emerging_faction_ascended)
+
+func _on_emerging_faction_ascended(_id: String, new_name: String) -> void:
+	show_event_banner("Thế Lực Mới Nổi!", "%s đã chính thức trỗi dậy thành một cường bang mới!" % new_name, true, 6.0)
+	_refresh_diplomacy_ui()
 
 var battle_campaign_mgr: Object = null
 

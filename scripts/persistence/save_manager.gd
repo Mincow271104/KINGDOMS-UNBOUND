@@ -151,7 +151,8 @@ static func serialize_world_state(world_view: Node) -> Dictionary:
 				"has_nap": f.has_nap,
 				"has_alliance": f.has_alliance,
 				"is_at_war": f.is_at_war,
-				"population": f.population
+				"population": f.population,
+				"resources": f.resources.duplicate()
 			}
 		data["factions"] = {
 			"factions": fac_dict
@@ -715,6 +716,10 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 			var f_saved = fac_data_dict[fid]
 			var f_obj = fac_mgr.call("get_faction", fid)
 			if f_obj != null:
+				if f_saved.has("name"):
+					f_obj.name = str(f_saved["name"])
+				if f_saved.has("type"):
+					f_obj.type = str(f_saved["type"])
 				f_obj.disposition = int(f_saved.get("disposition", 1))
 				f_obj.opinion = float(f_saved.get("opinion", 0.0))
 				f_obj.stability = float(f_saved.get("stability", 70.0))
@@ -723,6 +728,8 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 				f_obj.has_alliance = bool(f_saved.get("has_alliance", false))
 				f_obj.is_at_war = bool(f_saved.get("is_at_war", false))
 				f_obj.population = int(f_saved.get("population", 40))
+				if f_saved.has("resources") and f_saved["resources"] is Dictionary:
+					f_obj.resources = f_saved["resources"].duplicate()
 
 	# 8. Restore POIs
 	var poi_mgr = world_view.get("poi_mgr")

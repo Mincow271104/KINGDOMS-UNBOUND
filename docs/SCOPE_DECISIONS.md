@@ -160,6 +160,27 @@
   - **Fail-Closed Immutability:** Ineligible offensive attacks (0 troops, garrisoned, marching, not at war, 0 military power) and invalid/not-due/already-processed raids apply 0 opinion penalty and emit 0 signals.
   - **Persistence & Idempotency:** Opinion and disposition persist through existing `SaveManager` world state serialization/deserialization. Restoring world saves emits zero `relation_changed` signals and repeated loads execute idempotently without reapplying penalties.
 
+### 1.16 Emerging Faction Ascension Gates (Package 1P)
+- **Problem:** In existing code, `neutral_tribe` evolved when day $\ge 10$ and population $\ge 45$. However, GDD §10.3 describes ascension qualitatively based on population, essential resources, internal stability, and development time without numerical specifications, leaving resource and stability requirements unverified.
+- **Resolution (GDD §10.3 Scope Decisions for MVP):**
+  - **Deterministic Ascension Gate Thresholds:**
+    - Time Gate: `ASCENSION_MIN_DAY = 10` (simulation day $\ge 10$).
+    - Population Gate: `ASCENSION_MIN_POPULATION = 45` (tribe population $\ge 45$).
+    - Resource Gates: `ASCENSION_MIN_WOOD = 60` (wood stock $\ge 60$) and `ASCENSION_MIN_HERBS = 30` (herbs stock $\ge 30$).
+    - Stability Gate: `ASCENSION_MIN_STABILITY = 50.0` (stability $\ge 50.0$).
+    - *Scope Clarification:* These values are deterministic engineering scope decisions for MVP testability; GDD §10.3 does not dictate specific numbers.
+  - **Resource Consumption Policy:** Resource thresholds are validated as prerequisites, but **no resources are deducted** from the tribe upon ascension (no wood or herbs consumed).
+  - **Single Emerging Power Rule:** The game world permits at most one emerging power. If any faction in the world already has `type == "emerging_power"`, ascension fails closed and cannot trigger.
+  - **Ascension Outcome & Idempotency:**
+    - Upon meeting all gates, the neutral tribe mutates: `type = "emerging_power"`, `name = "Liên Minh Rừng Thiêng"`, `military_power = 55.0`, `stability = 85.0`.
+    - Emits `FactionManager.emerging_faction_ascended(tribe.id, tribe.name)` exactly once.
+    - Subsequent simulation ticks check `type == "neutral_tribe"`, which evaluates to false, preventing duplicate state mutations or re-emission of signals.
+  - **Persistence Compatibility:**
+    - `SaveManager` serialization now records `resources` for all factions.
+    - `SaveManager.apply_loaded_state_to_world()` restores `name`, `type`, and `resources` when present, preserving post-ascension identity and resources across save/load cycles with full backward compatibility.
+  - **HUD Integration:**
+    - Connected to `emerging_faction_ascended` in `HUD.set_faction_manager()` to display an event banner in Vietnamese (`"Thế Lực Mới Nổi! Liên Minh Rừng Thiêng đã chính thức trỗi dậy thành một cường bang mới!"`) and dynamically refresh the diplomacy menu.
+
 ---
 
 ## 2. Deferred & Excluded Scope for MVP

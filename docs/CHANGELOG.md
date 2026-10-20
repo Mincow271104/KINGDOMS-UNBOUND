@@ -8,6 +8,30 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### [Package 1P] - 2026-10-20
+#### Added
+- Emerging Faction Ascension Gates (`FactionManager`, `SaveManager`, `HUD`):
+  - Authoritative Ascension Gates conforming to GDD §10.3 and deterministic scope decisions:
+    - Time Gate: Simulation day $\ge 10$ (`ASCENSION_MIN_DAY = 10`).
+    - Population Gate: Neutral tribe population $\ge 45$ (`ASCENSION_MIN_POPULATION = 45`).
+    - Essential Resource Gates: Wood stock $\ge 60$ (`ASCENSION_MIN_WOOD = 60`) and Herbs stock $\ge 30$ (`ASCENSION_MIN_HERBS = 30`).
+    - Stability Gate: Internal stability $\ge 50.0$ (`ASCENSION_MIN_STABILITY = 50.0`).
+  - Helper methods added to `FactionManager`:
+    - `has_emerging_power() -> bool`: Verifies single emerging power limit across active factions.
+    - `can_emerging_faction_ascend(day: int) -> bool`: Atomically checks presence of neutral tribe, single emerging power rule, population, time, stability, and resource requirements without side effects.
+  - Non-consumptive resource check:
+    - Ascension validates prerequisite resources without deducting wood or herbs from the tribe.
+  - Evolutionary outcome and idempotency:
+    - Neutral tribe evolves into an emerging power: `type = "emerging_power"`, `name = "Liên Minh Rừng Thiêng"`, `military_power = 55.0`, `stability = 85.0`.
+    - Emits `emerging_faction_ascended(tribe.id, tribe.name)` exactly once.
+    - Subsequent simulation days fail the `type == "neutral_tribe"` check, preventing duplicate state mutations or repeated signal emissions.
+  - Persistence & Backward Compatibility:
+    - `SaveManager.serialize_world_state()` now preserves the `resources` dictionary for all registered factions.
+    - `SaveManager.apply_loaded_state_to_world()` restores `name`, `type`, and `resources` if present, maintaining complete compatibility with legacy saves.
+  - In-Game HUD Integration:
+    - Connected `emerging_faction_ascended` in `HUD.set_faction_manager()` to display a Vietnamese announcement banner (`"Thế Lực Mới Nổi! Liên Minh Rừng Thiêng đã chính thức trỗi dậy thành một cường bang mới!"`) and dynamically refresh diplomacy cards.
+  - Dedicated automated test suite `scripts/test/test_emerging_faction_ascension.gd` covering TC-EMERGE.1 through TC-EMERGE.11 (11/11 tests passed, Exit Code 0).
+
 ### [Package 1O] - 2026-10-20
 #### Added
 - Post-Battle Diplomatic Consequences (`BattleCampaignManager`, `FactionManager`, `FactionData`):

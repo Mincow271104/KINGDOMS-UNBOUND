@@ -3930,7 +3930,95 @@ Address independent review findings for Package 1O:
 - `docs/WORKLOG.md`
 
 ### Next Exact Step
-- Stage only files intentionally modified for this review fix.
-- Commit with exact message: `Fix Package 1O diplomacy boundary verification`.
-- Push to remote `feature/package-1o-post-battle-diplomacy`.
-- Verify local HEAD matches remote branch HEAD and report results.
+- Review and address any independent review findings for Package 1O.
+- Proceed to Package 1P once authorized.
+
+---
+
+## [2026-10-20] Package 1P: Emerging Faction Ascension Gates
+
+### Context & Objective
+Implement Package 1P as a small, authoritative, deterministic extension of `FactionManager` and `SaveManager` conforming to GDD §10.3 and architectural scope decisions:
+- Fulfill qualitative ascension requirements (population, essential resources, stability, development time) via deterministic, testable MVP thresholds.
+- Enforce the single emerging power constraint (the game world allows at most one emerging power).
+- Guarantee that essential resource requirements verify stock without deducting resources from the tribe.
+- Ensure post-ascension attributes, identity, and faction resources persist across save/load cycles and reload idempotently.
+- Connect HUD diplomacy and event notifications to announce the newly ascended emerging faction.
+
+### Work Completed
+1. `scripts/factions/faction_manager.gd`:
+   - Added canonical ascension constants:
+     - `ASCENSION_MIN_POPULATION = 45`
+     - `ASCENSION_MIN_DAY = 10`
+     - `ASCENSION_MIN_WOOD = 60`
+     - `ASCENSION_MIN_HERBS = 30`
+     - `ASCENSION_MIN_STABILITY = 50.0`
+     - `ASCENSION_NEW_TYPE = "emerging_power"`
+     - `ASCENSION_NEW_NAME = "Liên Minh Rừng Thiêng"`
+     - `ASCENSION_NEW_MILITARY_POWER = 55.0`
+     - `ASCENSION_NEW_STABILITY = 85.0`
+   - Added `has_emerging_power() -> bool`:
+     - Scans `_factions` to verify if any faction already has `type == ASCENSION_NEW_TYPE`.
+   - Added `can_emerging_faction_ascend(day: int) -> bool`:
+     - Checks existence and `type == "neutral_tribe"` for `neutral_tribe`.
+     - Validates `not has_emerging_power()`.
+     - Checks `tribe.population >= ASCENSION_MIN_POPULATION`.
+     - Checks `day >= ASCENSION_MIN_DAY`.
+     - Checks `tribe.stability >= ASCENSION_MIN_STABILITY`.
+     - Checks essential resources: `resources[wood] >= ASCENSION_MIN_WOOD` and `resources[herbs] >= ASCENSION_MIN_HERBS`.
+     - Returns false gracefully if any condition is not met or if `neutral_tribe` is null.
+   - Updated `update_daily_simulation(day: int)`:
+     - Increments population (`tribe.population += 1`).
+     - Calls `can_emerging_faction_ascend(day)`: on success, sets `type = ASCENSION_NEW_TYPE`, `name = ASCENSION_NEW_NAME`, `military_power = ASCENSION_NEW_MILITARY_POWER`, `stability = ASCENSION_NEW_STABILITY`, and emits `emerging_faction_ascended(tribe.id, tribe.name)`.
+     - Does not deduct wood or herbs.
+     - Once evolved, `tribe.type == "neutral_tribe"` evaluates to false on subsequent simulation days, naturally preventing re-triggering and duplicate signal emissions.
+2. `scripts/persistence/save_manager.gd`:
+   - In `serialize_world_state()`: added `"resources": f.resources.duplicate()` to the serialized dictionary for each faction under `factions.factions`.
+   - In `apply_loaded_state_to_world()`: restored `name`, `type`, and `resources` if present in the saved dictionary, ensuring backward compatibility with legacy saves and full preservation of ascended emerging faction data.
+3. `scripts/ui/hud.gd`:
+   - In `set_faction_manager()`: connected `faction_mgr.emerging_faction_ascended` to `_on_emerging_faction_ascended()`.
+   - Added `_on_emerging_faction_ascended(_id: String, new_name: String)`: displays a Vietnamese announcement banner (`"Thế Lực Mới Nổi! %s đã chính thức trỗi dậy thành một cường bang mới!"` for 6.0 seconds) and refreshes diplomacy cards.
+4. Dedicated Automated Test Suite (`scripts/test/test_emerging_faction_ascension.gd`):
+   - Created standalone SceneTree test suite covering TC-EMERGE.1 through TC-EMERGE.11:
+     - TC-EMERGE.1: Happy path ascension (all gates met -> type, name, military, stability updated; signal emitted once; no resource deduction).
+     - TC-EMERGE.2: Population gate (population < 45 fails closed).
+     - TC-EMERGE.3: Time gate (day < 10 fails closed).
+     - TC-EMERGE.4: Resource gate (wood < 60, herbs < 30, or missing keys fails closed).
+     - TC-EMERGE.5: Stability gate & boundary analysis (stability < 50.0 fails; stability == 50.0 succeeds).
+     - TC-EMERGE.6: Recovery & retry (gate replenishment allows ascension on next simulation day).
+     - TC-EMERGE.7: Exactly-once event emission & state idempotency on subsequent daily ticks.
+     - TC-EMERGE.8: Single emerging power rule (world already possessing emerging_power prevents second ascension).
+     - TC-EMERGE.9: Missing faction safety & null resilience.
+     - TC-EMERGE.10: Integrated SaveManager persistence, schema validation, and reload idempotency.
+     - TC-EMERGE.11: HUD event banner & diplomacy refresh integration.
+5. Documentation:
+   - Updated `docs/SCOPE_DECISIONS.md` Section 1.16 with explicit MVP scope decisions for qualitative GDD §10.3 requirements.
+   - Updated `docs/TEST_PLAN.md` with TC-EMERGE.1 through TC-EMERGE.11 specifications.
+   - Updated `docs/CHANGELOG.md` with Package 1P entry under `[Unreleased]`.
+
+### Verification Evidence
+- Focused Test Suite (`scripts/test/test_emerging_faction_ascension.gd`): **PASS (Exit Code 0: 11/11 tests passed)**
+- Regression Suite — Post-Battle Diplomacy (`scripts/test/test_battle_diplomacy_consequences.gd`): **PASS (Exit Code 0: 11/11 tests passed)**
+- Regression Suite — Offensive Campaigns (`scripts/test/test_offensive_campaign.gd`): **PASS (Exit Code 0: 14/14 tests passed)**
+- Regression Suite — Factions & Battles (`scripts/test/test_factions_and_battles.gd`): **PASS (Exit Code 0)**
+- Regression Suite — Live Battle Loop (`scripts/test/test_live_battle_loop.gd`): **PASS (Exit Code 0: all tests passed)**
+- Regression Suite — Persistence Roundtrip (`scripts/test/test_save_load.gd`): **PASS (Exit Code 0: all Phase 8 tests passed)**
+- Regression Suite — Army Movement (`scripts/test/test_army_movement.gd`): **PASS (Exit Code 0: 32/32 tests passed)**
+- Headless project / import parse check: **PASS (Exit Code 0)**
+- `git diff --check`: Clean (Exit Code 0, 0 whitespace errors)
+
+### Files Modified & Created
+- `scripts/factions/faction_manager.gd` (Modified)
+- `scripts/persistence/save_manager.gd` (Modified)
+- `scripts/ui/hud.gd` (Modified)
+- `scripts/test/test_emerging_faction_ascension.gd` (Created)
+- `docs/SCOPE_DECISIONS.md` (Modified)
+- `docs/TEST_PLAN.md` (Modified)
+- `docs/CHANGELOG.md` (Modified)
+- `docs/WORKLOG.md` (Modified)
+
+### Next Exact Step
+- Stage modified and created files for Package 1P.
+- Commit with exact message: `Implement Package 1P emerging faction ascension gates`.
+- Push to remote `feature/package-1p-emerging-faction-ascension`.
+- Verify local HEAD matches remote branch HEAD and report completion report.
