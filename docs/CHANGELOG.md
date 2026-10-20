@@ -12,8 +12,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 #### Added
 - Post-Battle Diplomatic Consequences (`BattleCampaignManager`, `FactionManager`, `FactionData`):
   - Connects combat outcomes to foreign relations per GDD §10.2 and §10.4:
-    - Player-led offensive campaigns apply a -8.0 opinion penalty (`OPINION_PENALTY_OFFENSIVE_CAMPAIGN`) to target factions upon battle resolution.
-    - Enemy settlement raids apply a -10.0 opinion penalty (`OPINION_PENALTY_SETTLEMENT_RAID`) to attacking factions upon raid resolution.
+    - Player-led offensive campaigns apply a -8.0 opinion penalty (`FactionManager.OPINION_PENALTY_OFFENSIVE_CAMPAIGN`) to target factions upon battle resolution.
+    - Enemy settlement raids apply a -10.0 opinion penalty (`FactionManager.OPINION_PENALTY_SETTLEMENT_RAID`) to attacking factions upon raid resolution.
   - Added `FactionManager.modify_opinion(faction_id: String, delta: float) -> Dictionary`:
     - Clamps opinion safely within canonical `[-100.0, 100.0]` range.
     - Emits `relation_changed` signal exactly once per battle consequence.
@@ -21,7 +21,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - Added `FactionData.recalculate_disposition()`:
     - Dynamically recalculates faction disposition based on opinion thresholds (<= -40.0 Hostile, < 25.0 Neutral, < 75.0 Friendly, >= 75.0 Allied) when not at war.
     - Enforces strictly `HOSTILE` disposition while `is_at_war == true`.
-    - Automatically updates disposition when signing peace via `FactionData.sign_peace()`.
+    - Automatically updates disposition when signing peace via `FactionData.sign_peace()` (`change_opinion(20.0)` flow).
   - Fail-closed transactional safety:
     - Ineligible offensive campaigns (zero soldiers, garrisoned at base, marching in transit, non-war factions, zero enemy power) apply zero diplomatic mutations and emit zero signals.
     - Ineligible raids (not due, already processed, non-existent) apply zero diplomatic mutations and emit zero signals.

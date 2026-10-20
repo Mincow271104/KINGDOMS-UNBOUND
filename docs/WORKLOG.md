@@ -3832,14 +3832,14 @@ Implement Package 1O as a small, authoritative, deterministic extension connecti
      - Preserves `HOSTILE` disposition while at war, or updates disposition according to opinion thresholds when at peace.
      - Emits `relation_changed` signal exactly once with `{ "id": faction_id, "opinion": new_op, "disposition": fac.disposition }`.
 3. `scripts/combat/battle_campaign_manager.gd`:
-   - Defined matching constants `OPINION_PENALTY_OFFENSIVE_CAMPAIGN = 8.0` and `OPINION_PENALTY_SETTLEMENT_RAID = 10.0`.
+   - Preloads `FactionManager`'s script resource (`const FactionManagerScript = preload("res://scripts/factions/faction_manager.gd")`) to reference canonical balancing constants `FactionManagerScript.OPINION_PENALTY_OFFENSIVE_CAMPAIGN` (8.0) and `FactionManagerScript.OPINION_PENALTY_SETTLEMENT_RAID` (10.0) from `FactionManager` as the single canonical source, without defining independent copies of those constants.
    - Added `get_faction_manager()` helper with fallback to `world_view.get("faction_mgr")`.
    - Updated `resolve_and_apply_raid()` (Step C5):
-     - Applies `-10.0` opinion penalty via `fm.modify_opinion(faction_id, -OPINION_PENALTY_SETTLEMENT_RAID)`.
-     - Populates raid context with `diplomatic_opinion_penalty: 10.0`, `new_opinion`, and `disposition`.
+     - Applies `-10.0` opinion penalty via `fm.modify_opinion(faction_id, -FactionManagerScript.OPINION_PENALTY_SETTLEMENT_RAID)`.
+     - Populates raid context with canonical `diplomatic_opinion_penalty: 10.0`, `new_opinion`, and `disposition`.
    - Updated `launch_offensive_campaign()` (Step 5c):
-     - Applies `-8.0` opinion penalty via `fm.modify_opinion(target_faction_id, -OPINION_PENALTY_OFFENSIVE_CAMPAIGN)`.
-     - Populates campaign context with `diplomatic_opinion_penalty: 8.0`, `new_opinion`, and `disposition`.
+     - Applies `-8.0` opinion penalty via `fm.modify_opinion(target_faction_id, -FactionManagerScript.OPINION_PENALTY_OFFENSIVE_CAMPAIGN)`.
+     - Populates campaign context with canonical `diplomatic_opinion_penalty: 8.0`, `new_opinion`, and `disposition`.
    - Updated `is_faction_eligible_to_raid`, `can_launch_offensive_campaign`, and `launch_offensive_campaign` to resolve `fm` via `get_faction_manager()`.
 4. `scripts/test/test_battle_diplomacy_consequences.gd`:
    - Implemented automated test suite covering TC-DIPLO.1 through TC-DIPLO.11:
