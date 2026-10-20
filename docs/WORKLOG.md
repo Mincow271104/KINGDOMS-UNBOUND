@@ -3644,8 +3644,57 @@ Address independent source review findings for Package 1M on branch `feature/pac
 - `docs/WORKLOG.md`
 
 ### Next Exact Step
-- Stage only intended Package 1M review fix files.
-- Commit with exact message: `Harden Package 1M movement state and input handling`.
+- Proceed to Package 1M Final Review Fix.
+
+---
+
+## [2026-10-20] Package 1M Final Review Fix: Reload Resource/Upkeep Assertions & Accurate Return-Home Feedback
+
+### Objective
+Address the remaining Package 1M Final Review findings:
+1. **Finding A — Strengthen TC-MOVE.20 Reload Resource & Upkeep Assertions:** Capture live world resource state and army persistence fields before the first load application. Use real `SaveManager` APIs (`serialize_world_state` and `apply_loaded_state_to_world`) with the same serialized save data for application 1 and application 2. Verify after each application that resource stocks, capacities, active population, and upkeep fields match the snapshot with zero unintended deductions; verify route preservation, single ArmyMarker existence, and 1-step post-reload advancement (decreasing path by 1 without jumping to destination). Explicitly test `PlayerArmyManager.deserialize()` in isolation to verify that deserializing an army state causes zero resource deductions.
+2. **Finding B — Accurate Return-Home Actions & Feedback:** In `PlayerArmyManager.order_return_home()`, tag return dictionaries with distinct `"action"` identifiers (`"canceled_at_rally"`, `"already_garrisoned"`, `"returned_to_garrison"`, `"marching_home"`). In `HUD._on_return_home_btn_pressed()`, render accurate Vietnamese event banners: canceling outbound march at rally cell displays `"Đóng Quân Tại Căn Cứ"` ("Đã hủy lệnh hành quân, quân đội tiếp tục đóng quân tại căn cứ."); already garrisoned at rally displays `"Tại Căn Cứ"` ("Quân đội hiện đang đóng quân tại căn cứ."); marching home from the field displays `"Rút Về Căn Cứ"` ("Quân đội đang hành quân trở về căn cứ doanh trại."). Add focused test coverage across all outcomes.
+
+### Work Completed
+1. `scripts/military/player_army_manager.gd`:
+   - Updated `order_return_home()`:
+     - Canceling outbound march at rally cell: sets `action: "canceled_at_rally"`, `reason: "Đã hủy hành quân, quân đội tiếp tục đóng quân tại căn cứ"`.
+     - Already garrisoned at rally cell: sets `action: "already_garrisoned"`, `reason: "Quân đội đã ở căn cứ"`.
+     - Idle at rally cell: sets `action: "returned_to_garrison"`, `reason: "Quân đội đã trở về đóng quân tại căn cứ"`.
+     - Marching home from field: calls `order_move(rally_cell)`, sets `action: "marching_home"`, `reason: "Quân đội đang hành quân trở về căn cứ"`.
+2. `scripts/ui/hud.gd`:
+   - Updated `_on_return_home_btn_pressed()` to inspect `action` and `reason`:
+     - If `action == "canceled_at_rally"`: shows banner `"Đóng Quân Tại Căn Cứ"` ("Đã hủy lệnh hành quân, quân đội tiếp tục đóng quân tại căn cứ.").
+     - If `action == "already_garrisoned"` or `"returned_to_garrison"`: shows banner `"Tại Căn Cứ"` ("Quân đội hiện đang đóng quân tại căn cứ.").
+     - If marching home: shows banner `"Rút Về Căn Cứ"` ("Quân đội đang hành quân trở về căn cứ doanh trại.").
+3. `scripts/test/test_army_movement.gd`:
+   - Strengthened TC-MOVE.20: captures live resource stocks, capacities, active population, `last_upkeep_day`, `is_supplied`, and `soldier_count` before load; verifies serialized snapshot against live capture; applies loaded state twice and asserts exact preservation of resources, capacities, population, and upkeep fields after each load; verifies ArmyMarker count == 1 after each load; verifies 1-step post-reload advancement advances to adjacent cell, does not jump to destination, and decreases remaining path size by 1.
+   - Added isolated `PlayerArmyManager.deserialize()` unit test in TC-MOVE.20: asserts deserialization restores state cleanly without mutating `ResourceManager` stocks or consuming upkeep.
+   - Enhanced TC-MOVE.29: asserts `order_return_home()` returns `"canceled_at_rally"` when canceling at rally, `"already_garrisoned"` when called again at base, and `"marching_home"` when away from base.
+   - Added TC-MOVE.32 (HUD Return Home Feedback Banners): asserts exact Vietnamese banner titles and descriptions in HUD for all three return-home cases.
+4. Documentation:
+   - Updated `docs/TEST_PLAN.md`, `docs/CHANGELOG.md`, and `docs/WORKLOG.md`.
+
+### Verification Evidence
+- `scripts/test/test_army_movement.gd`: **PASS (Exit Code 0: 32/32 tests passed)**
+- `scripts/test/test_player_army.gd`: **PASS (Exit Code 0: 32/32 tests passed)**
+- `scripts/test/test_live_battle_loop.gd`: **PASS (Exit Code 0: 19/19 + TC-LB.4C + TC-LB.7B passed)**
+- Full project test suite matrix (all 26 test suites in `scripts/test/test_*.gd`): **PASS (26 passed, 0 failed, Exit Code 0)**
+- Headless scene smoke checks (`scenes/world/world_view.tscn`, `scenes/ui/hud.tscn`): **PASS (Exit Code 0)**
+- `git diff --check`: Clean (Exit Code 0, 0 whitespace errors)
+- **Visual Verification Limitation:** Headless command-line execution verifies simulation state, path calculations, signal wiring, and data persistence, but cannot verify real-time viewport rendering, screen pixel coordinates, or physical OS mouse clicks. Visual GUI rendering remains unverified without live display testing. ISSUE-005 foundation complete; tactical field combat, enemy movement, and siege controls remain deferred.
+
+### Files Modified
+- `scripts/military/player_army_manager.gd`
+- `scripts/ui/hud.gd`
+- `scripts/test/test_army_movement.gd`
+- `docs/TEST_PLAN.md`
+- `docs/CHANGELOG.md`
+- `docs/WORKLOG.md`
+
+### Next Exact Step
+- Stage only intended Package 1M final review fix files.
+- Commit with exact message: `Verify Package 1M reload idempotency and return feedback`.
 - Push to remote `feature/package-1m-army-marching`.
 - Verify local HEAD equals remote HEAD and report commit SHA and parent SHA.
-- Stop for independent ChatGPT source review. Do not merge to master and do not start Package 1N.
+- Await user instructions. Do not merge to master and do not start Package 1N.

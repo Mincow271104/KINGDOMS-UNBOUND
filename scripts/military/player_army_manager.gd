@@ -435,18 +435,34 @@ func order_return_home() -> Dictionary:
 			destination_cell = rally_cell
 			movement_state = MovementState.GARRISONED
 			movement_state_changed.emit(movement_state, current_cell, destination_cell)
-			return {"success": true, "reason": "Đã hủy hành quân, quân đội tiếp tục đóng quân tại căn cứ"}
+			return {
+				"success": true,
+				"reason": "Đã hủy hành quân, quân đội tiếp tục đóng quân tại căn cứ",
+				"action": "canceled_at_rally"
+			}
 		elif movement_state == MovementState.IDLE_AT_FIELD:
 			current_path.clear()
 			step_accumulator = 0.0
 			destination_cell = rally_cell
 			movement_state = MovementState.GARRISONED
 			movement_state_changed.emit(movement_state, current_cell, destination_cell)
-			return {"success": true, "reason": "Quân đội đã trở về đóng quân tại căn cứ"}
+			return {
+				"success": true,
+				"reason": "Quân đội đã trở về đóng quân tại căn cứ",
+				"action": "returned_to_garrison"
+			}
 		else:
-			return {"success": true, "reason": "Quân đội đã ở căn cứ"}
+			return {
+				"success": true,
+				"reason": "Quân đội đã ở căn cứ",
+				"action": "already_garrisoned"
+			}
 
-	return order_move(rally_cell)
+	var move_res: Dictionary = order_move(rally_cell)
+	if move_res.get("success", false):
+		move_res["action"] = "marching_home"
+		move_res["reason"] = "Quân đội đang hành quân trở về căn cứ"
+	return move_res
 
 func advance_movement(delta: float, speed_mult: float = 1.0) -> void:
 	if soldier_count <= 0:

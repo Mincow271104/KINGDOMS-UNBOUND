@@ -495,6 +495,9 @@ func _test_group_interruption_and_clock() -> void:
 		if not ret_res.get("success", false):
 			printerr("  [FAIL] TC-MOVE.29: order_return_home() failed before first step: %s" % str(ret_res))
 			failures += 1
+		elif ret_res.get("action", "") != "canceled_at_rally":
+			printerr("  [FAIL] TC-MOVE.29: Expected action 'canceled_at_rally', got: %s" % str(ret_res.get("action")))
+			failures += 1
 		elif b_mgr.get_current_cell() != b_rally:
 			printerr("  [FAIL] TC-MOVE.29: Army current_cell moved away from rally: %s" % str(b_mgr.get_current_cell()))
 			failures += 1
@@ -511,7 +514,21 @@ func _test_group_interruption_and_clock() -> void:
 			printerr("  [FAIL] TC-MOVE.29: Army defense eligibility was NOT restored!")
 			failures += 1
 		else:
-			print("  [PASS] TC-MOVE.29: Returning home before first step cleanly cancels outbound march and restores garrison defense eligibility.")
+			# Verify second return order when already garrisoned
+			var ret_garrisoned := b_mgr.order_return_home()
+			if not ret_garrisoned.get("success", false) or ret_garrisoned.get("action", "") != "already_garrisoned":
+				printerr("  [FAIL] TC-MOVE.29: Expected already_garrisoned action when already at base, got: %s" % str(ret_garrisoned))
+				failures += 1
+			else:
+				# Now order move and advance 1 step to be away from rally, then return home
+				b_mgr.order_move(distant_dest)
+				b_mgr.advance_movement(0.5, 1.0)
+				var ret_away := b_mgr.order_return_home()
+				if not ret_away.get("success", false) or ret_away.get("action", "") != "marching_home":
+					printerr("  [FAIL] TC-MOVE.29: Expected marching_home action when away from base, got: %s" % str(ret_away))
+					failures += 1
+				else:
+					print("  [PASS] TC-MOVE.29: Returning home before first step cleanly cancels outbound march and all return actions verified.")
 
 # -----------------------------------------------------------------------------
 # GROUP 3: DEFENSE ELIGIBILITY, RAID CASUALTIES & RECRUITMENT (TC-MOVE.14 - TC-MOVE.18)
@@ -745,14 +762,71 @@ func _test_group_persistence_and_recovery() -> void:
 	var initial_live_route: Array = live_army_mgr.get_current_path().duplicate()
 	var next_adjacent_cell: Vector2i = initial_live_route[0]
 
+	# Finding A: Capture live world resource state and army persistence fields before first load
+	var live_rm = world_instance.get_node_or_null("/root/ResourceManager")
+	var pre_stocks: Dictionary = {}
+	var pre_capacities: Dictionary = {}
+	if live_rm != null:
+		for r_id in EconomyConfig.ALL_RESOURCES:
+			pre_stocks[r_id] = live_rm.call("get_available_stock", r_id)
+			pre_capacities[r_id] = live_rm.call("get_capacity", r_id)
+	var pre_active_pop: int = int(live_rm.get("active_population")) if live_rm != null else 0
+	var pre_upkeep_day: int = live_army_mgr.last_upkeep_day
+	var pre_is_supplied: bool = live_army_mgr.is_supplied
+	var pre_soldier_count: int = live_army_mgr.get_army_count()
+
 	var save_dict := SaveManagerScript.serialize_world_state(world_instance)
 	if not save_dict.has("player_army") or save_dict["player_army"]["movement_state"] != "marching":
 		printerr("  [FAIL] TC-MOVE.20: Serialized world state does not have player_army in marching state!")
 		failures += 1
 
+	# Verify serialized snapshot against pre-load live capture
+	if not save_dict.has("resources") or not save_dict["resources"].has("stock"):
+		printerr("  [FAIL] TC-MOVE.20: Serialized world state missing resources dictionary!")
+		failures += 1
+	elif live_rm != null:
+		for r_id in EconomyConfig.ALL_RESOURCES:
+			if save_dict["resources"]["stock"].get(r_id, -1) != pre_stocks[r_id]:
+				printerr("  [FAIL] TC-MOVE.20: Serialized stock mismatch for %s: %s != %s" % [r_id, str(save_dict["resources"]["stock"].get(r_id)), str(pre_stocks[r_id])])
+				failures += 1
+			if save_dict["resources"]["capacities"].get(r_id, -1) != pre_capacities[r_id]:
+				printerr("  [FAIL] TC-MOVE.20: Serialized capacity mismatch for %s: %s != %s" % [r_id, str(save_dict["resources"]["capacities"].get(r_id)), str(pre_capacities[r_id])])
+				failures += 1
+		if int(save_dict["resources"].get("active_population", -1)) != pre_active_pop:
+			printerr("  [FAIL] TC-MOVE.20: Serialized active population mismatch: %s != %s" % [str(save_dict["resources"].get("active_population")), str(pre_active_pop)])
+			failures += 1
+	if int(save_dict["player_army"].get("last_upkeep_day", -99)) != pre_upkeep_day:
+		printerr("  [FAIL] TC-MOVE.20: Serialized last_upkeep_day mismatch: %s != %d" % [str(save_dict["player_army"].get("last_upkeep_day")), pre_upkeep_day])
+		failures += 1
+	if bool(save_dict["player_army"].get("is_supplied", false)) != pre_is_supplied:
+		printerr("  [FAIL] TC-MOVE.20: Serialized is_supplied mismatch: %s != %s" % [str(save_dict["player_army"].get("is_supplied")), str(pre_is_supplied)])
+		failures += 1
+	if int(save_dict["player_army"].get("soldier_count", -1)) != pre_soldier_count:
+		printerr("  [FAIL] TC-MOVE.20: Serialized soldier_count mismatch: %s != %d" % [str(save_dict["player_army"].get("soldier_count")), pre_soldier_count])
+		failures += 1
+
 	var apply_res_1 := SaveManagerScript.apply_loaded_state_to_world(world_instance, save_dict)
 	if not apply_res_1.get("success", false):
 		printerr("  [FAIL] TC-MOVE.20: First apply_loaded_state_to_world failed: %s" % apply_res_1.get("error", ""))
+		failures += 1
+
+	# Verify state after first load application
+	if live_rm != null:
+		for r_id in EconomyConfig.ALL_RESOURCES:
+			if live_rm.call("get_available_stock", r_id) != pre_stocks[r_id]:
+				printerr("  [FAIL] TC-MOVE.20 (Load 1): Resource %s changed unexpectedly: %d != %d" % [r_id, live_rm.call("get_available_stock", r_id), pre_stocks[r_id]])
+				failures += 1
+			if live_rm.call("get_capacity", r_id) != pre_capacities[r_id]:
+				printerr("  [FAIL] TC-MOVE.20 (Load 1): Capacity %s changed unexpectedly: %d != %d" % [r_id, live_rm.call("get_capacity", r_id), pre_capacities[r_id]])
+				failures += 1
+		if int(live_rm.get("active_population")) != pre_active_pop:
+			printerr("  [FAIL] TC-MOVE.20 (Load 1): Active population changed: %d != %d" % [int(live_rm.get("active_population")), pre_active_pop])
+			failures += 1
+	if live_army_mgr.last_upkeep_day != pre_upkeep_day:
+		printerr("  [FAIL] TC-MOVE.20 (Load 1): last_upkeep_day changed: %d != %d" % [live_army_mgr.last_upkeep_day, pre_upkeep_day])
+		failures += 1
+	if live_army_mgr.is_supplied != pre_is_supplied:
+		printerr("  [FAIL] TC-MOVE.20 (Load 1): is_supplied changed: %s != %s" % [str(live_army_mgr.is_supplied), str(pre_is_supplied)])
 		failures += 1
 
 	var marker_count_1 := 0
@@ -765,6 +839,25 @@ func _test_group_persistence_and_recovery() -> void:
 		printerr("  [FAIL] TC-MOVE.20: Second apply_loaded_state_to_world failed: %s" % apply_res_2.get("error", ""))
 		failures += 1
 
+	# Verify state after second load application
+	if live_rm != null:
+		for r_id in EconomyConfig.ALL_RESOURCES:
+			if live_rm.call("get_available_stock", r_id) != pre_stocks[r_id]:
+				printerr("  [FAIL] TC-MOVE.20 (Load 2): Resource %s changed unexpectedly: %d != %d" % [r_id, live_rm.call("get_available_stock", r_id), pre_stocks[r_id]])
+				failures += 1
+			if live_rm.call("get_capacity", r_id) != pre_capacities[r_id]:
+				printerr("  [FAIL] TC-MOVE.20 (Load 2): Capacity %s changed unexpectedly: %d != %d" % [r_id, live_rm.call("get_capacity", r_id), pre_capacities[r_id]])
+				failures += 1
+		if int(live_rm.get("active_population")) != pre_active_pop:
+			printerr("  [FAIL] TC-MOVE.20 (Load 2): Active population changed: %d != %d" % [int(live_rm.get("active_population")), pre_active_pop])
+			failures += 1
+	if live_army_mgr.last_upkeep_day != pre_upkeep_day:
+		printerr("  [FAIL] TC-MOVE.20 (Load 2): last_upkeep_day changed: %d != %d" % [live_army_mgr.last_upkeep_day, pre_upkeep_day])
+		failures += 1
+	if live_army_mgr.is_supplied != pre_is_supplied:
+		printerr("  [FAIL] TC-MOVE.20 (Load 2): is_supplied changed: %s != %s" % [str(live_army_mgr.is_supplied), str(pre_is_supplied)])
+		failures += 1
+
 	var marker_count_2 := 0
 	for child in world_instance.get("citizens_container").get_children():
 		if child.name == "ArmyMarker":
@@ -773,8 +866,8 @@ func _test_group_persistence_and_recovery() -> void:
 	if marker_count_1 != 1 or marker_count_2 != 1:
 		printerr("  [FAIL] TC-MOVE.20: Node duplication detected for ArmyMarker: count1=%d, count2=%d" % [marker_count_1, marker_count_2])
 		failures += 1
-	elif live_army_mgr.get_army_count() != 5:
-		printerr("  [FAIL] TC-MOVE.20: Soldier count changed during double reload: %d != 5" % live_army_mgr.get_army_count())
+	elif live_army_mgr.get_army_count() != pre_soldier_count:
+		printerr("  [FAIL] TC-MOVE.20: Soldier count changed during double reload: %d != %d" % [live_army_mgr.get_army_count(), pre_soldier_count])
 		failures += 1
 	elif live_army_mgr.get_movement_state() != PlayerArmyManagerScript.MovementState.MARCHING:
 		printerr("  [FAIL] TC-MOVE.20: Movement state after double reload not MARCHING: %d" % live_army_mgr.get_movement_state())
@@ -784,6 +877,7 @@ func _test_group_persistence_and_recovery() -> void:
 		failures += 1
 	else:
 		# Advance 1 step and ensure it advances to adjacent route point, not destination
+		var pre_step_route_size: int = live_army_mgr.get_current_path().size()
 		live_army_mgr.advance_movement(0.5, 1.0)
 		if live_army_mgr.get_current_cell() != next_adjacent_cell:
 			printerr("  [FAIL] TC-MOVE.20: Post-reload movement step did not advance to adjacent cell (%s), got: %s" % [str(next_adjacent_cell), str(live_army_mgr.get_current_cell())])
@@ -791,8 +885,31 @@ func _test_group_persistence_and_recovery() -> void:
 		elif live_army_mgr.get_current_cell() == live_target:
 			printerr("  [FAIL] TC-MOVE.20: Post-reload movement step jumped directly to destination %s instead of next waypoint!" % str(live_target))
 			failures += 1
+		elif live_army_mgr.get_current_path().size() != pre_step_route_size - 1:
+			printerr("  [FAIL] TC-MOVE.20: Post-reload movement step did not decrease remaining path by 1: %d != %d" % [live_army_mgr.get_current_path().size(), pre_step_route_size - 1])
+			failures += 1
 		else:
 			print("  [PASS] TC-MOVE.20: Live marching army serialized, restored, double-load strictly idempotent, and advanced 1 step to adjacent cell (%s)." % str(next_adjacent_cell))
+
+	# Isolated PlayerArmyManager.deserialize() unit test (Finding A requirement 5)
+	var iso_mgr := PlayerArmyManagerScript.new()
+	var iso_rm := MockResourceManager.new()
+	iso_rm.stock[EconomyConfigScript.RES_FOOD] = 500
+	iso_rm.stock[EconomyConfigScript.RES_GOLD] = 300
+	iso_rm.stock[EconomyConfigScript.RES_METAL] = 50
+	iso_mgr.set_custom_resource_manager(iso_rm)
+	iso_mgr.deserialize(save_dict["player_army"])
+	if iso_rm.get_available_stock(EconomyConfigScript.RES_FOOD) != 500 or iso_rm.get_available_stock(EconomyConfigScript.RES_GOLD) != 300 or iso_rm.get_available_stock(EconomyConfigScript.RES_METAL) != 50:
+		printerr("  [FAIL] TC-MOVE.20 (Isolated): deserialize() unexpectedly mutated resource manager stocks!")
+		failures += 1
+	elif iso_mgr.get_army_count() != pre_soldier_count:
+		printerr("  [FAIL] TC-MOVE.20 (Isolated): deserialize() soldier_count mismatch: %d != %d" % [iso_mgr.get_army_count(), pre_soldier_count])
+		failures += 1
+	elif iso_mgr.last_upkeep_day != pre_upkeep_day or iso_mgr.is_supplied != pre_is_supplied:
+		printerr("  [FAIL] TC-MOVE.20 (Isolated): deserialize() upkeep fields mismatch: day=%d, supplied=%s" % [iso_mgr.last_upkeep_day, str(iso_mgr.is_supplied)])
+		failures += 1
+	else:
+		print("  [PASS] TC-MOVE.20 (Isolated): PlayerArmyManager.deserialize() restored state cleanly without resource deductions or upkeep consumption.")
 
 	# TC-MOVE.21: Legacy Save Compatibility
 	print("--- Running TC-MOVE.21: Legacy Save Compatibility ---")
@@ -1181,3 +1298,56 @@ func _test_group_hud_and_targeting() -> void:
 		failures += 1
 	else:
 		print("  [PASS] TC-MOVE.31: order_move() returns consistent 'steps' (%d) and 'path_length' (%d)." % [c_res["steps"], c_res["path_length"]])
+
+	# TC-MOVE.32: HUD Return Home Feedback Banners (Finding B)
+	print("--- Running TC-MOVE.32: HUD Return Home Feedback Banners ---")
+	var live_hud_node = world_instance.get("hud")
+	var live_army_mgr_node = world_instance.get("player_army_mgr")
+	if live_hud_node == null or live_army_mgr_node == null:
+		printerr("  [FAIL] TC-MOVE.32: Missing HUD or PlayerArmyManager on world_instance!")
+		failures += 1
+	else:
+		var title_label: Label = live_hud_node.get_node_or_null("EventBanner/MarginContainer/VBoxContainer/EventTitle")
+		var desc_label: Label = live_hud_node.get_node_or_null("EventBanner/MarginContainer/VBoxContainer/EventDesc")
+		if title_label == null or desc_label == null:
+			printerr("  [FAIL] TC-MOVE.32: EventTitle or EventDesc label missing in HUD!")
+			failures += 1
+		else:
+			# Ensure army has soldiers and is garrisoned at rally
+			if live_army_mgr_node.get_army_count() <= 0:
+				live_army_mgr_node.soldier_count = 3
+				live_army_mgr_node.notify_capacity_changed()
+
+			var r_rally: Vector2i = live_army_mgr_node.get_rally_cell()
+			var r_dest := Vector2i(r_rally.x + 3, r_rally.y)
+			if not world_instance.get("nav").is_cell_walkable(r_dest):
+				r_dest = Vector2i(r_rally.x, r_rally.y + 3)
+
+			# Ensure army starts garrisoned at rally cell
+			live_army_mgr_node.current_cell = r_rally
+			live_army_mgr_node.destination_cell = r_rally
+			live_army_mgr_node.movement_state = PlayerArmyManagerScript.MovementState.GARRISONED
+			live_army_mgr_node.get_current_path().clear()
+
+			# Case 1: Outbound order canceled at rally cell
+			live_army_mgr_node.order_move(r_dest)
+			live_hud_node.call("_on_return_home_btn_pressed")
+			if title_label.text != "Đóng Quân Tại Căn Cứ" or desc_label.text != "Đã hủy lệnh hành quân, quân đội tiếp tục đóng quân tại căn cứ.":
+				printerr("  [FAIL] TC-MOVE.32 (Case 1 Canceled at Rally): Banner mismatch! Title: '%s', Desc: '%s'" % [title_label.text, desc_label.text])
+				failures += 1
+
+			# Case 2: Already garrisoned at rally cell
+			live_hud_node.call("_on_return_home_btn_pressed")
+			if title_label.text != "Tại Căn Cứ" or desc_label.text != "Quân đội hiện đang đóng quân tại căn cứ.":
+				printerr("  [FAIL] TC-MOVE.32 (Case 2 Already Garrisoned): Banner mismatch! Title: '%s', Desc: '%s'" % [title_label.text, desc_label.text])
+				failures += 1
+
+			# Case 3: Away from rally cell and ordered home
+			live_army_mgr_node.order_move(r_dest)
+			live_army_mgr_node.advance_movement(0.5, 1.0)
+			live_hud_node.call("_on_return_home_btn_pressed")
+			if title_label.text != "Rút Về Căn Cứ" or desc_label.text != "Quân đội đang hành quân trở về căn cứ doanh trại.":
+				printerr("  [FAIL] TC-MOVE.32 (Case 3 Marching Home): Banner mismatch! Title: '%s', Desc: '%s'" % [title_label.text, desc_label.text])
+				failures += 1
+			else:
+				print("  [PASS] TC-MOVE.32: HUD accurately reports all return-home outcomes (cancel at rally, garrisoned, marching home).")

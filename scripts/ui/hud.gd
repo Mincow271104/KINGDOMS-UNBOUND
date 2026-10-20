@@ -652,7 +652,14 @@ func _on_return_home_btn_pressed() -> void:
 	if res.get("success", false):
 		var am = get_node_or_null("/root/AudioManager")
 		if am and am.has_method("play_click"): am.play_click()
-		show_event_banner("Rút Về Căn Cứ", "Quân đội đang hành quân trở về căn cứ doanh trại.", true, 3.0)
+		var action: String = String(res.get("action", ""))
+		var reason: String = String(res.get("reason", ""))
+		if action == "canceled_at_rally" or reason.find("hủy hành quân") != -1 or reason.find("tiếp tục đóng quân") != -1:
+			show_event_banner("Đóng Quân Tại Căn Cứ", "Đã hủy lệnh hành quân, quân đội tiếp tục đóng quân tại căn cứ.", true, 3.0)
+		elif action == "already_garrisoned" or action == "returned_to_garrison" or reason.find("đã ở căn cứ") != -1:
+			show_event_banner("Tại Căn Cứ", "Quân đội hiện đang đóng quân tại căn cứ.", true, 3.0)
+		else:
+			show_event_banner("Rút Về Căn Cứ", "Quân đội đang hành quân trở về căn cứ doanh trại.", true, 3.0)
 	else:
 		var am = get_node_or_null("/root/AudioManager")
 		if am and am.has_method("play_error"): am.play_error()
