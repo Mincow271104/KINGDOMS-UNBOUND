@@ -137,6 +137,17 @@
   - **Garrison Deployment Rule:** Armies in the field or in transit cannot participate in settlement defense and do not take raid casualties. Only armies garrisoned at the home Town Hall plaza rally point contribute to settlement defense.
   - **Deferred Combat Extensions:** Field battles against wandering mobs, manual siege controls, and multi-army management remain deferred to later combat packages.
 
+### 1.14 Player-Led Abstract Offensive Campaigns (Package 1N)
+- **Problem:** Players could recruit and march armies into the field (Packages 1L & 1M) and settlements faced incoming enemy raids (Package 1K), but players lacked a mechanism to project offensive military force and attack hostile factions.
+- **Resolution:**
+  - **Launch Gating:** Offensive campaigns require: standing army count $\ge 1$; field deployment status (`movement_state == MovementState.IDLE_AT_FIELD` and `current_cell != rally_cell`); target faction exists, is at war (`is_at_war == true`), and has remaining military power (`military_power > 0.0`).
+  - **Atomic Fail-Closed Protection:** Ineligible targets or invalid deployment states reject attack orders atomically with clear Vietnamese HUD feedback, causing zero state mutations.
+  - **Deterministic Battle Resolution:** Resolves via `BattleResolver.resolve_battle()` using a deterministic seed derived from `(world_seed * 37 + cur_day * 103 + hash(target_faction_id) + sequence * 19) & 0x7FFFFFFF`. Force dictionaries are duplicated before resolution to preserve caller immutability.
+  - **Outcome Application:** Player casualties deduct from standing army via `PlayerArmyManager.remove_casualties()`. Target faction military power reduces by $30.0 \times \text{casualties}$, clamped to floor $0.0$.
+  - **Post-Battle Army Normalization:** If all soldiers perish, the army automatically recovers to clean `GARRISONED` status at the home rally cell. Surviving soldiers remain deployed at their current field coordinate without teleporting.
+  - **Event Reporting:** In-Game HUD displays informative Vietnamese event banners detailing casualties, combat scores, remaining troops, and enemy power.
+  - **Isolation & Persistence:** Offensive campaigns are strictly isolated from incoming settlement raid timers. Offensive campaign sequences persist under `battle_campaign` in `SaveManager` with backward-compatible validation.
+
 ---
 
 ## 2. Deferred & Excluded Scope for MVP

@@ -17,6 +17,7 @@ const MAX_ABSTRACT_TROOPS: int = 20
 signal raid_scheduled(faction_id: String, scheduled_day: int, is_first: bool)
 signal raid_cancelled(faction_id: String, reason: String)
 signal battle_resolved(report: BattleResolver.BattleReport, raid_context: Dictionary)
+signal offensive_campaign_resolved(report: BattleResolver.BattleReport, context: Dictionary)
 
 var world_view: Node = null
 var faction_mgr: FactionManager = null
@@ -37,6 +38,8 @@ var _pending_raids: Dictionary = {}
 var _processed_raids: Dictionary = {}
 # In-flight guard to prevent re-entrant duplicate resolution
 var _in_flight_raids: Dictionary = {}
+var _in_flight_offensive: Dictionary = {}
+var _offensive_campaign_sequence: int = 0
 
 func _init(p_world_view: Node = null, p_faction_mgr: FactionManager = null, p_seed: int = 12345) -> void:
 	world_view = p_world_view
@@ -473,13 +476,16 @@ func process_daily_raids(current_day: int) -> Array[Dictionary]:
 func serialize() -> Dictionary:
 	return {
 		"pending_raids": _pending_raids.duplicate(true),
-		"processed_raids": _processed_raids.duplicate(true)
+		"processed_raids": _processed_raids.duplicate(true),
+		"offensive_sequence": _offensive_campaign_sequence
 	}
 
 func deserialize(data: Dictionary) -> void:
 	_pending_raids.clear()
 	_processed_raids.clear()
 	_in_flight_raids.clear()
+	_in_flight_offensive.clear()
+	_offensive_campaign_sequence = maxi(0, int(data.get("offensive_sequence", 0)))
 
 	var raw_processed: Dictionary = data.get("processed_raids", {})
 	for k in raw_processed:
@@ -494,3 +500,141 @@ func deserialize(data: Dictionary) -> void:
 				"scheduled_day": int(p_info.get("scheduled_day", 1)),
 				"raid_sequence": int(p_info.get("raid_sequence", 1))
 			}
+
+# -----------------------------------------------------------------------------
+# Stage F. Player-Led Abstract Offensive Campaigns (Package 1N)
+# -----------------------------------------------------------------------------
+
+func get_offensive_campaign_sequence() -> int:
+	return _offensive_campaign_sequence
+
+func set_offensive_campaign_sequence(seq: int) -> void:
+	_offensive_campaign_sequence = maxi(0, seq)
+
+func can_launch_offensive_campaign(target_faction_id: String) -> Dictionary:
+	if faction_mgr == null:
+		return {"can_attack": false, "reason": "Hệ thống thế lực chưa khởi tạo."}
+
+	var fac: FactionData = faction_mgr.get_faction(target_faction_id)
+	if fac == null:
+		return {"can_attack": false, "reason": "Thế lực chỉ định không tồn tại."}
+
+	if not fac.is_at_war:
+		return {"can_attack": false, "reason": "Chưa tuyên chiến với %s. Chỉ có thể tấn công thế lực đang có chiến tranh." % fac.name}
+
+	if fac.military_power <= 0.0:
+		return {"can_attack": false, "reason": "Thế lực %s đã cạn kiệt quân lực, không còn lực lượng phòng thủ để giao chiến." % fac.name}
+
+	var army_mgr = get_player_army_manager()
+	if army_mgr == null:
+		return {"can_attack": false, "reason": "Hệ thống quân đội hoàng gia chưa khởi tạo."}
+
+	var soldier_count: int = int(army_mgr.call("get_army_count")) if army_mgr.has_method("get_army_count") else int(army_mgr.get("soldier_count"))
+	if soldier_count <= 0:
+		return {"can_attack": false, "reason": "Quân đội không có binh sĩ để tiến hành tấn công."}
+
+	var m_state: int = int(army_mgr.call("get_movement_state")) if army_mgr.has_method("get_movement_state") else int(army_mgr.get("movement_state"))
+	# MovementState: GARRISONED = 0, MARCHING = 1, IDLE_AT_FIELD = 2
+	if m_state == 0: # GARRISONED
+		return {"can_attack": false, "reason": "Quân đội đang đóng quân tại căn cứ. Cần hành quân dã chiến ra ngoài thành để tấn công."}
+	elif m_state == 1: # MARCHING
+		return {"can_attack": false, "reason": "Quân đội đang trong quá trình hành quân. Cần chờ đến nơi đóng trại dã chiến trước khi mở chiến dịch."}
+	elif m_state != 2: # not IDLE_AT_FIELD
+		return {"can_attack": false, "reason": "Trạng thái quân đội không hợp lệ để mở chiến dịch."}
+
+	var cur_cell: Vector2i = army_mgr.call("get_current_cell") if army_mgr.has_method("get_current_cell") else Vector2i(-1, -1)
+	var rally_cell: Vector2i = army_mgr.call("get_rally_cell") if army_mgr.has_method("get_rally_cell") else Vector2i(-1, -1)
+	if cur_cell == rally_cell:
+		return {"can_attack": false, "reason": "Quân đội đang ở tại vị trí căn cứ, không thể mở chiến dịch tấn công từ căn cứ."}
+
+	return {"can_attack": true, "reason": "Quân đội sẵn sàng mở chiến dịch tấn công."}
+
+func launch_offensive_campaign(target_faction_id: String, custom_seed: int = -1) -> Dictionary:
+	var check: Dictionary = can_launch_offensive_campaign(target_faction_id)
+	if not check.get("can_attack", false):
+		return {"success": false, "reason": check.get("reason", "Không đủ điều kiện tấn công.")}
+
+	# Guard against re-entrant duplicate execution
+	if _in_flight_offensive.get(target_faction_id, false):
+		return {"success": false, "reason": "Chiến dịch tấn công đang được xử lý.", "in_flight": true}
+
+	_in_flight_offensive[target_faction_id] = true
+
+	var fac: FactionData = faction_mgr.get_faction(target_faction_id)
+	var army_mgr = get_player_army_manager()
+
+	# 1. Attacker Force (Player Army)
+	var atk_troops: int = int(army_mgr.call("get_army_count")) if army_mgr.has_method("get_army_count") else int(army_mgr.get("soldier_count"))
+	var atk_morale: float = float(army_mgr.call("get_combat_morale")) if army_mgr.has_method("get_combat_morale") else 70.0
+	var atk_force: Dictionary = {
+		"troops": atk_troops,
+		"equipment_tier": 1,
+		"morale": atk_morale,
+		"terrain_multiplier": 1.0
+	}
+
+	# 2. Defender Force (Target Faction)
+	var def_troops: int = clampi(int(round(fac.military_power / MILITARY_POWER_PER_TROOP)), MIN_ABSTRACT_TROOPS, MAX_ABSTRACT_TROOPS)
+	var def_equip: int = 2 if fac.type == "rival_military" else 1
+	var def_morale: float = clampf(fac.stability, 20.0, 100.0)
+	var def_force: Dictionary = {
+		"troops": def_troops,
+		"equipment_tier": def_equip,
+		"morale": def_morale,
+		"fortification_level": 0,
+		"terrain_multiplier": 1.0,
+		"resources": {}
+	}
+
+	# 3. Deterministic Seed
+	_offensive_campaign_sequence += 1
+	var campaign_seed: int = custom_seed
+	if campaign_seed < 0:
+		var cur_day: int = get_current_day()
+		campaign_seed = (world_seed * 37 + cur_day * 103 + hash(target_faction_id) + _offensive_campaign_sequence * 19) & 0x7FFFFFFF
+
+	# 4. Resolve Battle without mutating caller force dictionaries
+	var report: BattleResolver.BattleReport = BattleResolverScript.resolve_battle(
+		atk_force.duplicate(true),
+		def_force.duplicate(true),
+		campaign_seed
+	)
+
+	# 5. Apply battle outcomes safely
+	# 5a. Apply player casualties
+	var player_lost: int = clampi(report.attacker_casualties, 0, atk_troops)
+	if player_lost > 0 and army_mgr.has_method("remove_casualties"):
+		army_mgr.call("remove_casualties", player_lost)
+
+	# 5b. Apply enemy military power reduction
+	var enemy_lost: int = clampi(report.defender_casualties, 0, def_troops)
+	var mil_loss: float = float(enemy_lost) * MILITARY_POWER_PER_TROOP
+	var prev_mil: float = fac.military_power
+	fac.military_power = maxf(0.0, fac.military_power - mil_loss)
+
+	_in_flight_offensive.erase(target_faction_id)
+
+	# 6. Build context and emit signals
+	var res_day: int = get_current_day()
+	var context: Dictionary = {
+		"is_offensive": true,
+		"faction_id": target_faction_id,
+		"faction_name": fac.name,
+		"player_casualties": player_lost,
+		"enemy_casualties": enemy_lost,
+		"remaining_player_troops": int(army_mgr.call("get_army_count")) if army_mgr.has_method("get_army_count") else int(army_mgr.get("soldier_count")),
+		"remaining_military_power": fac.military_power,
+		"previous_military_power": prev_mil,
+		"resolution_day": res_day,
+		"sequence": _offensive_campaign_sequence,
+		"seed": campaign_seed
+	}
+
+	battle_resolved.emit(report, context)
+	offensive_campaign_resolved.emit(report, context)
+
+	return {
+		"success": true,
+		"report": report,
+		"context": context
+	}

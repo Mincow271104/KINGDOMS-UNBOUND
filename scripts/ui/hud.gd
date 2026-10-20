@@ -56,6 +56,7 @@ signal citizen_role_changed(citizen_id: String, new_role: String)
 @onready var recruit_btn: Button = get_node_or_null("ArmyPanel/MarginContainer/VBoxContainer/RecruitBtn")
 @onready var move_army_btn: Button = get_node_or_null("ArmyPanel/MarginContainer/VBoxContainer/MoveArmyBtn")
 @onready var return_home_btn: Button = get_node_or_null("ArmyPanel/MarginContainer/VBoxContainer/ReturnHomeBtn")
+@onready var attack_campaign_btn: Button = get_node_or_null("ArmyPanel/MarginContainer/VBoxContainer/AttackCampaignBtn")
 @onready var recruit_reason_label: Label = get_node_or_null("ArmyPanel/MarginContainer/VBoxContainer/RecruitReasonLabel")
 @onready var close_army_btn: Button = get_node_or_null("ArmyPanel/MarginContainer/VBoxContainer/CloseArmyBtn")
 
@@ -220,6 +221,8 @@ func _ready() -> void:
 		move_army_btn.pressed.connect(start_army_move_targeting)
 	if return_home_btn:
 		return_home_btn.pressed.connect(_on_return_home_btn_pressed)
+	if attack_campaign_btn:
+		attack_campaign_btn.pressed.connect(_on_attack_campaign_btn_pressed)
 
 	# Victory & Collapse dialog controls
 	if continue_victory_btn:
@@ -427,28 +430,56 @@ func _on_battle_raid_cancelled(faction_id: String, reason: String) -> void:
 
 func _on_battle_resolved(report: BattleResolver.BattleReport, context: Dictionary) -> void:
 	var victor: String = report.victor
-	var is_win: bool = (victor == "defender")
-	var title: String = "THẮNG TRẬN!" if is_win else ("THẤT THỦ!" if victor == "attacker" else "BẤT PHÂN THẮNG BẠI!")
-	var army_lost: int = context.get("army_casualties", 0)
-	var guards_lost: int = context.get("guards_killed", []).size()
-	var enemy_lost: int = context.get("enemy_casualties", 0)
-	var fort_lvl: int = report.details.get("fortification_level", 0)
-	var fort_bonus: float = report.details.get("fortification_bonus", 1.0)
-	var spoils: Dictionary = context.get("plundered_resources", {})
-	var spoils_str: String = ""
-	if not spoils.is_empty():
-		spoils_str = " | Cướp phá: %s" % str(spoils)
+	var is_offensive: bool = context.get("is_offensive", false)
 
-	var desc: String = "%s\n[Quân đội mất: %d | Vệ binh mất: %d | Địch thương vong: %d | Công sự: Cấp %d (x%.2f)%s]" % [
-		report.explanation,
-		army_lost,
-		guards_lost,
-		enemy_lost,
-		fort_lvl,
-		fort_bonus,
-		spoils_str
-	]
-	show_event_banner(title, desc, is_win, 8.0)
+	if is_offensive:
+		var fac_name: String = context.get("faction_name", "Đối phương")
+		var is_win: bool = (victor == "attacker")
+		var title: String = "CHIẾN THẮNG TIẾN CÔNG!" if is_win else ("CHIẾN DỊCH THẤT BẠI!" if victor == "defender" else "CHIẾN DỊCH BẤT PHÂN THẮNG BẠI!")
+		var player_lost: int = context.get("player_casualties", 0)
+		var enemy_lost: int = context.get("enemy_casualties", 0)
+		var player_rem: int = context.get("remaining_player_troops", 0)
+		var enemy_mil_rem: float = context.get("remaining_military_power", 0.0)
+		var atk_score: float = report.details.get("attacker_combat_score", 0.0)
+		var def_score: float = report.details.get("defender_combat_score", 0.0)
+
+		var desc: String = "Mục tiêu: %s | %s\n[Quân ta: Ban đầu %d lính, mất %d, còn %d lính | Địch: Ban đầu %d lính, mất %d, quân lực còn %.1f]\n(Điểm công: %.1f vs Điểm thủ: %.1f)" % [
+			fac_name,
+			report.explanation,
+			report.attacker_troops_initial,
+			player_lost,
+			player_rem,
+			report.defender_troops_initial,
+			enemy_lost,
+			enemy_mil_rem,
+			atk_score,
+			def_score
+		]
+		show_event_banner(title, desc, is_win, 8.0)
+	else:
+		var is_win: bool = (victor == "defender")
+		var title: String = "THẮNG TRẬN!" if is_win else ("THẤT THỦ!" if victor == "attacker" else "BẤT PHÂN THẮNG BẠI!")
+		var army_lost: int = context.get("army_casualties", 0)
+		var guards_lost: int = context.get("guards_killed", []).size()
+		var enemy_lost: int = context.get("enemy_casualties", 0)
+		var fort_lvl: int = report.details.get("fortification_level", 0)
+		var fort_bonus: float = report.details.get("fortification_bonus", 1.0)
+		var spoils: Dictionary = context.get("plundered_resources", {})
+		var spoils_str: String = ""
+		if not spoils.is_empty():
+			spoils_str = " | Cướp phá: %s" % str(spoils)
+
+		var desc: String = "%s\n[Quân đội mất: %d | Vệ binh mất: %d | Địch thương vong: %d | Công sự: Cấp %d (x%.2f)%s]" % [
+			report.explanation,
+			army_lost,
+			guards_lost,
+			enemy_lost,
+			fort_lvl,
+			fort_bonus,
+			spoils_str
+		]
+		show_event_banner(title, desc, is_win, 8.0)
+
 	_refresh_diplomacy_ui()
 	_refresh_army_panel()
 
@@ -579,6 +610,57 @@ func _refresh_army_panel() -> void:
 	if return_home_btn:
 		var is_home: bool = player_army_mgr.call("is_defense_eligible") if player_army_mgr.has_method("is_defense_eligible") else true
 		return_home_btn.disabled = (count <= 0 or is_home)
+	if attack_campaign_btn:
+		var can_atk: bool = false
+		if player_army_mgr != null and count > 0:
+			var m_state_int: int = player_army_mgr.get("movement_state") if player_army_mgr.get("movement_state") != null else 0
+			var cur_cell: Vector2i = player_army_mgr.call("get_current_cell") if player_army_mgr.has_method("get_current_cell") else Vector2i.ZERO
+			var rally_cell: Vector2i = player_army_mgr.call("get_rally_cell") if player_army_mgr.has_method("get_rally_cell") else Vector2i.ZERO
+			can_atk = (m_state_int == 2 and cur_cell != rally_cell)
+		attack_campaign_btn.disabled = not can_atk
+
+func _on_attack_campaign_btn_pressed() -> void:
+	if faction_mgr == null:
+		return
+	var hostile_factions: Array = []
+	for fac in faction_mgr.call("get_all_factions"):
+		if fac.get("is_at_war") and fac.get("military_power") > 0.0:
+			hostile_factions.append(fac)
+
+	if hostile_factions.is_empty():
+		var am = get_node_or_null("/root/AudioManager")
+		if am and am.has_method("play_error"): am.play_error()
+		show_event_banner("Chưa Có Chiến Tranh", "Hiện không có thế lực thù địch nào đang giao chiến với vương quốc.", false, 3.0)
+		return
+
+	if hostile_factions.size() == 1:
+		attack_faction(hostile_factions[0].get("id"))
+	else:
+		if not diplomacy_panel.visible:
+			_toggle_diplomacy_menu()
+		show_event_banner("Chọn Mục Tiêu", "Chọn thế lực thù địch trong bảng Ngoại Giao để tiến hành tấn công.", true, 4.0)
+
+func attack_faction(faction_id: String) -> Dictionary:
+	if battle_campaign_mgr == null:
+		var am = get_node_or_null("/root/AudioManager")
+		if am and am.has_method("play_error"): am.play_error()
+		show_event_banner("Không Thể Tấn Công", "Hệ thống chiến dịch chưa sẵn sàng.", false, 4.0)
+		_show_diplomacy_feedback("❌ Hệ thống chiến dịch chưa sẵn sàng.", true)
+		return {"success": false, "reason": "Hệ thống chiến dịch chưa sẵn sàng."}
+
+	var res: Dictionary = battle_campaign_mgr.call("launch_offensive_campaign", faction_id)
+	if not res.get("success", false):
+		var am = get_node_or_null("/root/AudioManager")
+		if am and am.has_method("play_error"): am.play_error()
+		show_event_banner("Không Thể Tấn Công", res.get("reason", "Chiến dịch thất bại."), false, 4.0)
+		_show_diplomacy_feedback("❌ %s" % res.get("reason", "Không thể tấn công."), true)
+	else:
+		var am = get_node_or_null("/root/AudioManager")
+		if am and am.has_method("play_click"): am.play_click()
+		_show_diplomacy_feedback("⚔️ Đã hoàn thành chiến dịch tấn công!", false)
+	_refresh_diplomacy_ui()
+	_refresh_army_panel()
+	return res
 
 func _on_recruit_btn_pressed() -> void:
 	if player_army_mgr == null:
@@ -823,6 +905,14 @@ func _refresh_diplomacy_ui() -> void:
 				_handle_propose_treaty(cur_fac_id, "peace")
 			)
 			hbox.add_child(peace_btn)
+
+			var attack_btn := Button.new()
+			attack_btn.text = "⚔️ Tấn Công"
+			attack_btn.modulate = Color(1.4, 0.5, 0.5)
+			attack_btn.pressed.connect(func():
+				attack_faction(cur_fac_id)
+			)
+			hbox.add_child(attack_btn)
 			
 		vbox.add_child(hbox)
 		card.add_child(vbox)

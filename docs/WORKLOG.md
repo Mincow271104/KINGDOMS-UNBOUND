@@ -3693,8 +3693,71 @@ Address the remaining Package 1M Final Review findings:
 - `docs/WORKLOG.md`
 
 ### Next Exact Step
-- Stage only intended Package 1M final review fix files.
-- Commit with exact message: `Verify Package 1M reload idempotency and return feedback`.
-- Push to remote `feature/package-1m-army-marching`.
-- Verify local HEAD equals remote HEAD and report commit SHA and parent SHA.
-- Await user instructions. Do not merge to master and do not start Package 1N.
+- Accepted Package 1M Final Review Fix. Branch `feature/package-1m-army-marching` completed and verified.
+- Proceed to Package 1N: Player-Led Abstract Offensive Campaigns.
+
+---
+
+## [2026-10-20] Package 1N: Player-Led Abstract Offensive Campaigns
+
+### Context & Objective
+Package 1M introduced authoritative player army marching, navigation, and garrison deployment. However, combat engagement remained asymmetrical: enemy factions could raid the player's settlement (Package 1K), but players had no way to lead offensive campaigns against hostile factions.
+The goal of Package 1N is to implement an authoritative player-led abstract offensive campaign loop:
+1. Gating & Validation: Army has $\ge 1$ soldier, is deployed outside the settlement (`movement_state == IDLE_AT_FIELD` and `current_cell != rally_cell`), target faction exists, is at war (`is_at_war == true`), and has military power > 0.0.
+2. Battle Resolution: Deterministic resolution via `BattleResolver.resolve_battle()` using duplicated force dictionaries and derived seed `(world_seed * 37 + cur_day * 103 + hash(target_faction_id) + sequence * 19) & 0x7FFFFFFF`.
+3. Symmetrical Forces: Player force mapped from standing army and supplied combat morale; enemy force mapped from `military_power / 30.0` (1..20 troops) with equipment tier 2 for rival military and morale derived from stability.
+4. Outcome Mutations: Player casualties deducted via `PlayerArmyManager.remove_casualties()`; enemy military power reduced by $30.0 \times \text{casualties}$ (clamped $\ge 0.0$).
+5. Army Normalization: Depleted army normalizes to `GARRISONED` at `rally_cell`; surviving army remains deployed at current field cell without teleportation.
+6. HUD Integration: Action buttons in ArmyPanel (`AttackCampaignBtn`) and DiplomacyPanel cards (`attack_btn`); Vietnamese event banner reporting battle outcome, casualties, remaining troops, and enemy power.
+7. Persistence & Independence: `offensive_sequence` persisted in `battle_campaign`; `SaveManager.validate_save_data()` schema validation; strict independence from settlement raid timers and peace cancellation.
+
+### Work Completed
+1. `scripts/combat/battle_campaign_manager.gd`:
+   - Added signals: `offensive_campaign_resolved(report, context)`.
+   - Added fields: `_in_flight_offensive: Dictionary`, `_offensive_campaign_sequence: int = 0`.
+   - Implemented `can_launch_offensive_campaign(target_faction_id)`: validates faction existence, war status, positive military power, positive player soldier count, `IDLE_AT_FIELD` state, and non-rally cell location. Fails closed with informative Vietnamese feedback.
+   - Implemented `launch_offensive_campaign(target_faction_id, custom_seed)`: verifies gating, sets in-flight guard, duplicates attacker/defender force dictionaries, increments offensive sequence, computes deterministic seed, calls `BattleResolver.resolve_battle()`, applies player casualties and enemy power reductions, normalizes army state, emits `battle_resolved` and `offensive_campaign_resolved`, and clears in-flight guard.
+   - Updated `serialize()` and `deserialize()` to persist `offensive_sequence` and reset in-flight state.
+2. `scenes/ui/hud.tscn`:
+   - Added `AttackCampaignBtn` (`"⚔️ Mở Chiến Dịch Tấn Công"`) to `ArmyPanel/MarginContainer/VBoxContainer`.
+3. `scripts/ui/hud.gd`:
+   - Added `@onready var attack_campaign_btn`.
+   - Connected `attack_campaign_btn.pressed` to `_on_attack_campaign_btn_pressed()`.
+   - Updated `_refresh_army_panel()` to dynamically enable/disable `attack_campaign_btn` based on whether the army has soldiers and is in `IDLE_AT_FIELD` away from rally cell.
+   - Added `attack_faction(faction_id)` and wired into `_refresh_diplomacy_ui()` cards for hostile factions as `"⚔️ Tấn Công"`.
+   - Updated `_on_battle_resolved()` to detect `context.is_offensive` and render rich Vietnamese event banners detailing casualties, troops, combat scores, and remaining enemy power.
+4. `scripts/persistence/save_manager.gd`:
+   - Updated `validate_save_data()` to validate optional `battle_campaign` schema (ensuring `campaign_sequence` and `offensive_sequence` are non-negative integers).
+5. `scripts/test/test_offensive_campaign.gd`:
+   - Created comprehensive test suite covering all 14 required cases: TC-OFFENSE.1 through TC-OFFENSE.14.
+6. Documentation:
+   - Updated `docs/SCOPE_DECISIONS.md`, `docs/TEST_PLAN.md`, `docs/CHANGELOG.md`, and `docs/WORKLOG.md`.
+
+### Verification Evidence
+- `scripts/test/test_offensive_campaign.gd`: **PASS (Exit Code 0: 14/14 tests passed)**
+- `scripts/test/test_army_movement.gd`: **PASS (Exit Code 0: 32/32 tests passed)**
+- `scripts/test/test_player_army.gd`: **PASS (Exit Code 0: 32/32 tests passed)**
+- `scripts/test/test_live_battle_loop.gd`: **PASS (Exit Code 0: 19/19 + TC-LB.4C + TC-LB.7B passed)**
+- `scripts/test/test_save_load.gd`: **PASS (Exit Code 0: all Phase 8 persistence tests passed)**
+- `scripts/test/test_factions_and_battles.gd`: **PASS (Exit Code 0: all faction/trade/battle tests passed)**
+- Full project test suite matrix (all 27 test suites in `scripts/test/test_*.gd`): **PASS (27 passed, 0 failed, Exit Code 0)**
+- Headless scene smoke checks (`scenes/world/world_view.tscn`, `scenes/ui/hud.tscn`): **PASS (Exit Code 0)**
+- `git diff --check`: Clean (Exit Code 0, 0 whitespace errors)
+
+### Files Modified & Created
+- `scripts/combat/battle_campaign_manager.gd` (Modified)
+- `scenes/ui/hud.tscn` (Modified)
+- `scripts/ui/hud.gd` (Modified)
+- `scripts/persistence/save_manager.gd` (Modified)
+- `scripts/test/test_offensive_campaign.gd` (Created)
+- `docs/SCOPE_DECISIONS.md` (Modified)
+- `docs/TEST_PLAN.md` (Modified)
+- `docs/CHANGELOG.md` (Modified)
+- `docs/WORKLOG.md` (Modified)
+
+### Next Exact Step
+- Stage only reviewed Package 1N files.
+- Commit with exact message: `Implement Package 1N player-led abstract campaigns`.
+- Push to remote `feature/package-1n-player-offensive-campaign`.
+- Verify local HEAD matches remote branch HEAD and report commit SHA and parent SHA.
+- Await user instructions. Do not merge to master and do not start Package 1O.

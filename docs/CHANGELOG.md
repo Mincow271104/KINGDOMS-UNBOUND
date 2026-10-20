@@ -8,6 +8,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### [Package 1N] - 2026-10-20
+#### Added
+- Player-Led Abstract Offensive Campaigns (`BattleCampaignManager` & `HUD`):
+  - Added offensive campaign capability in `BattleCampaignManager`: `can_launch_offensive_campaign(target_faction_id)` and `launch_offensive_campaign(target_faction_id, custom_seed)`.
+  - Authoritative offensive gating rules: requires standing army soldiers $\ge 1$; field deployment status (`movement_state == MovementState.IDLE_AT_FIELD` and `current_cell != rally_cell`); target faction exists, is at war (`is_at_war == true`), and has military power > 0.0. Fails closed with informative Vietnamese diagnostics on invalid conditions.
+  - Deterministic battle resolution via `BattleResolver.resolve_battle()`: uses derived seed `(world_seed * 37 + cur_day * 103 + hash(target_faction_id) + sequence * 19) & 0x7FFFFFFF` with caller force dictionary duplication to ensure immutability.
+  - Symmetrical force translation: enemy force derived from `fac.military_power / 30.0` (clamped 1..20 troops) with equipment tier 2 for rival military and morale mapped from stability. Attacker force derived from player army count and supplied combat morale.
+  - Atomic battle state mutations: player casualties deducted via `PlayerArmyManager.remove_casualties()`; enemy military power reduced by `casualties * 30.0` (clamped $\ge 0.0$).
+  - Post-battle army normalization: complete casualty wipeout normalizes army to clean `GARRISONED` status at home `rally_cell`; surviving soldiers remain deployed in field (`IDLE_AT_FIELD`) without teleportation.
+  - Signal architecture: added `offensive_campaign_resolved(report, context)` and wired into `battle_resolved(report, context)` with `context.is_offensive == true`.
+  - In-Game HUD offensive battle report integration: added `AttackCampaignBtn` (`"⚔️ Mở Chiến Dịch Tấn Công"`) in `ArmyPanel` and `attack_btn` (`"⚔️ Tấn Công"`) in hostile faction diplomacy cards; rich Vietnamese event banners detailing casualties, troop counts, combat scores, and remaining enemy power.
+  - Save/load persistence & schema validation: serialized `offensive_sequence` in `BattleCampaignManager.serialize()`; updated `SaveManager.validate_save_data()` to enforce schema types and non-negativity for `battle_campaign.offensive_sequence` and `campaign_sequence`.
+  - Dedicated automated test suite `scripts/test/test_offensive_campaign.gd` covering TC-OFFENSE.1 through TC-OFFENSE.14 (14/14 tests passed, Exit Code 0).
+
 ### [Package 1M] - 2026-10-20
 #### Added
 - Player Army Marching & Garrison Deployment (`PlayerArmyManager` & `ArmyMarker`):

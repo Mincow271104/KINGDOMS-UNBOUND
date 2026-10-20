@@ -652,6 +652,12 @@ custom_minimum_size = Vector2(0, 36)
 layout_mode = 2
 text = "🏠 Rút về căn cứ"
 
+[node name="AttackCampaignBtn" type="Button" parent="ArmyPanel/MarginContainer/VBoxContainer"]
+custom_minimum_size = Vector2(0, 36)
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.4, 0.4, 1)
+text = "⚔️ Tấn công thế lực địch"
+
 [node name="RecruitReasonLabel" type="Label" parent="ArmyPanel/MarginContainer/VBoxContainer"]
 layout_mode = 2
 theme_override_colors/font_color = Color(1, 0.5, 0.5, 1)

@@ -469,7 +469,30 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 						return {"valid": false, "error": "Các điểm liên tiếp trong current_path (%s -> %s) không kề cạnh trực tiếp (cardinally adjacent)." % [str(path_points[i]), str(path_points[i + 1])]}
 				if path_points[-1] != dst_cell:
 					return {"valid": false, "error": "Điểm cuối cùng trong current_path (%s) không khớp với destination_cell (%s)." % [str(path_points[-1]), str(dst_cell)]}
-			
+
+	# Optional battle_campaign validation (Package 1K / 1N)
+	if json_dict.has("battle_campaign"):
+		var camp_val = json_dict.get("battle_campaign")
+		if not (camp_val is Dictionary):
+			return {"valid": false, "error": "battle_campaign phải là từ điển (Dictionary)."}
+		if camp_val.has("campaign_sequence"):
+			var seq = camp_val.get("campaign_sequence")
+			if not ((seq is int) or (seq is float and seq == floor(seq))) or int(seq) < 0:
+				return {"valid": false, "error": "campaign_sequence của battle_campaign phải là số nguyên >= 0."}
+		if camp_val.has("offensive_sequence"):
+			var off_seq = camp_val.get("offensive_sequence")
+			if not ((off_seq is int) or (off_seq is float and off_seq == floor(off_seq))) or int(off_seq) < 0:
+				return {"valid": false, "error": "offensive_sequence của battle_campaign phải là số nguyên >= 0."}
+		if camp_val.has("scheduled_raids"):
+			var raids_val = camp_val.get("scheduled_raids")
+			if not (raids_val is Array):
+				return {"valid": false, "error": "scheduled_raids của battle_campaign phải là danh sách (Array)."}
+			for raid in raids_val:
+				if not (raid is Dictionary):
+					return {"valid": false, "error": "Mỗi đợt raid trong scheduled_raids phải là từ điển."}
+				if raid.has("target_cell") and not _is_valid_coord_arr(raid.get("target_cell")):
+					return {"valid": false, "error": "Tọa độ target_cell trong scheduled_raids không hợp lệ: %s." % str(raid.get("target_cell"))}
+
 	return {"valid": true, "error": ""}
 
 static func load_from_file(filepath: String = DEFAULT_SAVE_PATH) -> Dictionary:

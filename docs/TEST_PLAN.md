@@ -304,3 +304,23 @@ When Godot Editor is running with the MCP plugin:
     - **TC-MOVE.31 (Finding 5 — Minor HUD Contract Verification):** `PlayerArmyManager.order_move()` returns both `"steps"` and `"path_length"` matching the exact route size; HUD displays the positive step count in Vietnamese event banner.
     - **TC-MOVE.32 (HUD Return Home Feedback Banners):** HUD accurately reports all return-home outcomes in Vietnamese event banners: canceling outbound march at rally cell displays `"Đóng Quân Tại Căn Cứ"` ("Đã hủy lệnh hành quân, quân đội tiếp tục đóng quân tại căn cứ."); already garrisoned at rally displays `"Tại Căn Cứ"` ("Quân đội hiện đang đóng quân tại căn cứ."); marching home from the field displays `"Rút Về Căn Cứ"` ("Quân đội đang hành quân trở về căn cứ doanh trại.").
   - *Status:* **PASSED** (2026-10-20, Exit Code 0: 32/32 tests passed).
+
+### Package 1N: Player-Led Abstract Offensive Campaigns
+- **TC-OFFENSE.1 to TC-OFFENSE.14: Player-Led Offensive Campaign Verification Suite**
+  - *Script:* `res://scripts/test/test_offensive_campaign.gd`
+  - *Acceptance Criteria:*
+    - **TC-OFFENSE.1 (Valid Attack Execution):** Army deployed outside settlement (`IDLE_AT_FIELD` away from `rally_cell`) targeting a hostile faction with military power > 0 succeeds; resolves battle via `BattleResolver.resolve_battle()`; increments campaign sequence; emits `offensive_campaign_resolved` and `battle_resolved` signals with complete context dictionary.
+    - **TC-OFFENSE.2 (Zero-Soldier Rejection):** Launching an attack with 0 soldiers fails closed with informative Vietnamese feedback ("Quân đội không có binh sĩ để tiến hành tấn công.") and zero state mutations.
+    - **TC-OFFENSE.3 (Garrisoned Rejection):** Launching an attack while garrisoned at base or at `rally_cell` fails closed with Vietnamese feedback and zero state mutations.
+    - **TC-OFFENSE.4 (Marching Rejection):** Launching an attack while actively marching (`movement_state == MARCHING`) fails closed with Vietnamese feedback and zero state mutations.
+    - **TC-OFFENSE.5 (Target Ineligibility Rejections):** Attacks against peaceful factions (not at war), non-existent factions, or factions with 0 military power fail closed with distinct Vietnamese error messages and zero mutations.
+    - **TC-OFFENSE.6 (Deterministic Battle Resolution):** Campaigns executed with identical seeds produce 100% identical combat scores, casualty counts, explanations, and victor outcomes.
+    - **TC-OFFENSE.7 (Casualty Bounds):** Attacker casualties are bounded within $[0, \text{initial\_player\_soldiers}]$; defender casualties are bounded within $[0, \text{initial\_enemy\_troops}]$.
+    - **TC-OFFENSE.8 (State Mutations Application):** Player casualties deduct accurately from standing army via `PlayerArmyManager.remove_casualties()`; enemy military power reduces accurately by $30.0 \times \text{casualties}$, clamped to floor $0.0$.
+    - **TC-OFFENSE.9 (Post-Battle Normalization):** Total casualty wipeout normalizes army to clean `GARRISONED` status at `rally_cell`; surviving soldiers remain deployed at field cell (`IDLE_AT_FIELD`) without teleportation.
+    - **TC-OFFENSE.10 (State Immutability on Rejections):** Rejected attacks do not mutate army counts, movement states, coordinates, faction data, resources, or diplomacy.
+    - **TC-OFFENSE.11 (HUD Event Banner Integration):** HUD event banners accurately display campaign outcome, faction name, casualties, remaining troops, and remaining enemy power in Vietnamese.
+    - **TC-OFFENSE.12 (Save/Load Persistence & Schema Validation):** Offensive campaign sequence serializes/deserializes under `battle_campaign`; valid schemas pass `SaveManager.validate_save_data()`; negative sequence numbers fail validation; loaded state does not re-execute campaigns.
+    - **TC-OFFENSE.13 (Raid Loop Independence):** Offensive campaigns do not alter, cancel, or re-schedule incoming settlement defense raids; signing peace still cancels scheduled raids normally.
+    - **TC-OFFENSE.14 (Movement Rules Contract):** Deployed armies retain full Package 1M movement capabilities: ordering return home initiates march, step advancement reaches rally cell, transitions to `GARRISONED`, and restores defense eligibility.
+  - *Status:* **PASSED** (2026-10-20, Exit Code 0: 14/14 tests passed).
