@@ -4018,7 +4018,48 @@ Implement Package 1P as a small, authoritative, deterministic extension of `Fact
 - `docs/WORKLOG.md` (Modified)
 
 ### Next Exact Step
-- Stage modified and created files for Package 1P.
-- Commit with exact message: `Implement Package 1P emerging faction ascension gates`.
+- Package 1P is awaiting independent review.
+- The current task is to strengthen the verification coverage (TC-EMERGE.9, TC-EMERGE.10, TC-EMERGE.11) and correct worklog status.
+- After this review fix is committed and pushed, await independent review again.
+- Do not merge into `master` and do not begin Package 1Q until authorized.
+
+---
+
+## [2026-10-20] Package 1P Review Fix: Strengthen Verification Coverage
+
+### Context & Objective
+Address independent review findings for Package 1P:
+1. TC-EMERGE.10: Attach signal emission counter *before* the first `apply_loaded_state_to_world()` call to observe and assert zero load-time signal emissions during first load, daily simulation tick, and second load application.
+2. TC-EMERGE.11: Actively assert that `_refresh_diplomacy_ui()` updates rendered faction cards under `factions_list_vbox` to display `"Liên Minh Rừng Thiêng"` and remove `"Bản Làng Rừng Xanh"`.
+3. TC-EMERGE.9: Replace the ineffective dummy boolean assertion with observable state assertions verifying that the neutral tribe remains absent, unrelated factions (`rival_military`, `rival_merchant`) remain unmutated, zero emerging powers exist, and zero ascension signals are emitted.
+4. Documentation: Correct stale Package 1P `Next Exact Step` in `docs/WORKLOG.md` and synchronize test plan specifications.
+
+### Work Completed
+1. `scripts/test/test_emerging_faction_ascension.gd`:
+   - TC-EMERGE.9: Replaced `error_occurred := false` dummy check with assertions checking that `rival_military` and `rival_merchant` retain exact population, military power, and type; `neutral_tribe` remains absent; `has_emerging_power()` remains false; and zero `emerging_faction_ascended` signals are emitted. Cleanly disconnected the listener.
+   - TC-EMERGE.10: Connected `load_emissions` spy before the initial `apply_loaded_state_to_world()` call. Asserted zero emissions on first load, zero emissions on subsequent daily simulation tick, and zero emissions on second load application. Preserved all restored attribute assertions (name, type, military power, stability, resources) and clean listener disconnection.
+   - TC-EMERGE.11: Added `_find_faction_card_title()` helper inspecting non-queued children under `hud.factions_list_vbox`. Asserted that initial diplomacy UI renders `"Bản Làng Rừng Xanh"` card and does not show `"Liên Minh Rừng Thiêng"`. After triggering ascension via `fm.update_daily_simulation(10)`, verified that event banner is displayed AND that the refreshed diplomacy UI cards actively contain `"Liên Minh Rừng Thiêng"` and no longer contain `"Bản Làng Rừng Xanh"`. Cleanly freed HUD fixture.
+2. `docs/TEST_PLAN.md`:
+   - Updated TC-EMERGE.9, TC-EMERGE.10, and TC-EMERGE.11 acceptance criteria reflecting the strengthened assertions.
+3. `docs/WORKLOG.md`:
+   - Replaced stale Package 1P completion instructions with current review status and documented review fix work and verification evidence.
+
+### Verification Evidence
+- Focused Test Suite (`scripts/test/test_emerging_faction_ascension.gd`): **PASS (Exit Code 0: 11/11 tests passed)**
+- Regression Suite — Persistence Roundtrip (`scripts/test/test_save_load.gd`): **PASS (Exit Code 0: all Phase 8 tests passed)**
+- Regression Suite — Post-Battle Diplomacy (`scripts/test/test_battle_diplomacy_consequences.gd`): **PASS (Exit Code 0: 11/11 tests passed)**
+- Regression Suite — Offensive Campaigns (`scripts/test/test_offensive_campaign.gd`): **PASS (Exit Code 0: 14/14 tests passed)**
+- Regression Suite — Army Movement (`scripts/test/test_army_movement.gd`): **PASS (Exit Code 0: 32/32 tests passed)**
+- `git diff --check`: Clean (0 whitespace/formatting issues)
+
+### Files Modified
+- `scripts/test/test_emerging_faction_ascension.gd` (Modified)
+- `docs/TEST_PLAN.md` (Modified)
+- `docs/WORKLOG.md` (Modified)
+
+### Next Exact Step
+- Stage modified files (`scripts/test/test_emerging_faction_ascension.gd`, `docs/TEST_PLAN.md`, `docs/WORKLOG.md`).
+- Commit with exact message: `Strengthen Package 1P verification coverage`.
 - Push to remote `feature/package-1p-emerging-faction-ascension`.
-- Verify local HEAD matches remote branch HEAD and report completion report.
+- Verify local HEAD equals remote branch HEAD and await independent review.
+- Do not merge into `master` and do not begin Package 1Q until authorized.

@@ -346,10 +346,29 @@ func test_tc_emerge_9_missing_faction_safety() -> void:
 	_assert_true(fm.get_faction("neutral_tribe") == null, "TC-EMERGE.9-NULL", "neutral_tribe removed")
 	_assert_false(fm.can_emerging_faction_ascend(10), "TC-EMERGE.9-CAN-NULL", "can_emerging_faction_ascend fails gracefully on null tribe")
 
-	# Calling update_daily_simulation must not crash
-	var error_occurred := false
+	var rival_mil: FactionData = fm.get_faction("rival_military")
+	var rival_merch: FactionData = fm.get_faction("rival_merchant")
+	_assert_true(rival_mil != null and rival_merch != null, "TC-EMERGE.9-RIVALS-EXIST", "Unrelated rival factions exist")
+
+	var emissions: Array = []
+	var on_ascended := func(fac_id: String, new_name: String):
+		emissions.append({"id": fac_id, "name": new_name})
+	fm.emerging_faction_ascended.connect(on_ascended)
+
+	# Execute daily update without neutral tribe present
 	fm.update_daily_simulation(10)
-	_assert_false(error_occurred, "TC-EMERGE.9-UPDATE-SAFE", "update_daily_simulation executes without crashing on null tribe")
+
+	_assert_true(fm.get_faction("neutral_tribe") == null, "TC-EMERGE.9-STILL-NULL", "neutral_tribe remains absent after simulation tick")
+	_assert_eq(emissions.size(), 0, "TC-EMERGE.9-NO-SIGNAL", "Zero emerging_faction_ascended signals emitted when neutral tribe is absent")
+	_assert_eq(rival_mil.population, 60, "TC-EMERGE.9-MIL-POP-INTACT", "Rival military population unmutated")
+	_assert_approx(rival_mil.military_power, 75.0, "TC-EMERGE.9-MIL-PWR-INTACT", 0.01)
+	_assert_eq(rival_mil.type, "rival_military", "TC-EMERGE.9-MIL-TYPE-INTACT", "Rival military type unmutated")
+	_assert_eq(rival_merch.population, 50, "TC-EMERGE.9-MERCH-POP-INTACT", "Rival merchant population unmutated")
+	_assert_eq(rival_merch.type, "rival_merchant", "TC-EMERGE.9-MERCH-TYPE-INTACT", "Rival merchant type unmutated")
+	_assert_false(fm.has_emerging_power(), "TC-EMERGE.9-NO-EMERGING-POWER", "World still has zero emerging powers")
+
+	if fm.emerging_faction_ascended.is_connected(on_ascended):
+		fm.emerging_faction_ascended.disconnect(on_ascended)
 
 # -----------------------------------------------------------------------------
 # TC-EMERGE.10: Integrated SaveManager Persistence & Reload Idempotency
@@ -396,11 +415,18 @@ func test_tc_emerge_10_save_load_persistence() -> void:
 	tribe.stability = 30.0
 	tribe.resources = {EconomyConfigScript.RES_WOOD: 10, EconomyConfigScript.RES_HERBS: 5}
 
-	# 4. Apply loaded state to world
+	# 4. Attach emission spy BEFORE the first load to observe load-time signal behavior
+	var load_emissions: Array = []
+	var on_ascended := func(fac_id: String, new_name: String):
+		load_emissions.append({"id": fac_id, "name": new_name})
+	fm.emerging_faction_ascended.connect(on_ascended)
+
+	# 5. Apply loaded state to world
 	var apply_res: Dictionary = SaveManagerScript.apply_loaded_state_to_world(world_instance, saved_data)
 	_assert_true(apply_res.get("success", false), "TC-EMERGE.10-APPLY-SUCCESS", "apply_loaded_state_to_world succeeded")
+	_assert_eq(load_emissions.size(), 0, "TC-EMERGE.10-LOAD1-NO-SIGNAL", "Zero emerging_faction_ascended signals emitted during first world load")
 
-	# 5. Verify restored state
+	# 6. Verify restored state
 	var restored_tribe: FactionData = fm.get_faction("neutral_tribe")
 	_assert_eq(restored_tribe.name, FactionManagerScript.ASCENSION_NEW_NAME, "TC-EMERGE.10-REST-NAME", "Restored name matches")
 	_assert_eq(restored_tribe.type, FactionManagerScript.ASCENSION_NEW_TYPE, "TC-EMERGE.10-REST-TYPE", "Restored type matches")
@@ -409,21 +435,36 @@ func test_tc_emerge_10_save_load_persistence() -> void:
 	_assert_eq(restored_tribe.resources.get(EconomyConfigScript.RES_WOOD, 0), 125, "TC-EMERGE.10-REST-WOOD", "Restored wood matches")
 	_assert_eq(restored_tribe.resources.get(EconomyConfigScript.RES_HERBS, 0), 65, "TC-EMERGE.10-REST-HERBS", "Restored herbs matches")
 
-	# 6. Subsequent daily tick on restored world does NOT re-ascend
-	var reemissions: Array = []
-	fm.emerging_faction_ascended.connect(func(fac_id, new_name): reemissions.append({"id": fac_id, "name": new_name}))
+	# 7. Subsequent daily tick on restored world does NOT re-ascend
 	fm.update_daily_simulation(11)
-	_assert_eq(reemissions.size(), 0, "TC-EMERGE.10-NO-RETRIGGER", "Daily simulation tick on restored world does not re-trigger ascension")
+	_assert_eq(load_emissions.size(), 0, "TC-EMERGE.10-NO-RETRIGGER", "Daily simulation tick on restored world does not re-trigger ascension")
 
-	# 7. Double-load idempotency
+	# 8. Double-load idempotency & signal silence
 	var apply_res2: Dictionary = SaveManagerScript.apply_loaded_state_to_world(world_instance, saved_data)
 	_assert_true(apply_res2.get("success", false), "TC-EMERGE.10-DOUBLE-LOAD-OK", "Second load application succeeded")
+	_assert_eq(load_emissions.size(), 0, "TC-EMERGE.10-LOAD2-NO-SIGNAL", "Zero emerging_faction_ascended signals emitted during second world load")
 	_assert_eq(restored_tribe.name, FactionManagerScript.ASCENSION_NEW_NAME, "TC-EMERGE.10-DOUBLE-NAME", "Name remains intact after double-load")
 	_assert_eq(restored_tribe.type, FactionManagerScript.ASCENSION_NEW_TYPE, "TC-EMERGE.10-DOUBLE-TYPE", "Type remains intact after double-load")
+
+	if fm.emerging_faction_ascended.is_connected(on_ascended):
+		fm.emerging_faction_ascended.disconnect(on_ascended)
 
 # -----------------------------------------------------------------------------
 # TC-EMERGE.11: HUD Signal Connection & Event Banner Integration
 # -----------------------------------------------------------------------------
+func _find_faction_card_title(factions_vbox: VBoxContainer, faction_name: String) -> bool:
+	if factions_vbox == null:
+		return false
+	for child in factions_vbox.get_children():
+		if child.is_queued_for_deletion():
+			continue
+		for sub in child.get_children():
+			if sub is VBoxContainer:
+				for elem in sub.get_children():
+					if elem is Label and elem.text.contains(faction_name):
+						return true
+	return false
+
 func test_tc_emerge_11_hud_integration() -> void:
 	print("\n--- TC-EMERGE.11: HUD Integration ---")
 	var hud = HUDScene.instantiate()
@@ -432,15 +473,27 @@ func test_tc_emerge_11_hud_integration() -> void:
 	var fm = FactionManagerScript.new()
 	hud.set_faction_manager(fm, world_instance)
 
+	# Initial diplomacy UI refresh to display starter factions
+	hud.call("_refresh_diplomacy_ui")
+	_assert_true(_find_faction_card_title(hud.factions_list_vbox, "Bản Làng Rừng Xanh"), "TC-EMERGE.11-PRE-CARD-EXISTS", "Initial diplomacy UI renders Bản Làng Rừng Xanh card")
+	_assert_false(_find_faction_card_title(hud.factions_list_vbox, FactionManagerScript.ASCENSION_NEW_NAME), "TC-EMERGE.11-PRE-NO-ASCENDED", "Initial diplomacy UI does not show Liên Minh Rừng Thiêng")
+
 	var tribe: FactionData = fm.get_faction("neutral_tribe")
 	tribe.population = 44
+	tribe.resources = {EconomyConfigScript.RES_WOOD: 120, EconomyConfigScript.RES_HERBS: 60}
+	tribe.stability = 70.0
 
-	# Trigger ascension
+	# Trigger ascension on Day 10
 	fm.update_daily_simulation(10)
 
-	_assert_eq(tribe.type, FactionManagerScript.ASCENSION_NEW_TYPE, "TC-EMERGE.11-ASCENDED", "Tribe ascended")
+	_assert_eq(tribe.type, FactionManagerScript.ASCENSION_NEW_TYPE, "TC-EMERGE.11-ASCENDED", "Tribe ascended to emerging_power")
 	_assert_true(hud.event_banner != null, "TC-EMERGE.11-BANNER-EXISTS", "HUD event banner exists")
 	_assert_true(hud.event_banner.visible, "TC-EMERGE.11-BANNER-VISIBLE", "HUD event banner displayed upon ascension")
 	_assert_true(hud.event_title.text.contains("Thế Lực Mới Nổi"), "TC-EMERGE.11-BANNER-TITLE", "Event banner title correct: " + hud.event_title.text)
+	_assert_true(hud.event_desc.text.contains(FactionManagerScript.ASCENSION_NEW_NAME), "TC-EMERGE.11-BANNER-DESC", "Event banner description mentions " + FactionManagerScript.ASCENSION_NEW_NAME)
+
+	# Assert that _refresh_diplomacy_ui() was called by signal handler and updated rendered cards
+	_assert_true(_find_faction_card_title(hud.factions_list_vbox, FactionManagerScript.ASCENSION_NEW_NAME), "TC-EMERGE.11-CARD-REFRESHED", "Refreshed diplomacy UI contains newly ascended card 'Liên Minh Rừng Thiêng'")
+	_assert_false(_find_faction_card_title(hud.factions_list_vbox, "Bản Làng Rừng Xanh"), "TC-EMERGE.11-CARD-OLD-REMOVED", "Refreshed diplomacy UI no longer displays 'Bản Làng Rừng Xanh'")
 
 	hud.queue_free()
