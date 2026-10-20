@@ -8,6 +8,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### [Package 1O] - 2026-10-20
+#### Added
+- Post-Battle Diplomatic Consequences (`BattleCampaignManager`, `FactionManager`, `FactionData`):
+  - Connects combat outcomes to foreign relations per GDD §10.2 and §10.4:
+    - Player-led offensive campaigns apply a -8.0 opinion penalty (`OPINION_PENALTY_OFFENSIVE_CAMPAIGN`) to target factions upon battle resolution.
+    - Enemy settlement raids apply a -10.0 opinion penalty (`OPINION_PENALTY_SETTLEMENT_RAID`) to attacking factions upon raid resolution.
+  - Added `FactionManager.modify_opinion(faction_id: String, delta: float) -> Dictionary`:
+    - Clamps opinion safely within canonical `[-100.0, 100.0]` range.
+    - Emits `relation_changed` signal exactly once per battle consequence.
+    - Preserves hostile disposition lock during active war.
+  - Added `FactionData.recalculate_disposition()`:
+    - Dynamically recalculates faction disposition based on opinion thresholds (<= -40.0 Hostile, < 25.0 Neutral, < 75.0 Friendly, >= 75.0 Allied) when not at war.
+    - Enforces strictly `HOSTILE` disposition while `is_at_war == true`.
+    - Automatically updates disposition when signing peace via `FactionData.sign_peace()`.
+  - Fail-closed transactional safety:
+    - Ineligible offensive campaigns (zero soldiers, garrisoned at base, marching in transit, non-war factions, zero enemy power) apply zero diplomatic mutations and emit zero signals.
+    - Ineligible raids (not due, already processed, non-existent) apply zero diplomatic mutations and emit zero signals.
+  - Integrated Persistence & Idempotency:
+    - Save/load roundtrip via `SaveManager` restores post-battle opinions and dispositions with zero signal emissions.
+    - Repeated loads execute idempotently without reapplying opinion penalties or altering army markers.
+  - Dedicated automated test suite `scripts/test/test_battle_diplomacy_consequences.gd` covering TC-DIPLO.1 through TC-DIPLO.11 (11/11 tests passed, Exit Code 0).
+
 ### [Package 1N] - 2026-10-20
 #### Added
 - Player-Led Abstract Offensive Campaigns (`BattleCampaignManager` & `HUD`):

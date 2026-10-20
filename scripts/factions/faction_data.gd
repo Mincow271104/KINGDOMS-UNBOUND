@@ -43,6 +43,9 @@ func change_opinion(delta: float) -> void:
 	opinion = clampf(opinion + delta, -100.0, 100.0)
 	_update_disposition_from_opinion()
 
+func recalculate_disposition() -> void:
+	_update_disposition_from_opinion()
+
 func _update_disposition_from_opinion() -> void:
 	if is_at_war:
 		disposition = Disposition.HOSTILE

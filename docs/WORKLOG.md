@@ -3810,3 +3810,81 @@ To guarantee that post-battle army, faction, sequence, and raid states survive r
 - Verify local HEAD matches remote branch HEAD and report commit SHA and parent SHA.
 - Await user instructions. Do not merge to master and do not start Package 1O.
 
+---
+
+## [2026-10-20] Package 1O: Post-Battle Diplomatic Consequences
+
+### Context & Objective
+Implement Package 1O as a small, authoritative, deterministic extension connecting battle outcomes (player-led offensive campaigns from Package 1N and incoming settlement raids from Package 1K) to diplomatic relations per GDD §10.2 and §10.4.
+
+### Work Completed
+1. `scripts/factions/faction_data.gd`:
+   - Added `recalculate_disposition()` method:
+     - When `is_at_war == true`, strictly enforces `disposition = Disposition.HOSTILE`.
+     - When not at war, recalibrates disposition based on standard opinion thresholds: `<= -40.0` Hostile, `< 25.0` Neutral, `< 75.0` Friendly, `>= 75.0` Allied.
+   - Updated `sign_peace()`: calls `recalculate_disposition()` immediately after setting `is_at_war = false` and applying the +20.0 peace opinion boost, ensuring post-battle opinion properly dictates diplomatic stance.
+2. `scripts/factions/faction_manager.gd`:
+   - Defined authoritative named balancing constants:
+     - `OPINION_PENALTY_OFFENSIVE_CAMPAIGN = 8.0`
+     - `OPINION_PENALTY_SETTLEMENT_RAID = 10.0`
+   - Added `modify_opinion(faction_id: String, delta: float) -> Dictionary`:
+     - Clamps new opinion strictly within `[-100.0, 100.0]`.
+     - Preserves `HOSTILE` disposition while at war, or updates disposition according to opinion thresholds when at peace.
+     - Emits `relation_changed` signal exactly once with `{ "id": faction_id, "opinion": new_op, "disposition": fac.disposition }`.
+3. `scripts/combat/battle_campaign_manager.gd`:
+   - Defined matching constants `OPINION_PENALTY_OFFENSIVE_CAMPAIGN = 8.0` and `OPINION_PENALTY_SETTLEMENT_RAID = 10.0`.
+   - Added `get_faction_manager()` helper with fallback to `world_view.get("faction_mgr")`.
+   - Updated `resolve_and_apply_raid()` (Step C5):
+     - Applies `-10.0` opinion penalty via `fm.modify_opinion(faction_id, -OPINION_PENALTY_SETTLEMENT_RAID)`.
+     - Populates raid context with `diplomatic_opinion_penalty: 10.0`, `new_opinion`, and `disposition`.
+   - Updated `launch_offensive_campaign()` (Step 5c):
+     - Applies `-8.0` opinion penalty via `fm.modify_opinion(target_faction_id, -OPINION_PENALTY_OFFENSIVE_CAMPAIGN)`.
+     - Populates campaign context with `diplomatic_opinion_penalty: 8.0`, `new_opinion`, and `disposition`.
+   - Updated `is_faction_eligible_to_raid`, `can_launch_offensive_campaign`, and `launch_offensive_campaign` to resolve `fm` via `get_faction_manager()`.
+4. `scripts/test/test_battle_diplomacy_consequences.gd`:
+   - Implemented automated test suite covering TC-DIPLO.1 through TC-DIPLO.11:
+     - TC-DIPLO.1: Offensive campaign opinion penalty (-8.0).
+     - TC-DIPLO.2: Settlement raid opinion penalty (-10.0).
+     - TC-DIPLO.3: Clamping at lower (-100.0) and upper (100.0) opinion boundaries.
+     - TC-DIPLO.4: Exactly one `relation_changed` signal emitted per consequence.
+     - TC-DIPLO.5: Fail-closed immutability on rejected offensive campaigns (0 soldiers, garrisoned, marching, peaceful faction, 0 power).
+     - TC-DIPLO.6: Fail-closed immutability on ineligible raids (not due, already processed, non-existent).
+     - TC-DIPLO.7: Strictly enforced `HOSTILE` disposition during active war.
+     - TC-DIPLO.8: Post-peace disposition recalculation from post-battle opinion.
+     - TC-DIPLO.9: SaveManager live `world_instance` serialization, restoration, and double-load idempotency.
+     - TC-DIPLO.10: Combat mechanics integrity (casualties, power, sequence, raid schedule).
+     - TC-DIPLO.11: Diplomacy regression (NAP, gifts, war, peace).
+5. Documentation:
+   - Updated `docs/SCOPE_DECISIONS.md` with Section 1.15.
+   - Updated `docs/TEST_PLAN.md` with TC-DIPLO.1 through TC-DIPLO.11 specifications.
+   - Updated `docs/CHANGELOG.md` with Package 1O entry.
+   - Updated `docs/WORKLOG.md` with implementation details and test evidence.
+
+### Verification Evidence
+- `scripts/test/test_battle_diplomacy_consequences.gd`: **PASS (Exit Code 0: 11/11 tests passed)**
+- `scripts/test/test_offensive_campaign.gd`: **PASS (Exit Code 0: 14/14 tests passed)**
+- `scripts/test/test_live_battle_loop.gd`: **PASS (Exit Code 0: all battle loop integration tests passed)**
+- `scripts/test/test_factions_and_battles.gd`: **PASS (Exit Code 0: all faction/trade/battle tests passed)**
+- `scripts/test/test_save_load.gd`: **PASS (Exit Code 0: all Phase 8 persistence tests passed)**
+- `scripts/test/test_player_army.gd`: **PASS (Exit Code 0: 32/32 tests passed)**
+- `scripts/test/test_army_movement.gd`: **PASS (Exit Code 0: 32/32 tests passed)**
+- Full project test suite matrix (all 28 test suites in `scripts/test/test_*.gd`): **PASS (28 passed, 0 failed, Exit Code 0)**
+- Headless scene smoke checks (`scenes/world/world_view.tscn`, `scenes/ui/hud.tscn`): **PASS (Exit Code 0)**
+- `git diff --check`: Clean (Exit Code 0, 0 whitespace errors)
+
+### Files Created or Modified
+- `scripts/factions/faction_data.gd` (Modified)
+- `scripts/factions/faction_manager.gd` (Modified)
+- `scripts/combat/battle_campaign_manager.gd` (Modified)
+- `scripts/test/test_battle_diplomacy_consequences.gd` (Created)
+- `docs/SCOPE_DECISIONS.md` (Modified)
+- `docs/TEST_PLAN.md` (Modified)
+- `docs/CHANGELOG.md` (Modified)
+- `docs/WORKLOG.md` (Modified)
+
+### Next Exact Step
+- Stage only intended files.
+- Commit with exact message: `Implement Package 1O post-battle diplomatic consequences`.
+- Push to remote `feature/package-1o-post-battle-diplomacy`.
+- Verify local HEAD matches remote branch HEAD.
+- Await user instructions. Do not merge to master and do not start Package 1P.

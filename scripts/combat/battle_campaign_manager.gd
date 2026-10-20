@@ -13,6 +13,8 @@ const SUBSEQUENT_RAID_INTERVAL_DAYS: int = 5
 const MILITARY_POWER_PER_TROOP: float = 30.0
 const MIN_ABSTRACT_TROOPS: int = 1
 const MAX_ABSTRACT_TROOPS: int = 20
+const OPINION_PENALTY_OFFENSIVE_CAMPAIGN: float = 8.0
+const OPINION_PENALTY_SETTLEMENT_RAID: float = 10.0
 
 signal raid_scheduled(faction_id: String, scheduled_day: int, is_first: bool)
 signal raid_cancelled(faction_id: String, reason: String)
@@ -58,6 +60,13 @@ func set_faction_manager(fm: FactionManager) -> void:
 	faction_mgr = fm
 	if faction_mgr != null:
 		_connect_faction_signals()
+
+func get_faction_manager() -> FactionManager:
+	if faction_mgr != null:
+		return faction_mgr
+	if is_instance_valid(world_view) and world_view.get("faction_mgr") != null:
+		return world_view.get("faction_mgr")
+	return null
 
 func set_custom_world_data(wd: WorldGenerator.WorldData) -> void:
 	_custom_world_data = wd
@@ -152,9 +161,10 @@ func set_custom_army_manager(mgr: Object) -> void:
 # -----------------------------------------------------------------------------
 
 func is_faction_eligible_to_raid(faction_id: String) -> bool:
-	if faction_mgr == null:
+	var fm: FactionManager = get_faction_manager()
+	if fm == null:
 		return false
-	var fac: FactionData = faction_mgr.get_faction(faction_id)
+	var fac: FactionData = fm.get_faction(faction_id)
 	if fac == null:
 		return false
 	return fac.is_at_war and fac.military_power > 0.0
@@ -298,7 +308,8 @@ func resolve_and_apply_raid(faction_id: String, current_day: int = -1) -> Dictio
 	if _processed_raids.has(raid_id):
 		return {"success": false, "reason": "Raid already processed", "already_processed": true}
 
-	var fac: FactionData = faction_mgr.get_faction(faction_id) if faction_mgr != null else null
+	var fm: FactionManager = get_faction_manager()
+	var fac: FactionData = fm.get_faction(faction_id) if fm != null else null
 	if fac == null:
 		return {"success": false, "reason": "Faction data not found"}
 
@@ -419,6 +430,12 @@ func resolve_and_apply_raid(faction_id: String, current_day: int = -1) -> Dictio
 		if fac.military_power <= 0.0:
 			raid_cancelled.emit(faction_id, "Quân lực đối phương đã bị tiêu diệt hoàn toàn")
 
+	# C5. Apply Diplomatic Consequences (Package 1O)
+	if fm != null:
+		fm.modify_opinion(faction_id, -OPINION_PENALTY_SETTLEMENT_RAID)
+	elif fac != null:
+		fac.change_opinion(-OPINION_PENALTY_SETTLEMENT_RAID)
+
 	var raid_context := {
 		"raid_id": raid_id,
 		"faction_id": faction_id,
@@ -432,7 +449,10 @@ func resolve_and_apply_raid(faction_id: String, current_day: int = -1) -> Dictio
 		"enemy_casualties": enemy_casualties,
 		"remaining_military_power": fac.military_power,
 		"plundered_resources": plundered_applied,
-		"next_raid_day": next_scheduled_day
+		"next_raid_day": next_scheduled_day,
+		"diplomatic_opinion_penalty": OPINION_PENALTY_SETTLEMENT_RAID,
+		"new_opinion": fac.opinion,
+		"disposition": fac.disposition
 	}
 
 	# Mark processed, clear in-flight guard, and emit resolution signal
@@ -512,10 +532,11 @@ func set_offensive_campaign_sequence(seq: int) -> void:
 	_offensive_campaign_sequence = maxi(0, seq)
 
 func can_launch_offensive_campaign(target_faction_id: String) -> Dictionary:
-	if faction_mgr == null:
+	var fm = get_faction_manager()
+	if fm == null:
 		return {"can_attack": false, "reason": "Hệ thống thế lực chưa khởi tạo."}
 
-	var fac: FactionData = faction_mgr.get_faction(target_faction_id)
+	var fac: FactionData = fm.get_faction(target_faction_id)
 	if fac == null:
 		return {"can_attack": false, "reason": "Thế lực chỉ định không tồn tại."}
 
@@ -560,7 +581,8 @@ func launch_offensive_campaign(target_faction_id: String, custom_seed: int = -1)
 
 	_in_flight_offensive[target_faction_id] = true
 
-	var fac: FactionData = faction_mgr.get_faction(target_faction_id)
+	var fm = get_faction_manager()
+	var fac: FactionData = fm.get_faction(target_faction_id) if fm != null else null
 	var army_mgr = get_player_army_manager()
 
 	# 1. Attacker Force (Player Army)
@@ -612,6 +634,12 @@ func launch_offensive_campaign(target_faction_id: String, custom_seed: int = -1)
 	var prev_mil: float = fac.military_power
 	fac.military_power = maxf(0.0, fac.military_power - mil_loss)
 
+	# 5c. Apply Diplomatic Consequences (Package 1O)
+	if fm != null:
+		fm.modify_opinion(target_faction_id, -OPINION_PENALTY_OFFENSIVE_CAMPAIGN)
+	elif fac != null:
+		fac.change_opinion(-OPINION_PENALTY_OFFENSIVE_CAMPAIGN)
+
 	_in_flight_offensive.erase(target_faction_id)
 
 	# 6. Build context and emit signals
@@ -627,7 +655,10 @@ func launch_offensive_campaign(target_faction_id: String, custom_seed: int = -1)
 		"previous_military_power": prev_mil,
 		"resolution_day": res_day,
 		"sequence": _offensive_campaign_sequence,
-		"seed": campaign_seed
+		"seed": campaign_seed,
+		"diplomatic_opinion_penalty": OPINION_PENALTY_OFFENSIVE_CAMPAIGN,
+		"new_opinion": fac.opinion,
+		"disposition": fac.disposition
 	}
 
 	battle_resolved.emit(report, context)

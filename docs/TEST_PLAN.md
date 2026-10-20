@@ -325,3 +325,19 @@ When Godot Editor is running with the MCP plugin:
     - **TC-OFFENSE.14 (Movement Rules Contract):** Deployed armies retain full Package 1M movement capabilities: ordering return home initiates march, step advancement reaches rally cell, transitions to `GARRISONED`, and restores defense eligibility.
   - *Status:* **PASSED** (2026-10-20, Exit Code 0: 14/14 tests passed).
 
+### Package 1O: Post-Battle Diplomatic Consequences
+- **TC-DIPLO.1 to TC-DIPLO.11: Post-Battle Diplomatic Consequences Suite**
+  - *Script:* `res://scripts/test/test_battle_diplomacy_consequences.gd`
+  - *Acceptance Criteria:*
+    - **TC-DIPLO.1 (Offensive Campaign Opinion Penalty):** A successful player-led offensive campaign applies exactly the configured penalty (-8.0, `OPINION_PENALTY_OFFENSIVE_CAMPAIGN`) to the target faction's opinion. The returned campaign context dictionary contains `diplomatic_opinion_penalty`, `new_opinion`, and `disposition`.
+    - **TC-DIPLO.2 (Settlement Raid Opinion Penalty):** A successfully resolved settlement raid applies exactly the configured penalty (-10.0, `OPINION_PENALTY_SETTLEMENT_RAID`) to the attacking faction's opinion. The returned raid context contains `diplomatic_opinion_penalty`, `new_opinion`, and `disposition`.
+    - **TC-DIPLO.3 (Boundary Clamping):** Opinion penalties strictly clamp at lower (-100.0) and upper (100.0) boundaries. Starting at -95.0 with a -8.0 or -10.0 penalty clamps exactly to -100.0 without underflow. Further battles at -100.0 remain strictly at -100.0.
+    - **TC-DIPLO.4 (Signal Emission Exactly Once):** Exactly one `FactionManager.relation_changed` signal is emitted per successful battle consequence (offensive campaign or settlement raid), with matching payload (`id`, `opinion`, `disposition`).
+    - **TC-DIPLO.5 (Fail-Closed Rejection Immutability):** Ineligible offensive campaigns (0 soldiers, garrisoned at base/rally, actively marching, non-war faction, 0 enemy military power) fail closed, causing zero opinion or disposition mutation and emitting zero signals.
+    - **TC-DIPLO.6 (Raid Eligibility Immutability):** Raids that are not yet due, already processed for the day, or non-existent fail closed, applying zero diplomatic mutation and emitting zero signals.
+    - **TC-DIPLO.7 (Hostile Disposition During War):** While at war (`is_at_war == true`), faction disposition remains strictly locked to `Disposition.HOSTILE` regardless of intermediate opinion values.
+    - **TC-DIPLO.8 (Post-Peace Disposition Recalculation):** Signing peace clears war status, applies the peace opinion boost (+20.0), and triggers dynamic recalculation of disposition from post-battle opinion via `FactionData.recalculate_disposition()`: hostile for opinion <= -40.0, neutral for -40.0 < opinion < 25.0, friendly for opinion >= 25.0.
+    - **TC-DIPLO.9 (SaveManager Persistence & Double-Load Idempotency):** Live `WorldView` battle results serialize cleanly through `SaveManager.serialize_world_state()` with intact faction opinions and dispositions. Calling `SaveManager.apply_loaded_state_to_world()` accurately restores post-battle opinions and dispositions with zero signal emissions. A second consecutive load executes idempotently with zero opinion mutations, zero signal emissions, and zero duplicated markers.
+    - **TC-DIPLO.10 (Combat Mechanics Integrity):** Casualties, military power deductions, plunder, raid schedules, and campaign sequences operate identically alongside diplomatic consequence application.
+    - **TC-DIPLO.11 (Diplomacy Regression Suite):** Existing non-aggression pacts, gifts, war declarations, and peace treaties continue to function with full behavioral fidelity and correct signal emission.
+  - *Status:* **PASSED** (2026-10-20, Exit Code 0: 11/11 tests passed).

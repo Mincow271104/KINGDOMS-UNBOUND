@@ -6,6 +6,9 @@ extends RefCounted
 
 
 
+const OPINION_PENALTY_OFFENSIVE_CAMPAIGN: float = 8.0
+const OPINION_PENALTY_SETTLEMENT_RAID: float = 10.0
+
 signal relation_changed(faction_id: String, new_opinion: float, disposition: int)
 signal treaty_signed(faction_id: String, treaty_type: String)
 signal war_declared(faction_id: String)
@@ -64,6 +67,21 @@ func get_faction(id: String) -> FactionData:
 
 func get_all_factions() -> Array:
 	return _factions.values()
+
+func modify_opinion(faction_id: String, delta: float) -> Dictionary:
+	var fac: FactionData = get_faction(faction_id)
+	if fac == null:
+		return {"success": false, "reason": "Thế lực không tồn tại"}
+	var prev_opinion: float = fac.opinion
+	fac.change_opinion(delta)
+	relation_changed.emit(fac.id, fac.opinion, fac.disposition)
+	return {
+		"success": true,
+		"faction_id": fac.id,
+		"previous_opinion": prev_opinion,
+		"new_opinion": fac.opinion,
+		"disposition": fac.disposition
+	}
 
 func send_gift(faction_id: String, resource_id: String, amount: int, resource_mgr: Object) -> Dictionary:
 	var fac: FactionData = get_faction(faction_id)

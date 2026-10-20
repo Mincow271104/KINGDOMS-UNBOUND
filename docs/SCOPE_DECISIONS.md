@@ -146,7 +146,17 @@
   - **Outcome Application:** Player casualties deduct from standing army via `PlayerArmyManager.remove_casualties()`. Target faction military power reduces by $30.0 \times \text{casualties}$, clamped to floor $0.0$.
   - **Post-Battle Army Normalization:** If all soldiers perish, the army automatically recovers to clean `GARRISONED` status at the home rally cell. Surviving soldiers remain deployed at their current field coordinate without teleporting.
   - **Event Reporting:** In-Game HUD displays informative Vietnamese event banners detailing casualties, combat scores, remaining troops, and enemy power.
-  - **Isolation & Persistence:** Offensive campaigns are strictly isolated from incoming settlement raid timers. Offensive campaign sequences persist under `battle_campaign` in `SaveManager` with backward-compatible validation.
+### 1.15 Post-Battle Diplomatic Consequences (Package 1O)
+- **Problem:** Resolving player-led offensive campaigns (Package 1N) and incoming settlement raids (Package 1K) inflicted physical casualties and altered faction military power, but diplomatic relations remained static after war initiation. This detached military actions from diplomatic standing and post-war realignment.
+- **Resolution (GDD §10.2 & §10.4 Alignment):**
+  - **Authoritative Named Penalties:**
+    - Player-led offensive campaign: Reduces target faction opinion by **8.0 points** (`OPINION_PENALTY_OFFENSIVE_CAMPAIGN = 8.0`).
+    - Enemy settlement raid: Reduces attacking faction opinion by **10.0 points** (`OPINION_PENALTY_SETTLEMENT_RAID = 10.0`).
+  - **Strict Boundary Clamping:** All opinion adjustments clamp within the canonical `[-100.0, 100.0]` range via `FactionData.change_opinion()` and `FactionManager.modify_opinion()`.
+  - **War-Time Disposition Semantics:** While `is_at_war == true`, faction disposition remains strictly locked to `Disposition.HOSTILE` regardless of opinion shifts. Post-war disposition recalculates dynamically from opinion upon signing peace via `FactionData.recalculate_disposition()`.
+  - **Single Signal Emission:** Successful battle consequences emit `FactionManager.relation_changed` exactly once per battle consequence.
+  - **Fail-Closed Immutability:** Ineligible offensive attacks (0 troops, garrisoned, marching, not at war, 0 military power) and invalid/not-due/already-processed raids apply 0 opinion penalty and emit 0 signals.
+  - **Persistence & Idempotency:** Opinion and disposition persist through existing `SaveManager` world state serialization/deserialization. Restoring world saves emits zero `relation_changed` signals and repeated loads execute idempotently without reapplying penalties.
 
 ---
 
