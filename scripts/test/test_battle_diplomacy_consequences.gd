@@ -232,8 +232,8 @@ func _test_tc_diplo_1_offensive_campaign_penalty() -> void:
 
 	var res: Dictionary = camp_mgr.launch_offensive_campaign("rival_clan", 12345)
 	_assert_true(res.get("success", false), "TC-DIPLO.1", "Offensive campaign launched successfully")
-	_assert_approx(hostile_fac.opinion, 12.0, "TC-DIPLO.1", "Opinion reduced by exactly 8.0 (20.0 -> 12.0)")
-	_assert_approx(float(res.get("context", {}).get("diplomatic_opinion_penalty", 0.0)), 8.0, "TC-DIPLO.1", "Context reflects 8.0 penalty")
+	_assert_approx(hostile_fac.opinion, 20.0 - FactionManagerScript.OPINION_PENALTY_OFFENSIVE_CAMPAIGN, "TC-DIPLO.1", "Opinion reduced by exactly 8.0 (20.0 -> 12.0)")
+	_assert_approx(float(res.get("context", {}).get("diplomatic_opinion_penalty", 0.0)), FactionManagerScript.OPINION_PENALTY_OFFENSIVE_CAMPAIGN, "TC-DIPLO.1", "Context reflects canonical 8.0 penalty")
 	_assert_approx(float(res.get("context", {}).get("new_opinion", 0.0)), 12.0, "TC-DIPLO.1", "Context reflects new opinion 12.0")
 
 # -----------------------------------------------------------------------------
@@ -252,15 +252,15 @@ func _test_tc_diplo_2_settlement_raid_penalty() -> void:
 
 	var res: Dictionary = camp_mgr.resolve_and_apply_raid("rival_clan", 5)
 	_assert_true(res.get("success", false), "TC-DIPLO.2", "Raid resolved successfully")
-	_assert_approx(hostile_fac.opinion, -20.0, "TC-DIPLO.2", "Opinion reduced by exactly 10.0 (-10.0 -> -20.0)")
-	_assert_approx(float(res.get("context", {}).get("diplomatic_opinion_penalty", 0.0)), 10.0, "TC-DIPLO.2", "Context reflects 10.0 penalty")
+	_assert_approx(hostile_fac.opinion, -10.0 - FactionManagerScript.OPINION_PENALTY_SETTLEMENT_RAID, "TC-DIPLO.2", "Opinion reduced by exactly 10.0 (-10.0 -> -20.0)")
+	_assert_approx(float(res.get("context", {}).get("diplomatic_opinion_penalty", 0.0)), FactionManagerScript.OPINION_PENALTY_SETTLEMENT_RAID, "TC-DIPLO.2", "Context reflects canonical 10.0 penalty")
 	_assert_approx(float(res.get("context", {}).get("new_opinion", 0.0)), -20.0, "TC-DIPLO.2", "Context reflects new opinion -20.0")
 
 # -----------------------------------------------------------------------------
 # TC-DIPLO.3: Diplomatic penalties clamp at valid boundaries (-100.0 to 100.0)
 # -----------------------------------------------------------------------------
 func _test_tc_diplo_3_clamping_boundaries() -> void:
-	print("--- TC-DIPLO.3: Opinion clamping at boundary (-100.0) ---")
+	print("--- TC-DIPLO.3: Opinion clamping at boundaries (-100.0 and +100.0) ---")
 	var s = _create_test_campaign_setup()
 	var camp_mgr: BattleCampaignManager = s["camp_mgr"]
 	var hostile_fac: FactionData = s["hostile_fac"]
@@ -282,6 +282,70 @@ func _test_tc_diplo_3_clamping_boundaries() -> void:
 	var res3: Dictionary = camp_mgr.launch_offensive_campaign("rival_clan", 22222)
 	_assert_true(res3.get("success", false), "TC-DIPLO.3C", "Offensive campaign launched while at -100.0")
 	_assert_approx(hostile_fac.opinion, -100.0, "TC-DIPLO.3C", "Opinion stays clamped at -100.0")
+
+	# Subcase D & E: Authoritative upper boundary (+100.0) clamping via FactionManager.modify_opinion
+	# Uses an isolated FactionManager instance and non-war faction to avoid test contamination
+	var bound_fm := FactionManagerScript.new()
+	var test_fac: FactionData = bound_fm.get_faction("neutral_tribe")
+	_assert_true(test_fac != null and not test_fac.is_at_war, "TC-DIPLO.3D", "Non-war faction available for boundary testing")
+
+	var bound_emissions: Array = []
+	var on_bound_relation_changed = func(fid: String, op: float, disp: int):
+		bound_emissions.append({"id": fid, "opinion": op, "disposition": disp})
+	bound_fm.relation_changed.connect(on_bound_relation_changed)
+
+	# 1. Set non-war faction opinion to 95.0; apply positive delta exceeding 100.0; assert resulting opinion is exactly 100.0
+	test_fac.opinion = 95.0
+	test_fac.recalculate_disposition()
+	bound_emissions.clear()
+	var res_upper1: Dictionary = bound_fm.modify_opinion(test_fac.id, 20.0)
+	_assert_true(res_upper1.get("success", false), "TC-DIPLO.3D", "Positive modify_opinion succeeded")
+	_assert_approx(test_fac.opinion, 100.0, "TC-DIPLO.3D", "Opinion 95.0 + 20.0 clamped to exactly 100.0")
+	_assert_approx(float(res_upper1.get("new_opinion", 0.0)), 100.0, "TC-DIPLO.3D", "Returned new_opinion is 100.0")
+	_assert_eq(bound_emissions.size(), 1, "TC-DIPLO.3D", "Exactly 1 signal emitted on upper boundary clamp")
+	if bound_emissions.size() > 0:
+		_assert_eq(bound_emissions[0]["id"], test_fac.id, "TC-DIPLO.3D", "Signal faction_id matches")
+		_assert_approx(bound_emissions[0]["opinion"], 100.0, "TC-DIPLO.3D", "Signal opinion matches clamped 100.0")
+		_assert_eq(bound_emissions[0]["disposition"], FactionDataScript.Disposition.ALLIED, "TC-DIPLO.3D", "Signal disposition is ALLIED (>= 75.0)")
+
+	# 2. Apply another positive delta while already at 100.0; assert it remains exactly 100.0
+	bound_emissions.clear()
+	var res_upper2: Dictionary = bound_fm.modify_opinion(test_fac.id, 15.0)
+	_assert_true(res_upper2.get("success", false), "TC-DIPLO.3E", "Positive modify_opinion while at 100.0 succeeded")
+	_assert_approx(test_fac.opinion, 100.0, "TC-DIPLO.3E", "Opinion remains strictly clamped at 100.0")
+	_assert_approx(float(res_upper2.get("new_opinion", 0.0)), 100.0, "TC-DIPLO.3E", "Returned new_opinion remains 100.0")
+	_assert_eq(bound_emissions.size(), 1, "TC-DIPLO.3E", "Exactly 1 signal emitted when already at upper bound")
+	if bound_emissions.size() > 0:
+		_assert_approx(bound_emissions[0]["opinion"], 100.0, "TC-DIPLO.3E", "Signal opinion payload matches 100.0")
+		_assert_eq(bound_emissions[0]["disposition"], FactionDataScript.Disposition.ALLIED, "TC-DIPLO.3E", "Signal disposition remains ALLIED")
+
+	# Subcase F & G: Authoritative lower boundary (-100.0) clamping via FactionManager.modify_opinion
+	# 3. Set non-war faction opinion to -95.0; apply negative delta crossing -100.0; assert resulting opinion is exactly -100.0
+	test_fac.opinion = -95.0
+	test_fac.recalculate_disposition()
+	bound_emissions.clear()
+	var res_lower1: Dictionary = bound_fm.modify_opinion(test_fac.id, -20.0)
+	_assert_true(res_lower1.get("success", false), "TC-DIPLO.3F", "Negative modify_opinion succeeded")
+	_assert_approx(test_fac.opinion, -100.0, "TC-DIPLO.3F", "Opinion -95.0 - 20.0 clamped to exactly -100.0")
+	_assert_approx(float(res_lower1.get("new_opinion", 0.0)), -100.0, "TC-DIPLO.3F", "Returned new_opinion is -100.0")
+	_assert_eq(bound_emissions.size(), 1, "TC-DIPLO.3F", "Exactly 1 signal emitted on lower boundary clamp")
+	if bound_emissions.size() > 0:
+		_assert_eq(bound_emissions[0]["id"], test_fac.id, "TC-DIPLO.3F", "Signal faction_id matches")
+		_assert_approx(bound_emissions[0]["opinion"], -100.0, "TC-DIPLO.3F", "Signal opinion matches clamped -100.0")
+		_assert_eq(bound_emissions[0]["disposition"], FactionDataScript.Disposition.HOSTILE, "TC-DIPLO.3F", "Signal disposition is HOSTILE (<= -40.0)")
+
+	# 4. Apply another negative delta while already at -100.0; assert it remains exactly -100.0
+	bound_emissions.clear()
+	var res_lower2: Dictionary = bound_fm.modify_opinion(test_fac.id, -15.0)
+	_assert_true(res_lower2.get("success", false), "TC-DIPLO.3G", "Negative modify_opinion while at -100.0 succeeded")
+	_assert_approx(test_fac.opinion, -100.0, "TC-DIPLO.3G", "Opinion remains strictly clamped at -100.0")
+	_assert_approx(float(res_lower2.get("new_opinion", 0.0)), -100.0, "TC-DIPLO.3G", "Returned new_opinion remains -100.0")
+	_assert_eq(bound_emissions.size(), 1, "TC-DIPLO.3G", "Exactly 1 signal emitted when already at lower bound")
+	if bound_emissions.size() > 0:
+		_assert_approx(bound_emissions[0]["opinion"], -100.0, "TC-DIPLO.3G", "Signal opinion payload matches -100.0")
+		_assert_eq(bound_emissions[0]["disposition"], FactionDataScript.Disposition.HOSTILE, "TC-DIPLO.3G", "Signal disposition remains HOSTILE")
+
+	bound_fm.relation_changed.disconnect(on_bound_relation_changed)
 
 # -----------------------------------------------------------------------------
 # TC-DIPLO.4: Exactly one relation_changed event emitted per successful battle

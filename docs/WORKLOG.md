@@ -3822,7 +3822,7 @@ Implement Package 1O as a small, authoritative, deterministic extension connecti
    - Added `recalculate_disposition()` method:
      - When `is_at_war == true`, strictly enforces `disposition = Disposition.HOSTILE`.
      - When not at war, recalibrates disposition based on standard opinion thresholds: `<= -40.0` Hostile, `< 25.0` Neutral, `< 75.0` Friendly, `>= 75.0` Allied.
-   - Updated `sign_peace()`: calls `recalculate_disposition()` immediately after setting `is_at_war = false` and applying the +20.0 peace opinion boost, ensuring post-battle opinion properly dictates diplomatic stance.
+   - Clarified `sign_peace()`: sets `is_at_war = false` and calls `change_opinion(20.0)`, which recalculates disposition from post-battle opinion through `_update_disposition_from_opinion()`. Added explicit public helper `recalculate_disposition()` on `FactionData` for on-demand recalculations.
 2. `scripts/factions/faction_manager.gd`:
    - Defined authoritative named balancing constants:
      - `OPINION_PENALTY_OFFENSIVE_CAMPAIGN = 8.0`
@@ -3883,8 +3883,54 @@ Implement Package 1O as a small, authoritative, deterministic extension connecti
 - `docs/WORKLOG.md` (Modified)
 
 ### Next Exact Step
-- Stage only intended files.
-- Commit with exact message: `Implement Package 1O post-battle diplomatic consequences`.
-- Push to remote `feature/package-1o-post-battle-diplomacy`.
-- Verify local HEAD matches remote branch HEAD.
+- Review and address any independent review findings for Package 1O.
 - Await user instructions. Do not merge to master and do not start Package 1P.
+
+---
+
+## [2026-10-20] Package 1O Review Fix: Opinion Boundary Coverage & Single Source of Truth
+
+### Context & Objective
+Address independent review findings for Package 1O:
+1. Finding A: Complete TC-DIPLO.3 boundary coverage to explicitly verify both lower (-100.0) and upper (+100.0) opinion clamping, testing signal emission counts and payloads on positive and negative boundary crossovers and repeat clamping.
+2. Finding B: Consolidate opinion penalty constants to establish `FactionManager` as the single authoritative source of truth, removing duplicate declarations from `BattleCampaignManager`.
+3. Finding 4: Correct documentation accuracy regarding `sign_peace()` disposition recalculation.
+
+### Work Completed
+1. `scripts/combat/battle_campaign_manager.gd`:
+   - Removed duplicated declarations of `OPINION_PENALTY_OFFENSIVE_CAMPAIGN` and `OPINION_PENALTY_SETTLEMENT_RAID`.
+   - Preloaded `FactionManagerScript` (`const FactionManagerScript = preload("res://scripts/factions/faction_manager.gd")`).
+   - Referenced `FactionManagerScript.OPINION_PENALTY_OFFENSIVE_CAMPAIGN` and `FactionManagerScript.OPINION_PENALTY_SETTLEMENT_RAID` in `launch_offensive_campaign()` and `resolve_and_apply_raid()`, establishing `FactionManager` as the single canonical source of truth.
+2. `scripts/test/test_battle_diplomacy_consequences.gd`:
+   - Updated TC-DIPLO.1 and TC-DIPLO.2 to verify context penalties against canonical `FactionManagerScript.OPINION_PENALTY_...`.
+   - Extended TC-DIPLO.3 with subcases D, E, F, G to test full boundary clamping on both ends:
+     - Upper boundary (+100.0): Starting at 95.0, applying +20.0 delta clamps opinion to exactly 100.0, emitting exactly 1 signal with `Disposition.ALLIED`; applying another +15.0 delta while at 100.0 remains strictly 100.0 and emits 1 signal.
+     - Lower boundary (-100.0): Starting at -95.0, applying -20.0 delta clamps opinion to exactly -100.0, emitting exactly 1 signal with `Disposition.HOSTILE`; applying another -15.0 delta while at -100.0 remains strictly -100.0 and emits 1 signal.
+     - Fully isolated via dedicated `FactionManagerScript.new()` instance and non-war faction (`neutral_tribe`) to ensure zero side effects, no battle triggering, and no fixture contamination.
+3. Documentation:
+   - Corrected `sign_peace()` documentation in `docs/WORKLOG.md` to accurately describe the `change_opinion(20.0)` path.
+   - Updated `docs/SCOPE_DECISIONS.md` Section 1.15 and `docs/TEST_PLAN.md` TC-DIPLO.3 specifications.
+
+### Verification Evidence
+- `scripts/test/test_battle_diplomacy_consequences.gd`: **PASS (Exit Code 0: 11/11 tests passed, all subcases A-G in TC-DIPLO.3 passed)**
+- `scripts/test/test_offensive_campaign.gd`: **PASS (Exit Code 0: 14/14 tests passed)**
+- `scripts/test/test_live_battle_loop.gd`: **PASS (Exit Code 0: all battle loop integration tests passed)**
+- `scripts/test/test_factions_and_battles.gd`: **PASS (Exit Code 0: all faction/trade/battle tests passed)**
+- `scripts/test/test_save_load.gd`: **PASS (Exit Code 0: all Phase 8 persistence tests passed)**
+- Full project test suite matrix (dynamically discovered all test suites in `scripts/test/test_*.gd`): **PASS (All passed, 0 failed, Exit Code 0)**
+- Headless project / import parse check: **PASS (Exit Code 0)**
+- Headless scene smoke checks (`scenes/world/world_view.tscn`, `scenes/ui/hud.tscn`): **PASS (Exit Code 0)**
+- `git diff --check`: Clean (Exit Code 0, 0 whitespace errors)
+
+### Files Modified
+- `scripts/combat/battle_campaign_manager.gd`
+- `scripts/test/test_battle_diplomacy_consequences.gd`
+- `docs/SCOPE_DECISIONS.md`
+- `docs/TEST_PLAN.md`
+- `docs/WORKLOG.md`
+
+### Next Exact Step
+- Stage only files intentionally modified for this review fix.
+- Commit with exact message: `Fix Package 1O diplomacy boundary verification`.
+- Push to remote `feature/package-1o-post-battle-diplomacy`.
+- Verify local HEAD matches remote branch HEAD and report results.

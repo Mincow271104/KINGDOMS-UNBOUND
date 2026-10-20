@@ -7,14 +7,13 @@ extends RefCounted
 const BattleResolverScript = preload("res://scripts/combat/battle_resolver.gd")
 const BuildingSystemScript = preload("res://scripts/economy/building_system.gd")
 const EconomyConfigScript = preload("res://scripts/economy/economy_config.gd")
+const FactionManagerScript = preload("res://scripts/factions/faction_manager.gd")
 
 const INITIAL_RAID_DELAY_DAYS: int = 3
 const SUBSEQUENT_RAID_INTERVAL_DAYS: int = 5
 const MILITARY_POWER_PER_TROOP: float = 30.0
 const MIN_ABSTRACT_TROOPS: int = 1
 const MAX_ABSTRACT_TROOPS: int = 20
-const OPINION_PENALTY_OFFENSIVE_CAMPAIGN: float = 8.0
-const OPINION_PENALTY_SETTLEMENT_RAID: float = 10.0
 
 signal raid_scheduled(faction_id: String, scheduled_day: int, is_first: bool)
 signal raid_cancelled(faction_id: String, reason: String)
@@ -432,9 +431,9 @@ func resolve_and_apply_raid(faction_id: String, current_day: int = -1) -> Dictio
 
 	# C5. Apply Diplomatic Consequences (Package 1O)
 	if fm != null:
-		fm.modify_opinion(faction_id, -OPINION_PENALTY_SETTLEMENT_RAID)
+		fm.modify_opinion(faction_id, -FactionManagerScript.OPINION_PENALTY_SETTLEMENT_RAID)
 	elif fac != null:
-		fac.change_opinion(-OPINION_PENALTY_SETTLEMENT_RAID)
+		fac.change_opinion(-FactionManagerScript.OPINION_PENALTY_SETTLEMENT_RAID)
 
 	var raid_context := {
 		"raid_id": raid_id,
@@ -450,7 +449,7 @@ func resolve_and_apply_raid(faction_id: String, current_day: int = -1) -> Dictio
 		"remaining_military_power": fac.military_power,
 		"plundered_resources": plundered_applied,
 		"next_raid_day": next_scheduled_day,
-		"diplomatic_opinion_penalty": OPINION_PENALTY_SETTLEMENT_RAID,
+		"diplomatic_opinion_penalty": FactionManagerScript.OPINION_PENALTY_SETTLEMENT_RAID,
 		"new_opinion": fac.opinion,
 		"disposition": fac.disposition
 	}
@@ -636,9 +635,9 @@ func launch_offensive_campaign(target_faction_id: String, custom_seed: int = -1)
 
 	# 5c. Apply Diplomatic Consequences (Package 1O)
 	if fm != null:
-		fm.modify_opinion(target_faction_id, -OPINION_PENALTY_OFFENSIVE_CAMPAIGN)
+		fm.modify_opinion(target_faction_id, -FactionManagerScript.OPINION_PENALTY_OFFENSIVE_CAMPAIGN)
 	elif fac != null:
-		fac.change_opinion(-OPINION_PENALTY_OFFENSIVE_CAMPAIGN)
+		fac.change_opinion(-FactionManagerScript.OPINION_PENALTY_OFFENSIVE_CAMPAIGN)
 
 	_in_flight_offensive.erase(target_faction_id)
 
@@ -656,7 +655,7 @@ func launch_offensive_campaign(target_faction_id: String, custom_seed: int = -1)
 		"resolution_day": res_day,
 		"sequence": _offensive_campaign_sequence,
 		"seed": campaign_seed,
-		"diplomatic_opinion_penalty": OPINION_PENALTY_OFFENSIVE_CAMPAIGN,
+		"diplomatic_opinion_penalty": FactionManagerScript.OPINION_PENALTY_OFFENSIVE_CAMPAIGN,
 		"new_opinion": fac.opinion,
 		"disposition": fac.disposition
 	}
