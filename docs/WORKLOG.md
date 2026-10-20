@@ -4018,10 +4018,10 @@ Implement Package 1P as a small, authoritative, deterministic extension of `Fact
 - `docs/WORKLOG.md` (Modified)
 
 ### Next Exact Step
-- Package 1P is awaiting independent review.
-- The current task is to strengthen the verification coverage (TC-EMERGE.9, TC-EMERGE.10, TC-EMERGE.11) and correct worklog status.
-- After this review fix is committed and pushed, await independent review again.
-- Do not merge into `master` and do not begin Package 1Q until authorized.
+- Package 1P review-fix commit `022505cb5bd7e9319d37c513c908441fdd8aff69` has been committed and pushed to `feature/package-1p-emerging-faction-ascension`.
+- The branch is awaiting independent review.
+- No additional staging, commit, or push for the already-completed review fix is pending.
+- Do not merge into `master` or begin Package 1Q without authorization.
 
 ---
 
@@ -4045,12 +4045,14 @@ Address independent review findings for Package 1P:
    - Replaced stale Package 1P completion instructions with current review status and documented review fix work and verification evidence.
 
 ### Verification Evidence
-- Focused Test Suite (`scripts/test/test_emerging_faction_ascension.gd`): **PASS (Exit Code 0: 11/11 tests passed)**
-- Regression Suite — Persistence Roundtrip (`scripts/test/test_save_load.gd`): **PASS (Exit Code 0: all Phase 8 tests passed)**
-- Regression Suite — Post-Battle Diplomacy (`scripts/test/test_battle_diplomacy_consequences.gd`): **PASS (Exit Code 0: 11/11 tests passed)**
-- Regression Suite — Offensive Campaigns (`scripts/test/test_offensive_campaign.gd`): **PASS (Exit Code 0: 14/14 tests passed)**
-- Regression Suite — Army Movement (`scripts/test/test_army_movement.gd`): **PASS (Exit Code 0: 32/32 tests passed)**
-- `git diff --check`: Clean (0 whitespace/formatting issues)
+- **Tests executed during this review-fix session:**
+  - Focused Test Suite (`scripts/test/test_emerging_faction_ascension.gd`): **PASS (Exit Code 0: 11/11 tests passed)**
+  - Regression Suite — Persistence Roundtrip (`scripts/test/test_save_load.gd`): **PASS (Exit Code 0: all Phase 8 tests passed)**
+  - `git diff --check`: **Clean (Exit Code 0, 0 whitespace/formatting issues)**
+- **Regression test results inherited from original Package 1P implementation run (not rerun during this review-fix session):**
+  - Regression Suite — Post-Battle Diplomacy (`scripts/test/test_battle_diplomacy_consequences.gd`): PASS (Exit Code 0: 11/11 tests passed)
+  - Regression Suite — Offensive Campaigns (`scripts/test/test_offensive_campaign.gd`): PASS (Exit Code 0: 14/14 tests passed)
+  - Regression Suite — Army Movement (`scripts/test/test_army_movement.gd`): PASS (Exit Code 0: 32/32 tests passed)
 
 ### Files Modified
 - `scripts/test/test_emerging_faction_ascension.gd` (Modified)
@@ -4058,8 +4060,7 @@ Address independent review findings for Package 1P:
 - `docs/WORKLOG.md` (Modified)
 
 ### Next Exact Step
-- Stage modified files (`scripts/test/test_emerging_faction_ascension.gd`, `docs/TEST_PLAN.md`, `docs/WORKLOG.md`).
-- Commit with exact message: `Strengthen Package 1P verification coverage`.
-- Push to remote `feature/package-1p-emerging-faction-ascension`.
-- Verify local HEAD equals remote branch HEAD and await independent review.
-- Do not merge into `master` and do not begin Package 1Q until authorized.
+- Package 1P review-fix commit `022505cb5bd7e9319d37c513c908441fdd8aff69` has been committed and pushed to `feature/package-1p-emerging-faction-ascension`.
+- The branch is awaiting independent review.
+- No additional staging, commit, or push for the already-completed review fix is pending.
+- Do not merge into `master` or begin Package 1Q without authorization.

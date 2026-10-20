@@ -364,6 +364,7 @@ func test_tc_emerge_9_missing_faction_safety() -> void:
 	_assert_approx(rival_mil.military_power, 75.0, "TC-EMERGE.9-MIL-PWR-INTACT", 0.01)
 	_assert_eq(rival_mil.type, "rival_military", "TC-EMERGE.9-MIL-TYPE-INTACT", "Rival military type unmutated")
 	_assert_eq(rival_merch.population, 50, "TC-EMERGE.9-MERCH-POP-INTACT", "Rival merchant population unmutated")
+	_assert_approx(rival_merch.military_power, 50.0, "TC-EMERGE.9-MERCH-PWR-INTACT", 0.01)
 	_assert_eq(rival_merch.type, "rival_merchant", "TC-EMERGE.9-MERCH-TYPE-INTACT", "Rival merchant type unmutated")
 	_assert_false(fm.has_emerging_power(), "TC-EMERGE.9-NO-EMERGING-POWER", "World still has zero emerging powers")
 
