@@ -483,6 +483,14 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 			var off_seq = camp_val.get("offensive_sequence")
 			if not ((off_seq is int) or (off_seq is float and off_seq == floor(off_seq))) or int(off_seq) < 0:
 				return {"valid": false, "error": "offensive_sequence của battle_campaign phải là số nguyên >= 0."}
+		if camp_val.has("pending_raids"):
+			var p_raids = camp_val.get("pending_raids")
+			if not (p_raids is Dictionary):
+				return {"valid": false, "error": "pending_raids của battle_campaign phải là từ điển (Dictionary)."}
+		if camp_val.has("processed_raids"):
+			var pr_raids = camp_val.get("processed_raids")
+			if not (pr_raids is Dictionary):
+				return {"valid": false, "error": "processed_raids của battle_campaign phải là từ điển (Dictionary)."}
 		if camp_val.has("scheduled_raids"):
 			var raids_val = camp_val.get("scheduled_raids")
 			if not (raids_val is Array):

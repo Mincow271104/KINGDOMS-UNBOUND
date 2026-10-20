@@ -535,6 +535,206 @@ func _test_tc_offense_12_persistence_and_schema_validation() -> void:
 	new_camp_mgr.deserialize(serialized)
 	_assert_eq(new_camp_mgr.get_offensive_campaign_sequence(), expected_seq, "TC-OFFENSE.12", "Deserialized offensive_sequence matches")
 
+	# =========================================================================
+	# Live WorldView SaveManager Integration Test (Parts A, B, C, D)
+	# =========================================================================
+	_assert_true(world_instance != null, "TC-OFFENSE.12", "world_instance fixture is available")
+	var live_army_mgr: PlayerArmyManager = world_instance.get("player_army_mgr")
+	var live_fac_mgr: FactionManager = world_instance.get("faction_mgr")
+	var live_camp_mgr: BattleCampaignManager = world_instance.get("battle_campaign_mgr")
+	var live_world_data: WorldGenerator.WorldData = world_instance.get("world_data")
+	var live_nav: GridNavigation = world_instance.get("nav")
+
+	# Part A: Live World Setup & Offensive Resolution
+	# Ensure active barracks exists for sufficient army capacity
+	var has_barracks := false
+	for b in live_world_data.buildings:
+		if b.get("type") == "barracks" and b.get("state") == "active":
+			has_barracks = true
+			break
+	if not has_barracks:
+		live_world_data.buildings.append({
+			"id": "bld_barracks_offense_persist",
+			"type": "barracks",
+			"cell": Vector2i(26, 26),
+			"size": Vector2i(3, 3),
+			"state": "active",
+			"construction_progress": 18.0,
+			"construction_hours": 18.0
+		})
+	live_army_mgr.notify_capacity_changed()
+
+	# Deploy army with positive troops and establish IDLE_AT_FIELD away from rally
+	live_army_mgr.soldier_count = 20
+	live_army_mgr.is_supplied = true
+	live_army_mgr.refresh_rally_cell()
+	var live_rally: Vector2i = live_army_mgr.get_rally_cell()
+
+	var field_target := Vector2i(live_rally.x + 4, live_rally.y)
+	if not IsoMath.is_in_bounds(field_target) or not live_nav.is_cell_walkable(field_target):
+		field_target = Vector2i(live_rally.x, live_rally.y + 4)
+	if not IsoMath.is_in_bounds(field_target) or not live_nav.is_cell_walkable(field_target):
+		for r in range(2, 8):
+			for dx in range(-r, r + 1):
+				var dy = r - abs(dx)
+				var cand := live_rally + Vector2i(dx, dy)
+				if IsoMath.is_in_bounds(cand) and live_nav.is_cell_walkable(cand):
+					field_target = cand
+					break
+			if field_target != live_rally and live_nav.is_cell_walkable(field_target):
+				break
+
+	var move_order_res: Dictionary = live_army_mgr.order_move(field_target)
+	_assert_true(move_order_res.get("success", false), "TC-OFFENSE.12", "Army ordered to field destination away from rally")
+
+	for _step in range(60):
+		if live_army_mgr.get_movement_state() == PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD:
+			break
+		live_army_mgr.advance_movement(0.5)
+
+	_assert_eq(live_army_mgr.get_movement_state(), PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD, "TC-OFFENSE.12", "Army is IDLE_AT_FIELD away from rally")
+	_assert_eq(live_army_mgr.get_current_cell(), field_target, "TC-OFFENSE.12", "Army current cell matches destination")
+
+	# Configure hostile faction in world_instance.faction_mgr
+	var target_fac: FactionData = live_fac_mgr.get_faction("rival_military")
+	_assert_true(target_fac != null, "TC-OFFENSE.12", "rival_military exists in live faction_mgr")
+	target_fac.is_at_war = true
+	target_fac.military_power = 150.0
+	target_fac.stability = 75.0
+
+	# Schedule pending settlement raid against the player
+	var raid_day := 14
+	var raid_scheduled := live_camp_mgr.schedule_raid("rival_military", raid_day, 1, true)
+	_assert_true(raid_scheduled, "TC-OFFENSE.12", "Pending settlement raid scheduled against player")
+	_assert_true(live_camp_mgr.has_pending_raid("rival_military"), "TC-OFFENSE.12", "Pending raid confirmed in camp_mgr")
+
+	# Connect spy/listener to live_camp_mgr.offensive_campaign_resolved
+	var signal_tracker := {
+		"emissions": 0,
+		"last_report": null,
+		"last_context": {}
+	}
+	var on_offensive_resolved = func(report, context):
+		signal_tracker["emissions"] += 1
+		signal_tracker["last_report"] = report
+		signal_tracker["last_context"] = context
+
+	live_camp_mgr.offensive_campaign_resolved.connect(on_offensive_resolved)
+
+	# Launch valid offensive campaign
+	var launch_res := live_camp_mgr.launch_offensive_campaign("rival_military", 54321)
+	_assert_true(launch_res.get("success", false), "TC-OFFENSE.12", "launch_offensive_campaign succeeds on live world")
+	_assert_eq(signal_tracker["emissions"], 1, "TC-OFFENSE.12", "Exactly 1 offensive_campaign_resolved signal emitted during launch")
+	_assert_true(signal_tracker["last_report"] != null, "TC-OFFENSE.12", "Report payload is valid")
+
+	# Capture post-battle state
+	var post_soldier_count: int = live_army_mgr.get_army_count()
+	var post_movement_state: int = live_army_mgr.get_movement_state()
+	var post_current_cell: Vector2i = live_army_mgr.get_current_cell()
+	var post_mil_power: float = target_fac.military_power
+	var post_is_at_war: bool = target_fac.is_at_war
+	var post_seq: int = live_camp_mgr.get_offensive_campaign_sequence()
+	var post_has_raid: bool = live_camp_mgr.has_pending_raid("rival_military")
+
+	_assert_true(post_soldier_count > 0, "TC-OFFENSE.12", "Player army has surviving troops after battle")
+	_assert_eq(post_movement_state, PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD, "TC-OFFENSE.12", "Army remains IDLE_AT_FIELD after battle")
+	_assert_eq(post_current_cell, field_target, "TC-OFFENSE.12", "Army coordinates remain at field position")
+	_assert_true(post_seq > 0, "TC-OFFENSE.12", "Campaign sequence incremented")
+	_assert_true(post_has_raid, "TC-OFFENSE.12", "Pending settlement raid preserved through offensive battle")
+
+	# Capture live resource snapshot
+	var live_rm = world_instance.get_node_or_null("/root/ResourceManager")
+	var snap_stocks: Dictionary = {}
+	var snap_capacities: Dictionary = {}
+	if live_rm != null:
+		for r_id in EconomyConfigScript.ALL_RESOURCES:
+			snap_stocks[r_id] = live_rm.call("get_available_stock", r_id)
+			snap_capacities[r_id] = live_rm.call("get_capacity", r_id)
+
+	# Part B: Integrated Serialization via SaveManager
+	var saved_world: Dictionary = SaveManagerScript.serialize_world_state(world_instance)
+	var val_res = SaveManagerScript.validate_save_data(saved_world)
+	_assert_true(val_res.get("valid", false), "TC-OFFENSE.12", "Serialized live world state passes SaveManager schema validation")
+
+	_assert_true(saved_world.has("player_army"), "TC-OFFENSE.12", "Save data contains player_army")
+	_assert_eq(saved_world["player_army"].get("soldier_count"), post_soldier_count, "TC-OFFENSE.12", "Serialized player_army soldier_count matches post-battle count")
+	_assert_eq(saved_world["player_army"].get("movement_state"), "idle_at_field", "TC-OFFENSE.12", "Serialized movement_state is idle_at_field")
+	_assert_eq(saved_world["player_army"].get("current_cell"), [field_target.x, field_target.y], "TC-OFFENSE.12", "Serialized current_cell matches field target")
+
+	_assert_true(saved_world.has("factions") and saved_world["factions"].has("factions"), "TC-OFFENSE.12", "Save data contains factions dictionary")
+	var saved_target_fac: Dictionary = saved_world["factions"]["factions"].get("rival_military", {})
+	_assert_eq(saved_target_fac.get("military_power"), post_mil_power, "TC-OFFENSE.12", "Serialized target faction military_power matches post-battle value")
+	_assert_eq(saved_target_fac.get("is_at_war"), post_is_at_war, "TC-OFFENSE.12", "Serialized target faction is_at_war matches")
+
+	_assert_true(saved_world.has("battle_campaign"), "TC-OFFENSE.12", "Save data contains battle_campaign")
+	_assert_eq(saved_world["battle_campaign"].get("offensive_sequence"), post_seq, "TC-OFFENSE.12", "Serialized offensive_sequence matches")
+	_assert_true(saved_world["battle_campaign"].has("pending_raids"), "TC-OFFENSE.12", "Serialized battle_campaign has pending_raids")
+	_assert_true(saved_world["battle_campaign"]["pending_raids"].has("rival_military"), "TC-OFFENSE.12", "Serialized pending_raids retains rival_military")
+
+	# Part C: In-Memory Perturbation & Full World Restore
+	target_fac.military_power = 999.0
+	target_fac.is_at_war = false
+	live_army_mgr.soldier_count = 1
+	live_army_mgr.movement_state = PlayerArmyManagerScript.MovementState.GARRISONED
+	live_camp_mgr.set_offensive_campaign_sequence(0)
+	live_camp_mgr.cancel_raid("rival_military")
+	_assert_false(live_camp_mgr.has_pending_raid("rival_military"), "TC-OFFENSE.12", "Pending raid cleared in memory for perturbation check")
+
+	if live_rm != null:
+		for r_id in EconomyConfigScript.ALL_RESOURCES:
+			live_rm.get("_current_stock")[r_id] = 1
+
+	signal_tracker["emissions"] = 0
+
+	var apply_res_1: Dictionary = SaveManagerScript.apply_loaded_state_to_world(world_instance, saved_world)
+	_assert_true(apply_res_1.get("success", false), "TC-OFFENSE.12", "First apply_loaded_state_to_world succeeds")
+
+	_assert_eq(live_army_mgr.get_army_count(), post_soldier_count, "TC-OFFENSE.12 (Load 1)", "Restored soldier_count matches post-battle count")
+	_assert_eq(live_army_mgr.get_movement_state(), PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD, "TC-OFFENSE.12 (Load 1)", "Restored movement_state is IDLE_AT_FIELD")
+	_assert_eq(live_army_mgr.get_current_cell(), field_target, "TC-OFFENSE.12 (Load 1)", "Restored current_cell is field position")
+	_assert_eq(target_fac.military_power, post_mil_power, "TC-OFFENSE.12 (Load 1)", "Restored faction military_power matches post-battle value")
+	_assert_eq(target_fac.is_at_war, post_is_at_war, "TC-OFFENSE.12 (Load 1)", "Restored faction is_at_war matches")
+	_assert_eq(live_camp_mgr.get_offensive_campaign_sequence(), post_seq, "TC-OFFENSE.12 (Load 1)", "Restored offensive sequence matches")
+	_assert_true(live_camp_mgr.has_pending_raid("rival_military"), "TC-OFFENSE.12 (Load 1)", "Restored pending raid is intact")
+	_assert_eq(live_camp_mgr.get_pending_raid("rival_military").get("scheduled_day"), raid_day, "TC-OFFENSE.12 (Load 1)", "Restored raid scheduled_day matches")
+
+	if live_rm != null:
+		for r_id in EconomyConfigScript.ALL_RESOURCES:
+			_assert_eq(live_rm.call("get_available_stock", r_id), snap_stocks[r_id], "TC-OFFENSE.12 (Load 1)", "Resource stock restored for " + r_id)
+			_assert_eq(live_rm.call("get_capacity", r_id), snap_capacities[r_id], "TC-OFFENSE.12 (Load 1)", "Resource capacity restored for " + r_id)
+
+	_assert_eq(signal_tracker["emissions"], 0, "TC-OFFENSE.12 (Load 1)", "Zero additional offensive_campaign_resolved signals emitted during world load")
+
+	# Part D: Double-Load Idempotency
+	var apply_res_2: Dictionary = SaveManagerScript.apply_loaded_state_to_world(world_instance, saved_world)
+	_assert_true(apply_res_2.get("success", false), "TC-OFFENSE.12", "Second apply_loaded_state_to_world succeeds")
+
+	_assert_eq(signal_tracker["emissions"], 0, "TC-OFFENSE.12 (Load 2)", "Zero additional signals emitted during second load")
+
+	_assert_eq(live_army_mgr.get_army_count(), post_soldier_count, "TC-OFFENSE.12 (Load 2)", "Soldier count unchanged on second load")
+	_assert_eq(live_army_mgr.get_movement_state(), PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD, "TC-OFFENSE.12 (Load 2)", "Movement state unchanged on second load")
+	_assert_eq(live_army_mgr.get_current_cell(), field_target, "TC-OFFENSE.12 (Load 2)", "Current cell unchanged on second load")
+	_assert_eq(target_fac.military_power, post_mil_power, "TC-OFFENSE.12 (Load 2)", "Faction military power unchanged on second load")
+	_assert_eq(target_fac.is_at_war, post_is_at_war, "TC-OFFENSE.12 (Load 2)", "Faction is_at_war unchanged on second load")
+	_assert_eq(live_camp_mgr.get_offensive_campaign_sequence(), post_seq, "TC-OFFENSE.12 (Load 2)", "Offensive sequence unchanged on second load")
+	_assert_true(live_camp_mgr.has_pending_raid("rival_military"), "TC-OFFENSE.12 (Load 2)", "Pending raid remains intact on second load")
+
+	var marker_count := 0
+	var cit_container: Node = world_instance.get("citizens_container")
+	if cit_container != null:
+		for child in cit_container.get_children():
+			if child.name == "ArmyMarker":
+				marker_count += 1
+	_assert_true(marker_count <= 1, "TC-OFFENSE.12 (Load 2)", "ArmyMarker node is not duplicated (count = %d)" % marker_count)
+
+	if live_rm != null:
+		for r_id in EconomyConfigScript.ALL_RESOURCES:
+			_assert_eq(live_rm.call("get_available_stock", r_id), snap_stocks[r_id], "TC-OFFENSE.12 (Load 2)", "Resource stock unchanged on second load for " + r_id)
+
+	# Clean up listener
+	if live_camp_mgr.offensive_campaign_resolved.is_connected(on_offensive_resolved):
+		live_camp_mgr.offensive_campaign_resolved.disconnect(on_offensive_resolved)
+
 # -----------------------------------------------------------------------------
 # TC-OFFENSE.13: Incoming settlement raids, schedules, and peace cancellations remain intact
 # -----------------------------------------------------------------------------

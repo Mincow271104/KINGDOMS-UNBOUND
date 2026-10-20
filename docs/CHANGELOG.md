@@ -21,6 +21,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - In-Game HUD offensive battle report integration: added `AttackCampaignBtn` (`"⚔️ Mở Chiến Dịch Tấn Công"`) in `ArmyPanel` and `attack_btn` (`"⚔️ Tấn Công"`) in hostile faction diplomacy cards; rich Vietnamese event banners detailing casualties, troop counts, combat scores, and remaining enemy power.
   - Save/load persistence & schema validation: serialized `offensive_sequence` in `BattleCampaignManager.serialize()`; updated `SaveManager.validate_save_data()` to enforce schema types and non-negativity for `battle_campaign.offensive_sequence` and `campaign_sequence`.
   - Dedicated automated test suite `scripts/test/test_offensive_campaign.gd` covering TC-OFFENSE.1 through TC-OFFENSE.14 (14/14 tests passed, Exit Code 0).
+  - Review Fix (Integrated SaveManager World Lifecycle & Schema Hardening):
+    - Extended `SaveManager.validate_save_data()` to validate `pending_raids` and `processed_raids` dictionaries when present under `battle_campaign`.
+    - Strengthened `TC-OFFENSE.12` in `scripts/test/test_offensive_campaign.gd` with a live `world_instance` integration test covering Parts A-D:
+      - Part A: Set up live army deployed `IDLE_AT_FIELD` away from rally cell, configured hostile `rival_military` with positive military power, scheduled pending settlement raid, attached signal spy to `offensive_campaign_resolved`, launched valid offensive campaign, and captured post-battle state (surviving troops, `IDLE_AT_FIELD` status, reduced military power, incremented sequence, intact raid schedule, resource snapshot).
+      - Part B: Serialized world state via `SaveManager.serialize_world_state()` and asserted valid schema, matching post-battle soldier count and field coordinates, updated faction power, sequence, and preserved raid schedule.
+      - Part C: Perturbed live in-memory values (army count/state, faction power/war status, sequence, raids, resource stocks), cleared signal emission tracker, restored state via `SaveManager.apply_loaded_state_to_world()`, and asserted 100% restoration of post-battle values, intact raid schedule, matching resources, and strictly 0 additional `offensive_campaign_resolved` signal emissions (world loading restores state without replaying battles).
+      - Part D: Applied loaded state a second time to verify double-load idempotency: zero additional signal emissions, zero duplicated `ArmyMarker` nodes (count $\le 1$), and zero extra casualties or deductions.
 
 ### [Package 1M] - 2026-10-20
 #### Added

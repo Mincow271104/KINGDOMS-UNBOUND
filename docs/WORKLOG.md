@@ -3756,8 +3756,57 @@ The goal of Package 1N is to implement an authoritative player-led abstract offe
 - `docs/WORKLOG.md` (Modified)
 
 ### Next Exact Step
-- Stage only reviewed Package 1N files.
-- Commit with exact message: `Implement Package 1N player-led abstract campaigns`.
+- Review and address any independent review findings for Package 1N.
+- Await user instructions. Do not merge to master and do not start Package 1O.
+
+---
+
+## [2026-10-20] Package 1N Review Fix: Real SaveManager Integration Test for Offensive Campaign Persistence
+
+### Context & Objective
+Independent review identified that in `scripts/test/test_offensive_campaign.gd`, `TC-OFFENSE.12` only exercised component-level `BattleCampaignManager.serialize()` / `deserialize()`, SaveManager schema validation, and sequence preservation. It did not perform an integrated world save/load using both:
+- `SaveManager.serialize_world_state(world_instance)`
+- `SaveManager.apply_loaded_state_to_world(world_instance, saved_data)`
+
+To guarantee that post-battle army, faction, sequence, and raid states survive real world persistence intact without replaying battles, corrupting raids, or duplicating nodes, `TC-OFFENSE.12` was strengthened with an end-to-end integration test exercising the test runner's live `world_instance` fixture across 4 distinct phases (Parts A, B, C, D).
+
+### Work Completed
+1. `scripts/persistence/save_manager.gd`:
+   - Hardened `validate_save_data()`: added explicit schema validation for optional `battle_campaign.pending_raids` and `battle_campaign.processed_raids` dictionaries, ensuring malformed payloads are rejected fail-closed.
+2. `scripts/test/test_offensive_campaign.gd`:
+   - Retained existing component-level serialization and schema checks.
+   - Appended comprehensive live `world_instance` integration test covering Parts A-D:
+     - **Part A (Live World Setup & Offensive Resolution):** Established live army with 20 soldiers and active barracks capacity, deployed to field target away from rally (`IDLE_AT_FIELD`), configured hostile `rival_military` (150 power, war), scheduled pending settlement raid (day 14), attached spy listener to `offensive_campaign_resolved`, launched valid offensive campaign, asserted launch success, verified exactly 1 signal emission, and captured post-battle state (surviving troops, field status, reduced military power, sequence, raid schedule, and resource stocks/capacities).
+     - **Part B (Integrated Serialization via SaveManager):** Serialized live world via `SaveManager.serialize_world_state()`, verified schema validity, and verified that serialized data contains matching army soldier count, `idle_at_field` state, field coordinates, target faction military power and war status, offensive sequence, and preserved pending raid schedule.
+     - **Part C (In-Memory Perturbation & Full World Restore):** Mutated live in-memory values (army count = 1, state = GARRISONED, faction power = 999, war = false, sequence = 0, raid canceled, resource stock = 1), cleared signal emission counter, restored state via `SaveManager.apply_loaded_state_to_world()`, and verified 100% exact restoration of post-battle army count, `IDLE_AT_FIELD` state, field coordinates, target faction power and war status, sequence, intact pending raid schedule, and resource stocks/capacities. Asserted strictly 0 additional `offensive_campaign_resolved` signal emissions during world loading.
+     - **Part D (Double-Load Idempotency):** Applied loaded state a second time via `SaveManager.apply_loaded_state_to_world()`, verifying double-load idempotency: zero additional signal emissions, unchanged army/faction/resource values without double deductions, intact raid schedule, and at most 1 `ArmyMarker` node in `citizens_container` (zero node duplication). Disconnected spy listener cleanly.
+3. Documentation:
+   - Updated `docs/TEST_PLAN.md` with detailed TC-OFFENSE.12 acceptance criteria.
+   - Updated `docs/CHANGELOG.md` with Package 1N Review Fix entry.
+   - Updated `docs/WORKLOG.md` with implementation details, test evidence, and next steps.
+
+### Verification Evidence
+- `scripts/test/test_offensive_campaign.gd`: **PASS (Exit Code 0: 14/14 tests passed)**
+- `scripts/test/test_live_battle_loop.gd`: **PASS (Exit Code 0: all battle loop integration tests passed)**
+- `scripts/test/test_army_movement.gd`: **PASS (Exit Code 0: 32/32 tests passed)**
+- `scripts/test/test_player_army.gd`: **PASS (Exit Code 0: 32/32 tests passed)**
+- `scripts/test/test_save_load.gd`: **PASS (Exit Code 0: all Phase 8 persistence tests passed)**
+- `scripts/test/test_factions_and_battles.gd`: **PASS (Exit Code 0: all faction/trade/battle tests passed)**
+- Full project test suite matrix (all 27 test suites in `scripts/test/test_*.gd`): **PASS (27 passed, 0 failed, Exit Code 0)**
+- Headless scene smoke checks (`scenes/world/world_view.tscn`, `scenes/ui/hud.tscn`): **PASS (Exit Code 0)**
+- `git diff --check`: Clean (Exit Code 0, 0 whitespace errors)
+
+### Files Modified
+- `scripts/persistence/save_manager.gd`
+- `scripts/test/test_offensive_campaign.gd`
+- `docs/TEST_PLAN.md`
+- `docs/CHANGELOG.md`
+- `docs/WORKLOG.md`
+
+### Next Exact Step
+- Stage only reviewed files (`scripts/persistence/save_manager.gd`, `scripts/test/test_offensive_campaign.gd`, `docs/TEST_PLAN.md`, `docs/CHANGELOG.md`, `docs/WORKLOG.md`).
+- Commit with exact message: `Verify Package 1N integrated save-load persistence`.
 - Push to remote `feature/package-1n-player-offensive-campaign`.
 - Verify local HEAD matches remote branch HEAD and report commit SHA and parent SHA.
 - Await user instructions. Do not merge to master and do not start Package 1O.
+
