@@ -19,6 +19,7 @@ const ASCENSION_NEW_TYPE: String = "emerging_power"
 const ASCENSION_NEW_NAME: String = "Liên Minh Rừng Thiêng"
 const ASCENSION_NEW_MILITARY_POWER: float = 55.0
 const ASCENSION_NEW_STABILITY: float = 85.0
+const ASCENSION_NEW_STRATEGIC_GOAL: String = FactionData.GOAL_CONSOLIDATE_POWER
 
 signal relation_changed(faction_id: String, new_opinion: float, disposition: int)
 signal treaty_signed(faction_id: String, treaty_type: String)
@@ -45,6 +46,8 @@ func _initialize_factions() -> void:
 	)
 	rival_mil.resources = {EconomyConfig.RES_METAL: 80, EconomyConfig.RES_GOLD: 150}
 	rival_mil.population = 60
+	rival_mil.strategic_goal = FactionData.GOAL_MILITARY_EXPANSION
+	rival_mil.existence_status = FactionData.STATUS_ACTIVE
 	_factions[rival_mil.id] = rival_mil
 	
 	# Rival 2: Mercantile Syndicate
@@ -58,6 +61,8 @@ func _initialize_factions() -> void:
 	)
 	rival_merch.resources = {EconomyConfig.RES_GOLD: 400, EconomyConfig.RES_TOOLS: 50}
 	rival_merch.population = 50
+	rival_merch.strategic_goal = FactionData.GOAL_TRADE_DOMINANCE
+	rival_merch.existence_status = FactionData.STATUS_ACTIVE
 	_factions[rival_merch.id] = rival_merch
 	
 	# Neutral Tribe
@@ -71,6 +76,8 @@ func _initialize_factions() -> void:
 	)
 	neutral_tribe.resources = {EconomyConfig.RES_WOOD: 120, EconomyConfig.RES_HERBS: 60}
 	neutral_tribe.population = 35
+	neutral_tribe.strategic_goal = FactionData.GOAL_COMMUNITY_GROWTH
+	neutral_tribe.existence_status = FactionData.STATUS_ACTIVE
 	_factions[neutral_tribe.id] = neutral_tribe
 
 func get_faction(id: String) -> FactionData:
@@ -215,4 +222,5 @@ func update_daily_simulation(day: int) -> void:
 			tribe.name = ASCENSION_NEW_NAME
 			tribe.military_power = ASCENSION_NEW_MILITARY_POWER
 			tribe.stability = ASCENSION_NEW_STABILITY
+			tribe.strategic_goal = ASCENSION_NEW_STRATEGIC_GOAL
 			emerging_faction_ascended.emit(tribe.id, tribe.name)

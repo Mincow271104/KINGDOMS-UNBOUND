@@ -4064,3 +4064,88 @@ Address independent review findings for Package 1P:
 - The branch is awaiting independent review.
 - No additional staging, commit, or push for the already-completed review fix is pending.
 - Do not merge into `master` or begin Package 1Q without authorization.
+
+---
+
+## [2026-10-20] Package 1Q: Faction Strategic Profiles & Existence Status
+
+### Context & Objective
+Implement Package 1Q to complete faction profiles per GDD §10.1 and §10.5 by adding **Strategic Goal** and **Existence Status** fields to `FactionData`, integrating them with `FactionManager`, `SaveManager`, and in-game diplomacy UI (`HUD`), and establishing rigorous automated test coverage.
+
+### Scope & Decisions
+1. **Strategic Goal (GDD §10.1):**
+   - Canonical English string IDs: `military_expansion`, `trade_dominance`, `community_growth`, `consolidate_power`.
+   - Initial mappings: `rival_military` -> `military_expansion`, `rival_merchant` -> `trade_dominance`, `neutral_tribe` -> `community_growth`.
+   - Evolved mapping: Upon ascension to `emerging_power`, `neutral_tribe` mutates its strategic goal to `consolidate_power`.
+   - Goal is an authoritative data profile; autonomous AI execution of goals is deferred.
+2. **Existence Status (GDD §10.1, §10.5):**
+   - Canonical English string IDs: `active`, `in_exile`, `eliminated`.
+   - All initial factions start with `active`.
+   - Data model only for `in_exile` and `eliminated`; no autonomous faction elimination or collapse rules are introduced in this package. Factions are not marked eliminated simply because military power reaches 0.
+3. **Fail-Closed Validation & Idempotency:**
+   - Unrecognized goal or status IDs fail `SaveManager.validate_save_data()` and reject `apply_loaded_state_to_world()` without mutating live factions.
+   - Setters `set_strategic_goal()` and `set_existence_status()` return false on invalid inputs.
+   - Repeated loads do not re-emit signals, mutate opinions, or duplicate faction instances.
+4. **Diplomacy UI (HUD):**
+   - Faction cards display Vietnamese labels via centralized static helpers (`FactionData.get_strategic_goal_label()` and `FactionData.get_existence_status_label()`). Raw internal identifiers are never displayed to players.
+
+### Work Completed
+1. `scripts/factions/faction_data.gd`:
+   - Added constants: `GOAL_MILITARY_EXPANSION`, `GOAL_TRADE_DOMINANCE`, `GOAL_COMMUNITY_GROWTH`, `GOAL_CONSOLIDATE_POWER`, `VALID_STRATEGIC_GOALS`.
+   - Added constants: `STATUS_ACTIVE`, `STATUS_IN_EXILE`, `STATUS_ELIMINATED`, `VALID_EXISTENCE_STATUSES`.
+   - Added properties: `strategic_goal: String = GOAL_COMMUNITY_GROWTH`, `existence_status: String = STATUS_ACTIVE`.
+   - Updated `_init()` with optional `p_goal` and `p_status` parameters, defaulting to type-based canonical defaults and `STATUS_ACTIVE`.
+   - Added static helpers `get_default_strategic_goal()`, `get_strategic_goal_label()`, and `get_existence_status_label()`.
+   - Added instance helpers `get_strategic_goal_name()`, `get_existence_status_name()`, `set_strategic_goal()`, and `set_existence_status()`.
+2. `scripts/factions/faction_manager.gd`:
+   - Added constant `ASCENSION_NEW_STRATEGIC_GOAL = FactionData.GOAL_CONSOLIDATE_POWER`.
+   - In `_initialize_factions()`, explicitly assigned initial goals and statuses for `rival_military`, `rival_merchant`, and `neutral_tribe`.
+   - In `update_daily_simulation()`, updated `tribe.strategic_goal = ASCENSION_NEW_STRATEGIC_GOAL` upon ascension alongside existing mutations.
+3. `scripts/persistence/save_manager.gd`:
+   - In `serialize_world_state()`, added `strategic_goal` and `existence_status` to faction dictionary.
+   - In `validate_save_data()`, added schema validation for optional `factions` section verifying that `strategic_goal` and `existence_status` match canonical allowed sets if present.
+   - In `apply_loaded_state_to_world()`, restored `strategic_goal` and `existence_status`, applying fallback defaults for legacy saves.
+4. `scripts/ui/hud.gd`:
+   - In `_refresh_diplomacy_ui()`, added `profile_lbl` displaying `"Mục tiêu: %s | Trạng thái: %s"` with Vietnamese localized strings.
+5. `scripts/test/test_faction_profiles.gd`:
+   - Created comprehensive standalone SceneTree test suite covering TC-FPROF.1 through TC-FPROF.9.
+6. Documentation:
+   - Added Section 1.17 to `docs/SCOPE_DECISIONS.md`.
+   - Added TC-FPROF.1 through TC-FPROF.9 to `docs/TEST_PLAN.md`.
+   - Added Package 1Q entry under `[Unreleased]` in `docs/CHANGELOG.md`.
+
+### Verification Evidence
+- **Tests executed during this Package 1Q session:**
+  - Focused Test Suite (`scripts/test/test_faction_profiles.gd`): **PASS (Exit Code 0: 9/9 tests passed)**
+  - Regression Suite — Emerging Faction Ascension (`scripts/test/test_emerging_faction_ascension.gd`): **PASS (Exit Code 0: 11/11 tests passed)**
+  - Regression Suite — Persistence Roundtrip (`scripts/test/test_save_load.gd`): **PASS (Exit Code 0: 100% Phase 8 tests passed)**
+  - Regression Suite — Post-Battle Diplomacy (`scripts/test/test_battle_diplomacy_consequences.gd`): **PASS (Exit Code 0: 11/11 tests passed)**
+  - Regression Suite — Offensive Campaigns (`scripts/test/test_offensive_campaign.gd`): **PASS (Exit Code 0: 14/14 tests passed)**
+  - Regression Suite — Factions & Battles (`scripts/test/test_factions_and_battles.gd`): **PASS (Exit Code 0: 100% tests passed)**
+  - Regression Suite — Army Movement (`scripts/test/test_army_movement.gd`): **PASS (Exit Code 0: 32/32 tests passed)**
+  - Headless Project Editor Parse & Class Registration: **PASS (Exit Code 0: FactionData, FactionManager, SaveManager, InGameHUD registered cleanly)**
+  - `git diff --check`: **Clean (Exit Code 0, 0 whitespace errors)**
+- **Regression test results inherited from previous sessions (not rerun in this session):**
+  - Live Battle Loop (`scripts/test/test_live_battle_loop.gd`)
+  - Barracks System (`scripts/test/test_barracks.gd`)
+  - Construction System (`scripts/test/test_construction.gd`)
+  - Dynamic Workplaces (`scripts/test/test_dynamic_workplaces.gd`)
+- **Runtime / Visual Verification Status:**
+  - Headless automated runtime execution verified via `Godot_v4.7-stable_win64_console.exe`.
+  - Manual / visual screenshot review: Not performed (headless CLI environment). UI card structure, formatting, and dynamic refresh verified programmatically in TC-FPROF.8.
+
+### Files Modified & Created
+- `scripts/factions/faction_data.gd` (Modified)
+- `scripts/factions/faction_manager.gd` (Modified)
+- `scripts/persistence/save_manager.gd` (Modified)
+- `scripts/ui/hud.gd` (Modified)
+- `scripts/test/test_faction_profiles.gd` (Created)
+- `docs/SCOPE_DECISIONS.md` (Modified)
+- `docs/TEST_PLAN.md` (Modified)
+- `docs/CHANGELOG.md` (Modified)
+- `docs/WORKLOG.md` (Modified)
+
+### Next Exact Step
+- Package 1Q implementation is committed and pushed to `feature/package-1q-faction-strategic-profiles`.
+- Await independent review.
+- Do not merge into `master` and do not begin Package 1R until authorized.

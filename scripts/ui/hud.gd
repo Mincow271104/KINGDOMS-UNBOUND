@@ -859,6 +859,13 @@ func _refresh_diplomacy_ui() -> void:
 		title_lbl.text = "⚔️ %s (%s)" % [cur_fac_name, fac.call("get_disposition_name")]
 		title_lbl.modulate = Color(1.0, 0.85, 0.3)
 		vbox.add_child(title_lbl)
+
+		var profile_lbl := Label.new()
+		var goal_label: String = fac.call("get_strategic_goal_name") if fac.has_method("get_strategic_goal_name") else FactionData.get_strategic_goal_label(str(fac.get("strategic_goal")))
+		var status_label: String = fac.call("get_existence_status_name") if fac.has_method("get_existence_status_name") else FactionData.get_existence_status_label(str(fac.get("existence_status")))
+		profile_lbl.text = "Mục tiêu: %s | Trạng thái: %s" % [goal_label, status_label]
+		profile_lbl.modulate = Color(0.75, 0.9, 1.1)
+		vbox.add_child(profile_lbl)
 		
 		var info_lbl := Label.new()
 		info_lbl.text = "Thiện cảm: %.1f | Quân lực: %.0f | Dân số: %d | NAP: %s | Đồng minh: %s" % [

@@ -152,7 +152,9 @@ static func serialize_world_state(world_view: Node) -> Dictionary:
 				"has_alliance": f.has_alliance,
 				"is_at_war": f.is_at_war,
 				"population": f.population,
-				"resources": f.resources.duplicate()
+				"resources": f.resources.duplicate(),
+				"strategic_goal": f.get("strategic_goal"),
+				"existence_status": f.get("existence_status")
 			}
 		data["factions"] = {
 			"factions": fac_dict
@@ -502,6 +504,28 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 				if raid.has("target_cell") and not _is_valid_coord_arr(raid.get("target_cell")):
 					return {"valid": false, "error": "Tọa độ target_cell trong scheduled_raids không hợp lệ: %s." % str(raid.get("target_cell"))}
 
+	# Validate optional factions section (Package 1Q)
+	if json_dict.has("factions"):
+		var fac_root = json_dict.get("factions")
+		if not (fac_root is Dictionary):
+			return {"valid": false, "error": "Mục 'factions' phải là từ điển (Dictionary)."}
+		if fac_root.has("factions"):
+			var facs_map = fac_root.get("factions")
+			if not (facs_map is Dictionary):
+				return {"valid": false, "error": "Danh sách factions trong mục 'factions' phải là từ điển (Dictionary)."}
+			for fid in facs_map:
+				var f_entry = facs_map[fid]
+				if not (f_entry is Dictionary):
+					return {"valid": false, "error": "Bản ghi thế lực '%s' phải là từ điển (Dictionary)." % str(fid)}
+				if f_entry.has("strategic_goal"):
+					var s_goal = f_entry.get("strategic_goal")
+					if not (s_goal is String) or not FactionData.VALID_STRATEGIC_GOALS.has(s_goal):
+						return {"valid": false, "error": "Mục tiêu chiến lược strategic_goal của thế lực '%s' không hợp lệ: %s." % [str(fid), str(s_goal)]}
+				if f_entry.has("existence_status"):
+					var e_status = f_entry.get("existence_status")
+					if not (e_status is String) or not FactionData.VALID_EXISTENCE_STATUSES.has(e_status):
+						return {"valid": false, "error": "Trạng thái tồn tại existence_status của thế lực '%s' không hợp lệ: %s." % [str(fid), str(e_status)]}
+
 	return {"valid": true, "error": ""}
 
 static func load_from_file(filepath: String = DEFAULT_SAVE_PATH) -> Dictionary:
@@ -730,6 +754,24 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 				f_obj.population = int(f_saved.get("population", 40))
 				if f_saved.has("resources") and f_saved["resources"] is Dictionary:
 					f_obj.resources = f_saved["resources"].duplicate()
+				# Strategic Goal & Existence Status (Package 1Q)
+				if f_saved.has("strategic_goal"):
+					var s_goal = str(f_saved["strategic_goal"])
+					if FactionData.VALID_STRATEGIC_GOALS.has(s_goal):
+						f_obj.strategic_goal = s_goal
+					else:
+						f_obj.strategic_goal = FactionData.get_default_strategic_goal(f_obj.id, f_obj.type)
+				else:
+					f_obj.strategic_goal = FactionData.get_default_strategic_goal(f_obj.id, f_obj.type)
+
+				if f_saved.has("existence_status"):
+					var e_status = str(f_saved["existence_status"])
+					if FactionData.VALID_EXISTENCE_STATUSES.has(e_status):
+						f_obj.existence_status = e_status
+					else:
+						f_obj.existence_status = FactionData.STATUS_ACTIVE
+				else:
+					f_obj.existence_status = FactionData.STATUS_ACTIVE
 
 	# 8. Restore POIs
 	var poi_mgr = world_view.get("poi_mgr")

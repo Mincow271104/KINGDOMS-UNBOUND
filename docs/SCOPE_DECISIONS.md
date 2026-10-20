@@ -181,6 +181,26 @@
   - **HUD Integration:**
     - Connected to `emerging_faction_ascended` in `HUD.set_faction_manager()` to display an event banner in Vietnamese (`"Thế Lực Mới Nổi! Liên Minh Rừng Thiêng đã chính thức trỗi dậy thành một cường bang mới!"`) and dynamically refresh the diplomacy menu.
 
+- **1.17 Package 1Q — Faction Strategic Profiles & Existence Status (GDD §10.1 & §10.5):**
+  - **Strategic Goal MVP Mapping:**
+    - `rival_military`: `military_expansion` ("Mở rộng quân sự").
+    - `rival_merchant`: `trade_dominance` ("Phát triển thương mại").
+    - `neutral_tribe` (pre-ascension): `community_growth` ("Phát triển cộng đồng").
+    - `neutral_tribe` (post-ascension / `emerging_power`): `consolidate_power` ("Củng cố thế lực").
+    - *Scope Clarification:* Strategic Goal represents the faction's authoritative narrative/strategic agenda data model in MVP. Autonomous AI goal execution is deferred.
+  - **Existence Status Scope & Fallback:**
+    - `active` ("Hoạt động"): Faction is currently active in the game world. All initial factions start in this status.
+    - `in_exile` ("Lưu vong"): Faction government in exile, establishing data model compatibility for capital loss recovery described in GDD §10.5.
+    - `eliminated` ("Bị loại bỏ"): Faction eliminated from play.
+    - *Boundary & Safety Rule:* Package 1Q implements the data model, serialization, UI rendering, and validation only. It does not introduce autonomous faction elimination rules, capital capture, or war/peace changes. Factions are not marked eliminated merely because military power reaches 0.
+  - **Fail-Closed Validation Policy:**
+    - `SaveManager.validate_save_data()` strictly validates `strategic_goal` against `FactionData.VALID_STRATEGIC_GOALS` and `existence_status` against `FactionData.VALID_EXISTENCE_STATUSES`. Invalid entries fail schema validation and abort load without mutating the live world.
+    - Mutator setters `set_strategic_goal()` and `set_existence_status()` reject invalid strings and return false, leaving existing state untouched.
+  - **Backward Compatibility:**
+    - Legacy saves omitting these fields deserialize cleanly: `emerging_power` defaults to `consolidate_power`, `rival_military` to `military_expansion`, `rival_merchant` to `trade_dominance`, `neutral_tribe` to `community_growth`, and all default to `active` existence status.
+  - **Diplomacy UI Contract:**
+    - HUD faction cards render Vietnamese labels via centralized static helpers (`FactionData.get_strategic_goal_label()` and `FactionData.get_existence_status_label()`). Raw internal identifiers are never exposed directly to players.
+
 ---
 
 ## 2. Deferred & Excluded Scope for MVP

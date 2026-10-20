@@ -8,6 +8,25 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### [Package 1Q] - 2026-10-20
+#### Added
+- Faction Strategic Profiles & Existence Status (`FactionData`, `FactionManager`, `SaveManager`, `HUD`):
+  - Added Strategic Goal and Existence Status data model to `FactionData` conforming to GDD §10.1 & §10.5:
+    - Stable English internal IDs: `military_expansion`, `trade_dominance`, `community_growth`, `consolidate_power` for strategic goals; `active`, `in_exile`, `eliminated` for existence statuses.
+    - Centralized Vietnamese localization helpers (`FactionData.get_strategic_goal_label()` and `FactionData.get_existence_status_label()`) preventing raw identifier leakage to UI.
+    - Initial default mappings: `rival_military` mapped to `military_expansion` and `active`; `rival_merchant` mapped to `trade_dominance` and `active`; `neutral_tribe` mapped to `community_growth` and `active`.
+  - Ascension Integration:
+    - When `neutral_tribe` evolves into an `emerging_power` in `FactionManager.update_daily_simulation()`, its strategic goal mutates to `consolidate_power` while status remains `active`.
+    - Ascension signal remains strictly single-emission and idempotent.
+  - Fail-Closed Persistence & Schema Validation:
+    - `SaveManager.serialize_world_state()` records `strategic_goal` and `existence_status` for all factions.
+    - `SaveManager.validate_save_data()` validates strategic goals and existence statuses against canonical allowed sets, failing closed on unrecognized values.
+    - `SaveManager.apply_loaded_state_to_world()` restores profiles cleanly and applies robust fallbacks on legacy saves without these fields.
+  - In-Game HUD Integration:
+    - HUD diplomacy cards display Vietnamese labels for strategic goal and existence status (`"Mục tiêu: %s | Trạng thái: %s"`).
+    - Automatically refreshes diplomacy cards upon faction evolution or reload.
+  - Dedicated automated test suite `scripts/test/test_faction_profiles.gd` covering TC-FPROF.1 through TC-FPROF.9 (9/9 tests passed, Exit Code 0).
+
 ### [Package 1P] - 2026-10-20
 #### Added
 - Emerging Faction Ascension Gates (`FactionManager`, `SaveManager`, `HUD`):
