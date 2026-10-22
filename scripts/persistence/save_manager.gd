@@ -51,14 +51,14 @@ static func serialize_world_state(world_view: Node) -> Dictionary:
 		elif spd == 0:
 			spd = 1
 		data["game_clock"] = {
-			"total_elapsed_seconds": tm.get("total_elapsed_seconds"),
+			# BUG-01 fix: serialize only fields that exist on TimeManager.
+			# Removed non-existent: total_elapsed_seconds, current_minute, current_season, is_paused.
+			# Added season_index (the real backing field in TimeManager for the calendar season).
 			"current_day": tm.get("current_day"),
 			"current_hour": tm.get("current_hour"),
-			"current_minute": tm.get("current_minute"),
-			"current_season": tm.get("current_season"),
+			"season_index": tm.get("season_index"),
 			"current_year": tm.get("current_year"),
-			"current_speed": spd,
-			"is_paused": tm.get("is_paused")
+			"current_speed": spd
 		}
 		
 	# 3. Resources
@@ -478,10 +478,8 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 		var camp_val = json_dict.get("battle_campaign")
 		if not (camp_val is Dictionary):
 			return {"valid": false, "error": "battle_campaign phải là từ điển (Dictionary)."}
-		if camp_val.has("campaign_sequence"):
-			var seq = camp_val.get("campaign_sequence")
-			if not ((seq is int) or (seq is float and seq == floor(seq))) or int(seq) < 0:
-				return {"valid": false, "error": "campaign_sequence của battle_campaign phải là số nguyên >= 0."}
+		# BUG-05 fix: serialize() uses key "offensive_sequence", not "campaign_sequence".
+		# Removed dead validation block for "campaign_sequence" that never matched serialized data.
 		if camp_val.has("offensive_sequence"):
 			var off_seq = camp_val.get("offensive_sequence")
 			if not ((off_seq is int) or (off_seq is float and off_seq == floor(off_seq))) or int(off_seq) < 0:
@@ -573,11 +571,13 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 	var clock_data: Dictionary = loaded_data.get("game_clock", {})
 	if not clock_data.is_empty() and (Engine.has_singleton("TimeManager") or world_view.has_node("/root/TimeManager")):
 		var tm: Node = world_view.get_node("/root/TimeManager")
-		tm.set("total_elapsed_seconds", clock_data.get("total_elapsed_seconds", 0.0))
+		# BUG-01 fix: restore only real TimeManager fields.
+		# season_index replaces the non-existent "current_season" field.
+		# Removed: total_elapsed_seconds, current_minute, is_paused (don't exist on TimeManager).
+		# _hour_accumulator is intentionally not restored (resets to 0.0 = lose < 1 game-hour, acceptable).
 		tm.set("current_day", clock_data.get("current_day", 1))
 		tm.set("current_hour", clock_data.get("current_hour", 6))
-		tm.set("current_minute", clock_data.get("current_minute", 0))
-		tm.set("current_season", clock_data.get("current_season", 0))
+		tm.set("season_index", clock_data.get("season_index", 0))
 		tm.set("current_year", clock_data.get("current_year", 1))
 		tm.set_speed(clock_data.get("current_speed", 1))
 

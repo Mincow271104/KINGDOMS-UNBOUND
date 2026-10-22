@@ -36,6 +36,7 @@ func reset_economy() -> void:
 	_capacities.clear()
 	_daily_production_tallies.clear()
 	_daily_consumption_tallies.clear()
+	_is_starving = false # BUG-02: Reset starvation flag on economy reset to prevent stale state
 	
 	for res_id in EconomyConfig.ALL_RESOURCES:
 		var start_qty: int = EconomyConfig.STARTING_RESOURCES.get(res_id, 0)
