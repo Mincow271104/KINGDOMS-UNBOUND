@@ -4223,7 +4223,7 @@ Follow-up hardening on branch `feature/package-1q-faction-strategic-profiles` (c
 2. **TC-FPROF.9 Reference Independence & Exact 3-Faction Verification:**
    - Deep copy `ref_factions = saved_data["factions"]["factions"].duplicate(true)`.
    - Replaced approximate float assertions with exact equality (`_assert_eq(fac.opinion, float(ref_fac["opinion"]))`) across Load 1, Day 11 simulation tick, and Load 2.
-   - Confirmed 0 signals, exactly 3 factions, and zero duplicate nodes throughout.
+   - Confirmed 0 signals, exactly 3 factions preserved (all 3 canonical IDs present), matching reference values without generating duplicate or extraneous faction entries throughout.
 3. **Production Code Purity:**
    - Zero production gameplay code modified; tests confirm existing architecture satisfies strict invariance.
 
@@ -4232,7 +4232,7 @@ All commands executed directly in this follow-up session on Windows PowerShell w
 
 1. **Focused Package 1Q Suite (`scripts/test/test_faction_profiles.gd`):**
    - **Command:** `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --path "e:\KINGDOMS UNBOUND\kingdoms-unbound" -s res://scripts/test/test_faction_profiles.gd`
-   - **Result:** All 9 test cases passed (65 assertions passed, 0 failures).
+   - **Result:** All 9 test cases passed (208 assertion checks verified from output, 0 failures).
    - **Exit Code:** `0`
    - **Status:** PASS
 
@@ -4300,5 +4300,72 @@ All commands executed directly in this follow-up session on Windows PowerShell w
 
 ### Next Exact Step
 - Package 1Q follow-up commit has been committed and pushed to `origin/feature/package-1q-faction-strategic-profiles`.
+- Await independent review.
+- Do not merge into `master` and do not begin Package 1R until authorized.
+
+---
+
+## [2026-10-22] Package 1Q Evidence Correction: Assertion Count and Verification Alignment
+
+### Context & Objective
+Address independent review findings regarding verification evidence on branch `feature/package-1q-faction-strategic-profiles` (baseline HEAD `55d24e317f1e58354b7e8fcfe9a5512323da88f9`):
+1. **Assertion Count Reconciliation:** Correct the previously documented assertion count for `scripts/test/test_faction_profiles.gd`. Re-run the suite using the exact documented executable and arguments, capture the raw output directly, and count the actual `PASS [...]` records emitted.
+2. **Alignment of Idempotency Claims:** Align WORKLOG wording with the executable checks in TC-FPROF.9. Remove the inaccurate mention of "duplicate nodes" (factions are `RefCounted` data models stored in a Dictionary, not SceneTree nodes) and document precisely what is verified.
+3. **Execution Documentation:** Record exact command line, actual exit code, verified assertion count, and visual verification status without modifying test or production code.
+
+### Findings Resolved & Precision Alignment
+1. **Accurate Assertion Count (Finding 1):**
+   - The previous WORKLOG entry cited an estimated 65 assertions.
+   - Analysis of `_verify_factions_snapshot()` shows 7 individual assertions per faction across 3 factions (21 assertions), called 4 times in TC-FPROF.7, yielding 84 assertions from snapshot checks alone.
+   - Re-running the suite and directly counting `PASS [...]` lines from the captured output confirms exactly 208 individual assertion checks passed across TC-FPROF.1 through TC-FPROF.9 with 0 failures and exit code 0.
+2. **Precise Duplicate-Faction Checks (Finding 2):**
+   - Factions in `FactionManager` are stored in an internal dictionary (`_factions`).
+   - TC-FPROF.9 asserts:
+     - Total faction count remains exactly 3 (`fm.get_all_factions().size() == 3`) after Load 1, simulation tick (Day 11), and Load 2.
+     - All 3 canonical faction IDs (`rival_military`, `rival_merchant`, `neutral_tribe`) exist and are retrievable.
+     - `opinion`, `strategic_goal`, and `existence_status` match the independent reference snapshot across all stages.
+     - 0 unexpected `emerging_faction_ascended` signals are emitted.
+   - No dedicated SceneTree node duplicate check or pointer/object-identity check is performed or claimed.
+3. **Scope & Code Purity (Finding 3):**
+   - Only `docs/WORKLOG.md` is modified in this correction.
+   - Zero test scripts and zero gameplay production scripts were modified.
+
+### Focused Suite Execution Evidence
+- **Command:** `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --path "e:\KINGDOMS UNBOUND\kingdoms-unbound" -s res://scripts/test/test_faction_profiles.gd`
+- **Captured Output Summary:**
+  - `TC-FPROF.1`: 9 assertions passed
+  - `TC-FPROF.2`: 18 assertions passed
+  - `TC-FPROF.3`: 9 assertions passed
+  - `TC-FPROF.4`: 23 assertions passed
+  - `TC-FPROF.5`: 17 assertions passed
+  - `TC-FPROF.6`: 14 assertions passed
+  - `TC-FPROF.7`: 94 assertions passed (84 from 4 snapshot checks + 10 structural/setter checks)
+  - `TC-FPROF.8`: 9 assertions passed
+  - `TC-FPROF.9`: 15 assertions passed
+  - Total: 208 assertion checks passed, 0 failures.
+- **Process Exit Code:** `0`
+- **Status:** PASS
+
+### Regression Suite Status
+- Because no test logic or executable code was altered, regression suites were not rerun in this documentation correction.
+- Prior verified results on this branch remain authoritative:
+  - `scripts/test/test_emerging_faction_ascension.gd`: PASS (Exit Code 0: 11/11 TC)
+  - `scripts/test/test_save_load.gd`: PASS (Exit Code 0: 100% Phase 8 tests)
+  - `scripts/test/test_battle_diplomacy_consequences.gd`: PASS (Exit Code 0: 11/11 TC)
+  - `scripts/test/test_offensive_campaign.gd`: PASS (Exit Code 0: 14/14 TC)
+  - `scripts/test/test_factions_and_battles.gd`: PASS (Exit Code 0: 100% tests)
+  - `scripts/test/test_army_movement.gd`: PASS (Exit Code 0: 32/32 TC)
+  - Headless Editor Parse & Class Registration: PASS (Exit Code 0)
+  - `git diff --check`: PASS (Exit Code 0)
+
+### Visual Verification Status
+- Automated headless runtime execution verified via `Godot_v4.7-stable_win64_console.exe` (Exit Code 0).
+- Manual visual screenshot review: **Not performed** (execution performed entirely within headless CLI environment). HUD cards and Vietnamese label rendering are verified programmatically in TC-FPROF.8.
+
+### Files Modified
+- `docs/WORKLOG.md` (Modified: corrected assertion-count evidence and aligned idempotency claims with executable checks)
+
+### Next Exact Step
+- Package 1Q evidence correction commit has been committed and pushed to `origin/feature/package-1q-faction-strategic-profiles`.
 - Await independent review.
 - Do not merge into `master` and do not begin Package 1R until authorized.
