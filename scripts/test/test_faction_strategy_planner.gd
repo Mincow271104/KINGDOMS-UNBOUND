@@ -323,6 +323,7 @@ func test_tc_fstrat_5_daily_simulation_integration() -> void:
 
 	# 5. Wartime posture evaluation (direct planner evaluation and daily simulation signal)
 	mil.is_at_war = true
+	var mil_pre_war_disp: int = mil.disposition
 	var mil_pre_war_opinion: float = mil.opinion
 	var mil_pre_war_mil: float = mil.military_power
 	var mil_pre_war_pop: int = mil.population
@@ -334,6 +335,7 @@ func test_tc_fstrat_5_daily_simulation_integration() -> void:
 	_assert_eq(wartime_direct.get("posture", ""), "wartime", "TC-FSTRAT.5-WAR-DIRECT-POSTURE", "Wartime posture is 'wartime'")
 	_assert_eq(wartime_direct.get("reason_code", ""), FactionStrategyPlannerScript.REASON_WARTIME_POSTURE, "TC-FSTRAT.5-WAR-DIRECT-REASON", "Wartime reason code is WARTIME_POSTURE")
 	_assert_true(mil.is_at_war, "TC-FSTRAT.5-WAR-FIELD-IS-WAR", "Faction is_at_war unchanged by planner")
+	_assert_eq(mil.disposition, mil_pre_war_disp, "TC-FSTRAT.5-WAR-FIELD-DISP", "Faction disposition unchanged by planner")
 	_assert_eq(mil.strategic_goal, FactionDataScript.GOAL_MILITARY_EXPANSION, "TC-FSTRAT.5-WAR-FIELD-GOAL", "Faction strategic_goal unchanged by planner")
 	_assert_eq(mil.existence_status, FactionDataScript.STATUS_ACTIVE, "TC-FSTRAT.5-WAR-FIELD-STATUS", "Faction existence_status unchanged by planner")
 	_assert_eq(mil.opinion, mil_pre_war_opinion, "TC-FSTRAT.5-WAR-FIELD-OPINION", "Faction opinion unchanged by planner")
@@ -352,6 +354,7 @@ func test_tc_fstrat_5_daily_simulation_integration() -> void:
 	_assert_eq(mil_sim_data.get("intent_id", ""), FactionStrategyPlannerScript.INTENT_MILITARY_BUILDUP, "TC-FSTRAT.5-WAR-SIM-INTENT", "Emitted signal carries aligned intent")
 	_assert_eq(mil_sim_data.get("posture", ""), "wartime", "TC-FSTRAT.5-WAR-SIM-POSTURE", "Emitted signal carries wartime posture")
 	_assert_eq(mil_sim_data.get("reason_code", ""), FactionStrategyPlannerScript.REASON_WARTIME_POSTURE, "TC-FSTRAT.5-WAR-SIM-REASON", "Emitted signal carries WARTIME_POSTURE reason")
+	_assert_eq(mil.disposition, mil_pre_war_disp, "TC-FSTRAT.5-WAR-SIM-DISP", "Faction disposition unchanged by daily simulation intent integration")
 
 	# Restore test fixture
 	mil.is_at_war = false
@@ -426,6 +429,112 @@ func test_tc_fstrat_6_emerging_faction_compatibility() -> void:
 	fm.strategic_intent_evaluated.disconnect(on_intent_evaluated)
 	fm.emerging_faction_ascended.disconnect(on_ascended)
 
+	# Part 3: Eliminated neutral tribe cannot ascend and does not grow population (Finding G)
+	var fm_elim := FactionManagerScript.new()
+	var elim_intents: Array[Dictionary] = []
+	var on_elim_intent := func(fac_id: String, intent_data: Dictionary):
+		elim_intents.append({"faction_id": fac_id, "data": intent_data})
+	fm_elim.strategic_intent_evaluated.connect(on_elim_intent)
+
+	var elim_signals: Array = []
+	var on_elim_ascended := func(fac_id: String, new_name: String):
+		elim_signals.append({"id": fac_id, "name": new_name})
+	fm_elim.emerging_faction_ascended.connect(on_elim_ascended)
+
+	var elim_tribe: FactionData = fm_elim.get_faction("neutral_tribe")
+	elim_tribe.existence_status = FactionDataScript.STATUS_ELIMINATED
+	elim_tribe.population = 44
+	elim_tribe.resources = {EconomyConfigScript.RES_WOOD: 120, EconomyConfigScript.RES_HERBS: 60}
+	elim_tribe.stability = 85.0
+	var elim_pre_pop: int = elim_tribe.population
+	var elim_pre_mil: float = elim_tribe.military_power
+	var elim_pre_stab: float = elim_tribe.stability
+	var elim_pre_goal: String = elim_tribe.strategic_goal
+	var elim_pre_name: String = elim_tribe.name
+	var elim_pre_type: String = elim_tribe.type
+	var elim_pre_wood: int = int(elim_tribe.resources.get(EconomyConfigScript.RES_WOOD, 0))
+	var elim_pre_herbs: int = int(elim_tribe.resources.get(EconomyConfigScript.RES_HERBS, 0))
+
+	# Verify can_emerging_faction_ascend fails closed for eliminated faction
+	_assert_false(fm_elim.can_emerging_faction_ascend(10), "TC-FSTRAT.6-ELIM-CAN-ASCEND", "Eliminated tribe cannot ascend")
+
+	# Execute Day 10 simulation tick
+	fm_elim.update_daily_simulation(10)
+
+	# Verify ascension blocked & signal suppressed
+	_assert_eq(elim_signals.size(), 0, "TC-FSTRAT.6-ELIM-NO-SIGNAL", "Zero emerging_faction_ascended signals for eliminated tribe")
+	# Verify population does not increase after elimination
+	_assert_eq(elim_tribe.population, elim_pre_pop, "TC-FSTRAT.6-ELIM-POP-NO-GROWTH", "Eliminated tribe does not gain population")
+	# Verify all profile fields remain unchanged
+	_assert_eq(elim_tribe.type, elim_pre_type, "TC-FSTRAT.6-ELIM-TYPE-UNCHANGED", "Type remains neutral_tribe")
+	_assert_eq(elim_tribe.name, elim_pre_name, "TC-FSTRAT.6-ELIM-NAME-UNCHANGED", "Name remains unchanged")
+	_assert_eq(elim_tribe.military_power, elim_pre_mil, "TC-FSTRAT.6-ELIM-MIL-UNCHANGED", "Military power remains unchanged")
+	_assert_eq(elim_tribe.stability, elim_pre_stab, "TC-FSTRAT.6-ELIM-STAB-UNCHANGED", "Stability remains unchanged")
+	_assert_eq(elim_tribe.strategic_goal, elim_pre_goal, "TC-FSTRAT.6-ELIM-GOAL-UNCHANGED", "Strategic goal remains community_growth")
+	_assert_eq(elim_tribe.existence_status, FactionDataScript.STATUS_ELIMINATED, "TC-FSTRAT.6-ELIM-STATUS-UNCHANGED", "Status remains eliminated")
+	_assert_eq(int(elim_tribe.resources.get(EconomyConfigScript.RES_WOOD, 0)), elim_pre_wood, "TC-FSTRAT.6-ELIM-WOOD-UNCHANGED", "Wood stock unchanged")
+	_assert_eq(int(elim_tribe.resources.get(EconomyConfigScript.RES_HERBS, 0)), elim_pre_herbs, "TC-FSTRAT.6-ELIM-HERBS-UNCHANGED", "Herbs stock unchanged")
+
+	# Verify inactive tribe does not receive a normal eligible strategic_intent_evaluated emission
+	var elim_has_intent: bool = false
+	for item in elim_intents:
+		if item["faction_id"] == "neutral_tribe":
+			elim_has_intent = true
+			break
+	_assert_false(elim_has_intent, "TC-FSTRAT.6-ELIM-NO-INTENT", "Eliminated tribe suppressed from strategic intent emission")
+
+	fm_elim.strategic_intent_evaluated.disconnect(on_elim_intent)
+	fm_elim.emerging_faction_ascended.disconnect(on_elim_ascended)
+
+	# Part 4: In-exile neutral tribe cannot ascend and does not grow population (Finding G)
+	var fm_exile := FactionManagerScript.new()
+	var exile_intents: Array[Dictionary] = []
+	var on_exile_intent := func(fac_id: String, intent_data: Dictionary):
+		exile_intents.append({"faction_id": fac_id, "data": intent_data})
+	fm_exile.strategic_intent_evaluated.connect(on_exile_intent)
+
+	var exile_signals: Array = []
+	var on_exile_ascended := func(fac_id: String, new_name: String):
+		exile_signals.append({"id": fac_id, "name": new_name})
+	fm_exile.emerging_faction_ascended.connect(on_exile_ascended)
+
+	var exile_tribe: FactionData = fm_exile.get_faction("neutral_tribe")
+	exile_tribe.existence_status = FactionDataScript.STATUS_IN_EXILE
+	exile_tribe.population = 44
+	exile_tribe.resources = {EconomyConfigScript.RES_WOOD: 120, EconomyConfigScript.RES_HERBS: 60}
+	exile_tribe.stability = 85.0
+	var exile_pre_pop: int = exile_tribe.population
+	var exile_pre_goal: String = exile_tribe.strategic_goal
+	var exile_pre_name: String = exile_tribe.name
+	var exile_pre_type: String = exile_tribe.type
+
+	# Verify can_emerging_faction_ascend fails closed for in_exile faction
+	_assert_false(fm_exile.can_emerging_faction_ascend(10), "TC-FSTRAT.6-EXILE-CAN-ASCEND", "In-exile tribe cannot ascend")
+
+	# Execute Day 10 simulation tick
+	fm_exile.update_daily_simulation(10)
+
+	# Verify ascension blocked & signal suppressed
+	_assert_eq(exile_signals.size(), 0, "TC-FSTRAT.6-EXILE-NO-SIGNAL", "Zero emerging_faction_ascended signals for in-exile tribe")
+	# Verify population does not increase while in exile
+	_assert_eq(exile_tribe.population, exile_pre_pop, "TC-FSTRAT.6-EXILE-POP-NO-GROWTH", "In-exile tribe does not gain population")
+	# Verify profile fields remain unchanged
+	_assert_eq(exile_tribe.type, exile_pre_type, "TC-FSTRAT.6-EXILE-TYPE-UNCHANGED", "Type remains neutral_tribe")
+	_assert_eq(exile_tribe.name, exile_pre_name, "TC-FSTRAT.6-EXILE-NAME-UNCHANGED", "Name remains unchanged")
+	_assert_eq(exile_tribe.strategic_goal, exile_pre_goal, "TC-FSTRAT.6-EXILE-GOAL-UNCHANGED", "Strategic goal remains community_growth")
+	_assert_eq(exile_tribe.existence_status, FactionDataScript.STATUS_IN_EXILE, "TC-FSTRAT.6-EXILE-STATUS-UNCHANGED", "Status remains in_exile")
+
+	# Verify inactive tribe does not receive a normal eligible strategic_intent_evaluated emission
+	var exile_has_intent: bool = false
+	for item in exile_intents:
+		if item["faction_id"] == "neutral_tribe":
+			exile_has_intent = true
+			break
+	_assert_false(exile_has_intent, "TC-FSTRAT.6-EXILE-NO-INTENT", "In-exile tribe suppressed from strategic intent emission")
+
+	fm_exile.strategic_intent_evaluated.disconnect(on_exile_intent)
+	fm_exile.emerging_faction_ascended.disconnect(on_exile_ascended)
+
 # -----------------------------------------------------------------------------
 # TC-FSTRAT.7: No Unintended Gameplay Mutation
 # -----------------------------------------------------------------------------
@@ -438,6 +547,7 @@ func _take_faction_snapshot(fac: FactionData) -> Dictionary:
 		"id": str(fac.id),
 		"name": str(fac.name),
 		"type": str(fac.type),
+		"disposition": int(fac.disposition),
 		"opinion": float(fac.opinion),
 		"military_power": float(fac.military_power),
 		"stability": float(fac.stability),
@@ -454,6 +564,7 @@ func _verify_faction_snapshot(fac: FactionData, snap: Dictionary, prefix: String
 	_assert_eq(str(fac.id), snap["id"], prefix + "-ID", "id unmutated")
 	_assert_eq(fac.name, snap["name"], prefix + "-NAME", "name unmutated")
 	_assert_eq(fac.type, snap["type"], prefix + "-TYPE", "type unmutated")
+	_assert_eq(fac.disposition, snap["disposition"], prefix + "-DISP", "disposition unmutated")
 	_assert_eq(fac.opinion, snap["opinion"], prefix + "-OPINION", "opinion unmutated")
 	_assert_eq(fac.military_power, snap["military_power"], prefix + "-MIL", "military_power unmutated")
 	_assert_eq(fac.stability, snap["stability"], prefix + "-STAB", "stability unmutated")
@@ -511,6 +622,7 @@ func test_tc_fstrat_7_no_unintended_gameplay_mutation() -> void:
 	_assert_eq(str(tribe.id), snap_tribe["id"], "TC-FSTRAT.7-SIM-TRIBE-ID", "id unmutated")
 	_assert_eq(tribe.name, snap_tribe["name"], "TC-FSTRAT.7-SIM-TRIBE-NAME", "name unmutated")
 	_assert_eq(tribe.type, snap_tribe["type"], "TC-FSTRAT.7-SIM-TRIBE-TYPE", "type unmutated")
+	_assert_eq(tribe.disposition, snap_tribe["disposition"], "TC-FSTRAT.7-SIM-TRIBE-DISP", "disposition unmutated")
 	_assert_eq(tribe.opinion, snap_tribe["opinion"], "TC-FSTRAT.7-SIM-TRIBE-OPINION", "opinion unmutated")
 	_assert_eq(tribe.military_power, snap_tribe["military_power"], "TC-FSTRAT.7-SIM-TRIBE-MIL", "military_power unmutated")
 	_assert_eq(tribe.stability, snap_tribe["stability"], "TC-FSTRAT.7-SIM-TRIBE-STAB", "stability unmutated")

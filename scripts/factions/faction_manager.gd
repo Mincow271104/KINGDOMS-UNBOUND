@@ -210,6 +210,8 @@ func can_emerging_faction_ascend(day: int) -> bool:
 	var tribe: FactionData = get_faction("neutral_tribe")
 	if tribe == null or tribe.type != "neutral_tribe":
 		return false
+	if tribe.existence_status != FactionData.STATUS_ACTIVE:
+		return false
 	if has_emerging_power():
 		return false
 	if tribe.population < ASCENSION_MIN_POPULATION:
@@ -230,7 +232,7 @@ func can_emerging_faction_ascend(day: int) -> bool:
 func update_daily_simulation(day: int) -> void:
 	# 1. Check emerging faction ascent for neutral tribe
 	var tribe: FactionData = get_faction("neutral_tribe")
-	if tribe != null and tribe.type == "neutral_tribe":
+	if tribe != null and tribe.type == "neutral_tribe" and tribe.existence_status == FactionData.STATUS_ACTIVE:
 		tribe.population += 1
 		if can_emerging_faction_ascend(day):
 			tribe.type = ASCENSION_NEW_TYPE

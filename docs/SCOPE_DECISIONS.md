@@ -223,6 +223,8 @@
     - Factions with `in_exile` or `eliminated` status return `eligible == false` with `intent_id == "none"`.
     - Zero military power alone does NOT eliminate a faction; status must be explicitly marked.
     - Status values are never automatically altered by the evaluator.
+    - Only `active` neutral tribes can ascend to `emerging_power` (`can_emerging_faction_ascend() == true`). Inactive tribes (`in_exile`, `eliminated`) are strictly barred from ascension.
+    - Daily neutral tribe population growth in `update_daily_simulation()` is strictly restricted to `active` tribes (`existence_status == STATUS_ACTIVE`). Inactive tribes (`in_exile`, `eliminated`) do not gain daily settlement population, reflecting that displaced governments in exile or eliminated factions do not host an active growing settlement on the world map.
   - **Daily Simulation Pipeline Integration:**
     - Evaluated in `FactionManager.update_daily_simulation(day)` after the neutral tribe ascension check, ensuring that post-ascension goals (`consolidate_power`) are immediately respected.
     - Factions are processed in stable alphabetical order (`sorted_ids.sort()`) exactly once per daily simulation tick.
@@ -230,7 +232,7 @@
     - Query APIs `get_faction_strategic_intent(faction_id)` and `evaluate_all_strategic_intents()` provide deterministic read access on demand without requiring simulation ticks.
   - **Fail-Closed & State Invariance:**
     - Unrecognized goals, statuses, or null faction references return ineligible results with explicit error reason codes without throwing exceptions or mutating faction state.
-    - Evaluation is strictly side-effect free: `name`, `type`, `opinion`, `military_power`, `stability`, `resources`, `population`, `is_at_war`, `has_nap`, `has_alliance`, `strategic_goal`, and `existence_status` remain 100% invariant across evaluations.
+    - Evaluation is strictly side-effect free: `id`, `name`, `type`, `disposition`, `opinion`, `military_power`, `stability`, `resources`, `population`, `is_at_war`, `has_nap`, `has_alliance`, `strategic_goal`, and `existence_status` remain 100% invariant across evaluations.
 
 ---
 

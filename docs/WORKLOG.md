@@ -4690,3 +4690,84 @@ Address final independent review findings (Findings D and E) on branch `feature/
 - That commit was pushed to `origin/feature/package-1r-faction-strategic-decision-engine`, successfully synchronizing the remote branch tip at the time of the push.
 - Package 1R awaits independent review.
 - Package 1S must not begin without explicit authorization.
+
+---
+
+## [2026-10-23] Package 1R Cross-Package Review Fix: Faction Status Ascension & Disposition Invariance ✅ VERIFIED
+
+### Context & Objective
+Address cross-package code review findings (Findings G and H) on branch `feature/package-1r-faction-strategic-decision-engine` (baseline HEAD `0e98a62f1a4b5d391da170e8e70b87bc03743bcd`):
+1. **Finding G — Existing Faction Status Respected by Ascension & Daily Simulation:**
+   - **Root Cause & Design Conflict:** In `scripts/factions/faction_manager.gd`, `can_emerging_faction_ascend()` previously only checked faction type, population, day, stability, and resource thresholds without verifying `existence_status`. Furthermore, `update_daily_simulation()` unconditionally incremented `neutral_tribe.population` as long as `type == "neutral_tribe"`. As a result, an `eliminated` or `in_exile` neutral tribe could continue to grow its population and ascend to `emerging_power`, conflicting with GDD §10.1/§10.3 and Scope Decisions 1.17/1.18 where non-active factions are displaced or eliminated from active world play.
+   - **Implementation & in_exile Policy:**
+     - In `can_emerging_faction_ascend(day)`, added explicit check `if tribe.existence_status != FactionData.STATUS_ACTIVE: return false`. Only `active` neutral settlements can evolve into an emerging regional power.
+     - In `update_daily_simulation(day)`, guarded population growth behind `tribe.existence_status == FactionData.STATUS_ACTIVE`. An `eliminated` faction ceases to exist on the map and never gains population. For `in_exile` factions, the government is displaced (per GDD §10.5 capital loss rules) and does not host an active local settlement on the world map, so settlement population growth is halted while in exile.
+     - Ordinary active-tribe ascension thresholds, outcomes, and signal semantics remain unchanged. `existence_status` is not silently altered back to `active`.
+   - **Pure Planning Layer Preservation:** `FactionStrategyPlanner` remains strictly read-only; it evaluates strategic intents without executing military or trade actions.
+2. **Finding H — Diplomatic Disposition State Invariance:**
+   - In `scripts/test/test_faction_strategy_planner.gd`:
+     - Added `disposition` to `_take_faction_snapshot()` and `_verify_faction_snapshot()`.
+     - In `TC-FSTRAT.5`, added explicit assertions verifying that `disposition` is invariant under direct wartime evaluation (`TC-FSTRAT.5-WAR-FIELD-DISP`) and daily simulation intent integration (`TC-FSTRAT.5-WAR-SIM-DISP`).
+     - In `TC-FSTRAT.7`, added `disposition` assertions across all snapshot checks (`DIRECT-DISP`, `MULTI-DIRECT-DISP`, `SIM-MIL-DISP`, `SIM-MERCH-DISP`, `SIM-TRIBE-DISP`).
+
+### Validations Performed & Results
+
+1. **Package 1R Focused Suite (`scripts/test/test_faction_strategy_planner.gd`):**
+   - **Command:** `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --path "e:\KINGDOMS UNBOUND\kingdoms-unbound" -s res://scripts/test/test_faction_strategy_planner.gd`
+   - **Captured Output Summary:**
+     - `TC-FSTRAT.1`: **31** assertions passed
+     - `TC-FSTRAT.2`: **6** assertions passed
+     - `TC-FSTRAT.3`: **18** assertions passed
+     - `TC-FSTRAT.4`: **12** assertions passed
+     - `TC-FSTRAT.5`: **34** assertions passed (32 previous + 2 disposition assertions)
+     - `TC-FSTRAT.6`: **32** assertions passed (12 previous + 20 new regression assertions for eliminated and in-exile tribes)
+     - `TC-FSTRAT.7`: **81** assertions passed (76 previous + 5 disposition assertions)
+     - Total: **214** assertions passed, 0 failures.
+   - **Exit Code:** `0` (PASS)
+
+2. **Package 1Q Faction Profiles Suite (`scripts/test/test_faction_profiles.gd`):**
+   - **Command:** `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --path "e:\KINGDOMS UNBOUND\kingdoms-unbound" -s res://scripts/test/test_faction_profiles.gd`
+   - **Result:** 9/9 tests passed, **217** assertions passed, 0 failures.
+   - **Exit Code:** `0` (PASS)
+
+3. **Package 1P Emerging Faction Ascension Suite (`scripts/test/test_emerging_faction_ascension.gd`):**
+   - **Command:** `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --path "e:\KINGDOMS UNBOUND\kingdoms-unbound" -s res://scripts/test/test_emerging_faction_ascension.gd`
+   - **Result:** 11/11 tests passed, 0 failures.
+   - **Exit Code:** `0` (PASS)
+
+4. **Faction & Battle System Suite (`scripts/test/test_factions_and_battles.gd`):**
+   - **Command:** `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --path "e:\KINGDOMS UNBOUND\kingdoms-unbound" -s res://scripts/test/test_factions_and_battles.gd`
+   - **Result:** 100% tests passed, 0 failures.
+   - **Exit Code:** `0` (PASS)
+
+5. **Save/Load Persistence Suite (`scripts/test/test_save_load.gd`):**
+   - **Command:** `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --path "e:\KINGDOMS UNBOUND\kingdoms-unbound" -s res://scripts/test/test_save_load.gd`
+   - **Result:** 100% Phase 8 tests passed, 0 failures.
+   - **Exit Code:** `0` (PASS)
+
+6. **Headless Editor Parse & Class Registration:**
+   - **Command:** `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --path "e:\KINGDOMS UNBOUND\kingdoms-unbound" --editor --quit`
+   - **Result:** Engine initialized cleanly, parsed classes, and exited with 0 compile/load errors.
+   - **Exit Code:** `0` (PASS)
+
+7. **Git Whitespace & Formatting Check:**
+   - **Command:** `git diff --check`
+   - **Result:** Clean, zero whitespace errors.
+   - **Exit Code:** `0` (PASS)
+
+### Visual Verification Status
+- **Status:** **NOT PERFORMED**
+- **Reason:** Pure simulation and decision engine logic without UI scenes or visual modifications.
+
+### Files Modified
+- `scripts/factions/faction_manager.gd` (Modified: guarded ascension and neutral tribe daily population growth by `existence_status == STATUS_ACTIVE`)
+- `scripts/test/test_faction_strategy_planner.gd` (Modified: added disposition invariance assertions in TC-FSTRAT.5 & TC-FSTRAT.7; added eliminated & in-exile ascension gating tests in TC-FSTRAT.6)
+- `docs/SCOPE_DECISIONS.md` (Modified: documented ascension and settlement population growth status gating rules)
+- `docs/TEST_PLAN.md` (Modified: updated TC-FSTRAT.5, TC-FSTRAT.6, TC-FSTRAT.7 criteria and assertion count to 214)
+- `docs/WORKLOG.md` (Modified: documented Cross-Package Review Fix findings G & H and execution evidence)
+
+### Next Exact Step
+- Stage the 5 modified files (`scripts/factions/faction_manager.gd`, `scripts/test/test_faction_strategy_planner.gd`, `docs/SCOPE_DECISIONS.md`, `docs/TEST_PLAN.md`, `docs/WORKLOG.md`).
+- Commit with exact message: `Respect faction status in ascension integration`.
+- Push branch `feature/package-1r-faction-strategic-decision-engine` to remote `origin`.
+- Await independent review before beginning Package 1S.
