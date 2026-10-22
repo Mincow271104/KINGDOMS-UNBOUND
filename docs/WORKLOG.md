@@ -4625,3 +4625,68 @@ Address independent review findings for Package 1R on branch `feature/package-1r
 - Commit with exact message: `Complete Package 1R edge-case and side-effect verification`.
 - Push branch `feature/package-1r-faction-strategic-decision-engine` to remote `origin`.
 - Await independent review before beginning Package 1S.
+
+---
+
+## [2026-10-23] Package 1R Final Review Fix: Snapshot Faction ID & Signal Frequency Audit ✅ VERIFIED
+
+### Context & Objective
+Address final independent review findings (Findings D and E) on branch `feature/package-1r-faction-strategic-decision-engine` (baseline HEAD `60a3b38a6c5c87af7f31e1102dfc941c908b1dce`):
+1. **Finding D — Explicit Faction ID Snapshot Verification:**
+   - In `scripts/test/test_faction_strategy_planner.gd`:
+     - Added explicit assertion `_assert_eq(str(fac.id), snap["id"], prefix + "-ID", "id unmutated")` inside `_verify_faction_snapshot()`, adding 4 assertions across direct and simulation snapshot checks (`TC-FSTRAT.7-DIRECT-ID`, `TC-FSTRAT.7-MULTI-DIRECT-ID`, `TC-FSTRAT.7-SIM-MIL-ID`, `TC-FSTRAT.7-SIM-MERCH-ID`).
+     - Added explicit field check `_assert_eq(str(tribe.id), snap_tribe["id"], "TC-FSTRAT.7-SIM-TRIBE-ID", "id unmutated")` for `neutral_tribe` in TC-FSTRAT.7, verifying ID preservation alongside population growth and profile immutability.
+     - Total assertions in TC-FSTRAT.7 increased from 71 to 76 (+5 assertions), and suite total increased from 182 to 187.
+2. **Finding E — Signal Frequency Clarification:**
+   - In `docs/TEST_PLAN.md` (TC-FSTRAT.5), clarified wording that `strategic_intent_evaluated` is emitted once per eligible active faction per invocation of `FactionManager.update_daily_simulation()`, avoiding any false implication of calendar-day-based deduplication.
+   - Zero production code modified; behavioral contract remains completely preserved.
+
+### Validations Performed & Results
+
+1. **Package 1R Focused Suite (`scripts/test/test_faction_strategy_planner.gd`):**
+   - **Command:** `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --path "e:\KINGDOMS UNBOUND\kingdoms-unbound" -s res://scripts/test/test_faction_strategy_planner.gd`
+   - **Captured Output Summary:**
+     - `TC-FSTRAT.1`: **31** assertions passed
+     - `TC-FSTRAT.2`: **6** assertions passed
+     - `TC-FSTRAT.3`: **18** assertions passed
+     - `TC-FSTRAT.4`: **12** assertions passed
+     - `TC-FSTRAT.5`: **32** assertions passed
+     - `TC-FSTRAT.6`: **12** assertions passed
+     - `TC-FSTRAT.7`: **76** assertions passed (71 previous + 5 new faction ID assertions)
+     - Total: **187** assertions passed, 0 failures.
+   - **Exit Code:** `0` (PASS)
+
+2. **Package 1Q Faction Profiles Suite (`scripts/test/test_faction_profiles.gd`):**
+   - **Command:** `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --path "e:\KINGDOMS UNBOUND\kingdoms-unbound" -s res://scripts/test/test_faction_profiles.gd`
+   - **Result:** 9/9 tests passed, **217** assertions passed, 0 failures.
+   - **Exit Code:** `0` (PASS)
+
+3. **Package 1P Emerging Faction Ascension Suite (`scripts/test/test_emerging_faction_ascension.gd`):**
+   - **Command:** `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --path "e:\KINGDOMS UNBOUND\kingdoms-unbound" -s res://scripts/test/test_emerging_faction_ascension.gd`
+   - **Result:** 11/11 tests passed, 0 failures.
+   - **Exit Code:** `0` (PASS)
+
+4. **Headless Editor Parse & Class Registration:**
+   - **Command:** `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --path "e:\KINGDOMS UNBOUND\kingdoms-unbound" --editor --quit`
+   - **Result:** Clean engine initialization and shutdown without errors.
+   - **Exit Code:** `0` (PASS)
+
+5. **Git Whitespace & Formatting Check:**
+   - **Command:** `git diff --check`
+   - **Result:** Clean, zero whitespace errors.
+   - **Exit Code:** `0` (PASS)
+
+### Visual Verification Status
+- **Status:** **NOT PERFORMED**
+- **Reason:** Headless backend logic, data verification, and documentation only; no visual UI components involved.
+
+### Files Modified
+- `scripts/test/test_faction_strategy_planner.gd` (Modified: added 5 explicit faction ID snapshot assertions in TC-FSTRAT.7)
+- `docs/TEST_PLAN.md` (Modified: clarified signal emission frequency per update_daily_simulation invocation and updated assertion count to 187)
+- `docs/WORKLOG.md` (Modified: documented Final Review Fix findings D & E and execution evidence)
+
+### Next Exact Step
+- Stage the 3 modified files (`scripts/test/test_faction_strategy_planner.gd`, `docs/TEST_PLAN.md`, `docs/WORKLOG.md`).
+- Commit with exact message: `Close Package 1R snapshot and signal wording audit`.
+- Push branch `feature/package-1r-faction-strategic-decision-engine` to remote `origin`.
+- Await independent review before beginning Package 1S.

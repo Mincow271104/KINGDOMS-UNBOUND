@@ -451,6 +451,7 @@ func _take_faction_snapshot(fac: FactionData) -> Dictionary:
 	}
 
 func _verify_faction_snapshot(fac: FactionData, snap: Dictionary, prefix: String) -> void:
+	_assert_eq(str(fac.id), snap["id"], prefix + "-ID", "id unmutated")
 	_assert_eq(fac.name, snap["name"], prefix + "-NAME", "name unmutated")
 	_assert_eq(fac.type, snap["type"], prefix + "-TYPE", "type unmutated")
 	_assert_eq(fac.opinion, snap["opinion"], prefix + "-OPINION", "opinion unmutated")
@@ -507,6 +508,7 @@ func test_tc_fstrat_7_no_unintended_gameplay_mutation() -> void:
 	# neutral_tribe: pre-existing simulation rule intentionally increments population (+1 per day)
 	_assert_eq(tribe.population, snap_tribe["population"] + 5, "TC-FSTRAT.7-SIM-TRIBE-POP", "neutral_tribe population increased by exactly 5 across 5 simulation days")
 	# neutral_tribe: all other fields remain completely unmutated by strategic planner integration
+	_assert_eq(str(tribe.id), snap_tribe["id"], "TC-FSTRAT.7-SIM-TRIBE-ID", "id unmutated")
 	_assert_eq(tribe.name, snap_tribe["name"], "TC-FSTRAT.7-SIM-TRIBE-NAME", "name unmutated")
 	_assert_eq(tribe.type, snap_tribe["type"], "TC-FSTRAT.7-SIM-TRIBE-TYPE", "type unmutated")
 	_assert_eq(tribe.opinion, snap_tribe["opinion"], "TC-FSTRAT.7-SIM-TRIBE-OPINION", "opinion unmutated")
