@@ -478,9 +478,11 @@ func test_tc_fprof_9_load_idempotency() -> void:
 	for fid in target_factions:
 		var fac: FactionData = fm.get_faction(fid)
 		var ref_fac: Dictionary = ref_factions[fid]
-		_assert_eq(fac.opinion, float(ref_fac["opinion"]), "TC-FPROF.9-LOAD1-" + fid.to_upper() + "-OPINION", fid + " opinion matches reference after load 1")
-		_assert_eq(fac.strategic_goal, str(ref_fac["strategic_goal"]), "TC-FPROF.9-LOAD1-" + fid.to_upper() + "-GOAL", fid + " goal matches reference after load 1")
-		_assert_eq(fac.existence_status, str(ref_fac["existence_status"]), "TC-FPROF.9-LOAD1-" + fid.to_upper() + "-STATUS", fid + " status matches reference after load 1")
+		_assert_true(fac != null, "TC-FPROF.9-LOAD1-" + fid.to_upper() + "-EXISTS", fid + " exists after load 1")
+		if fac != null:
+			_assert_eq(fac.opinion, float(ref_fac["opinion"]), "TC-FPROF.9-LOAD1-" + fid.to_upper() + "-OPINION", fid + " opinion matches reference after load 1")
+			_assert_eq(fac.strategic_goal, str(ref_fac["strategic_goal"]), "TC-FPROF.9-LOAD1-" + fid.to_upper() + "-GOAL", fid + " goal matches reference after load 1")
+			_assert_eq(fac.existence_status, str(ref_fac["existence_status"]), "TC-FPROF.9-LOAD1-" + fid.to_upper() + "-STATUS", fid + " status matches reference after load 1")
 
 	# --- Step 2: Simulation Tick on Loaded World ---
 	fm.update_daily_simulation(11)
@@ -490,9 +492,11 @@ func test_tc_fprof_9_load_idempotency() -> void:
 	for fid in target_factions:
 		var fac: FactionData = fm.get_faction(fid)
 		var ref_fac: Dictionary = ref_factions[fid]
-		_assert_eq(fac.opinion, float(ref_fac["opinion"]), "TC-FPROF.9-TICK-" + fid.to_upper() + "-OPINION", fid + " opinion matches reference after tick")
-		_assert_eq(fac.strategic_goal, str(ref_fac["strategic_goal"]), "TC-FPROF.9-TICK-" + fid.to_upper() + "-GOAL", fid + " goal matches reference after tick")
-		_assert_eq(fac.existence_status, str(ref_fac["existence_status"]), "TC-FPROF.9-TICK-" + fid.to_upper() + "-STATUS", fid + " status matches reference after tick")
+		_assert_true(fac != null, "TC-FPROF.9-TICK-" + fid.to_upper() + "-EXISTS", fid + " exists after tick")
+		if fac != null:
+			_assert_eq(fac.opinion, float(ref_fac["opinion"]), "TC-FPROF.9-TICK-" + fid.to_upper() + "-OPINION", fid + " opinion matches reference after tick")
+			_assert_eq(fac.strategic_goal, str(ref_fac["strategic_goal"]), "TC-FPROF.9-TICK-" + fid.to_upper() + "-GOAL", fid + " goal matches reference after tick")
+			_assert_eq(fac.existence_status, str(ref_fac["existence_status"]), "TC-FPROF.9-TICK-" + fid.to_upper() + "-STATUS", fid + " status matches reference after tick")
 
 	# --- Step 3: Second Load (Double-Load Idempotency) ---
 	var res2: Dictionary = SaveManagerScript.apply_loaded_state_to_world(world_instance, saved_data)
@@ -503,14 +507,17 @@ func test_tc_fprof_9_load_idempotency() -> void:
 	for fid in target_factions:
 		var fac: FactionData = fm.get_faction(fid)
 		var ref_fac: Dictionary = ref_factions[fid]
-		_assert_eq(fac.opinion, float(ref_fac["opinion"]), "TC-FPROF.9-LOAD2-" + fid.to_upper() + "-OPINION", fid + " opinion matches reference after load 2")
-		_assert_eq(fac.strategic_goal, str(ref_fac["strategic_goal"]), "TC-FPROF.9-LOAD2-" + fid.to_upper() + "-GOAL", fid + " goal matches reference after load 2")
-		_assert_eq(fac.existence_status, str(ref_fac["existence_status"]), "TC-FPROF.9-LOAD2-" + fid.to_upper() + "-STATUS", fid + " status matches reference after load 2")
+		_assert_true(fac != null, "TC-FPROF.9-LOAD2-" + fid.to_upper() + "-EXISTS", fid + " exists after load 2")
+		if fac != null:
+			_assert_eq(fac.opinion, float(ref_fac["opinion"]), "TC-FPROF.9-LOAD2-" + fid.to_upper() + "-OPINION", fid + " opinion matches reference after load 2")
+			_assert_eq(fac.strategic_goal, str(ref_fac["strategic_goal"]), "TC-FPROF.9-LOAD2-" + fid.to_upper() + "-GOAL", fid + " goal matches reference after load 2")
+			_assert_eq(fac.existence_status, str(ref_fac["existence_status"]), "TC-FPROF.9-LOAD2-" + fid.to_upper() + "-STATUS", fid + " status matches reference after load 2")
 
 	# Preserve legacy specific checks
 	var mil: FactionData = fm.get_faction("rival_military")
-	_assert_eq(mil.strategic_goal, FactionDataScript.GOAL_MILITARY_EXPANSION, "TC-FPROF.9-MIL-GOAL", "Military goal intact after double-load")
-	_assert_eq(mil.existence_status, FactionDataScript.STATUS_ACTIVE, "TC-FPROF.9-MIL-STATUS", "Military status intact after double-load")
+	if mil != null:
+		_assert_eq(mil.strategic_goal, FactionDataScript.GOAL_MILITARY_EXPANSION, "TC-FPROF.9-MIL-GOAL", "Military goal intact after double-load")
+		_assert_eq(mil.existence_status, FactionDataScript.STATUS_ACTIVE, "TC-FPROF.9-MIL-STATUS", "Military status intact after double-load")
 
 	if fm.emerging_faction_ascended.is_connected(on_ascended):
 		fm.emerging_faction_ascended.disconnect(on_ascended)
