@@ -26,6 +26,7 @@ signal treaty_signed(faction_id: String, treaty_type: String)
 signal war_declared(faction_id: String)
 signal peace_signed(faction_id: String)
 signal emerging_faction_ascended(faction_id: String, new_name: String)
+signal strategic_intent_evaluated(faction_id: String, intent_data: Dictionary)
 
 var _factions: Dictionary = {} # id -> FactionData
 
@@ -85,6 +86,20 @@ func get_faction(id: String) -> FactionData:
 
 func get_all_factions() -> Array:
 	return _factions.values()
+
+func get_faction_strategic_intent(faction_id: String) -> Dictionary:
+	var fac: FactionData = get_faction(faction_id)
+	return FactionStrategyPlanner.evaluate_faction_intent(fac)
+
+func evaluate_all_strategic_intents() -> Array[Dictionary]:
+	var results: Array[Dictionary] = []
+	var sorted_ids: Array = _factions.keys()
+	sorted_ids.sort()
+	for fid in sorted_ids:
+		var fac: FactionData = _factions[fid]
+		if fac != null:
+			results.append(FactionStrategyPlanner.evaluate_faction_intent(fac))
+	return results
 
 func modify_opinion(faction_id: String, delta: float) -> Dictionary:
 	var fac: FactionData = get_faction(faction_id)
@@ -211,9 +226,9 @@ func can_emerging_faction_ascend(day: int) -> bool:
 		return false
 	return true
 
-## Simulation tick: checks periodic faction evolution (GDD 10.3)
+## Simulation tick: checks periodic faction evolution (GDD 10.3) and evaluates strategic intents (GDD 10.1, Package 1R)
 func update_daily_simulation(day: int) -> void:
-	# Check emerging faction ascent for neutral tribe
+	# 1. Check emerging faction ascent for neutral tribe
 	var tribe: FactionData = get_faction("neutral_tribe")
 	if tribe != null and tribe.type == "neutral_tribe":
 		tribe.population += 1
@@ -224,3 +239,14 @@ func update_daily_simulation(day: int) -> void:
 			tribe.stability = ASCENSION_NEW_STABILITY
 			tribe.strategic_goal = ASCENSION_NEW_STRATEGIC_GOAL
 			emerging_faction_ascended.emit(tribe.id, tribe.name)
+
+	# 2. Evaluate daily strategic intents for active factions in stable deterministic order
+	var sorted_ids: Array = _factions.keys()
+	sorted_ids.sort()
+	for fid in sorted_ids:
+		var fac: FactionData = _factions[fid]
+		if fac == null:
+			continue
+		var decision: Dictionary = FactionStrategyPlanner.evaluate_faction_intent(fac)
+		if decision.get("eligible", false):
+			strategic_intent_evaluated.emit(fid, decision)

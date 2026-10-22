@@ -4430,3 +4430,125 @@ Resolve final audit findings on branch `feature/package-1q-faction-strategic-pro
 - Package 1Q assertion audit commit has been committed and pushed to `origin/feature/package-1q-faction-strategic-profiles`.
 - Await independent review.
 - Do not merge into `master` and do not begin Package 1R until authorized.
+
+---
+
+## [2026-10-22] Package 1R: Deterministic Faction Strategic Decision Engine ✅ VERIFIED
+
+### Context & Objective
+Implement Package 1R for KINGDOMS UNBOUND on feature branch `feature/package-1r-faction-strategic-decision-engine` (baseline HEAD `1b11605a1c16bf9ff516cf5e9a1d23fe1274a14f`).
+The objective is to establish an explainable, deterministic strategic decision planning layer conforming to GDD §10.1 & Scope Decision 1.18. The system translates high-level faction profiles (`FactionData.strategic_goal` and `FactionData.existence_status`) into actionable, discrete strategic intents (`military_buildup`, `trade_expansion`, `community_development`, `power_consolidation`, `none`) without hidden rolls, LLM non-determinism, or unexpected gameplay mutations.
+
+### Architecture & Design Decisions
+1. **Pure Decision Evaluator (`scripts/factions/faction_strategy_planner.gd`):**
+   - Implemented as a pure `RefCounted` class with static methods and constant identifiers:
+     - `INTENT_MILITARY_BUILDUP = "military_buildup"`
+     - `INTENT_TRADE_EXPANSION = "trade_expansion"`
+     - `INTENT_COMMUNITY_DEVELOPMENT = "community_development"`
+     - `INTENT_POWER_CONSOLIDATION = "power_consolidation"`
+     - `INTENT_NONE = "none"`
+   - Canonical 1:1 mapping from strategic goals to intents:
+     - `military_expansion` $\to$ `military_buildup`
+     - `trade_dominance` $\to$ `trade_expansion`
+     - `community_growth` $\to$ `community_development`
+     - `consolidate_power` $\to$ `power_consolidation`
+   - Structured dictionary output for observability:
+     `{"faction_id": String, "strategic_goal": String, "intent_id": String, "eligible": bool, "reason_code": String, "posture": String}`
+   - Diagnostic reason codes: `GOAL_ALIGNED`, `WARTIME_POSTURE`, `INELIGIBLE_IN_EXILE`, `INELIGIBLE_ELIMINATED`, `ERR_INVALID_STATUS`, `ERR_INVALID_GOAL`, `ERR_NULL_FACTION`.
+   - Centralized Vietnamese localization helper `get_intent_label()` preventing raw internal identifier leakage.
+
+2. **Existence Status Gating & Fail-Closed Safety:**
+   - Only `active` factions receive active world intents (`eligible: true`).
+   - `in_exile` and `eliminated` factions return `eligible: false` and `intent_id: "none"`.
+   - Factions at war (`is_at_war == true`) have posture set to `"wartime"` with `reason_code: "WARTIME_POSTURE"`.
+   - Factions with 0 military power remain active and eligible (military defeat does not alter existence status implicitly).
+   - Unrecognized goals or statuses fail closed with diagnostic error reason codes and `eligible: false`.
+
+3. **FactionManager Daily Simulation & API Integration (`scripts/factions/faction_manager.gd`):**
+   - Added signal: `signal strategic_intent_evaluated(faction_id: String, intent_data: Dictionary)`.
+   - Daily simulation integration: inside `update_daily_simulation(day)`, immediately after the neutral tribe ascension check, active factions are sorted alphabetically by key (`sorted_ids.sort()`) and evaluated.
+   - Ordering guarantee: evaluating after ascension ensures that an emerging power (`Liên Minh Rừng Thiêng`) immediately receives `power_consolidation` on the day of ascension with zero stale reads.
+   - Public query APIs: `get_faction_strategic_intent(faction_id: String) -> Dictionary` and `evaluate_all_strategic_intents() -> Array[Dictionary]`.
+   - Ephemeral planning decoupling: decision outputs are transient daily evaluations; persistence schema remains unchanged, guaranteeing 100% backward compatibility with Package 1Q save states.
+
+4. **Zero Gameplay Mutation:**
+   - Evaluator operations are strictly read-only and immutable. Evaluators do not deduct resources, declare war/peace, recruit troops, move armies, or alter faction attributes.
+
+### Validations Performed & Results
+
+1. **Dedicated Package 1R Test Suite (`scripts/test/test_faction_strategy_planner.gd`):**
+   - **Command:** `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --path "e:\KINGDOMS UNBOUND\kingdoms-unbound" -s res://scripts/test/test_faction_strategy_planner.gd`
+   - **Captured Output Summary:**
+     - `TC-FSTRAT.1` (Canonical Goal Mapping & Labels): **31** assertions passed
+     - `TC-FSTRAT.2` (Deterministic Repeatability - 50 iterations): **6** assertions passed
+     - `TC-FSTRAT.3` (Invalid Profile Safety & Fail-Closed): **11** assertions passed
+     - `TC-FSTRAT.4` (Existence Status Gating & 0 Military Power): **12** assertions passed
+     - `TC-FSTRAT.5` (Daily Simulation Integration & Wartime Posture): **18** assertions passed
+     - `TC-FSTRAT.6` (Emerging Faction Ascension Compatibility): **12** assertions passed
+     - `TC-FSTRAT.7` (No Unintended Gameplay Mutation): **57** assertions passed
+     - Total: **147** assertions passed, 0 failures.
+   - **Exit Code:** `0` (PASS)
+
+2. **Package 1Q Faction Profiles Suite (`scripts/test/test_faction_profiles.gd`):**
+   - **Command:** `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --path "e:\KINGDOMS UNBOUND\kingdoms-unbound" -s res://scripts/test/test_faction_profiles.gd`
+   - **Result:** 9/9 tests passed, **217** assertions passed, 0 failures.
+   - **Exit Code:** `0` (PASS)
+
+3. **Package 1P Emerging Faction Ascension Suite (`scripts/test/test_emerging_faction_ascension.gd`):**
+   - **Command:** `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --path "e:\KINGDOMS UNBOUND\kingdoms-unbound" -s res://scripts/test/test_emerging_faction_ascension.gd`
+   - **Result:** 11/11 tests passed, 0 failures.
+   - **Exit Code:** `0` (PASS)
+
+4. **Faction & Battle System Suite (`scripts/test/test_factions_and_battles.gd`):**
+   - **Command:** `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --path "e:\KINGDOMS UNBOUND\kingdoms-unbound" -s res://scripts/test/test_factions_and_battles.gd`
+   - **Result:** 100% tests passed, 0 failures.
+   - **Exit Code:** `0` (PASS)
+
+5. **Post-Battle Diplomatic Consequences Suite (`scripts/test/test_battle_diplomacy_consequences.gd`):**
+   - **Command:** `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --path "e:\KINGDOMS UNBOUND\kingdoms-unbound" -s res://scripts/test/test_battle_diplomacy_consequences.gd`
+   - **Result:** 11/11 tests passed, 0 failures.
+   - **Exit Code:** `0` (PASS)
+
+6. **Offensive Campaign Suite (`scripts/test/test_offensive_campaign.gd`):**
+   - **Command:** `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --path "e:\KINGDOMS UNBOUND\kingdoms-unbound" -s res://scripts/test/test_offensive_campaign.gd`
+   - **Result:** 14/14 tests passed, 0 failures.
+   - **Exit Code:** `0` (PASS)
+
+7. **Save/Load Persistence Suite (`scripts/test/test_save_load.gd`):**
+   - **Command:** `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --path "e:\KINGDOMS UNBOUND\kingdoms-unbound" -s res://scripts/test/test_save_load.gd`
+   - **Result:** 100% Phase 8 tests passed, 0 failures.
+   - **Exit Code:** `0` (PASS)
+
+8. **Army Movement Suite (`scripts/test/test_army_movement.gd`):**
+   - **Command:** `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --path "e:\KINGDOMS UNBOUND\kingdoms-unbound" -s res://scripts/test/test_army_movement.gd`
+   - **Result:** 32/32 tests passed, 0 failures.
+   - **Exit Code:** `0` (PASS)
+
+9. **Headless Editor Parse & Class Registration:**
+   - **Command:** `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --path "e:\KINGDOMS UNBOUND\kingdoms-unbound" --editor --quit`
+   - **Result:** Engine initialized cleanly, parsed classes, and exited with 0 script compile or load errors.
+   - **Exit Code:** `0` (PASS)
+
+10. **Git Whitespace & Formatting Check:**
+    - **Command:** `git diff --check`
+    - **Result:** Clean, zero whitespace errors or formatting issues.
+    - **Exit Code:** `0` (PASS)
+
+### Visual Verification Status
+- **Status:** **NOT PERFORMED**
+- **Reason:** Package 1R is a backend decision-making and planning subsystem. No new user interface scenes, control nodes, or visual layouts were added. All inputs, evaluation outputs, signal emissions, and state immutability are verified through automated headless engine suites.
+
+### Files Created / Modified
+- `scripts/factions/faction_strategy_planner.gd` (Created: deterministic evaluator, canonical mapping, Vietnamese labels, fail-closed logic)
+- `scripts/factions/faction_manager.gd` (Modified: added signal `strategic_intent_evaluated`, deterministic alphabetical daily simulation evaluation, public query APIs)
+- `scripts/test/test_faction_strategy_planner.gd` (Created: dedicated test suite for TC-FSTRAT.1 through TC-FSTRAT.7)
+- `docs/SCOPE_DECISIONS.md` (Modified: added Section 1.18 defining Package 1R design boundaries)
+- `docs/TEST_PLAN.md` (Modified: added TC-FSTRAT.1 through TC-FSTRAT.7 acceptance criteria and pass status)
+- `docs/CHANGELOG.md` (Modified: added Package 1R entry under Unreleased)
+- `docs/WORKLOG.md` (Modified: documented Package 1R implementation, architecture, test results, and visual verification status)
+
+### Next Exact Step
+- Explicitly stage the 7 intended files (`scripts/factions/faction_strategy_planner.gd`, `scripts/factions/faction_manager.gd`, `scripts/test/test_faction_strategy_planner.gd`, `docs/SCOPE_DECISIONS.md`, `docs/TEST_PLAN.md`, `docs/CHANGELOG.md`, `docs/WORKLOG.md`).
+- Commit with exact message: `Implement deterministic faction strategic decision engine`.
+- Push branch `feature/package-1r-faction-strategic-decision-engine` to remote `origin`.
+- Await independent review before beginning Package 1S.

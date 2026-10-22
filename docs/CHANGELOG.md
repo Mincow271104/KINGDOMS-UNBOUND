@@ -8,6 +8,27 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### [Package 1R] - 2026-10-22
+#### Added
+- Deterministic Faction Strategic Decision Engine (`FactionStrategyPlanner`, `FactionManager`):
+  - Deterministic Strategic Intent Planning Layer conforming to GDD §10.1 & Scope Decision 1.18:
+    - Pure evaluator class `scripts/factions/faction_strategy_planner.gd` translating `FactionData` strategic goals into high-level operational intents without random rolls, hidden biases, or LLM non-determinism.
+    - Canonical mapping of strategic goals to intent IDs: `military_expansion` $\to$ `military_buildup`, `trade_dominance` $\to$ `trade_expansion`, `community_growth` $\to$ `community_development`, `consolidate_power` $\to$ `power_consolidation`.
+    - Centralized Vietnamese localization helper (`FactionStrategyPlanner.get_intent_label()`) returning `"Tăng cường quân sự"`, `"Mở rộng giao thương"`, `"Phát triển cộng đồng"`, `"Củng cố quyền lực"`, and fallback `"Không xác định"`.
+    - Structured intent dictionary payload: `faction_id`, `strategic_goal`, `intent_id`, `eligible`, `reason_code`, and `posture`.
+  - Existence Status & Wartime Posture Gating:
+    - Only `active` factions receive eligible operational intents (`eligible: true`).
+    - Factions in `in_exile` or `eliminated` statuses return `eligible: false` and `intent_id: "none"` with diagnostic reason codes `INELIGIBLE_IN_EXILE` or `INELIGIBLE_ELIMINATED`.
+    - Military defeat (0 military power) does not alter existence status or disqualify an active faction.
+    - Factions at war (`is_at_war == true`) have posture set to `"wartime"` with reason code `WARTIME_POSTURE`.
+    - Unrecognized goals or invalid statuses fail closed with reason codes `ERR_INVALID_GOAL` and `ERR_INVALID_STATUS`.
+  - FactionManager Daily Simulation & API Integration:
+    - Added signal `strategic_intent_evaluated(faction_id: String, intent_data: Dictionary)`.
+    - Factions are evaluated in deterministic alphabetical key order (`sorted_ids.sort()`) during `FactionManager.update_daily_simulation(day)` immediately following emerging faction ascension checks.
+    - Added query APIs `FactionManager.get_faction_strategic_intent(faction_id)` and `FactionManager.evaluate_all_strategic_intents()`.
+    - Evaluator operations remain strictly immutable and read-only, causing zero side effects on faction attributes, resources, diplomacy, or world state.
+  - Dedicated automated test suite `scripts/test/test_faction_strategy_planner.gd` covering TC-FSTRAT.1 through TC-FSTRAT.7 (7/7 tests passed, 147 assertions passed, Exit Code 0).
+
 ### [Package 1Q] - 2026-10-20
 #### Added
 - Faction Strategic Profiles & Existence Status (`FactionData`, `FactionManager`, `SaveManager`, `HUD`):

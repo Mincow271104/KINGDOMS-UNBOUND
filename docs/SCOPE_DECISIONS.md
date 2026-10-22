@@ -201,6 +201,37 @@
   - **Diplomacy UI Contract:**
     - HUD faction cards render Vietnamese labels via centralized static helpers (`FactionData.get_strategic_goal_label()` and `FactionData.get_existence_status_label()`). Raw internal identifiers are never exposed directly to players.
 
+- **1.18 Package 1R — Deterministic Faction Strategic Decision Engine (GDD §10.1 & §10.2):**
+  - **Strategic Intent Layer Architecture:**
+    - Dedicated evaluator class `FactionStrategyPlanner` (`scripts/factions/faction_strategy_planner.gd`) translates `FactionData` profile state into deterministic, explainable strategic intent outputs.
+    - Decoupled from execution: Intent generation produces planning decisions, not direct gameplay mutations. No automatic war declarations, treaty changes, attacks, or resource mutations occur during evaluation.
+  - **Deterministic Goal-to-Intent Canonical Mapping:**
+    - `military_expansion` -> `military_buildup` ("Tăng cường quân sự").
+    - `trade_dominance` -> `trade_expansion` ("Mở rộng giao thương").
+    - `community_growth` -> `community_development` ("Phát triển cộng đồng").
+    - `consolidate_power` -> `power_consolidation` ("Củng cố quyền lực").
+  - **Structured Decision Output Contract:**
+    - Evaluator returns a typed dictionary containing:
+      - `faction_id: String` (ID of the evaluated faction).
+      - `strategic_goal: String` (active canonical goal).
+      - `intent_id: String` (mapped canonical intent, or `none` if ineligible/invalid).
+      - `eligible: bool` (true only for active, valid factions).
+      - `reason_code: String` (`GOAL_ALIGNED`, `WARTIME_POSTURE`, `INELIGIBLE_IN_EXILE`, `INELIGIBLE_ELIMINATED`, `ERR_INVALID_STATUS`, `ERR_INVALID_GOAL`, `ERR_NULL_FACTION`).
+      - `posture: String` (`peacetime`, `wartime`, `exiled`, `eliminated`, `unknown`).
+  - **Existence-Status Gating:**
+    - Only `active` factions receive eligible active-world strategic intents (`eligible == true`).
+    - Factions with `in_exile` or `eliminated` status return `eligible == false` with `intent_id == "none"`.
+    - Zero military power alone does NOT eliminate a faction; status must be explicitly marked.
+    - Status values are never automatically altered by the evaluator.
+  - **Daily Simulation Pipeline Integration:**
+    - Evaluated in `FactionManager.update_daily_simulation(day)` after the neutral tribe ascension check, ensuring that post-ascension goals (`consolidate_power`) are immediately respected.
+    - Factions are processed in stable alphabetical order (`sorted_ids.sort()`) exactly once per daily simulation tick.
+    - Emits `FactionManager.strategic_intent_evaluated(faction_id, intent_data)` for each eligible active faction. Inactive factions (`in_exile`, `eliminated`) are suppressed from standard intent emission.
+    - Query APIs `get_faction_strategic_intent(faction_id)` and `evaluate_all_strategic_intents()` provide deterministic read access on demand without requiring simulation ticks.
+  - **Fail-Closed & State Invariance:**
+    - Unrecognized goals, statuses, or null faction references return ineligible results with explicit error reason codes without throwing exceptions or mutating faction state.
+    - Evaluation is strictly side-effect free: `name`, `type`, `opinion`, `military_power`, `stability`, `resources`, `population`, `is_at_war`, `has_nap`, `has_alliance`, `strategic_goal`, and `existence_status` remain 100% invariant across evaluations.
+
 ---
 
 ## 2. Deferred & Excluded Scope for MVP
