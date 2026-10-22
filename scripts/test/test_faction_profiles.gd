@@ -303,8 +303,8 @@ func _verify_factions_snapshot(fm: FactionManager, snap: Dictionary, test_prefix
 		if live != null:
 			_assert_eq(live.name, expected["name"], test_prefix + "-" + fid.to_upper() + "-NAME", fid + " name unmutated")
 			_assert_eq(live.type, expected["type"], test_prefix + "-" + fid.to_upper() + "-TYPE", fid + " type unmutated")
-			_assert_approx(live.opinion, expected["opinion"], test_prefix + "-" + fid.to_upper() + "-OPINION", 0.01)
-			_assert_approx(live.military_power, expected["military_power"], test_prefix + "-" + fid.to_upper() + "-MIL", 0.01)
+			_assert_eq(live.opinion, expected["opinion"], test_prefix + "-" + fid.to_upper() + "-OPINION", fid + " opinion unmutated")
+			_assert_eq(live.military_power, expected["military_power"], test_prefix + "-" + fid.to_upper() + "-MIL", fid + " military power unmutated")
 			_assert_eq(live.strategic_goal, expected["strategic_goal"], test_prefix + "-" + fid.to_upper() + "-GOAL", fid + " goal unmutated")
 			_assert_eq(live.existence_status, expected["existence_status"], test_prefix + "-" + fid.to_upper() + "-STATUS", fid + " status unmutated")
 
@@ -313,37 +313,61 @@ func test_tc_fprof_7_invalid_data_safety() -> void:
 	var fm: FactionManager = world_instance.get("faction_mgr")
 
 	# 1. Invalid strategic_goal in save data
-	var invalid_goal_save: Dictionary = SaveManagerScript.serialize_world_state(world_instance)
+	# Step 1: Capture independent scalar snapshot before modifying save data
+	var snap_before_goal: Dictionary = _take_factions_snapshot(fm)
+
+	# Step 2: Create base save and independent deep copy via duplicate(true)
+	var base_save_goal: Dictionary = SaveManagerScript.serialize_world_state(world_instance)
+	var invalid_goal_save: Dictionary = base_save_goal.duplicate(true)
+
+	# Step 3: Modify field ONLY on the error save copy
 	invalid_goal_save["factions"]["factions"]["rival_military"]["strategic_goal"] = "invade_the_galaxy"
 
+	# Step 4: Confirm standard save data was not mutated by creating error copy
+	var base_mil_goal: String = base_save_goal["factions"]["factions"]["rival_military"]["strategic_goal"]
+	_assert_eq(base_mil_goal, FactionDataScript.GOAL_MILITARY_EXPANSION, "TC-FPROF.7-BASE-SAVE-GOAL-UNCHANGED", "Base save data not mutated by error creation")
+
+	# Step 5: Verify live factions unmutated immediately after creating error data and before apply
+	_verify_factions_snapshot(fm, snap_before_goal, "TC-FPROF.7-LIVE-PRE-APPLY-GOAL")
+
+	# Step 6: Validate and attempt apply - must fail closed
 	var val_goal: Dictionary = SaveManagerScript.validate_save_data(invalid_goal_save)
 	_assert_false(val_goal.get("valid", true), "TC-FPROF.7-INVALID-GOAL-REJECTED", "Invalid strategic_goal rejected by schema validator")
 	_assert_true(val_goal.get("error", "").contains("strategic_goal"), "TC-FPROF.7-GOAL-ERR-MSG", "Error message identifies strategic_goal issue")
 
-	# Take independent scalar snapshot of live factions before failed load
-	var snap_before_goal: Dictionary = _take_factions_snapshot(fm)
-
 	var apply_goal_res: Dictionary = SaveManagerScript.apply_loaded_state_to_world(world_instance, invalid_goal_save)
 	_assert_false(apply_goal_res.get("success", true), "TC-FPROF.7-APPLY-REJECTED-GOAL", "apply_loaded_state_to_world fails-closed on invalid goal")
 
-	# Verify live world state remained strictly unmutated after failed load
+	# Step 7: Verify live factions remained strictly unmutated after failed load
 	_verify_factions_snapshot(fm, snap_before_goal, "TC-FPROF.7-IMMUTABLE-GOAL")
 
 	# 2. Invalid existence_status in save data
-	var invalid_status_save: Dictionary = SaveManagerScript.serialize_world_state(world_instance)
+	# Step 1: Capture independent scalar snapshot before modifying save data
+	var snap_before_status: Dictionary = _take_factions_snapshot(fm)
+
+	# Step 2: Create base save and independent deep copy via duplicate(true)
+	var base_save_status: Dictionary = SaveManagerScript.serialize_world_state(world_instance)
+	var invalid_status_save: Dictionary = base_save_status.duplicate(true)
+
+	# Step 3: Modify field ONLY on the error save copy
 	invalid_status_save["factions"]["factions"]["rival_merchant"]["existence_status"] = "ghost_realm"
 
+	# Step 4: Confirm standard save data was not mutated by creating error copy
+	var base_merch_status: String = base_save_status["factions"]["factions"]["rival_merchant"]["existence_status"]
+	_assert_eq(base_merch_status, FactionDataScript.STATUS_ACTIVE, "TC-FPROF.7-BASE-SAVE-STATUS-UNCHANGED", "Base save data not mutated by error creation")
+
+	# Step 5: Verify live factions unmutated immediately after creating error data and before apply
+	_verify_factions_snapshot(fm, snap_before_status, "TC-FPROF.7-LIVE-PRE-APPLY-STATUS")
+
+	# Step 6: Validate and attempt apply - must fail closed
 	var val_status: Dictionary = SaveManagerScript.validate_save_data(invalid_status_save)
 	_assert_false(val_status.get("valid", true), "TC-FPROF.7-INVALID-STATUS-REJECTED", "Invalid existence_status rejected by schema validator")
 	_assert_true(val_status.get("error", "").contains("existence_status"), "TC-FPROF.7-STATUS-ERR-MSG", "Error message identifies existence_status issue")
 
-	# Take independent scalar snapshot of live factions before failed load
-	var snap_before_status: Dictionary = _take_factions_snapshot(fm)
-
 	var apply_status_res: Dictionary = SaveManagerScript.apply_loaded_state_to_world(world_instance, invalid_status_save)
 	_assert_false(apply_status_res.get("success", true), "TC-FPROF.7-APPLY-REJECTED-STATUS", "apply_loaded_state_to_world fails-closed on invalid status")
 
-	# Verify live world state remained strictly unmutated after failed load
+	# Step 7: Verify live factions remained strictly unmutated after failed load
 	_verify_factions_snapshot(fm, snap_before_status, "TC-FPROF.7-IMMUTABLE-STATUS")
 
 	# 3. Code-level setter safety
@@ -437,7 +461,7 @@ func test_tc_fprof_9_load_idempotency() -> void:
 	merch_setup.opinion = 15.0
 
 	var saved_data: Dictionary = SaveManagerScript.serialize_world_state(world_instance)
-	var ref_factions: Dictionary = saved_data["factions"]["factions"]
+	var ref_factions: Dictionary = saved_data["factions"]["factions"].duplicate(true)
 	var target_factions: Array[String] = ["rival_military", "rival_merchant", "neutral_tribe"]
 
 	var emissions: Array = []
@@ -454,7 +478,7 @@ func test_tc_fprof_9_load_idempotency() -> void:
 	for fid in target_factions:
 		var fac: FactionData = fm.get_faction(fid)
 		var ref_fac: Dictionary = ref_factions[fid]
-		_assert_approx(fac.opinion, float(ref_fac["opinion"]), "TC-FPROF.9-LOAD1-" + fid.to_upper() + "-OPINION", 0.01)
+		_assert_eq(fac.opinion, float(ref_fac["opinion"]), "TC-FPROF.9-LOAD1-" + fid.to_upper() + "-OPINION", fid + " opinion matches reference after load 1")
 		_assert_eq(fac.strategic_goal, str(ref_fac["strategic_goal"]), "TC-FPROF.9-LOAD1-" + fid.to_upper() + "-GOAL", fid + " goal matches reference after load 1")
 		_assert_eq(fac.existence_status, str(ref_fac["existence_status"]), "TC-FPROF.9-LOAD1-" + fid.to_upper() + "-STATUS", fid + " status matches reference after load 1")
 
@@ -466,7 +490,7 @@ func test_tc_fprof_9_load_idempotency() -> void:
 	for fid in target_factions:
 		var fac: FactionData = fm.get_faction(fid)
 		var ref_fac: Dictionary = ref_factions[fid]
-		_assert_approx(fac.opinion, float(ref_fac["opinion"]), "TC-FPROF.9-TICK-" + fid.to_upper() + "-OPINION", 0.01)
+		_assert_eq(fac.opinion, float(ref_fac["opinion"]), "TC-FPROF.9-TICK-" + fid.to_upper() + "-OPINION", fid + " opinion matches reference after tick")
 		_assert_eq(fac.strategic_goal, str(ref_fac["strategic_goal"]), "TC-FPROF.9-TICK-" + fid.to_upper() + "-GOAL", fid + " goal matches reference after tick")
 		_assert_eq(fac.existence_status, str(ref_fac["existence_status"]), "TC-FPROF.9-TICK-" + fid.to_upper() + "-STATUS", fid + " status matches reference after tick")
 
@@ -479,7 +503,7 @@ func test_tc_fprof_9_load_idempotency() -> void:
 	for fid in target_factions:
 		var fac: FactionData = fm.get_faction(fid)
 		var ref_fac: Dictionary = ref_factions[fid]
-		_assert_approx(fac.opinion, float(ref_fac["opinion"]), "TC-FPROF.9-LOAD2-" + fid.to_upper() + "-OPINION", 0.01)
+		_assert_eq(fac.opinion, float(ref_fac["opinion"]), "TC-FPROF.9-LOAD2-" + fid.to_upper() + "-OPINION", fid + " opinion matches reference after load 2")
 		_assert_eq(fac.strategic_goal, str(ref_fac["strategic_goal"]), "TC-FPROF.9-LOAD2-" + fid.to_upper() + "-GOAL", fid + " goal matches reference after load 2")
 		_assert_eq(fac.existence_status, str(ref_fac["existence_status"]), "TC-FPROF.9-LOAD2-" + fid.to_upper() + "-STATUS", fid + " status matches reference after load 2")
 

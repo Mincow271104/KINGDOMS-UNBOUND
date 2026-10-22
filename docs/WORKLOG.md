@@ -4200,3 +4200,105 @@ Address independent review findings for Package 1Q on `feature/package-1q-factio
 - Package 1Q review-fix commit has been committed and pushed to `origin/feature/package-1q-faction-strategic-profiles`.
 - Await independent review.
 - Do not merge into `master` and do not begin Package 1R until authorized.
+
+---
+
+## [2026-10-22] Package 1Q Follow-up: Hardening Review Snapshots and Verification Evidence
+
+### Context & Objective
+Follow-up hardening on branch `feature/package-1q-faction-strategic-profiles` (commit `eaf08aa676ed0ef53357f5ac309f2d9f7b08c0a2`):
+1. **TC-FPROF.7 Hardening:** Strictly enforce error data independence and scalar snapshot ordering across both `strategic_goal` and `existence_status` validation tests. Take pre-mutation live snapshots before error creation, use `.duplicate(true)` for error payloads, assert base save immutability, assert live faction invariance before `apply_loaded_state_to_world()`, and assert live faction invariance after rejection using exact equality (`_assert_eq`) across all 6 faction properties (`name`, `type`, `opinion`, `military_power`, `strategic_goal`, `existence_status`).
+2. **TC-FPROF.9 Hardening:** Establish deep-copied reference snapshot (`.duplicate(true)`) to prevent mutable dictionary aliasing, and enforce exact equality (`_assert_eq`) for `opinion` across all 3 factions (`rival_military`, `rival_merchant`, `neutral_tribe`) at Load 1, daily simulation tick (day 11), and Load 2.
+3. **Execution Evidence Hardening:** Re-execute and document the full regression test matrix with exact verbatim command lines, executable paths, argument lists, observed outcomes, and process exit codes collected directly from execution.
+
+### Scope & Review Improvements Addressed
+1. **TC-FPROF.7 Error Independence & Immutability:**
+   - Pre-mutation live snapshot taken before creating error data.
+   - Base save payload copied with `.duplicate(true)` to isolate error injection.
+   - Asserted `base_save["factions"]["factions"][...][...]` remained untouched by error payload generation.
+   - Asserted live world state unmutated before calling `apply_loaded_state_to_world()`.
+   - Asserted schema validator and `apply_loaded_state_to_world()` failed closed.
+   - Asserted live world state remained strictly unmutated after load failure using exact equality (`_assert_eq`) on `opinion` and `military_power` (no tolerance window).
+   - Applied symmetrically to both invalid `strategic_goal` (`"invade_the_galaxy"`) and invalid `existence_status` (`"ghost_realm"`).
+2. **TC-FPROF.9 Reference Independence & Exact 3-Faction Verification:**
+   - Deep copy `ref_factions = saved_data["factions"]["factions"].duplicate(true)`.
+   - Replaced approximate float assertions with exact equality (`_assert_eq(fac.opinion, float(ref_fac["opinion"]))`) across Load 1, Day 11 simulation tick, and Load 2.
+   - Confirmed 0 signals, exactly 3 factions, and zero duplicate nodes throughout.
+3. **Production Code Purity:**
+   - Zero production gameplay code modified; tests confirm existing architecture satisfies strict invariance.
+
+### Verbatim Execution Evidence & Process Exit Codes
+All commands executed directly in this follow-up session on Windows PowerShell with Godot 4.7 stable console binary:
+
+1. **Focused Package 1Q Suite (`scripts/test/test_faction_profiles.gd`):**
+   - **Command:** `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --path "e:\KINGDOMS UNBOUND\kingdoms-unbound" -s res://scripts/test/test_faction_profiles.gd`
+   - **Result:** All 9 test cases passed (65 assertions passed, 0 failures).
+   - **Exit Code:** `0`
+   - **Status:** PASS
+
+2. **Emerging Faction Ascension Suite (`scripts/test/test_emerging_faction_ascension.gd`):**
+   - **Command:** `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --path "e:\KINGDOMS UNBOUND\kingdoms-unbound" -s res://scripts/test/test_emerging_faction_ascension.gd`
+   - **Result:** All 11 test cases passed (TC-EMERGE.1 through TC-EMERGE.11).
+   - **Exit Code:** `0`
+   - **Status:** PASS
+
+3. **Persistence Roundtrip Suite (`scripts/test/test_save_load.gd`):**
+   - **Command:** `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --path "e:\KINGDOMS UNBOUND\kingdoms-unbound" -s res://scripts/test/test_save_load.gd`
+   - **Result:** 100% Phase 8 persistence tests passed (TC-8.1, TC-8.2, TC-8.3).
+   - **Exit Code:** `0`
+   - **Status:** PASS
+
+4. **Post-Battle Diplomacy Suite (`scripts/test/test_battle_diplomacy_consequences.gd`):**
+   - **Command:** `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --path "e:\KINGDOMS UNBOUND\kingdoms-unbound" -s res://scripts/test/test_battle_diplomacy_consequences.gd`
+   - **Result:** All 11 test cases passed (TC-DIPLO.1 through TC-DIPLO.11).
+   - **Exit Code:** `0`
+   - **Status:** PASS
+
+5. **Offensive Campaign Suite (`scripts/test/test_offensive_campaign.gd`):**
+   - **Command:** `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --path "e:\KINGDOMS UNBOUND\kingdoms-unbound" -s res://scripts/test/test_offensive_campaign.gd`
+   - **Result:** All 14 test cases passed (TC-OFFENSE.1 through TC-OFFENSE.14).
+   - **Exit Code:** `0`
+   - **Status:** PASS
+
+6. **Factions, Trade & Battles Suite (`scripts/test/test_factions_and_battles.gd`):**
+   - **Command:** `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --path "e:\KINGDOMS UNBOUND\kingdoms-unbound" -s res://scripts/test/test_factions_and_battles.gd`
+   - **Result:** 100% faction, trade, and battle tests passed (TC-6.1 & TC-6.2).
+   - **Exit Code:** `0`
+   - **Status:** PASS
+
+7. **Army Marching & Deployment Suite (`scripts/test/test_army_movement.gd`):**
+   - **Command:** `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --path "e:\KINGDOMS UNBOUND\kingdoms-unbound" -s res://scripts/test/test_army_movement.gd`
+   - **Result:** All 32 test cases passed (TC-MOVE.1 through TC-MOVE.32).
+   - **Exit Code:** `0`
+   - **Status:** PASS
+
+8. **Headless Project Editor Parse & Class Registration:**
+   - **Command:** `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --path "e:\KINGDOMS UNBOUND\kingdoms-unbound" --editor --quit`
+   - **Result:** 5-step filesystem scan and editor layout loading completed cleanly; all global classes and Godot MCP plugin initialized cleanly.
+   - **Exit Code:** `0`
+   - **Status:** PASS
+
+9. **Git Whitespace & Formatting Check:**
+   - **Command:** `git diff --check`
+   - **Result:** 0 whitespace or formatting errors detected.
+   - **Exit Code:** `0`
+   - **Status:** PASS
+
+- **Inherited test suites from prior packages (not rerun in this follow-up session):**
+  - Live Battle Loop (`scripts/test/test_live_battle_loop.gd`) — NOT RUN (unrelated to faction profiles).
+  - Barracks System (`scripts/test/test_barracks.gd`) — NOT RUN (unrelated to faction profiles).
+  - Construction System (`scripts/test/test_construction.gd`) — NOT RUN (unrelated to faction profiles).
+  - Dynamic Workplaces (`scripts/test/test_dynamic_workplaces.gd`) — NOT RUN (unrelated to faction profiles).
+
+- **Runtime / Visual Verification Status:**
+  - Headless automated runtime execution verified via `Godot_v4.7-stable_win64_console.exe`.
+  - Manual visual screenshot review: **Not performed** (execution performed entirely within headless CLI environment). HUD cards and Vietnamese label rendering are verified programmatically in TC-FPROF.8.
+
+### Files Modified
+- `scripts/test/test_faction_profiles.gd` (Modified: strengthened TC-FPROF.7 snapshot ordering/independence and exact assertions; strengthened TC-FPROF.9 reference deep copying and exact 3-faction assertions)
+- `docs/WORKLOG.md` (Modified: documented follow-up hardening, verbatim command logs, exit codes, and verification evidence)
+
+### Next Exact Step
+- Package 1Q follow-up commit has been committed and pushed to `origin/feature/package-1q-faction-strategic-profiles`.
+- Await independent review.
+- Do not merge into `master` and do not begin Package 1R until authorized.
