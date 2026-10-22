@@ -4149,3 +4149,54 @@ Implement Package 1Q to complete faction profiles per GDD §10.1 and §10.5 by a
 - Package 1Q implementation is committed and pushed to `feature/package-1q-faction-strategic-profiles`.
 - Await independent review.
 - Do not merge into `master` and do not begin Package 1R until authorized.
+
+---
+
+## [2026-10-22] Package 1Q Review Fix: Strengthen Fail-Closed and Idempotency Verification
+
+### Context & Objective
+Address independent review findings for Package 1Q on `feature/package-1q-faction-strategic-profiles`:
+1. Strengthen TC-FPROF.7 fail-closed validation by taking an independent scalar snapshot of all live factions before attempting to load invalid save payloads (both invalid `strategic_goal` and invalid `existence_status`), and asserting that live faction data (`name`, `type`, `opinion`, `military_power`, `strategic_goal`, `existence_status`) remains strictly unmutated after rejection.
+2. Strengthen TC-FPROF.9 load idempotency verification by making the test fixture self-contained, serializing a known reference state, and asserting across all 3 factions (`rival_military`, `rival_merchant`, `neutral_tribe`) that `opinion`, `strategic_goal`, and `existence_status` match the reference state across Load 1, a subsequent simulation tick (day 11), and Load 2, while verifying 0 ascension signals are emitted and faction count remains exactly 3 throughout.
+3. Maintain accurate verification provenance and explicit visual review status.
+
+### Scope & Review Findings Addressed
+1. **TC-FPROF.7 Fail-Closed State Invariance:**
+   - Implemented helper `_take_factions_snapshot(fm)` constructing an independent dictionary of primitive scalar values (`str`, `float`) for every faction to avoid mutable object reference aliasing.
+   - Implemented helper `_verify_factions_snapshot(fm, snap, test_prefix)` asserting each faction exists and its attributes match the snapshot before the failed load attempt.
+   - Verified state immutability across both the invalid `strategic_goal` test and the invalid `existence_status` test.
+2. **TC-FPROF.9 Fixture Independence & Full Faction Invariance:**
+   - Explicitly initialized canonical state on all 3 factions (`rival_military`, `rival_merchant`, `neutral_tribe`) before serializing `saved_data`, eliminating any potential coupling to prior test steps.
+   - Expanded assertions to verify all 3 factions maintain exact `opinion`, `strategic_goal`, and `existence_status` across Load 1, daily simulation tick, and Load 2.
+   - Verified 0 ascension signals and exact count of 3 factions at each phase.
+3. **Production Code Stability:**
+   - Zero gameplay production scripts in `scripts/factions/`, `scripts/persistence/`, or `scripts/ui/` required modification; existing Package 1Q implementation already exhibited correct fail-closed safety and full idempotency.
+
+### Verification Evidence
+- **Tests executed during this Review-Fix session:**
+  - Package 1Q Focused Suite (`scripts/test/test_faction_profiles.gd`): **PASS (Exit Code 0: 9/9 tests passed)**
+  - Regression Suite — Emerging Faction Ascension (`scripts/test/test_emerging_faction_ascension.gd`): **PASS (Exit Code 0: 11/11 tests passed)**
+  - Regression Suite — Persistence Roundtrip (`scripts/test/test_save_load.gd`): **PASS (Exit Code 0: 100% Phase 8 tests passed)**
+  - Regression Suite — Post-Battle Diplomacy (`scripts/test/test_battle_diplomacy_consequences.gd`): **PASS (Exit Code 0: 11/11 tests passed)**
+  - Regression Suite — Offensive Campaigns (`scripts/test/test_offensive_campaign.gd`): **PASS (Exit Code 0: 14/14 tests passed)**
+  - Regression Suite — Factions & Battles (`scripts/test/test_factions_and_battles.gd`): **PASS (Exit Code 0: 100% tests passed)**
+  - Regression Suite — Army Movement (`scripts/test/test_army_movement.gd`): **PASS (Exit Code 0: 32/32 tests passed)**
+  - Headless Project Editor Parse & Class Registration (`Godot_v4.7-stable_win64_console.exe --headless --editor --quit`): **PASS (Exit Code 0: clean parse and registration)**
+  - `git diff --check`: **Clean (Exit Code 0, 0 whitespace errors)**
+- **Regression test results inherited from prior sessions (not rerun in this review fix):**
+  - Live Battle Loop (`scripts/test/test_live_battle_loop.gd`)
+  - Barracks System (`scripts/test/test_barracks.gd`)
+  - Construction System (`scripts/test/test_construction.gd`)
+  - Dynamic Workplaces (`scripts/test/test_dynamic_workplaces.gd`)
+- **Runtime / Visual Verification Status:**
+  - Headless automated runtime execution verified via `Godot_v4.7-stable_win64_console.exe`.
+  - Manual visual screenshot review: **Not performed** (headless execution environment). UI card layout, text formatting, and dynamic updates are verified programmatically in TC-FPROF.8.
+
+### Files Modified
+- `scripts/test/test_faction_profiles.gd` (Modified: added snapshot verification in TC-FPROF.7, full 3-faction assertions and self-contained fixture in TC-FPROF.9)
+- `docs/WORKLOG.md` (Modified: documented review fix work, provenance, and verification evidence)
+
+### Next Exact Step
+- Package 1Q review-fix commit has been committed and pushed to `origin/feature/package-1q-faction-strategic-profiles`.
+- Await independent review.
+- Do not merge into `master` and do not begin Package 1R until authorized.

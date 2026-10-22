@@ -281,6 +281,33 @@ func test_tc_fprof_6_legacy_save_compatibility() -> void:
 # -----------------------------------------------------------------------------
 # TC-FPROF.7: Invalid Data Safety (Fail-Closed)
 # -----------------------------------------------------------------------------
+func _take_factions_snapshot(fm: FactionManager) -> Dictionary:
+	var snap: Dictionary = {}
+	for fac in fm.get_all_factions():
+		snap[fac.id] = {
+			"id": str(fac.id),
+			"name": str(fac.name),
+			"type": str(fac.type),
+			"opinion": float(fac.opinion),
+			"military_power": float(fac.military_power),
+			"strategic_goal": str(fac.strategic_goal),
+			"existence_status": str(fac.existence_status)
+		}
+	return snap
+
+func _verify_factions_snapshot(fm: FactionManager, snap: Dictionary, test_prefix: String) -> void:
+	for fid in snap:
+		var expected: Dictionary = snap[fid]
+		var live: FactionData = fm.get_faction(fid)
+		_assert_true(live != null, test_prefix + "-" + fid.to_upper() + "-EXISTS", fid + " still exists after failed load")
+		if live != null:
+			_assert_eq(live.name, expected["name"], test_prefix + "-" + fid.to_upper() + "-NAME", fid + " name unmutated")
+			_assert_eq(live.type, expected["type"], test_prefix + "-" + fid.to_upper() + "-TYPE", fid + " type unmutated")
+			_assert_approx(live.opinion, expected["opinion"], test_prefix + "-" + fid.to_upper() + "-OPINION", 0.01)
+			_assert_approx(live.military_power, expected["military_power"], test_prefix + "-" + fid.to_upper() + "-MIL", 0.01)
+			_assert_eq(live.strategic_goal, expected["strategic_goal"], test_prefix + "-" + fid.to_upper() + "-GOAL", fid + " goal unmutated")
+			_assert_eq(live.existence_status, expected["existence_status"], test_prefix + "-" + fid.to_upper() + "-STATUS", fid + " status unmutated")
+
 func test_tc_fprof_7_invalid_data_safety() -> void:
 	print("\n--- TC-FPROF.7: Invalid Data Safety ---")
 	var fm: FactionManager = world_instance.get("faction_mgr")
@@ -293,8 +320,14 @@ func test_tc_fprof_7_invalid_data_safety() -> void:
 	_assert_false(val_goal.get("valid", true), "TC-FPROF.7-INVALID-GOAL-REJECTED", "Invalid strategic_goal rejected by schema validator")
 	_assert_true(val_goal.get("error", "").contains("strategic_goal"), "TC-FPROF.7-GOAL-ERR-MSG", "Error message identifies strategic_goal issue")
 
+	# Take independent scalar snapshot of live factions before failed load
+	var snap_before_goal: Dictionary = _take_factions_snapshot(fm)
+
 	var apply_goal_res: Dictionary = SaveManagerScript.apply_loaded_state_to_world(world_instance, invalid_goal_save)
 	_assert_false(apply_goal_res.get("success", true), "TC-FPROF.7-APPLY-REJECTED-GOAL", "apply_loaded_state_to_world fails-closed on invalid goal")
+
+	# Verify live world state remained strictly unmutated after failed load
+	_verify_factions_snapshot(fm, snap_before_goal, "TC-FPROF.7-IMMUTABLE-GOAL")
 
 	# 2. Invalid existence_status in save data
 	var invalid_status_save: Dictionary = SaveManagerScript.serialize_world_state(world_instance)
@@ -304,8 +337,14 @@ func test_tc_fprof_7_invalid_data_safety() -> void:
 	_assert_false(val_status.get("valid", true), "TC-FPROF.7-INVALID-STATUS-REJECTED", "Invalid existence_status rejected by schema validator")
 	_assert_true(val_status.get("error", "").contains("existence_status"), "TC-FPROF.7-STATUS-ERR-MSG", "Error message identifies existence_status issue")
 
+	# Take independent scalar snapshot of live factions before failed load
+	var snap_before_status: Dictionary = _take_factions_snapshot(fm)
+
 	var apply_status_res: Dictionary = SaveManagerScript.apply_loaded_state_to_world(world_instance, invalid_status_save)
 	_assert_false(apply_status_res.get("success", true), "TC-FPROF.7-APPLY-REJECTED-STATUS", "apply_loaded_state_to_world fails-closed on invalid status")
+
+	# Verify live world state remained strictly unmutated after failed load
+	_verify_factions_snapshot(fm, snap_before_status, "TC-FPROF.7-IMMUTABLE-STATUS")
 
 	# 3. Code-level setter safety
 	var test_fac := FactionDataScript.new("test_guard", "Bảo Vệ", "neutral_tribe")
@@ -374,30 +413,77 @@ func test_tc_fprof_8_hud_rendering() -> void:
 func test_tc_fprof_9_load_idempotency() -> void:
 	print("\n--- TC-FPROF.9: Load Idempotency ---")
 	var fm: FactionManager = world_instance.get("faction_mgr")
+
+	# Self-contained fixture setup for TC-FPROF.9: establish clean canonical state for all 3 factions
+	var tribe_setup: FactionData = fm.get_faction("neutral_tribe")
+	tribe_setup.type = FactionManagerScript.ASCENSION_NEW_TYPE
+	tribe_setup.name = FactionManagerScript.ASCENSION_NEW_NAME
+	tribe_setup.strategic_goal = FactionDataScript.GOAL_CONSOLIDATE_POWER
+	tribe_setup.existence_status = FactionDataScript.STATUS_ACTIVE
+	tribe_setup.opinion = 30.0
+
+	var mil_setup: FactionData = fm.get_faction("rival_military")
+	mil_setup.type = "rival_military"
+	mil_setup.name = "Cổ Thành Thiết Giáp"
+	mil_setup.strategic_goal = FactionDataScript.GOAL_MILITARY_EXPANSION
+	mil_setup.existence_status = FactionDataScript.STATUS_ACTIVE
+	mil_setup.opinion = -10.0
+
+	var merch_setup: FactionData = fm.get_faction("rival_merchant")
+	merch_setup.type = "rival_merchant"
+	merch_setup.name = "Thương Hội Vân Đồn"
+	merch_setup.strategic_goal = FactionDataScript.GOAL_TRADE_DOMINANCE
+	merch_setup.existence_status = FactionDataScript.STATUS_ACTIVE
+	merch_setup.opinion = 15.0
+
 	var saved_data: Dictionary = SaveManagerScript.serialize_world_state(world_instance)
+	var ref_factions: Dictionary = saved_data["factions"]["factions"]
+	var target_factions: Array[String] = ["rival_military", "rival_merchant", "neutral_tribe"]
 
 	var emissions: Array = []
 	var on_ascended := func(fac_id: String, new_name: String):
 		emissions.append({"id": fac_id, "name": new_name})
 	fm.emerging_faction_ascended.connect(on_ascended)
 
-	# First load
+	# --- Step 1: First Load ---
 	var res1: Dictionary = SaveManagerScript.apply_loaded_state_to_world(world_instance, saved_data)
 	_assert_true(res1.get("success", false), "TC-FPROF.9-LOAD1-SUCCESS", "First load application succeeded")
 	_assert_eq(emissions.size(), 0, "TC-FPROF.9-LOAD1-NO-SIGNAL", "Zero ascension signals emitted on first load")
-	_assert_eq(fm.get_all_factions().size(), 3, "TC-FPROF.9-LOAD1-FAC-COUNT", "Faction count remains exactly 3")
+	_assert_eq(fm.get_all_factions().size(), 3, "TC-FPROF.9-LOAD1-FAC-COUNT", "Faction count remains exactly 3 on load 1")
 
-	# Simulation tick on loaded world
+	for fid in target_factions:
+		var fac: FactionData = fm.get_faction(fid)
+		var ref_fac: Dictionary = ref_factions[fid]
+		_assert_approx(fac.opinion, float(ref_fac["opinion"]), "TC-FPROF.9-LOAD1-" + fid.to_upper() + "-OPINION", 0.01)
+		_assert_eq(fac.strategic_goal, str(ref_fac["strategic_goal"]), "TC-FPROF.9-LOAD1-" + fid.to_upper() + "-GOAL", fid + " goal matches reference after load 1")
+		_assert_eq(fac.existence_status, str(ref_fac["existence_status"]), "TC-FPROF.9-LOAD1-" + fid.to_upper() + "-STATUS", fid + " status matches reference after load 1")
+
+	# --- Step 2: Simulation Tick on Loaded World ---
 	fm.update_daily_simulation(11)
 	_assert_eq(emissions.size(), 0, "TC-FPROF.9-TICK-NO-SIGNAL", "Zero signals emitted on subsequent simulation tick")
+	_assert_eq(fm.get_all_factions().size(), 3, "TC-FPROF.9-TICK-FAC-COUNT", "Faction count remains exactly 3 after tick")
 
-	# Second load (double-load idempotency)
+	for fid in target_factions:
+		var fac: FactionData = fm.get_faction(fid)
+		var ref_fac: Dictionary = ref_factions[fid]
+		_assert_approx(fac.opinion, float(ref_fac["opinion"]), "TC-FPROF.9-TICK-" + fid.to_upper() + "-OPINION", 0.01)
+		_assert_eq(fac.strategic_goal, str(ref_fac["strategic_goal"]), "TC-FPROF.9-TICK-" + fid.to_upper() + "-GOAL", fid + " goal matches reference after tick")
+		_assert_eq(fac.existence_status, str(ref_fac["existence_status"]), "TC-FPROF.9-TICK-" + fid.to_upper() + "-STATUS", fid + " status matches reference after tick")
+
+	# --- Step 3: Second Load (Double-Load Idempotency) ---
 	var res2: Dictionary = SaveManagerScript.apply_loaded_state_to_world(world_instance, saved_data)
 	_assert_true(res2.get("success", false), "TC-FPROF.9-LOAD2-SUCCESS", "Second load application succeeded")
 	_assert_eq(emissions.size(), 0, "TC-FPROF.9-LOAD2-NO-SIGNAL", "Zero ascension signals emitted on second load")
 	_assert_eq(fm.get_all_factions().size(), 3, "TC-FPROF.9-LOAD2-FAC-COUNT", "Faction count remains exactly 3 after double load")
 
-	# Verify faction attributes preserved identically
+	for fid in target_factions:
+		var fac: FactionData = fm.get_faction(fid)
+		var ref_fac: Dictionary = ref_factions[fid]
+		_assert_approx(fac.opinion, float(ref_fac["opinion"]), "TC-FPROF.9-LOAD2-" + fid.to_upper() + "-OPINION", 0.01)
+		_assert_eq(fac.strategic_goal, str(ref_fac["strategic_goal"]), "TC-FPROF.9-LOAD2-" + fid.to_upper() + "-GOAL", fid + " goal matches reference after load 2")
+		_assert_eq(fac.existence_status, str(ref_fac["existence_status"]), "TC-FPROF.9-LOAD2-" + fid.to_upper() + "-STATUS", fid + " status matches reference after load 2")
+
+	# Preserve legacy specific checks
 	var mil: FactionData = fm.get_faction("rival_military")
 	_assert_eq(mil.strategic_goal, FactionDataScript.GOAL_MILITARY_EXPANSION, "TC-FPROF.9-MIL-GOAL", "Military goal intact after double-load")
 	_assert_eq(mil.existence_status, FactionDataScript.STATUS_ACTIVE, "TC-FPROF.9-MIL-STATUS", "Military status intact after double-load")
