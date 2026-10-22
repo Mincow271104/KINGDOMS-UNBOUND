@@ -4552,3 +4552,76 @@ The objective is to establish an explainable, deterministic strategic decision p
 - Commit with exact message: `Implement deterministic faction strategic decision engine`.
 - Push branch `feature/package-1r-faction-strategic-decision-engine` to remote `origin`.
 - Await independent review before beginning Package 1S.
+
+---
+
+## [2026-10-22] Package 1R Review-Fix: Complete Edge-Case and Side-Effect Verification ✅ VERIFIED
+
+### Context & Objective
+Address independent review findings for Package 1R on branch `feature/package-1r-faction-strategic-decision-engine` (baseline HEAD `7189d6a47d59c8bebbe8354af32bd9995b7c2dbf`):
+1. **Finding A — Explicit Wartime Posture Verification:**
+   - In `scripts/test/test_faction_strategy_planner.gd` (TC-FSTRAT.5), added explicit verification for active factions with `is_at_war == true`.
+   - Verified that active wartime factions remain eligible (`eligible: true`), have intent mapped to their canonical goal (`military_buildup`), report `posture: "wartime"`, and diagnostic `reason_code: "WARTIME_POSTURE"`.
+   - Verified that direct evaluation does not alter `is_at_war`, `strategic_goal`, `existence_status`, `opinion`, `military_power`, or `population`.
+   - Verified that `FactionManager.update_daily_simulation(day)` emits `strategic_intent_evaluated` with the exact wartime intent and posture, and cleaned up test fixtures.
+2. **Finding B — Dedicated Empty Strategic Goal Safety:**
+   - In `scripts/test/test_faction_strategy_planner.gd` (TC-FSTRAT.3), added explicit verification for a faction with `strategic_goal == ""`.
+   - Verified fail-closed behavior: `eligible: false`, `intent_id: "none"`, and `reason_code: "ERR_INVALID_GOAL"`.
+   - Verified that empty `strategic_goal`, `existence_status`, and profile fields remain unmutated and evaluation does not crash.
+3. **Finding C — Disentangle Evaluator Immutability from Existing Simulation Effects:**
+   - In `scripts/test/test_faction_strategy_planner.gd` (TC-FSTRAT.7), preserved strict read-only snapshot verification across single and 25 repeated direct calls to `FactionStrategyPlanner.evaluate_faction_intent()`.
+   - For `FactionManager.update_daily_simulation()` over 5 simulation days, separated the expected pre-existing simulation rule (`neutral_tribe.population` grows by +1 per day $\to$ exactly +5 across 5 days) from the absence of unintended mutations.
+   - Verified that all other fields of `neutral_tribe` (name, type, opinion, military_power, stability, war/treaty flags, strategic_goal, existence_status, and deep-copied resources) remain unmutated.
+   - Verified that non-evolving factions (`rival_military`, `rival_merchant`) remain 100% invariant across all 13 fields.
+   - Verified that strategic intent evaluation introduces zero resource deductions, diplomatic shifts, or unplanned profile mutations.
+   - Updated `docs/TEST_PLAN.md` to precisely distinguish direct evaluator immutability from baseline daily simulation mechanics.
+
+### Validations Performed & Results
+
+1. **Package 1R Focused Suite (`scripts/test/test_faction_strategy_planner.gd`):**
+   - **Command:** `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --path "e:\KINGDOMS UNBOUND\kingdoms-unbound" -s res://scripts/test/test_faction_strategy_planner.gd`
+   - **Captured Output Summary:**
+     - `TC-FSTRAT.1`: **31** assertions passed
+     - `TC-FSTRAT.2`: **6** assertions passed
+     - `TC-FSTRAT.3`: **18** assertions passed (11 original + 7 new empty-goal assertions)
+     - `TC-FSTRAT.4`: **12** assertions passed
+     - `TC-FSTRAT.5`: **32** assertions passed (18 original + 14 new wartime posture assertions)
+     - `TC-FSTRAT.6`: **12** assertions passed
+     - `TC-FSTRAT.7`: **71** assertions passed (57 original + 14 new neutral_tribe simulation assertions)
+     - Total: **182** assertions passed, 0 failures.
+   - **Exit Code:** `0` (PASS)
+
+2. **Package 1Q Faction Profiles Suite (`scripts/test/test_faction_profiles.gd`):**
+   - **Command:** `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --path "e:\KINGDOMS UNBOUND\kingdoms-unbound" -s res://scripts/test/test_faction_profiles.gd`
+   - **Result:** 9/9 tests passed, **217** assertions passed, 0 failures.
+   - **Exit Code:** `0` (PASS)
+
+3. **Package 1P Emerging Faction Ascension Suite (`scripts/test/test_emerging_faction_ascension.gd`):**
+   - **Command:** `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --path "e:\KINGDOMS UNBOUND\kingdoms-unbound" -s res://scripts/test/test_emerging_faction_ascension.gd`
+   - **Result:** 11/11 tests passed, 0 failures.
+   - **Exit Code:** `0` (PASS)
+
+4. **Headless Editor Parse & Class Registration:**
+   - **Command:** `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --path "e:\KINGDOMS UNBOUND\kingdoms-unbound" --editor --quit`
+   - **Result:** Clean initialization, class registration, and shutdown without errors.
+   - **Exit Code:** `0` (PASS)
+
+5. **Git Whitespace & Formatting Check:**
+   - **Command:** `git diff --check`
+   - **Result:** Clean, zero whitespace errors or formatting issues.
+   - **Exit Code:** `0` (PASS)
+
+### Visual Verification Status
+- **Status:** **NOT PERFORMED**
+- **Reason:** Package 1R is a backend decision-making and planning subsystem without UI elements or visual scenes. All behaviors are verified programmatically via headless test suites.
+
+### Files Modified
+- `scripts/test/test_faction_strategy_planner.gd` (Modified: added wartime posture assertions in TC-FSTRAT.5, empty-goal checks in TC-FSTRAT.3, and explicit neutral_tribe simulation assertions in TC-FSTRAT.7)
+- `docs/TEST_PLAN.md` (Modified: updated TC-FSTRAT.3, TC-FSTRAT.5, and TC-FSTRAT.7 criteria and assertion count to 182)
+- `docs/WORKLOG.md` (Modified: recorded review-fix findings, architecture details, and verification evidence)
+
+### Next Exact Step
+- Stage the 3 modified files (`scripts/test/test_faction_strategy_planner.gd`, `docs/TEST_PLAN.md`, `docs/WORKLOG.md`).
+- Commit with exact message: `Complete Package 1R edge-case and side-effect verification`.
+- Push branch `feature/package-1r-faction-strategic-decision-engine` to remote `origin`.
+- Await independent review before beginning Package 1S.

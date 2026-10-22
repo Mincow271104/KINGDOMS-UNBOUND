@@ -204,7 +204,22 @@ func test_tc_fstrat_3_invalid_profile_safety() -> void:
 	_assert_eq(res_bad_goal.get("reason_code", ""), FactionStrategyPlannerScript.REASON_ERR_INVALID_GOAL, "TC-FSTRAT.3-BAD-GOAL-REASON", "Reason code identifies ERR_INVALID_GOAL")
 	_assert_eq(fac_bad_goal.strategic_goal, "galactic_conquest", "TC-FSTRAT.3-BAD-GOAL-UNMUTATED", "Evaluator did not mutate invalid goal")
 
-	# 3. Unsupported existence status
+	# 3. Empty strategic goal
+	var fac_empty_goal := FactionDataScript.new("empty_goal_fac", "Thế Lực Trống", "neutral_tribe")
+	fac_empty_goal.strategic_goal = ""
+	fac_empty_goal.existence_status = FactionDataScript.STATUS_ACTIVE
+	fac_empty_goal.opinion = 15.0
+	fac_empty_goal.military_power = 40.0
+	var res_empty_goal: Dictionary = FactionStrategyPlannerScript.evaluate_faction_intent(fac_empty_goal)
+	_assert_false(res_empty_goal.get("eligible", true), "TC-FSTRAT.3-EMPTY-GOAL-INELIGIBLE", "Empty goal returns ineligible")
+	_assert_eq(res_empty_goal.get("intent_id", ""), FactionStrategyPlannerScript.INTENT_NONE, "TC-FSTRAT.3-EMPTY-GOAL-INTENT-NONE", "Empty goal has INTENT_NONE")
+	_assert_eq(res_empty_goal.get("reason_code", ""), FactionStrategyPlannerScript.REASON_ERR_INVALID_GOAL, "TC-FSTRAT.3-EMPTY-GOAL-REASON", "Empty goal has ERR_INVALID_GOAL reason")
+	_assert_eq(fac_empty_goal.strategic_goal, "", "TC-FSTRAT.3-EMPTY-GOAL-UNMUTATED", "Evaluator did not mutate empty goal")
+	_assert_eq(fac_empty_goal.existence_status, FactionDataScript.STATUS_ACTIVE, "TC-FSTRAT.3-EMPTY-GOAL-STATUS-UNMUTATED", "Faction status unmutated")
+	_assert_eq(fac_empty_goal.opinion, 15.0, "TC-FSTRAT.3-EMPTY-GOAL-OPINION-UNMUTATED", "Faction opinion unmutated")
+	_assert_eq(fac_empty_goal.military_power, 40.0, "TC-FSTRAT.3-EMPTY-GOAL-MIL-UNMUTATED", "Faction military power unmutated")
+
+	# 4. Unsupported existence status
 	var fac_bad_status := FactionDataScript.new("bad_status_fac", "Thế Lực Ảo", "neutral_tribe")
 	fac_bad_status.existence_status = "nether_realm"
 	var res_bad_status: Dictionary = FactionStrategyPlannerScript.evaluate_faction_intent(fac_bad_status)
@@ -305,6 +320,41 @@ func test_tc_fstrat_5_daily_simulation_integration() -> void:
 	_assert_true(all_intents[0]["eligible"], "TC-FSTRAT.5-ALL-ITEM1-ELIGIBLE")
 	_assert_true(all_intents[1]["eligible"], "TC-FSTRAT.5-ALL-ITEM2-ELIGIBLE")
 	_assert_true(all_intents[2]["eligible"], "TC-FSTRAT.5-ALL-ITEM3-ELIGIBLE")
+
+	# 5. Wartime posture evaluation (direct planner evaluation and daily simulation signal)
+	mil.is_at_war = true
+	var mil_pre_war_opinion: float = mil.opinion
+	var mil_pre_war_mil: float = mil.military_power
+	var mil_pre_war_pop: int = mil.population
+
+	# Direct planner evaluation of wartime faction
+	var wartime_direct: Dictionary = FactionStrategyPlannerScript.evaluate_faction_intent(mil)
+	_assert_true(wartime_direct.get("eligible", false), "TC-FSTRAT.5-WAR-DIRECT-ELIGIBLE", "Active faction at war remains eligible")
+	_assert_eq(wartime_direct.get("intent_id", ""), FactionStrategyPlannerScript.INTENT_MILITARY_BUILDUP, "TC-FSTRAT.5-WAR-DIRECT-INTENT", "Wartime intent matches strategic goal")
+	_assert_eq(wartime_direct.get("posture", ""), "wartime", "TC-FSTRAT.5-WAR-DIRECT-POSTURE", "Wartime posture is 'wartime'")
+	_assert_eq(wartime_direct.get("reason_code", ""), FactionStrategyPlannerScript.REASON_WARTIME_POSTURE, "TC-FSTRAT.5-WAR-DIRECT-REASON", "Wartime reason code is WARTIME_POSTURE")
+	_assert_true(mil.is_at_war, "TC-FSTRAT.5-WAR-FIELD-IS-WAR", "Faction is_at_war unchanged by planner")
+	_assert_eq(mil.strategic_goal, FactionDataScript.GOAL_MILITARY_EXPANSION, "TC-FSTRAT.5-WAR-FIELD-GOAL", "Faction strategic_goal unchanged by planner")
+	_assert_eq(mil.existence_status, FactionDataScript.STATUS_ACTIVE, "TC-FSTRAT.5-WAR-FIELD-STATUS", "Faction existence_status unchanged by planner")
+	_assert_eq(mil.opinion, mil_pre_war_opinion, "TC-FSTRAT.5-WAR-FIELD-OPINION", "Faction opinion unchanged by planner")
+	_assert_eq(mil.military_power, mil_pre_war_mil, "TC-FSTRAT.5-WAR-FIELD-MIL", "Faction military_power unchanged by planner")
+	_assert_eq(mil.population, mil_pre_war_pop, "TC-FSTRAT.5-WAR-FIELD-POP", "Faction population unchanged by planner")
+
+	# Simulation update with wartime faction
+	emitted_intents.clear()
+	fm.update_daily_simulation(4)
+	var mil_sim_data: Dictionary = {}
+	for item in emitted_intents:
+		if item["faction_id"] == "rival_military":
+			mil_sim_data = item["data"]
+			break
+	_assert_true(mil_sim_data.get("eligible", false), "TC-FSTRAT.5-WAR-SIM-ELIGIBLE", "Emitted signal indicates wartime faction is eligible")
+	_assert_eq(mil_sim_data.get("intent_id", ""), FactionStrategyPlannerScript.INTENT_MILITARY_BUILDUP, "TC-FSTRAT.5-WAR-SIM-INTENT", "Emitted signal carries aligned intent")
+	_assert_eq(mil_sim_data.get("posture", ""), "wartime", "TC-FSTRAT.5-WAR-SIM-POSTURE", "Emitted signal carries wartime posture")
+	_assert_eq(mil_sim_data.get("reason_code", ""), FactionStrategyPlannerScript.REASON_WARTIME_POSTURE, "TC-FSTRAT.5-WAR-SIM-REASON", "Emitted signal carries WARTIME_POSTURE reason")
+
+	# Restore test fixture
+	mil.is_at_war = false
 
 	fm.strategic_intent_evaluated.disconnect(on_intent_evaluated)
 
@@ -437,16 +487,36 @@ func test_tc_fstrat_7_no_unintended_gameplay_mutation() -> void:
 		FactionStrategyPlannerScript.evaluate_faction_intent(fac)
 	_verify_faction_snapshot(fac, snap_before_eval, "TC-FSTRAT.7-MULTI-DIRECT")
 
-	# 3. FactionManager daily simulation immutability
+	# 3. FactionManager daily simulation integration & baseline simulation effects
 	var fm := FactionManagerScript.new()
 	var mil: FactionData = fm.get_faction("rival_military")
 	var merch: FactionData = fm.get_faction("rival_merchant")
+	var tribe: FactionData = fm.get_faction("neutral_tribe")
 	var snap_mil: Dictionary = _take_faction_snapshot(mil)
 	var snap_merch: Dictionary = _take_faction_snapshot(merch)
+	var snap_tribe: Dictionary = _take_faction_snapshot(tribe)
 
-	# Run multiple daily simulation ticks on stable world (day 1..5)
+	# Run multiple daily simulation ticks on pre-ascension world (day 1..5)
 	for d in range(1, 6):
 		fm.update_daily_simulation(d)
 
+	# Factions without simulation rules (rival_military, rival_merchant) remain 100% unchanged
 	_verify_faction_snapshot(mil, snap_mil, "TC-FSTRAT.7-SIM-MIL")
 	_verify_faction_snapshot(merch, snap_merch, "TC-FSTRAT.7-SIM-MERCH")
+
+	# neutral_tribe: pre-existing simulation rule intentionally increments population (+1 per day)
+	_assert_eq(tribe.population, snap_tribe["population"] + 5, "TC-FSTRAT.7-SIM-TRIBE-POP", "neutral_tribe population increased by exactly 5 across 5 simulation days")
+	# neutral_tribe: all other fields remain completely unmutated by strategic planner integration
+	_assert_eq(tribe.name, snap_tribe["name"], "TC-FSTRAT.7-SIM-TRIBE-NAME", "name unmutated")
+	_assert_eq(tribe.type, snap_tribe["type"], "TC-FSTRAT.7-SIM-TRIBE-TYPE", "type unmutated")
+	_assert_eq(tribe.opinion, snap_tribe["opinion"], "TC-FSTRAT.7-SIM-TRIBE-OPINION", "opinion unmutated")
+	_assert_eq(tribe.military_power, snap_tribe["military_power"], "TC-FSTRAT.7-SIM-TRIBE-MIL", "military_power unmutated")
+	_assert_eq(tribe.stability, snap_tribe["stability"], "TC-FSTRAT.7-SIM-TRIBE-STAB", "stability unmutated")
+	_assert_eq(tribe.is_at_war, snap_tribe["is_at_war"], "TC-FSTRAT.7-SIM-TRIBE-WAR", "is_at_war unmutated")
+	_assert_eq(tribe.has_nap, snap_tribe["has_nap"], "TC-FSTRAT.7-SIM-TRIBE-NAP", "has_nap unmutated")
+	_assert_eq(tribe.has_alliance, snap_tribe["has_alliance"], "TC-FSTRAT.7-SIM-TRIBE-ALLIANCE", "has_alliance unmutated")
+	_assert_eq(tribe.strategic_goal, snap_tribe["strategic_goal"], "TC-FSTRAT.7-SIM-TRIBE-GOAL", "strategic_goal unmutated")
+	_assert_eq(tribe.existence_status, snap_tribe["existence_status"], "TC-FSTRAT.7-SIM-TRIBE-STATUS", "existence_status unmutated")
+	_assert_eq(tribe.resources.size(), snap_tribe["resources"].size(), "TC-FSTRAT.7-SIM-TRIBE-RES-COUNT", "resources count unmutated")
+	for k in snap_tribe["resources"]:
+		_assert_eq(tribe.resources.get(k, 0), snap_tribe["resources"][k], "TC-FSTRAT.7-SIM-TRIBE-RES-" + str(k).to_upper(), "resource " + str(k) + " unmutated")
