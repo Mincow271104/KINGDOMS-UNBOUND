@@ -21,6 +21,16 @@ const ASCENSION_NEW_MILITARY_POWER: float = 55.0
 const ASCENSION_NEW_STABILITY: float = 85.0
 const ASCENSION_NEW_STRATEGIC_GOAL: String = FactionData.GOAL_CONSOLIDATE_POWER
 
+# Autonomous Diplomacy Execution Reason Codes (Package 1T)
+const DIPLO_REASON_EXECUTED_WAR: String = "EXECUTED_DECLARE_WAR"
+const DIPLO_REASON_EXECUTED_PEACE: String = "EXECUTED_SIGN_PEACE"
+const DIPLO_REASON_ALREADY_EVALUATED_TODAY: String = "ALREADY_EVALUATED_TODAY"
+const DIPLO_REASON_NO_ACTION: String = "NO_ACTION"
+const DIPLO_REASON_API_REJECTED: String = "API_REJECTED"
+const DIPLO_REASON_ERR_NULL_FACTION: String = "ERR_NULL_FACTION"
+const DIPLO_REASON_ERR_INVALID_DAY: String = "ERR_INVALID_DAY"
+const DIPLO_REASON_ERR_INVALID_DECISION: String = "ERR_INVALID_DECISION"
+
 signal relation_changed(faction_id: String, new_opinion: float, disposition: int)
 signal treaty_signed(faction_id: String, treaty_type: String)
 signal war_declared(faction_id: String)
@@ -28,10 +38,13 @@ signal peace_signed(faction_id: String)
 signal emerging_faction_ascended(faction_id: String, new_name: String)
 signal strategic_intent_evaluated(faction_id: String, intent_data: Dictionary)
 signal strategic_intent_executed(faction_id: String, execution_result: Dictionary)
+signal diplomatic_action_evaluated(faction_id: String, decision_data: Dictionary)
+signal diplomatic_action_executed(faction_id: String, execution_result: Dictionary)
 
 var _factions: Dictionary = {} # id -> FactionData
 var _strategy_executor: FactionStrategyExecutor = FactionStrategyExecutor.new()
 var _last_tribe_growth_day: int = -1
+var _last_diplomacy_days: Dictionary = {} # faction_id -> int day
 
 func _init() -> void:
 	_initialize_factions()
@@ -41,6 +54,7 @@ func _initialize_factions() -> void:
 	if _strategy_executor != null:
 		_strategy_executor.reset_state()
 	_last_tribe_growth_day = -1
+	_last_diplomacy_days.clear()
 	
 	# Rival 1: Military Kingdom
 	var rival_mil := FactionData.new(
@@ -107,6 +121,211 @@ func evaluate_all_strategic_intents() -> Array[Dictionary]:
 			results.append(FactionStrategyPlanner.evaluate_faction_intent(fac))
 	return results
 
+func get_faction_diplomatic_decision(faction_id: String) -> Dictionary:
+	var fac: FactionData = get_faction(faction_id)
+	return FactionDiplomacyPlanner.evaluate_diplomatic_action(fac)
+
+func evaluate_all_diplomatic_decisions() -> Array[Dictionary]:
+	var results: Array[Dictionary] = []
+	var sorted_ids: Array = _factions.keys()
+	sorted_ids.sort()
+	for fid in sorted_ids:
+		var fac: FactionData = _factions[fid]
+		if fac != null:
+			results.append(FactionDiplomacyPlanner.evaluate_diplomatic_action(fac))
+	return results
+
+func get_faction_last_diplomacy_day(faction_id: String) -> int:
+	if faction_id.is_empty():
+		return -1
+	return int(_last_diplomacy_days.get(faction_id, -1))
+
+func set_faction_last_diplomacy_day(faction_id: String, day: int) -> void:
+	if faction_id.is_empty():
+		return
+	if day >= 1:
+		_last_diplomacy_days[faction_id] = day
+	else:
+		_last_diplomacy_days.erase(faction_id)
+
+func execute_faction_diplomatic_action(faction_id: String, day: int, decision_override: Dictionary = {}) -> Dictionary:
+	var fac: FactionData = get_faction(faction_id)
+	if fac == null:
+		return {
+			"faction_id": faction_id,
+			"day": day,
+			"action_id": FactionDiplomacyPlanner.ACTION_NONE,
+			"success": false,
+			"reason_code": DIPLO_REASON_ERR_NULL_FACTION,
+			"planner_reason_code": FactionDiplomacyPlanner.REASON_ERR_NULL_FACTION,
+			"changes": {}
+		}
+	if day < 1:
+		return {
+			"faction_id": fac.id,
+			"day": day,
+			"action_id": FactionDiplomacyPlanner.ACTION_NONE,
+			"success": false,
+			"reason_code": DIPLO_REASON_ERR_INVALID_DAY,
+			"planner_reason_code": "",
+			"changes": {}
+		}
+
+	var expected_decision: Dictionary = FactionDiplomacyPlanner.evaluate_diplomatic_action(fac)
+	var decision: Dictionary = expected_decision if decision_override.is_empty() else decision_override
+
+	if not decision_override.is_empty():
+		var ov_fid: String = str(decision.get("faction_id", ""))
+		var ov_act: String = str(decision.get("action_id", ""))
+		var ov_elig: Variant = decision.get("eligible", null)
+		if ov_fid != fac.id or not FactionDiplomacyPlanner.VALID_ACTIONS.has(ov_act) or not (ov_elig is bool):
+			return {
+				"faction_id": fac.id,
+				"day": day,
+				"action_id": FactionDiplomacyPlanner.ACTION_NONE,
+				"success": false,
+				"reason_code": DIPLO_REASON_ERR_INVALID_DECISION,
+				"planner_reason_code": str(expected_decision.get("reason_code", "")),
+				"changes": {}
+			}
+		if ov_act != str(expected_decision.get("action_id", "")) or bool(ov_elig) != bool(expected_decision.get("eligible", false)):
+			return {
+				"faction_id": fac.id,
+				"day": day,
+				"action_id": FactionDiplomacyPlanner.ACTION_NONE,
+				"success": false,
+				"reason_code": DIPLO_REASON_ERR_INVALID_DECISION,
+				"planner_reason_code": str(expected_decision.get("reason_code", "")),
+				"changes": {}
+			}
+
+	var planner_reason: String = str(decision.get("reason_code", ""))
+	if planner_reason in [
+		FactionDiplomacyPlanner.REASON_ERR_NULL_FACTION,
+		FactionDiplomacyPlanner.REASON_ERR_INVALID_STATUS,
+		FactionDiplomacyPlanner.REASON_ERR_INVALID_GOAL,
+		FactionDiplomacyPlanner.REASON_ERR_INVALID_STATE,
+		FactionDiplomacyPlanner.REASON_INELIGIBLE_ELIMINATED
+	]:
+		return {
+			"faction_id": fac.id,
+			"day": day,
+			"action_id": FactionDiplomacyPlanner.ACTION_NONE,
+			"success": false,
+			"reason_code": planner_reason,
+			"planner_reason_code": planner_reason,
+			"changes": {}
+		}
+
+	if get_faction_last_diplomacy_day(fac.id) >= day:
+		return {
+			"faction_id": fac.id,
+			"day": day,
+			"action_id": FactionDiplomacyPlanner.ACTION_NONE,
+			"success": false,
+			"reason_code": DIPLO_REASON_ALREADY_EVALUATED_TODAY,
+			"planner_reason_code": planner_reason,
+			"changes": {}
+		}
+
+	set_faction_last_diplomacy_day(fac.id, day)
+	diplomatic_action_evaluated.emit(fac.id, decision)
+
+	var action_id: String = str(decision.get("action_id", FactionDiplomacyPlanner.ACTION_NONE))
+	var eligible: bool = bool(decision.get("eligible", false))
+	if not eligible or action_id == FactionDiplomacyPlanner.ACTION_NONE:
+		return {
+			"faction_id": fac.id,
+			"day": day,
+			"action_id": FactionDiplomacyPlanner.ACTION_NONE,
+			"success": false,
+			"reason_code": DIPLO_REASON_NO_ACTION,
+			"planner_reason_code": planner_reason,
+			"changes": {}
+		}
+
+	var prev_war: bool = fac.is_at_war
+	var prev_opinion: float = fac.opinion
+	var prev_disp: int = fac.disposition
+	var prev_nap: bool = fac.has_nap
+	var prev_alliance: bool = fac.has_alliance
+
+	if action_id == FactionDiplomacyPlanner.ACTION_DECLARE_WAR:
+		var api_res: Dictionary = declare_war(fac.id)
+		if not bool(api_res.get("success", false)):
+			return {
+				"faction_id": fac.id,
+				"day": day,
+				"action_id": action_id,
+				"success": false,
+				"reason_code": DIPLO_REASON_API_REJECTED,
+				"planner_reason_code": planner_reason,
+				"changes": {}
+			}
+		var res_war: Dictionary = {
+			"faction_id": fac.id,
+			"day": day,
+			"action_id": FactionDiplomacyPlanner.ACTION_DECLARE_WAR,
+			"success": true,
+			"reason_code": DIPLO_REASON_EXECUTED_WAR,
+			"planner_reason_code": planner_reason,
+			"changes": {
+				"is_at_war_before": prev_war,
+				"is_at_war_after": fac.is_at_war,
+				"opinion_before": prev_opinion,
+				"opinion_after": fac.opinion,
+				"disposition_before": prev_disp,
+				"disposition_after": fac.disposition,
+				"has_nap_before": prev_nap,
+				"has_nap_after": fac.has_nap,
+				"has_alliance_before": prev_alliance,
+				"has_alliance_after": fac.has_alliance
+			}
+		}
+		diplomatic_action_executed.emit(fac.id, res_war)
+		return res_war
+
+	if action_id == FactionDiplomacyPlanner.ACTION_SIGN_PEACE:
+		var api_res_peace: Dictionary = propose_treaty(fac.id, "peace")
+		if not bool(api_res_peace.get("success", false)):
+			return {
+				"faction_id": fac.id,
+				"day": day,
+				"action_id": action_id,
+				"success": false,
+				"reason_code": DIPLO_REASON_API_REJECTED,
+				"planner_reason_code": planner_reason,
+				"changes": {}
+			}
+		var res_peace: Dictionary = {
+			"faction_id": fac.id,
+			"day": day,
+			"action_id": FactionDiplomacyPlanner.ACTION_SIGN_PEACE,
+			"success": true,
+			"reason_code": DIPLO_REASON_EXECUTED_PEACE,
+			"planner_reason_code": planner_reason,
+			"changes": {
+				"is_at_war_before": prev_war,
+				"is_at_war_after": fac.is_at_war,
+				"opinion_before": prev_opinion,
+				"opinion_after": fac.opinion,
+				"disposition_before": prev_disp,
+				"disposition_after": fac.disposition
+			}
+		}
+		diplomatic_action_executed.emit(fac.id, res_peace)
+		return res_peace
+
+	return {
+		"faction_id": fac.id,
+		"day": day,
+		"action_id": FactionDiplomacyPlanner.ACTION_NONE,
+		"success": false,
+		"reason_code": DIPLO_REASON_ERR_INVALID_DECISION,
+		"planner_reason_code": planner_reason,
+		"changes": {}
+	}
+
 func get_strategy_executor() -> FactionStrategyExecutor:
 	return _strategy_executor
 
@@ -126,12 +345,14 @@ func execute_faction_strategic_intent(faction_id: String, day: int, context: Dic
 func serialize_executor_state() -> Dictionary:
 	var out: Dictionary = _strategy_executor.serialize() if _strategy_executor != null else {"last_executed_days": {}}
 	out["last_tribe_growth_day"] = _last_tribe_growth_day
+	out["last_diplomacy_days"] = _last_diplomacy_days.duplicate(true)
 	return out
 
 func deserialize_executor_state(data: Dictionary, current_day: int = -1) -> void:
 	if _strategy_executor == null:
 		_strategy_executor = FactionStrategyExecutor.new()
 	_strategy_executor.deserialize(data, current_day)
+	_last_diplomacy_days.clear()
 	if data.is_empty():
 		_last_tribe_growth_day = -1
 		return
@@ -145,6 +366,17 @@ func deserialize_executor_state(data: Dictionary, current_day: int = -1) -> void
 			_last_tribe_growth_day = -1
 	else:
 		_last_tribe_growth_day = -1
+
+	var raw_diplo = data.get("last_diplomacy_days", {})
+	if raw_diplo is Dictionary:
+		for fid in raw_diplo.keys():
+			if not (fid is String) or String(fid).is_empty():
+				continue
+			var d_val = raw_diplo[fid]
+			if d_val is int or (d_val is float and not is_nan(d_val) and not is_inf(d_val) and floor(d_val) == d_val):
+				var d: int = int(d_val)
+				if d >= 1 and d <= 36500 and (current_day < 1 or d <= current_day):
+					_last_diplomacy_days[String(fid)] = d
 
 func modify_opinion(faction_id: String, delta: float) -> Dictionary:
 	var fac: FactionData = get_faction(faction_id)
@@ -312,9 +544,17 @@ func update_daily_simulation(day: int) -> void:
 			tribe_ascended_today = true
 			emerging_faction_ascended.emit(tribe.id, tribe.name)
 
-	# 2. Evaluate and execute daily strategic intents for active factions in stable deterministic order
+	# 2. Evaluate and execute autonomous diplomatic decisions in stable deterministic order (Package 1T)
+	# Executed BEFORE daily strategic economic actions so a faction declaring war today cannot also complete peacetime trade_expansion.
 	var sorted_ids: Array = _factions.keys()
 	sorted_ids.sort()
+	for fid in sorted_ids:
+		var fac_dip: FactionData = _factions[fid]
+		if fac_dip == null:
+			continue
+		execute_faction_diplomatic_action(fid, day)
+
+	# 3. Evaluate and execute daily strategic intents for active factions in stable deterministic order
 	for fid in sorted_ids:
 		var fac: FactionData = _factions[fid]
 		if fac == null:

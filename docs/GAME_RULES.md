@@ -336,3 +336,39 @@ The live settlement defense loop operates deterministically via `BattleCampaignM
 - **Ceiling Protection:** When all target attributes for an intent have already reached their ceiling, the action fails closed (`REASON_AT_CAP`) without wasting faction resources.
 - **Ascension-Day Non-Duplication:** On the day `neutral_tribe` ascends to `emerging_power`, ascension sets `military_power = 55.0` and `stability = 85.0`, and `power_consolidation` records `ASCENDED_THIS_TICK` without applying a second mutation on that same tick.
 - **Same-Day & Save/Load Idempotency:** Per-faction `last_executed_days` and `last_tribe_growth_day` are persisted under `factions.strategy_executor` in `SaveManager`, preventing duplicate execution on same-day repeat calls or after Save/Load.
+
+---
+
+## 12. Deterministic Autonomous Faction Diplomacy Rules (Package 1T)
+
+### 12.1 Pure Evaluation vs. Bounded Execution
+- **Pure Evaluator (`FactionDiplomacyPlanner`):** `evaluate_diplomatic_action(fac)` is 100% side-effect-free and returns a structured decision (`faction_id`, `action_id`, `eligible`, `reason_code`, `inputs`, `explanation`) for canonical actions `declare_war`, `sign_peace`, or `none`.
+- **Daily Execution Ordering (`FactionManager.update_daily_simulation(day)`):**
+  1. Neutral tribe daily pre-ascension growth and ascension check (`can_emerging_faction_ascend(day)`).
+  2. Autonomous diplomacy evaluation and execution (`execute_faction_diplomatic_action(fid, day)`) in sorted faction-ID order (`neutral_tribe`, `rival_merchant`, `rival_military`).
+  3. Strategic intent evaluation (`FactionStrategyPlanner`) and execution (`FactionStrategyExecutor`) in sorted faction-ID order.
+  - Because Step 2 executes before Step 3, any faction declaring war on Day $D$ immediately enters wartime posture on Day $D$ (and cannot complete peacetime `trade_expansion` on that tick), while any faction signing peace on Day $D$ immediately resumes peacetime posture on Day $D$.
+
+### 12.2 Autonomous War Declaration Rules (`declare_war`)
+An AI faction autonomously declares war on the player if and only if all of the following hold:
+1. `existence_status == "active"` (`in_exile` and `eliminated` factions cannot initiate war).
+2. `strategic_goal == "military_expansion"` **OR** (`type == "emerging_power"` and `strategic_goal == "consolidate_power"`). Pre-ascension `neutral_tribe` (`community_growth`), unascended `consolidate_power`, and `trade_dominance` factions never autonomously initiate war.
+3. `is_at_war == false`.
+4. `has_nap == false` and `has_alliance == false`.
+5. `opinion <= -60.0` (`WAR_MAX_OPINION = -60.0`).
+6. `military_power >= 65.0` (`WAR_MIN_MILITARY_POWER = 65.0`).
+7. `stability >= 50.0` (`WAR_MIN_STABILITY = 50.0`).
+
+Execution routes through `FactionManager.declare_war(faction_id)`, which sets `is_at_war = true`, `has_nap = false`, `has_alliance = false`, `disposition = HOSTILE`, reduces `opinion` by `-50.0` (clamped to `-100.0`), emits `war_declared` and `relation_changed`, triggers `BattleCampaignManager` raid scheduling (`current_day + 3`), and displays a Vietnamese HUD event banner.
+
+### 12.3 Autonomous Peace Rules (`sign_peace`)
+An AI faction at war autonomously signs peace with the player if and only if all of the following hold:
+1. `is_at_war == true`.
+2. `existence_status == "active"` or `existence_status == "in_exile"` (`eliminated` factions never execute diplomacy).
+3. `military_power <= 20.0` (`PEACE_MAX_MILITARY_POWER = 20.0`) **OR** `stability <= 25.0` (`PEACE_MAX_STABILITY = 25.0`).
+
+Execution routes through `FactionManager.propose_treaty(faction_id, "peace")`, which sets `is_at_war = false`, increases `opinion` by `+20.0` and recalculates `disposition`, emits `peace_signed` and `relation_changed`, cancels any pending raid in `BattleCampaignManager`, and displays a Vietnamese HUD event banner (`"Hòa Bình Lập Lại!"`).
+
+### 12.4 Anti-Oscillation & Save/Load Persistence
+- **At-Most-Once Daily Evaluation:** `FactionManager` records `_last_diplomacy_days[faction_id] = day` when evaluating an active or in-exile faction for day `day`. Any subsequent autonomous diplomacy call for that faction on the same day (or an earlier day) returns `ALREADY_EVALUATED_TODAY` with zero state changes and zero signal emissions, preventing same-day war/peace oscillation.
+- **Persistence & Fail-Closed Validation:** `last_diplomacy_days` is persisted under `factions.strategy_executor.last_diplomacy_days` (`SAVE_SCHEMA_VERSION = 1`). `SaveManager.validate_save_data()` validates that `last_diplomacy_days` is a `Dictionary` with non-empty string keys and integer day values in `[1, 36500]` that do not exceed `game_clock.current_day`, rejecting corrupted or future timestamps fail-closed before world mutation.

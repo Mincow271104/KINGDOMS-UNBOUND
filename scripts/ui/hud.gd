@@ -392,11 +392,41 @@ func set_faction_manager(mgr: Object, world_ref: Node = null) -> void:
 	faction_mgr = mgr
 	world_view_ref = world_ref
 	if faction_mgr != null:
-		faction_mgr.relation_changed.connect(func(_id, _op, _disp): _refresh_diplomacy_ui())
-		faction_mgr.treaty_signed.connect(func(_id, treaty): show_event_banner("Ký Kết Hiệp Ước!", "Đã ký thành công hiệp ước %s" % treaty, true))
-		faction_mgr.war_declared.connect(func(_id): show_event_banner("Chiến Tranh!", "Đã nổ ra chiến tranh với thế lực!", false))
+		if not faction_mgr.relation_changed.is_connected(_on_faction_relation_changed):
+			faction_mgr.relation_changed.connect(_on_faction_relation_changed)
+		if not faction_mgr.treaty_signed.is_connected(_on_faction_treaty_signed):
+			faction_mgr.treaty_signed.connect(_on_faction_treaty_signed)
+		if not faction_mgr.war_declared.is_connected(_on_faction_war_declared):
+			faction_mgr.war_declared.connect(_on_faction_war_declared)
+		if faction_mgr.has_signal("peace_signed") and not faction_mgr.peace_signed.is_connected(_on_faction_peace_signed):
+			faction_mgr.peace_signed.connect(_on_faction_peace_signed)
 		if faction_mgr.has_signal("emerging_faction_ascended") and not faction_mgr.emerging_faction_ascended.is_connected(_on_emerging_faction_ascended):
 			faction_mgr.emerging_faction_ascended.connect(_on_emerging_faction_ascended)
+
+func _on_faction_relation_changed(_id: String, _op: float, _disp: int) -> void:
+	_refresh_diplomacy_ui()
+
+func _on_faction_treaty_signed(_id: String, treaty: String) -> void:
+	show_event_banner("Ký Kết Hiệp Ước!", "Đã ký thành công hiệp ước %s" % treaty, true)
+	_refresh_diplomacy_ui()
+
+func _on_faction_war_declared(faction_id: String) -> void:
+	var fac_name: String = faction_id
+	if faction_mgr != null and faction_mgr.has_method("get_faction"):
+		var f = faction_mgr.call("get_faction", faction_id)
+		if f != null:
+			fac_name = str(f.get("name"))
+	show_event_banner("Chiến Tranh!", "Đã nổ ra chiến tranh với %s!" % fac_name, false)
+	_refresh_diplomacy_ui()
+
+func _on_faction_peace_signed(faction_id: String) -> void:
+	var fac_name: String = faction_id
+	if faction_mgr != null and faction_mgr.has_method("get_faction"):
+		var f = faction_mgr.call("get_faction", faction_id)
+		if f != null:
+			fac_name = str(f.get("name"))
+	show_event_banner("Hòa Bình Lập Lại!", "Đã ký hiệp định đình chiến với %s!" % fac_name, true)
+	_refresh_diplomacy_ui()
 
 func _on_emerging_faction_ascended(_id: String, new_name: String) -> void:
 	show_event_banner("Thế Lực Mới Nổi!", "%s đã chính thức trỗi dậy thành một cường bang mới!" % new_name, true, 6.0)

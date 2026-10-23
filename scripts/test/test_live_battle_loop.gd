@@ -895,8 +895,10 @@ func _run_world_integration_checks() -> void:
 	fm.propose_treaty("rival_military", "peace")
 	live_tm.reset_time(6, 10, 1) # Advance clock to Day 10, 06:00
 
-	# Ensure rival_military has positive military power for the raid
+	# Ensure rival_military has baseline opinion (-10.0) and positive military power for the raid
 	var live_fac = fm.get_faction("rival_military")
+	live_fac.opinion = -10.0
+	live_fac.recalculate_disposition()
 	live_fac.military_power = 90.0
 
 	# Faction war declared on Day 10

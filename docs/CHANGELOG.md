@@ -8,6 +8,22 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### [Package 1T] - 2026-10-24
+#### Added
+- Deterministic Autonomous Faction Diplomacy (`FactionDiplomacyPlanner`, `FactionManager`, `SaveManager`, `HUD`):
+  - Pure, side-effect-free diplomacy planner `scripts/factions/faction_diplomacy_planner.gd` (`FactionDiplomacyPlanner`) evaluating `FactionData` into structured decisions (`faction_id`, `action_id`, `eligible`, `reason_code`, `inputs`, `explanation`) for canonical actions `declare_war`, `sign_peace`, and `none`:
+    - Autonomous war (`declare_war`): requires `existence_status == "active"`, `is_at_war == false`, `has_nap == false`, `has_alliance == false`, `opinion <= -60.0` (`WAR_MAX_OPINION`), `military_power >= 65.0` (`WAR_MIN_MILITARY_POWER`), `stability >= 50.0` (`WAR_MIN_STABILITY`), and either `strategic_goal == "military_expansion"` or (`type == "emerging_power"` and `strategic_goal == "consolidate_power"`). Pre-ascension `neutral_tribe`, unascended `consolidate_power`, and `trade_dominance` factions cannot autonomously declare war.
+    - Autonomous peace (`sign_peace`): requires `is_at_war == true`, `existence_status` in `["active", "in_exile"]` (`eliminated` factions never execute diplomacy), and either `military_power <= 20.0` (`PEACE_MAX_MILITARY_POWER`) or `stability <= 25.0` (`PEACE_MAX_STABILITY`).
+  - Execution & daily simulation integration in `FactionManager`:
+    - Added `get_faction_diplomatic_decision(faction_id)`, `evaluate_all_diplomatic_decisions()`, `get_faction_last_diplomacy_day(faction_id)`, `set_faction_last_diplomacy_day(faction_id, day)`, `execute_faction_diplomatic_action(faction_id, day, decision_override)`, and signals `diplomatic_action_evaluated(faction_id, decision_data)` and `diplomatic_action_executed(faction_id, execution_result)`.
+    - Routes `declare_war` through `FactionManager.declare_war(faction_id)` and `sign_peace` through `FactionManager.propose_treaty(faction_id, "peace")` so existing war/peace signals, opinion/disposition updates, and `BattleCampaignManager` raid scheduling/cancellation work seamlessly.
+    - Executes autonomous diplomacy in sorted faction-ID order **before** daily strategic economic actions in `FactionManager.update_daily_simulation(day)` with per-faction `_last_diplomacy_days` guards preventing same-day war/peace oscillation or duplicate evaluations.
+  - Save/Load persistence & fail-closed validation in `SaveManager`:
+    - Persists `last_diplomacy_days` under `factions.strategy_executor.last_diplomacy_days` (`SAVE_SCHEMA_VERSION = 1`), validates `[1, 36500]` and `<= game_clock.current_day` fail-closed before world mutation, filters future days in `FactionManager.deserialize_executor_state()`, and preserves full legacy save compatibility.
+  - In-Game HUD notifications (`scripts/ui/hud.gd`):
+    - Connected `peace_signed` and enhanced `war_declared` in `HUD.set_faction_manager()` to display Vietnamese event banners with the faction's localized name (`"Chiến Tranh!"`, `"Hòa Bình Lập Lại!"`) and refresh the Diplomacy UI.
+  - Dedicated automated test suite `scripts/test/test_faction_diplomacy_ai.gd` covering TC-FDIP.1 through TC-FDIP.16 (16/16 tests passed, 437 checks passed, Exit Code 0).
+
 ### [Package 1S] - 2026-10-23
 #### Added
 - Deterministic Faction Strategic Intent Execution (`FactionStrategyExecutor`, `FactionManager`, `SaveManager`):

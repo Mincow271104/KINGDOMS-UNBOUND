@@ -203,3 +203,12 @@
 - [x] **TASK-1S.2:** `FactionManager` daily execution integration (`execute_faction_strategic_intent`, `strategic_intent_executed` signal, sorted deterministic faction order, same-day idempotency, and ascension-day non-duplication).
 - [x] **TASK-1S.3:** `SaveManager` persistence and fail-closed validation for `factions.strategy_executor` (`last_executed_days`, `last_tribe_growth_day`) with legacy save backward compatibility.
 - [x] **TASK-1S.4:** Automated test suite `scripts/test/test_faction_strategy_execution.gd` covering TC-FEXEC.1 through TC-FEXEC.14 (PASS, Exit Code 0).
+
+---
+
+## Package 1T: Deterministic Autonomous Faction Diplomacy (Completed)
+- [x] **TASK-1T.1:** Pure, deterministic `FactionDiplomacyPlanner` (`scripts/factions/faction_diplomacy_planner.gd`) evaluating autonomous war (`declare_war`) and peace (`sign_peace`) decisions from authoritative `FactionData` thresholds (`WAR_MAX_OPINION = -60.0`, `WAR_MIN_MILITARY_POWER = 65.0`, `WAR_MIN_STABILITY = 50.0`, `PEACE_MAX_MILITARY_POWER = 20.0`, `PEACE_MAX_STABILITY = 25.0`), goal/ascension gating, treaties, and existence status with zero side effects.
+- [x] **TASK-1T.2:** `FactionManager` autonomous diplomacy execution (`execute_faction_diplomatic_action`, `get_faction_diplomatic_decision`, `evaluate_all_diplomatic_decisions`, `get_faction_last_diplomacy_day`, signals `diplomatic_action_evaluated` and `diplomatic_action_executed`), routing through `declare_war()` and `propose_treaty(..., "peace")`, executing before daily strategic economic intents in `update_daily_simulation(day)`, and enforcing at-most-once daily evaluation per faction (`_last_diplomacy_days`).
+- [x] **TASK-1T.3:** `SaveManager` persistence and fail-closed validation for `factions.strategy_executor.last_diplomacy_days` (`1..36500` and `<= game_clock.current_day`) with second-layer filtering in `FactionManager.deserialize_executor_state()` and legacy save compatibility.
+- [x] **TASK-1T.4:** In-Game `HUD` Vietnamese event banner and diplomacy UI refresh integration for both `war_declared` and `peace_signed` signals.
+- [x] **TASK-1T.5:** Automated test suite `scripts/test/test_faction_diplomacy_ai.gd` covering TC-FDIP.1 through TC-FDIP.16 (PASS, Exit Code 0).

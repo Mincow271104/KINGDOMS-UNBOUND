@@ -605,6 +605,18 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 				# BUG-1S-01: Reject future tribe growth day relative to saved game_clock.current_day
 				if max_allowed_fac_day >= 1 and int(ltgd) != -1 and int(ltgd) > max_allowed_fac_day:
 					return {"valid": false, "error": "last_tribe_growth_day trong strategy_executor (%d) không được lớn hơn current_day trong game_clock (%d)." % [int(ltgd), max_allowed_fac_day]}
+			if exec_val.has("last_diplomacy_days"):
+				var ldd_map = exec_val.get("last_diplomacy_days")
+				if not (ldd_map is Dictionary):
+					return {"valid": false, "error": "last_diplomacy_days trong strategy_executor phải là từ điển (Dictionary)."}
+				for fid in ldd_map:
+					if not (fid is String) or String(fid).is_empty():
+						return {"valid": false, "error": "Khóa thế lực trong last_diplomacy_days không hợp lệ."}
+					var d_val = ldd_map[fid]
+					if not _is_valid_integer_val(d_val) or int(d_val) < 1 or int(d_val) > 36500:
+						return {"valid": false, "error": "Ngày ngoại giao trong last_diplomacy_days của '%s' phải là số nguyên trong [1, 36500]: %s." % [str(fid), str(d_val)]}
+					if max_allowed_fac_day >= 1 and int(d_val) > max_allowed_fac_day:
+						return {"valid": false, "error": "Ngày ngoại giao trong last_diplomacy_days của '%s' (%d) không được lớn hơn current_day trong game_clock (%d)." % [str(fid), int(d_val), max_allowed_fac_day]}
 
 	# Validate optional immigration section (DEBT-03)
 	if json_dict.has("immigration"):

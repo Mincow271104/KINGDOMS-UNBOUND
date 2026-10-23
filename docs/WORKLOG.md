@@ -5214,3 +5214,70 @@ On branch `feature/package-1r-faction-strategic-decision-engine` starting from l
 
 ### Next Exact Step
 - Commit follow-up on `feature/package-1s-faction-strategic-intent-execution` with message `Prevent faction trade gold overflow` and push to `origin/feature/package-1s-faction-strategic-intent-execution`.
+
+---
+
+## [2026-10-24] Package 1T: Deterministic Autonomous Faction Diplomacy
+
+### Status
+- **Phase:** Post-Gate 9 — Package 1T (`Deterministic Autonomous Faction Diplomacy`)
+- **Branch:** `feature/package-1t-faction-diplomatic-autonomy`
+- **Parent Commit:** `572c7cbcc96a6285c3e0bc9edee94008453421f0`
+- **Milestone:** **COMPLETE (Ready for Commit & Push)**
+
+### Completed Work
+1. **Pure Autonomous Diplomacy Planner (`scripts/factions/faction_diplomacy_planner.gd`):**
+   - Created `FactionDiplomacyPlanner` (`class_name FactionDiplomacyPlanner`) as a pure, side-effect-free evaluator (`evaluate_diplomatic_action(fac: FactionData) -> Dictionary`) returning structured decisions (`faction_id`, `action_id`, `eligible`, `reason_code`, `inputs`, `explanation`) for canonical actions `declare_war`, `sign_peace`, and `none`.
+   - Enforced explicit autonomous war thresholds (`WAR_MAX_OPINION = -60.0`, `WAR_MIN_MILITARY_POWER = 65.0`, `WAR_MIN_STABILITY = 50.0`), goal/ascension gating (`military_expansion` or ascended `emerging_power` with `consolidate_power`), peacetime treaty blocks (`has_nap == false` and `has_alliance == false`), and `active` status gating.
+   - Enforced explicit autonomous peace thresholds (`PEACE_MAX_MILITARY_POWER = 20.0` or `PEACE_MAX_STABILITY = 25.0`) for `active` and `in_exile` factions at war (`eliminated` factions never execute diplomacy).
+   - Added fail-closed validation on null faction references, unrecognized `existence_status`, unrecognized `strategic_goal`, and `NaN`/out-of-range numeric fields.
+2. **Execution, Daily Ordering & Anti-Oscillation (`scripts/factions/faction_manager.gd`):**
+   - Added `get_faction_diplomatic_decision(faction_id)`, `evaluate_all_diplomatic_decisions()`, `get_faction_last_diplomacy_day(faction_id)`, `set_faction_last_diplomacy_day(faction_id, day)`, `execute_faction_diplomatic_action(faction_id, day, decision_override)`, and signals `diplomatic_action_evaluated` and `diplomatic_action_executed`.
+   - Routed `declare_war` through `FactionManager.declare_war(faction_id)` and `sign_peace` through `FactionManager.propose_treaty(faction_id, "peace")` so existing war/peace signals, opinion/disposition transitions, and `BattleCampaignManager` raid scheduling/cancellation work seamlessly.
+   - Executed autonomous diplomacy in sorted faction-ID order **before** daily strategic economic actions in `FactionManager.update_daily_simulation(day)` with per-faction `_last_diplomacy_days` guards preventing same-day war/peace oscillation or duplicate evaluations.
+3. **Save/Load Persistence & Fail-Closed Validation (`scripts/persistence/save_manager.gd` & `scripts/factions/faction_manager.gd`):**
+   - Persisted `last_diplomacy_days` under `factions.strategy_executor.last_diplomacy_days` (`SAVE_SCHEMA_VERSION = 1`).
+   - Added fail-closed validation in `SaveManager.validate_save_data()` enforcing dictionary structure, non-empty string keys, integer day values in `[1, 36500]`, and `<= game_clock.current_day` (rejecting future diplomacy timestamps before world mutation), plus second-layer filtering in `FactionManager.deserialize_executor_state()` and legacy save backward compatibility.
+4. **In-Game HUD Vietnamese Notifications (`scripts/ui/hud.gd`):**
+   - Connected `peace_signed` and enhanced `war_declared` in `HUD.set_faction_manager()` (guarded against duplicate signal connections) to display Vietnamese event banners with the faction's localized name (`"Chiến Tranh!"`, `"Hòa Bình Lập Lại!"`) and refresh the Diplomacy UI.
+5. **Automated Test Suite & Regression Alignment (`scripts/test/test_faction_diplomacy_ai.gd`, `scripts/test/test_live_battle_loop.gd`):**
+   - Created `scripts/test/test_faction_diplomacy_ai.gd` covering `TC-FDIP.1` through `TC-FDIP.16` (437 checks passed, 0 failures).
+   - Updated `TC-LB.18` setup in `scripts/test/test_live_battle_loop.gd` to reset `rival_military.opinion = -10.0` before testing manual peacetime raid cancellation across Days 14–20 so residual `-100.0` opinion from earlier test cases does not trigger autonomous re-declaration of war on Day 15.
+6. **Documentation Synchronization:**
+   - Updated `docs/BACKLOG.md`, `docs/GAME_RULES.md`, `docs/SCOPE_DECISIONS.md`, `docs/ARCHITECTURE.md`, `docs/TEST_PLAN.md`, `docs/CHANGELOG.md`, and `docs/WORKLOG.md`.
+
+### Verification & Test Evidence (Independent Runs on Final Source)
+- `scripts/test/test_faction_diplomacy_ai.gd`: **PASS (Exit Code 0 — 16/16 TC Passed, 437 Checks Passed, 0 Failed)**
+- `scripts/test/test_faction_strategy_execution.gd`: **PASS (Exit Code 0 — 14/14 TC Passed, 951 Checks Passed, 0 Failed)**
+- `scripts/test/test_faction_strategy_planner.gd`: **PASS (Exit Code 0 — 7/7 TC Passed)**
+- `scripts/test/test_faction_profiles.gd`: **PASS (Exit Code 0 — 9/9 TC Passed)**
+- `scripts/test/test_emerging_faction_ascension.gd`: **PASS (Exit Code 0 — 11/11 TC Passed)**
+- `scripts/test/test_save_load.gd`: **PASS (Exit Code 0 — 107 Assertions Passed, 0 Failed)**
+- `scripts/test/test_factions_and_battles.gd`: **PASS (Exit Code 0 — 48 Assertions Passed, 0 Failed)**
+- `scripts/test/test_battle_diplomacy_consequences.gd`: **PASS (Exit Code 0 — 11/11 TC Passed)**
+- `scripts/test/test_offensive_campaign.gd`: **PASS (Exit Code 0 — 14/14 TC Passed)**
+- `scripts/test/test_live_battle_loop.gd`: **PASS (Exit Code 0 — 19/19 TC Passed)**
+- `scripts/test/test_army_movement.gd`: **PASS (Exit Code 0 — 32/32 TC Passed [TC-MOVE.1..TC-MOVE.32], 33 PASS lines)**
+- `scripts/test/test_player_army.gd`: **PASS (Exit Code 0 — 32/32 TC Passed)**
+- `scripts/test/test_world_events.gd`: **PASS (Exit Code 0 — 72 Assertions Passed, 0 Failed)**
+- `scripts/test/test_victory_and_collapse.gd`: **PASS (Exit Code 0 — TC-7.1..TC-7.4 All Passed)**
+- Headless Editor Parse & Class Registration (`--headless --path . --editor --quit`): **PASS (Exit Code 0)**
+- `git diff --check`: **PASS (Exit Code 0)**
+
+### Files Created / Modified
+- `scripts/factions/faction_diplomacy_planner.gd` (Created)
+- `scripts/factions/faction_manager.gd` (Modified)
+- `scripts/persistence/save_manager.gd` (Modified)
+- `scripts/ui/hud.gd` (Modified)
+- `scripts/test/test_faction_diplomacy_ai.gd` (Created)
+- `scripts/test/test_live_battle_loop.gd` (Modified)
+- `docs/BACKLOG.md` (Modified)
+- `docs/GAME_RULES.md` (Modified)
+- `docs/SCOPE_DECISIONS.md` (Modified)
+- `docs/ARCHITECTURE.md` (Modified)
+- `docs/TEST_PLAN.md` (Modified)
+- `docs/CHANGELOG.md` (Modified)
+- `docs/WORKLOG.md` (Modified)
+
+### Next Exact Step
+- Commit Package 1T on `feature/package-1t-faction-diplomatic-autonomy` with message `Implement deterministic autonomous faction diplomacy` and push to `origin/feature/package-1t-faction-diplomatic-autonomy`.
