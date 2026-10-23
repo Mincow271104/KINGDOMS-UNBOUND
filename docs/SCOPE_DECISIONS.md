@@ -233,6 +233,17 @@
   - **Fail-Closed & State Invariance:**
     - Unrecognized goals, statuses, or null faction references return ineligible results with explicit error reason codes without throwing exceptions or mutating faction state.
     - Evaluation is strictly side-effect free: `id`, `name`, `type`, `disposition`, `opinion`, `military_power`, `stability`, `resources`, `population`, `is_at_war`, `has_nap`, `has_alliance`, `strategic_goal`, and `existence_status` remain 100% invariant across evaluations.
+- **1.19 Deterministic Faction Strategic Intent Execution (GDD §10.1, §10.3, §10.5 — Package 1S):**
+  - **Strict Planner vs. Executor Separation:** `FactionStrategyPlanner` remains a 100% pure, read-only decision evaluator. A dedicated execution layer `FactionStrategyExecutor` (`scripts/factions/faction_strategy_executor.gd`) executes bounded, deterministic, atomic faction actions once per simulation day per active faction.
+  - **Canonical Action Contracts & Bounds:**
+    - `military_buildup` (`military_expansion`): Consumes `10 Metal + 25 Gold` atomically from `FactionData.resources` and increases `military_power` by `+5.0` up to a ceiling of `120.0`. Allowed in both peacetime and wartime.
+    - `trade_expansion` (`trade_dominance`): Allowed in peacetime only (`is_at_war == false`; fails closed with `BLOCKED_BY_WAR` when at war). Consumes `5 Tools`, adds `+30 Gold` (up to `1000 Gold` ceiling), and increases `stability` by `+2.0` (up to `95.0` ceiling).
+    - `community_development` (`community_growth`): For pre-ascension `neutral_tribe` in `FactionManager.update_daily_simulation(day)`, honors the existing `+1` daily settlement population growth without consuming the non-consumptive ascension prerequisite reserves (`Wood >= 60`, `Herbs >= 30`). For general `community_growth` execution, consumes `10 Wood + 5 Herbs`, increases `population` by `+1` (up to `80` ceiling), and increases `stability` by `+2.0` (up to `90.0` ceiling).
+    - `power_consolidation` (`consolidate_power`): Requires post-ascension `emerging_power` status (`type == "emerging_power"` and `strategic_goal == "consolidate_power"`). Does not execute a second mutation on the exact day ascension occurred (`ASCENDED_THIS_TICK`), preventing double-applied ascension boosts. On subsequent days, consumes `15 Wood + 10 Herbs`, increases `military_power` by `+4.0` (up to `90.0` ceiling), and increases `stability` by `+2.0` (up to `95.0` ceiling).
+  - **Daily Idempotency & Persistence:**
+    - `FactionStrategyExecutor` records `last_executed_days[faction_id] = day` upon execution, rejecting repeat same-day or earlier-day calls with `ALREADY_EXECUTED_TODAY`.
+    - `FactionManager` also guards `neutral_tribe` pre-ascension daily population growth via `_last_tribe_growth_day` so same-day re-invocations or post-load replays cannot double-increment population.
+    - `SaveManager` persists and validates `factions.strategy_executor` (`last_executed_days` and `last_tribe_growth_day`), rejecting future days (`> game_clock.current_day`) or invalid values fail-closed, while resetting cleanly to `-1` for legacy saves omitting `strategy_executor`.
 
 ---
 

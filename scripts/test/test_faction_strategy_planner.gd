@@ -599,7 +599,7 @@ func test_tc_fstrat_7_no_unintended_gameplay_mutation() -> void:
 		FactionStrategyPlannerScript.evaluate_faction_intent(fac)
 	_verify_faction_snapshot(fac, snap_before_eval, "TC-FSTRAT.7-MULTI-DIRECT")
 
-	# 3. FactionManager daily simulation integration & baseline simulation effects
+	# 3. FactionManager planner query APIs remain 100% side-effect-free, while daily simulation executes bounded Package 1S intents
 	var fm := FactionManagerScript.new()
 	var mil: FactionData = fm.get_faction("rival_military")
 	var merch: FactionData = fm.get_faction("rival_merchant")
@@ -608,13 +608,36 @@ func test_tc_fstrat_7_no_unintended_gameplay_mutation() -> void:
 	var snap_merch: Dictionary = _take_faction_snapshot(merch)
 	var snap_tribe: Dictionary = _take_faction_snapshot(tribe)
 
+	# Repeated calls to get_faction_strategic_intent and evaluate_all_strategic_intents do NOT mutate faction state
+	for i in range(10):
+		fm.get_faction_strategic_intent("rival_military")
+		fm.get_faction_strategic_intent("rival_merchant")
+		fm.get_faction_strategic_intent("neutral_tribe")
+		fm.evaluate_all_strategic_intents()
+	_verify_faction_snapshot(mil, snap_mil, "TC-FSTRAT.7-QUERY-MIL")
+	_verify_faction_snapshot(merch, snap_merch, "TC-FSTRAT.7-QUERY-MERCH")
+	_verify_faction_snapshot(tribe, snap_tribe, "TC-FSTRAT.7-QUERY-TRIBE")
+
 	# Run multiple daily simulation ticks on pre-ascension world (day 1..5)
 	for d in range(1, 6):
 		fm.update_daily_simulation(d)
 
-	# Factions without simulation rules (rival_military, rival_merchant) remain 100% unchanged
-	_verify_faction_snapshot(mil, snap_mil, "TC-FSTRAT.7-SIM-MIL")
-	_verify_faction_snapshot(merch, snap_merch, "TC-FSTRAT.7-SIM-MERCH")
+	# Verify profile, diplomatic, and identity fields remain 100% unmutated across daily simulation ticks
+	_assert_eq(str(mil.id), snap_mil["id"], "TC-FSTRAT.7-SIM-MIL-ID", "id unmutated")
+	_assert_eq(mil.name, snap_mil["name"], "TC-FSTRAT.7-SIM-MIL-NAME", "name unmutated")
+	_assert_eq(mil.type, snap_mil["type"], "TC-FSTRAT.7-SIM-MIL-TYPE", "type unmutated")
+	_assert_eq(mil.disposition, snap_mil["disposition"], "TC-FSTRAT.7-SIM-MIL-DISP", "disposition unmutated")
+	_assert_eq(mil.opinion, snap_mil["opinion"], "TC-FSTRAT.7-SIM-MIL-OPINION", "opinion unmutated")
+	_assert_eq(mil.strategic_goal, snap_mil["strategic_goal"], "TC-FSTRAT.7-SIM-MIL-GOAL", "strategic_goal unmutated")
+	_assert_eq(mil.existence_status, snap_mil["existence_status"], "TC-FSTRAT.7-SIM-MIL-STATUS", "existence_status unmutated")
+
+	_assert_eq(str(merch.id), snap_merch["id"], "TC-FSTRAT.7-SIM-MERCH-ID", "id unmutated")
+	_assert_eq(merch.name, snap_merch["name"], "TC-FSTRAT.7-SIM-MERCH-NAME", "name unmutated")
+	_assert_eq(merch.type, snap_merch["type"], "TC-FSTRAT.7-SIM-MERCH-TYPE", "type unmutated")
+	_assert_eq(merch.disposition, snap_merch["disposition"], "TC-FSTRAT.7-SIM-MERCH-DISP", "disposition unmutated")
+	_assert_eq(merch.opinion, snap_merch["opinion"], "TC-FSTRAT.7-SIM-MERCH-OPINION", "opinion unmutated")
+	_assert_eq(merch.strategic_goal, snap_merch["strategic_goal"], "TC-FSTRAT.7-SIM-MERCH-GOAL", "strategic_goal unmutated")
+	_assert_eq(merch.existence_status, snap_merch["existence_status"], "TC-FSTRAT.7-SIM-MERCH-STATUS", "existence_status unmutated")
 
 	# neutral_tribe: pre-existing simulation rule intentionally increments population (+1 per day)
 	_assert_eq(tribe.population, snap_tribe["population"] + 5, "TC-FSTRAT.7-SIM-TRIBE-POP", "neutral_tribe population increased by exactly 5 across 5 simulation days")

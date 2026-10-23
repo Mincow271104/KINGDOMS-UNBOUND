@@ -296,7 +296,7 @@ func test_tc_emerge_7_exactly_once_emission() -> void:
 	_assert_eq(emissions.size(), 1, "TC-EMERGE.7-DAY10", "Signal emitted exactly once on Day 10")
 	_assert_eq(tribe.type, FactionManagerScript.ASCENSION_NEW_TYPE, "TC-EMERGE.7-TYPE-D10", "Type is emerging_power")
 
-	# Day 11, 12, 13: subsequent daily simulation ticks
+	# Day 11, 12, 13: subsequent daily simulation ticks (Package 1S executes power_consolidation: +4.0 mil/day, +2.0 stab/day up to 95.0)
 	fm.update_daily_simulation(11)
 	fm.update_daily_simulation(12)
 	fm.update_daily_simulation(13)
@@ -304,8 +304,8 @@ func test_tc_emerge_7_exactly_once_emission() -> void:
 	_assert_eq(emissions.size(), 1, "TC-EMERGE.7-SUBSEQUENT", "Signal never re-emitted on subsequent days")
 	_assert_eq(tribe.type, FactionManagerScript.ASCENSION_NEW_TYPE, "TC-EMERGE.7-TYPE-STABLE", "Type remains emerging_power")
 	_assert_eq(tribe.name, FactionManagerScript.ASCENSION_NEW_NAME, "TC-EMERGE.7-NAME-STABLE", "Name remains Liên Minh Rừng Thiêng")
-	_assert_approx(tribe.military_power, FactionManagerScript.ASCENSION_NEW_MILITARY_POWER, "TC-EMERGE.7-MIL-STABLE", 0.01)
-	_assert_approx(tribe.stability, FactionManagerScript.ASCENSION_NEW_STABILITY, "TC-EMERGE.7-STAB-STABLE", 0.01)
+	_assert_approx(tribe.military_power, FactionManagerScript.ASCENSION_NEW_MILITARY_POWER + 12.0, "TC-EMERGE.7-MIL-STABLE", 0.01)
+	_assert_approx(tribe.stability, FactionManagerScript.ASCENSION_NEW_STABILITY + 6.0, "TC-EMERGE.7-STAB-STABLE", 0.01)
 
 # -----------------------------------------------------------------------------
 # TC-EMERGE.8: Single Emerging Power Rule
@@ -361,7 +361,7 @@ func test_tc_emerge_9_missing_faction_safety() -> void:
 	_assert_true(fm.get_faction("neutral_tribe") == null, "TC-EMERGE.9-STILL-NULL", "neutral_tribe remains absent after simulation tick")
 	_assert_eq(emissions.size(), 0, "TC-EMERGE.9-NO-SIGNAL", "Zero emerging_faction_ascended signals emitted when neutral tribe is absent")
 	_assert_eq(rival_mil.population, 60, "TC-EMERGE.9-MIL-POP-INTACT", "Rival military population unmutated")
-	_assert_approx(rival_mil.military_power, 75.0, "TC-EMERGE.9-MIL-PWR-INTACT", 0.01)
+	_assert_approx(rival_mil.military_power, 80.0, "TC-EMERGE.9-MIL-PWR-INTACT", 0.01)
 	_assert_eq(rival_mil.type, "rival_military", "TC-EMERGE.9-MIL-TYPE-INTACT", "Rival military type unmutated")
 	_assert_eq(rival_merch.population, 50, "TC-EMERGE.9-MERCH-POP-INTACT", "Rival merchant population unmutated")
 	_assert_approx(rival_merch.military_power, 50.0, "TC-EMERGE.9-MERCH-PWR-INTACT", 0.01)

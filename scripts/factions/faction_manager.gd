@@ -27,14 +27,20 @@ signal war_declared(faction_id: String)
 signal peace_signed(faction_id: String)
 signal emerging_faction_ascended(faction_id: String, new_name: String)
 signal strategic_intent_evaluated(faction_id: String, intent_data: Dictionary)
+signal strategic_intent_executed(faction_id: String, execution_result: Dictionary)
 
 var _factions: Dictionary = {} # id -> FactionData
+var _strategy_executor: FactionStrategyExecutor = FactionStrategyExecutor.new()
+var _last_tribe_growth_day: int = -1
 
 func _init() -> void:
 	_initialize_factions()
 
 func _initialize_factions() -> void:
 	_factions.clear()
+	if _strategy_executor != null:
+		_strategy_executor.reset_state()
+	_last_tribe_growth_day = -1
 	
 	# Rival 1: Military Kingdom
 	var rival_mil := FactionData.new(
@@ -100,6 +106,44 @@ func evaluate_all_strategic_intents() -> Array[Dictionary]:
 		if fac != null:
 			results.append(FactionStrategyPlanner.evaluate_faction_intent(fac))
 	return results
+
+func get_strategy_executor() -> FactionStrategyExecutor:
+	return _strategy_executor
+
+func get_faction_last_executed_day(faction_id: String) -> int:
+	if _strategy_executor == null:
+		return -1
+	return _strategy_executor.get_last_executed_day(faction_id)
+
+func execute_faction_strategic_intent(faction_id: String, day: int, context: Dictionary = {}) -> Dictionary:
+	var fac: FactionData = get_faction(faction_id)
+	var decision: Dictionary = FactionStrategyPlanner.evaluate_faction_intent(fac)
+	var exec_res: Dictionary = _strategy_executor.execute_intent(fac, decision, day, context)
+	if fac != null and decision.get("eligible", false):
+		strategic_intent_executed.emit(fac.id, exec_res)
+	return exec_res
+
+func serialize_executor_state() -> Dictionary:
+	var out: Dictionary = _strategy_executor.serialize() if _strategy_executor != null else {"last_executed_days": {}}
+	out["last_tribe_growth_day"] = _last_tribe_growth_day
+	return out
+
+func deserialize_executor_state(data: Dictionary, current_day: int = -1) -> void:
+	if _strategy_executor == null:
+		_strategy_executor = FactionStrategyExecutor.new()
+	_strategy_executor.deserialize(data, current_day)
+	if data.is_empty():
+		_last_tribe_growth_day = -1
+		return
+	var raw_growth = data.get("last_tribe_growth_day", -1)
+	if raw_growth is int or (raw_growth is float and not is_nan(raw_growth) and not is_inf(raw_growth) and floor(raw_growth) == raw_growth):
+		var g_day: int = int(raw_growth)
+		if g_day >= 1 and g_day <= 36500:
+			_last_tribe_growth_day = g_day
+		else:
+			_last_tribe_growth_day = -1
+	else:
+		_last_tribe_growth_day = -1
 
 func modify_opinion(faction_id: String, delta: float) -> Dictionary:
 	var fac: FactionData = get_faction(faction_id)
@@ -245,21 +289,29 @@ func can_emerging_faction_ascend(day: int) -> bool:
 		return false
 	return true
 
-## Simulation tick: checks periodic faction evolution (GDD 10.3) and evaluates strategic intents (GDD 10.1, Package 1R)
+## Simulation tick: checks periodic faction evolution (GDD 10.3), evaluates strategic intents (GDD 10.1, Package 1R),
+## and executes bounded daily strategic actions (Package 1S).
 func update_daily_simulation(day: int) -> void:
-	# 1. Check emerging faction ascent for neutral tribe
+	var tribe_grew_today: bool = false
+	var tribe_ascended_today: bool = false
+
+	# 1. Check emerging faction ascent for neutral tribe (guarded against same-day replay)
 	var tribe: FactionData = get_faction("neutral_tribe")
 	if tribe != null and tribe.type == "neutral_tribe" and tribe.existence_status == FactionData.STATUS_ACTIVE:
-		tribe.population += 1
+		if day >= 1 and _last_tribe_growth_day < day:
+			tribe.population += 1
+			_last_tribe_growth_day = day
+			tribe_grew_today = true
 		if can_emerging_faction_ascend(day):
 			tribe.type = ASCENSION_NEW_TYPE
 			tribe.name = ASCENSION_NEW_NAME
 			tribe.military_power = ASCENSION_NEW_MILITARY_POWER
 			tribe.stability = ASCENSION_NEW_STABILITY
 			tribe.strategic_goal = ASCENSION_NEW_STRATEGIC_GOAL
+			tribe_ascended_today = true
 			emerging_faction_ascended.emit(tribe.id, tribe.name)
 
-	# 2. Evaluate daily strategic intents for active factions in stable deterministic order
+	# 2. Evaluate and execute daily strategic intents for active factions in stable deterministic order
 	var sorted_ids: Array = _factions.keys()
 	sorted_ids.sort()
 	for fid in sorted_ids:
@@ -269,3 +321,12 @@ func update_daily_simulation(day: int) -> void:
 		var decision: Dictionary = FactionStrategyPlanner.evaluate_faction_intent(fac)
 		if decision.get("eligible", false):
 			strategic_intent_evaluated.emit(fid, decision)
+			var exec_ctx: Dictionary = {}
+			if fid == "neutral_tribe":
+				if tribe_ascended_today:
+					exec_ctx["ascended_today"] = true
+				elif tribe_grew_today and fac.type == "neutral_tribe":
+					exec_ctx["pre_ascension_growth_handled"] = true
+					exec_ctx["population_delta"] = 1
+			var exec_res: Dictionary = _strategy_executor.execute_intent(fac, decision, day, exec_ctx)
+			strategic_intent_executed.emit(fid, exec_res)

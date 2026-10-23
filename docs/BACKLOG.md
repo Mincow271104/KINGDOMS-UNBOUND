@@ -179,3 +179,27 @@
 - [x] **TASK-1K.5:** Player feedback integration in HUD and Diplomacy panel: expected raid warnings, battle result banners with casualty and fortification breakdowns, peace cancellation notices, and unopposed raid reporting.
 - [x] **TASK-1K.6:** Save/load persistence in `SaveManager` (`"battle_campaign"` section) supporting roundtrip preservation, replay immunity, and legacy save compatibility.
 - [x] **TASK-1K.7:** Automated test suite `scripts/test/test_live_battle_loop.gd` covering TC-LB.1 through TC-LB.14 (PASS, Exit Code 0).
+
+---
+
+## Package 1P: Emerging Faction Ascension Gates (Completed)
+- [x] **TASK-1P.1:** Authoritative ascension gates (`ASCENSION_MIN_DAY = 10`, `ASCENSION_MIN_POPULATION = 45`, `ASCENSION_MIN_WOOD = 60`, `ASCENSION_MIN_HERBS = 30`, `ASCENSION_MIN_STABILITY = 50.0`) and single emerging power check (`has_emerging_power()`, `can_emerging_faction_ascend(day)`).
+- [x] **TASK-1P.2:** Non-consumptive ascension evolution to `emerging_power` (`Liên Minh Rừng Thiêng`), `SaveManager` faction resource persistence, HUD event announcement, and automated test suite `scripts/test/test_emerging_faction_ascension.gd` (PASS, Exit Code 0).
+
+---
+
+## Package 1Q: Faction Strategic Profiles & Existence Status (Completed)
+- [x] **TASK-1Q.1:** Canonical `strategic_goal` and `existence_status` fields on `FactionData` with Vietnamese localization helpers (`get_strategic_goal_label`, `get_existence_status_label`), ascension goal transition to `consolidate_power`, fail-closed `SaveManager` validation, HUD diplomacy card rendering, and automated test suite `scripts/test/test_faction_profiles.gd` (PASS, Exit Code 0).
+
+---
+
+## Package 1R: Deterministic Faction Strategic Decision Engine (Completed)
+- [x] **TASK-1R.1:** Pure side-effect-free `FactionStrategyPlanner` (`scripts/factions/faction_strategy_planner.gd`) translating active faction goals into canonical intents (`military_buildup`, `trade_expansion`, `community_development`, `power_consolidation`), `FactionManager` daily evaluation signal `strategic_intent_evaluated`, status/crisis hardening (`MISS-01`, `MISS-02`), and automated test suite `scripts/test/test_faction_strategy_planner.gd` (PASS, Exit Code 0).
+
+---
+
+## Package 1S: Faction Strategic Intent Execution (Completed)
+- [x] **TASK-1S.1:** Dedicated `FactionStrategyExecutor` (`scripts/factions/faction_strategy_executor.gd`) executing bounded, deterministic, atomic actions for `military_buildup`, `trade_expansion`, `community_development`, and `power_consolidation` with explicit resource costs, ceilings, and reason codes while keeping `FactionStrategyPlanner` 100% pure.
+- [x] **TASK-1S.2:** `FactionManager` daily execution integration (`execute_faction_strategic_intent`, `strategic_intent_executed` signal, sorted deterministic faction order, same-day idempotency, and ascension-day non-duplication).
+- [x] **TASK-1S.3:** `SaveManager` persistence and fail-closed validation for `factions.strategy_executor` (`last_executed_days`, `last_tribe_growth_day`) with legacy save backward compatibility.
+- [x] **TASK-1S.4:** Automated test suite `scripts/test/test_faction_strategy_execution.gd` covering TC-FEXEC.1 through TC-FEXEC.14 (PASS, Exit Code 0).

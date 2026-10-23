@@ -314,3 +314,25 @@ The live settlement defense loop operates deterministically via `BattleCampaignM
 - **Garrison Gating:** Standing army soldiers only join settlement defense (`construct_defending_force`) if `is_defense_eligible() == true` (`soldier_count > 0`, `movement_state == GARRISONED`, `current_cell == rally_cell`, `current_path.is_empty()`).
 - **Raid Immunity for Absent Troops:** When the army is in the field or marching, it cannot defend the settlement; settlement raids resolve without army soldiers, and absent troops take zero raid casualties.
 - **Wipeout Auto-Recovery:** If casualties deplete the army to $0$, it automatically resets to `GARRISONED` at `rally_cell`.
+
+---
+
+## 11. Faction Strategic Intent Execution Rules (Package 1S)
+
+### 11.1 Planner vs. Executor Separation
+- **Pure Evaluation (`FactionStrategyPlanner`):** `evaluate_faction_intent(fac)` and `FactionManager.get_faction_strategic_intent(id)` / `evaluate_all_strategic_intents()` are strictly read-only and never deduct resources or mutate faction state.
+- **Deterministic Execution (`FactionStrategyExecutor`):** Executed once per simulation day per active faction in `FactionManager.update_daily_simulation(day)` in sorted alphabetical key order (`neutral_tribe`, `rival_merchant`, `rival_military`).
+
+### 11.2 Canonical Strategic Intent Action Table
+| Intent ID | Strategic Goal | Preconditions | Atomic Resource Cost | Bounded State Deltas & Ceilings |
+|---|---|---|---|---|
+| `military_buildup` | `military_expansion` | `existence_status == "active"`, `military_power < 120.0` | `10 Metal + 25 Gold` | `military_power = min(military_power + 5.0, 120.0)` |
+| `trade_expansion` | `trade_dominance` | `existence_status == "active"`, `is_at_war == false`, `gold < 1000` or `stability < 95.0` | `5 Tools` | `gold = min(gold + 30, 1000)`, `stability = min(stability + 2.0, 95.0)` |
+| `community_development` | `community_growth` | `existence_status == "active"`, `population < 80` or `stability < 90.0` | Pre-ascension `neutral_tribe`: `0` (unified with `+1` daily settlement growth); direct/other: `10 Wood + 5 Herbs` | `population = min(population + 1, 80)`, `stability = min(stability + 2.0, 90.0)` |
+| `power_consolidation` | `consolidate_power` | `existence_status == "active"`, `type == "emerging_power"`, not `ascended_today`, `military_power < 90.0` or `stability < 95.0` | `15 Wood + 10 Herbs` | `military_power = min(military_power + 4.0, 90.0)`, `stability = min(stability + 2.0, 95.0)` |
+
+### 11.3 Fail-Closed & Idempotency Guarantees
+- **All-or-Nothing Resource Deduction:** If any required resource is missing or below cost, the action fails closed (`REASON_INSUFFICIENT_RESOURCES`) with zero resources deducted.
+- **Ceiling Protection:** When all target attributes for an intent have already reached their ceiling, the action fails closed (`REASON_AT_CAP`) without wasting faction resources.
+- **Ascension-Day Non-Duplication:** On the day `neutral_tribe` ascends to `emerging_power`, ascension sets `military_power = 55.0` and `stability = 85.0`, and `power_consolidation` records `ASCENDED_THIS_TICK` without applying a second mutation on that same tick.
+- **Same-Day & Save/Load Idempotency:** Per-faction `last_executed_days` and `last_tribe_growth_day` are persisted under `factions.strategy_executor` in `SaveManager`, preventing duplicate execution on same-day repeat calls or after Save/Load.

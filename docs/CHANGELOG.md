@@ -8,6 +8,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### [Package 1S] - 2026-10-23
+#### Added
+- Deterministic Faction Strategic Intent Execution (`FactionStrategyExecutor`, `FactionManager`, `SaveManager`):
+  - Dedicated execution layer `scripts/factions/faction_strategy_executor.gd` decoupled from pure evaluator `FactionStrategyPlanner`:
+    - `military_buildup` (`military_expansion`): consumes `10 Metal + 25 Gold`, increases `military_power` by `+5.0` up to ceiling `120.0` (peacetime & wartime).
+    - `trade_expansion` (`trade_dominance`): peacetime-only (`REASON_BLOCKED_BY_WAR` during war), consumes `5 Tools`, adds `+30 Gold` (up to `1000` ceiling) and `+2.0 stability` (up to `95.0` ceiling).
+    - `community_development` (`community_growth`): consumes `10 Wood + 5 Herbs`, increases `population` by `+1` (up to `80` ceiling) and `+2.0 stability` (up to `90.0` ceiling); coordinates cleanly with pre-ascension `neutral_tribe` `+1` daily settlement growth without depleting non-consumptive ascension reserves.
+    - `power_consolidation` (`consolidate_power`): requires post-ascension `emerging_power` status, skips duplicate mutation on the exact ascension day (`REASON_ASCENDED_THIS_TICK`), and on subsequent days consumes `15 Wood + 10 Herbs` to increase `military_power` by `+4.0` (up to `90.0` ceiling) and `stability` by `+2.0` (up to `95.0` ceiling).
+  - Daily coordination & idempotency in `FactionManager`:
+    - Added `execute_faction_strategic_intent(faction_id, day, context)`, `get_faction_last_executed_day(faction_id)`, and signal `strategic_intent_executed(faction_id, execution_result)`.
+    - Integrated daily execution into `FactionManager.update_daily_simulation(day)` in deterministic sorted key order (`neutral_tribe`, `rival_merchant`, `rival_military`) with per-faction `last_executed_days` and `_last_tribe_growth_day` guards preventing same-day repeat execution.
+  - Save/Load persistence & fail-closed validation in `SaveManager`:
+    - Serializes and restores `factions.strategy_executor` (`last_executed_days`, `last_tribe_growth_day`) with full legacy save fallback and fail-closed rejection of malformed or future execution days (`> game_clock.current_day`).
+  - Dedicated automated test suite `scripts/test/test_faction_strategy_execution.gd` covering TC-FEXEC.1 through TC-FEXEC.14 (PASS, Exit Code 0).
+
 ### [Package 1R] - 2026-10-22
 #### Added
 - Deterministic Faction Strategic Decision Engine (`FactionStrategyPlanner`, `FactionManager`):

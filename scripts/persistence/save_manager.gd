@@ -156,8 +156,12 @@ static func serialize_world_state(world_view: Node) -> Dictionary:
 				"strategic_goal": f.get("strategic_goal"),
 				"existence_status": f.get("existence_status")
 			}
+		var exec_state: Dictionary = {}
+		if fac_mgr.has_method("serialize_executor_state"):
+			exec_state = fac_mgr.call("serialize_executor_state")
 		data["factions"] = {
-			"factions": fac_dict
+			"factions": fac_dict,
+			"strategy_executor": exec_state
 		}
 
 	# 8. POIs
@@ -540,7 +544,7 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 				if raid.has("target_cell") and not _is_valid_coord_arr(raid.get("target_cell")):
 					return {"valid": false, "error": "Tọa độ target_cell trong scheduled_raids không hợp lệ: %s." % str(raid.get("target_cell"))}
 
-	# Validate optional factions section (Package 1Q)
+	# Validate optional factions section (Package 1Q & Package 1S)
 	if json_dict.has("factions"):
 		var fac_root = json_dict.get("factions")
 		if not (fac_root is Dictionary):
@@ -561,6 +565,24 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 					var e_status = f_entry.get("existence_status")
 					if not (e_status is String) or not FactionData.VALID_EXISTENCE_STATUSES.has(e_status):
 						return {"valid": false, "error": "Trạng thái tồn tại existence_status của thế lực '%s' không hợp lệ: %s." % [str(fid), str(e_status)]}
+		if fac_root.has("strategy_executor"):
+			var exec_val = fac_root.get("strategy_executor")
+			if not (exec_val is Dictionary):
+				return {"valid": false, "error": "strategy_executor trong mục 'factions' phải là từ điển (Dictionary)."}
+			if exec_val.has("last_executed_days"):
+				var led_map = exec_val.get("last_executed_days")
+				if not (led_map is Dictionary):
+					return {"valid": false, "error": "last_executed_days trong strategy_executor phải là từ điển (Dictionary)."}
+				for fid in led_map:
+					if not (fid is String) or String(fid).is_empty():
+						return {"valid": false, "error": "Khóa thế lực trong last_executed_days không hợp lệ."}
+					var d_val = led_map[fid]
+					if not _is_valid_integer_val(d_val) or int(d_val) < 1 or int(d_val) > 36500:
+						return {"valid": false, "error": "Ngày thực thi trong last_executed_days của '%s' phải là số nguyên trong [1, 36500]: %s." % [str(fid), str(d_val)]}
+			if exec_val.has("last_tribe_growth_day"):
+				var ltgd = exec_val.get("last_tribe_growth_day")
+				if not _is_valid_integer_val(ltgd) or (int(ltgd) != -1 and (int(ltgd) < 1 or int(ltgd) > 36500)):
+					return {"valid": false, "error": "last_tribe_growth_day trong strategy_executor phải là -1 hoặc số nguyên trong [1, 36500]: %s." % str(ltgd)}
 
 	# Validate optional immigration section (DEBT-03)
 	if json_dict.has("immigration"):
@@ -886,44 +908,51 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 
 	# 7. Restore Factions
 	var fac_mgr = world_view.get("faction_mgr")
-	var fac_data_dict: Dictionary = loaded_data.get("factions", {}).get("factions", {})
-	if fac_mgr != null and not fac_data_dict.is_empty():
-		for fid in fac_data_dict:
-			var f_saved = fac_data_dict[fid]
-			var f_obj = fac_mgr.call("get_faction", fid)
-			if f_obj != null:
-				if f_saved.has("name"):
-					f_obj.name = str(f_saved["name"])
-				if f_saved.has("type"):
-					f_obj.type = str(f_saved["type"])
-				f_obj.disposition = int(f_saved.get("disposition", 1))
-				f_obj.opinion = float(f_saved.get("opinion", 0.0))
-				f_obj.stability = float(f_saved.get("stability", 70.0))
-				f_obj.military_power = float(f_saved.get("military_power", 50.0))
-				f_obj.has_nap = bool(f_saved.get("has_nap", false))
-				f_obj.has_alliance = bool(f_saved.get("has_alliance", false))
-				f_obj.is_at_war = bool(f_saved.get("is_at_war", false))
-				f_obj.population = int(f_saved.get("population", 40))
-				if f_saved.has("resources") and f_saved["resources"] is Dictionary:
-					f_obj.resources = f_saved["resources"].duplicate()
-				# Strategic Goal & Existence Status (Package 1Q)
-				if f_saved.has("strategic_goal"):
-					var s_goal = str(f_saved["strategic_goal"])
-					if FactionData.VALID_STRATEGIC_GOALS.has(s_goal):
-						f_obj.strategic_goal = s_goal
+	var fac_section: Dictionary = loaded_data.get("factions", {}) if loaded_data.get("factions") is Dictionary else {}
+	var fac_data_dict: Dictionary = fac_section.get("factions", {}) if fac_section.get("factions") is Dictionary else {}
+	if fac_mgr != null:
+		if not fac_data_dict.is_empty():
+			for fid in fac_data_dict:
+				var f_saved = fac_data_dict[fid]
+				var f_obj = fac_mgr.call("get_faction", fid)
+				if f_obj != null:
+					if f_saved.has("name"):
+						f_obj.name = str(f_saved["name"])
+					if f_saved.has("type"):
+						f_obj.type = str(f_saved["type"])
+					f_obj.disposition = int(f_saved.get("disposition", 1))
+					f_obj.opinion = float(f_saved.get("opinion", 0.0))
+					f_obj.stability = float(f_saved.get("stability", 70.0))
+					f_obj.military_power = float(f_saved.get("military_power", 50.0))
+					f_obj.has_nap = bool(f_saved.get("has_nap", false))
+					f_obj.has_alliance = bool(f_saved.get("has_alliance", false))
+					f_obj.is_at_war = bool(f_saved.get("is_at_war", false))
+					f_obj.population = int(f_saved.get("population", 40))
+					if f_saved.has("resources") and f_saved["resources"] is Dictionary:
+						f_obj.resources = f_saved["resources"].duplicate()
+					# Strategic Goal & Existence Status (Package 1Q)
+					if f_saved.has("strategic_goal"):
+						var s_goal = str(f_saved["strategic_goal"])
+						if FactionData.VALID_STRATEGIC_GOALS.has(s_goal):
+							f_obj.strategic_goal = s_goal
+						else:
+							f_obj.strategic_goal = FactionData.get_default_strategic_goal(f_obj.id, f_obj.type)
 					else:
 						f_obj.strategic_goal = FactionData.get_default_strategic_goal(f_obj.id, f_obj.type)
-				else:
-					f_obj.strategic_goal = FactionData.get_default_strategic_goal(f_obj.id, f_obj.type)
 
-				if f_saved.has("existence_status"):
-					var e_status = str(f_saved["existence_status"])
-					if FactionData.VALID_EXISTENCE_STATUSES.has(e_status):
-						f_obj.existence_status = e_status
+					if f_saved.has("existence_status"):
+						var e_status = str(f_saved["existence_status"])
+						if FactionData.VALID_EXISTENCE_STATUSES.has(e_status):
+							f_obj.existence_status = e_status
+						else:
+							f_obj.existence_status = FactionData.STATUS_ACTIVE
 					else:
 						f_obj.existence_status = FactionData.STATUS_ACTIVE
-				else:
-					f_obj.existence_status = FactionData.STATUS_ACTIVE
+		if fac_mgr.has_method("deserialize_executor_state"):
+			var exec_saved = fac_section.get("strategy_executor", {})
+			if not (exec_saved is Dictionary):
+				exec_saved = {}
+			fac_mgr.call("deserialize_executor_state", exec_saved, restored_clock_day)
 
 	# 8. Restore POIs
 	var poi_mgr = world_view.get("poi_mgr")

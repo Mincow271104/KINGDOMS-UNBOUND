@@ -182,3 +182,13 @@ To ensure entities sort naturally behind and in front of buildings and foliage w
 - **Single Presentation Node:** `ArmyMarker` extends `Node2D` and renders a gold-uniformed military company with ground pivot `Vector2(-12, -30)` for dimetric Y-sorting.
 - **Live Stance Display:** Shows live troop numbers and icon: `🛡️` for garrisoned defense readiness, `⚔️` for field deployment.
 - **Smooth Interpolation:** Visual position interpolates smoothly toward authoritative grid coordinates (`IsoMath.map_to_local(current_cell)`), freezing when simulation is paused.
+
+---
+
+## 9. Faction Strategy Planning & Execution Architecture (Packages 1Q, 1R & 1S)
+
+### 9.1 Layered Faction Decision Pipeline
+1. **Authoritative Profile & Status (`FactionData`):** Stores canonical `strategic_goal` (`military_expansion`, `trade_dominance`, `community_growth`, `consolidate_power`) and `existence_status` (`active`, `in_exile`, `eliminated`).
+2. **Pure Decision Evaluator (`FactionStrategyPlanner`):** Stateless, side-effect-free evaluator (`evaluate_faction_intent(fac)`) mapping active faction goals and wartime posture into structured intent dictionaries (`intent_id`, `eligible`, `reason_code`, `posture`).
+3. **Bounded Deterministic Executor (`FactionStrategyExecutor`):** Receives `FactionData` and planner decision dictionaries, validates status/goal/cost/cap/idempotency constraints fail-closed, applies atomic resource deductions and clamped attribute deltas, and returns structured execution results (`faction_id`, `day`, `intent_id`, `success`, `reason_code`, `changes`, `posture`).
+4. **Daily Coordination & Persistence (`FactionManager` & `SaveManager`):** `FactionManager.update_daily_simulation(day)` runs neutral tribe ascension first, then evaluates and executes active faction intents in sorted alphabetical order (`neutral_tribe`, `rival_merchant`, `rival_military`), emitting `strategic_intent_evaluated` and `strategic_intent_executed`. `SaveManager` persists and validates `factions.strategy_executor` (`last_executed_days`, `last_tribe_growth_day`) to guarantee Save/Load idempotency.

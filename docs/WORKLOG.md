@@ -5035,3 +5035,75 @@ On branch `feature/package-1r-faction-strategic-decision-engine` starting from l
 
 ### Next Exact Step
 - Commit Batch 3C locally with message `Harden faction status actions and crisis warning priority` (without pushing to remote) and await review / next instructions.
+
+---
+
+## [2026-10-23] Package 1S: Faction Strategic Intent Execution
+
+### Status
+- **Phase:** Post-Gate 9 — Package 1S (Faction Strategic Intent Execution)
+- **Branch:** `feature/package-1s-faction-strategic-intent-execution` (branched from `feature/package-1r-faction-strategic-decision-engine` at `f6fd8c3e84974e825dbd4642d8bd66bb4444a416`)
+- **Milestone:** **COMPLETE (Ready for Commit & Push)**
+
+### Completed Work
+1. **Published Package 1R Baseline (`feature/package-1r-faction-strategic-decision-engine`):**
+   - Pushed `f6fd8c3e84974e825dbd4642d8bd66bb4444a416` to `origin/feature/package-1r-faction-strategic-decision-engine` and verified remote synchronization via `git ls-remote`.
+2. **Created Dedicated Execution Layer (`scripts/factions/faction_strategy_executor.gd`):**
+   - Implemented `FactionStrategyExecutor` (`extends RefCounted`) while keeping `FactionStrategyPlanner` (`scripts/factions/faction_strategy_planner.gd`) 100% pure and side-effect-free.
+   - Enforced strict input guards (`REASON_NULL_FACTION`, `REASON_INVALID_DAY`, `REASON_INELIGIBLE_FACTION` for `defeated` / `dormant` / `absorbed` or invalid `existence_status`, `REASON_ALREADY_EXECUTED_TODAY` for `day <= last_executed_day`, `REASON_NO_INTENT`, `REASON_UNKNOWN_INTENT`).
+   - Implemented bounded, atomic, all-or-nothing execution for all 4 active intents:
+     - `military_buildup`: costs `10 Metal + 25 Gold`, gains `+5.0 military_power` (cap `120.0`), allowed in peacetime and wartime (`REASON_CAP_REACHED` if already `>= 120.0`, `REASON_INSUFFICIENT_RESOURCES` if lacking `Metal` or `Gold`).
+     - `trade_expansion`: peacetime-only (`REASON_BLOCKED_BY_WAR` when `is_at_war == true`), costs `5 Tools`, gains `+30 Gold` (cap `1000`) and `+2.0 stability` (cap `95.0`).
+     - `community_development`: for pre-ascension `neutral_tribe` in `update_daily_simulation(day)`, honors the existing `+1` daily settlement growth (`pre_ascension_growth_handled`) without depleting non-consumptive ascension reserves (`Wood >= 60`, `Herbs >= 30`); for direct/general execution, costs `10 Wood + 5 Herbs`, gains `+1 population` (cap `80`) and `+2.0 stability` (cap `90.0`).
+     - `power_consolidation`: requires `type == "emerging_power"` and `strategic_goal == "consolidate_power"` (`REASON_INELIGIBLE_CONSOLIDATION_STATE` otherwise); on the exact day ascension occurred (`ascended_today == true`), returns `REASON_ASCENDED_THIS_TICK` without double-boosting or consuming resources; on subsequent days, costs `15 Wood + 10 Herbs`, gains `+4.0 military_power` (cap `90.0`) and `+2.0 stability` (cap `95.0`).
+3. **Integrated Execution into `FactionManager` (`scripts/factions/faction_manager.gd`):**
+   - Added signal `strategic_intent_executed(faction_id: String, execution_result: Dictionary)`.
+   - Added `_strategy_executor: FactionStrategyExecutor`, `_last_tribe_growth_day: int = -1`, `get_strategy_executor()`, `get_faction_last_executed_day(faction_id)`, `execute_faction_strategic_intent(faction_id, day, context)`, `serialize_executor_state()`, and `deserialize_executor_state(data, current_day)`.
+   - Updated `update_daily_simulation(day)` to guard `neutral_tribe` `+1` daily population growth with `_last_tribe_growth_day < day` and execute each eligible active faction's strategic intent in deterministic sorted order (`neutral_tribe`, `rival_merchant`, `rival_military`).
+4. **Updated Save/Load Persistence & Validation (`scripts/persistence/save_manager.gd`):**
+   - Serialized `factions.strategy_executor` (`last_executed_days` and `last_tribe_growth_day`) in `serialize_world_state()`.
+   - Validated `factions.strategy_executor` fail-closed in `validate_save_data()` (must be Dictionary; `last_executed_days` entries must be valid integers in `[1, 36500]`; `last_tribe_growth_day` must be `-1` or integer in `[1, 36500]`).
+   - Restored `faction_mgr.deserialize_executor_state()` in `apply_loaded_state_to_world()` with clean reset to `-1` for legacy saves omitting `strategy_executor`.
+5. **Created Comprehensive Test Suite & Updated Regression Tests:**
+   - Created `scripts/test/test_faction_strategy_execution.gd` (`TC-FEXEC.1` through `TC-FEXEC.14`, **673 checks passed, 0 failures**).
+   - Updated `scripts/test/test_emerging_faction_ascension.gd` (`TC-EMERGE.7` and `TC-EMERGE.9`) and `scripts/test/test_faction_strategy_planner.gd` (`TC-FSTRAT.7`) to reflect daily execution in `update_daily_simulation(day)` while verifying `FactionStrategyPlanner` remains 100% pure.
+6. **Updated Project Documentation:**
+   - Updated `docs/SCOPE_DECISIONS.md` (§1.19), `docs/GAME_RULES.md` (§11), `docs/ARCHITECTURE.md` (§9), `docs/BACKLOG.md` (Packages 1P–1S), `docs/TEST_PLAN.md` (Package 1S), `docs/CHANGELOG.md` (Package 1S), and `docs/WORKLOG.md`.
+
+### Verification & Test Evidence (Independent Runs)
+- `scripts/test/test_faction_strategy_execution.gd`: **PASS (Exit Code 0 — 673 Checks Passed, 0 Failed)**
+- `scripts/test/test_faction_strategy_planner.gd`: **PASS (Exit Code 0 — 7/7 TC Passed)**
+- `scripts/test/test_faction_profiles.gd`: **PASS (Exit Code 0 — 9/9 TC Passed)**
+- `scripts/test/test_emerging_faction_ascension.gd`: **PASS (Exit Code 0 — 11/11 TC Passed)**
+- `scripts/test/test_factions_and_battles.gd`: **PASS (Exit Code 0 — 48 Assertions Passed)**
+- `scripts/test/test_battle_diplomacy_consequences.gd`: **PASS (Exit Code 0 — 11/11 TC Passed)**
+- `scripts/test/test_offensive_campaign.gd`: **PASS (Exit Code 0 — 14/14 TC Passed)**
+- `scripts/test/test_live_battle_loop.gd`: **PASS (Exit Code 0 — 19/19 TC Passed)**
+- `scripts/test/test_army_movement.gd`: **PASS (Exit Code 0 — 33/33 TC Passed)**
+- `scripts/test/test_player_army.gd`: **PASS (Exit Code 0 — 32/32 TC Passed)**
+- `scripts/test/test_save_load.gd`: **PASS (Exit Code 0 — 107 Assertions Passed)**
+- `scripts/test/test_world_events.gd`: **PASS (Exit Code 0 — 72 Assertions Passed)**
+- `scripts/test/test_victory_and_collapse.gd`: **PASS (Exit Code 0 — TC-7.1..TC-7.4 All Passed)**
+- `scripts/test/test_economy.gd`: **PASS (Exit Code 0)**
+- `scripts/test/test_citizens.gd`: **PASS (Exit Code 0)**
+- `scripts/test/test_time_manager.gd`: **PASS (Exit Code 0)**
+- Headless Editor Parse & Class Registration (`--headless --path . --editor --quit`): **PASS (Exit Code 0)**
+- `git diff --check`: **PASS (Exit Code 0)**
+
+### Files Created or Modified
+- `scripts/factions/faction_strategy_executor.gd` (new)
+- `scripts/factions/faction_manager.gd` (modified)
+- `scripts/persistence/save_manager.gd` (modified)
+- `scripts/test/test_faction_strategy_execution.gd` (new)
+- `scripts/test/test_emerging_faction_ascension.gd` (modified)
+- `scripts/test/test_faction_strategy_planner.gd` (modified)
+- `docs/SCOPE_DECISIONS.md` (modified)
+- `docs/GAME_RULES.md` (modified)
+- `docs/ARCHITECTURE.md` (modified)
+- `docs/BACKLOG.md` (modified)
+- `docs/TEST_PLAN.md` (modified)
+- `docs/CHANGELOG.md` (modified)
+- `docs/WORKLOG.md` (modified)
+
+### Next Exact Step
+- Commit Package 1S on `feature/package-1s-faction-strategic-intent-execution` with message `Implement deterministic faction strategic intent execution`, push to `origin/feature/package-1s-faction-strategic-intent-execution`, and await PR review / Package 1T instructions.
