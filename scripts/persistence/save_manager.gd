@@ -299,6 +299,12 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 		if not json_dict.has(sec):
 			return {"valid": false, "error": "Bản lưu bị thiếu mục cấu trúc cốt lõi: '%s'." % sec}
 
+	var res_sec = json_dict.get("resources")
+	if not (res_sec is Dictionary):
+		return {"valid": false, "error": "Mục 'resources' phải là từ điển (Dictionary)."}
+	if res_sec.has("is_starving") and not (res_sec.get("is_starving") is bool):
+		return {"valid": false, "error": "Trạng thái 'is_starving' trong resources phải là boolean."}
+
 	# Validate buildings array and construction data
 	var buildings_sec = json_dict.get("buildings")
 	if not (buildings_sec is Array):
@@ -371,7 +377,7 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 		if b_prog < 0.0 or b_prog > (b_hours + PROG_TOLERANCE):
 			return {"valid": false, "error": "Tiến độ thi công của '%s' nằm ngoài phạm vi hợp lệ [0, %f]: %f." % [b_type, b_hours, b_prog]}
 
-	# Validate optional game_clock section
+	# Validate optional game_clock section (BUG-01)
 	if json_dict.has("game_clock"):
 		var clock_val = json_dict.get("game_clock")
 		if not (clock_val is Dictionary):
@@ -380,6 +386,22 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 			var c_day = clock_val.get("current_day")
 			if not _is_valid_integer_val(c_day) or int(c_day) < 1:
 				return {"valid": false, "error": "current_day trong game_clock phải là số nguyên hợp lệ >= 1: %s." % str(c_day)}
+		if clock_val.has("current_hour"):
+			var c_hour = clock_val.get("current_hour")
+			if not _is_valid_integer_val(c_hour) or int(c_hour) < 0 or int(c_hour) >= 24:
+				return {"valid": false, "error": "current_hour trong game_clock phải là số nguyên hợp lệ trong [0, 23]: %s." % str(c_hour)}
+		if clock_val.has("current_year"):
+			var c_year = clock_val.get("current_year")
+			if not _is_valid_integer_val(c_year) or int(c_year) < 1:
+				return {"valid": false, "error": "current_year trong game_clock phải là số nguyên hợp lệ >= 1: %s." % str(c_year)}
+		if clock_val.has("season_index"):
+			var s_idx = clock_val.get("season_index")
+			if not _is_valid_integer_val(s_idx) or int(s_idx) < 0 or int(s_idx) >= 4:
+				return {"valid": false, "error": "season_index trong game_clock phải là số nguyên hợp lệ trong [0, 3]: %s." % str(s_idx)}
+		if clock_val.has("current_speed"):
+			var c_spd = clock_val.get("current_speed")
+			if not _is_valid_integer_val(c_spd) or int(c_spd) < 0 or int(c_spd) > 3:
+				return {"valid": false, "error": "current_speed trong game_clock phải là số nguyên hợp lệ trong [0, 3]: %s." % str(c_spd)}
 
 	# Validate optional Player Army section (Package 1L)
 	if json_dict.has("player_army"):
@@ -478,16 +500,22 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 				if path_points[-1] != dst_cell:
 					return {"valid": false, "error": "Điểm cuối cùng trong current_path (%s) không khớp với destination_cell (%s)." % [str(path_points[-1]), str(dst_cell)]}
 
-	# Optional battle_campaign validation (Package 1K / 1N)
+	# Optional battle_campaign validation (Package 1K / 1N, BUG-05 compatibility policy)
 	if json_dict.has("battle_campaign"):
 		var camp_val = json_dict.get("battle_campaign")
 		if not (camp_val is Dictionary):
 			return {"valid": false, "error": "battle_campaign phải là từ điển (Dictionary)."}
-		# BUG-05 fix: serialize() uses key "offensive_sequence", not "campaign_sequence".
-		# Removed dead validation block for "campaign_sequence" that never matched serialized data.
+		# BUG-05 compatibility policy:
+		# - "offensive_sequence" is the active runtime key serialized by BattleCampaignManager.
+		# - "campaign_sequence" is the recognized legacy alias documented in Package 1N.
+		# If either key is present, it must be a valid finite integer >= 0.
+		if camp_val.has("campaign_sequence"):
+			var seq = camp_val.get("campaign_sequence")
+			if not _is_valid_integer_val(seq) or int(seq) < 0:
+				return {"valid": false, "error": "campaign_sequence của battle_campaign phải là số nguyên >= 0."}
 		if camp_val.has("offensive_sequence"):
 			var off_seq = camp_val.get("offensive_sequence")
-			if not ((off_seq is int) or (off_seq is float and off_seq == floor(off_seq))) or int(off_seq) < 0:
+			if not _is_valid_integer_val(off_seq) or int(off_seq) < 0:
 				return {"valid": false, "error": "offensive_sequence của battle_campaign phải là số nguyên >= 0."}
 		if camp_val.has("pending_raids"):
 			var p_raids = camp_val.get("pending_raids")
@@ -528,6 +556,33 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 					var e_status = f_entry.get("existence_status")
 					if not (e_status is String) or not FactionData.VALID_EXISTENCE_STATUSES.has(e_status):
 						return {"valid": false, "error": "Trạng thái tồn tại existence_status của thế lực '%s' không hợp lệ: %s." % [str(fid), str(e_status)]}
+
+	# Validate optional immigration section (DEBT-03)
+	if json_dict.has("immigration"):
+		var imm_val = json_dict.get("immigration")
+		if not (imm_val is Dictionary):
+			return {"valid": false, "error": "Mục 'immigration' phải là từ điển (Dictionary)."}
+		if imm_val.has("last_immigration_day"):
+			var last_imm = imm_val.get("last_immigration_day")
+			if not _is_valid_integer_val(last_imm) or int(last_imm) < 0:
+				return {"valid": false, "error": "last_immigration_day trong immigration phải là số nguyên >= 0: %s." % str(last_imm)}
+			if json_dict.has("game_clock") and (json_dict["game_clock"] is Dictionary) and json_dict["game_clock"].has("current_day"):
+				var clock_day = json_dict["game_clock"].get("current_day")
+				if _is_valid_integer_val(clock_day) and int(last_imm) > int(clock_day):
+					return {"valid": false, "error": "last_immigration_day (%d) không được lớn hơn ngày hiện tại trong game_clock (%d)." % [int(last_imm), int(clock_day)]}
+		if imm_val.has("total_immigrants_admitted"):
+			var total_imm = imm_val.get("total_immigrants_admitted")
+			if not _is_valid_integer_val(total_imm) or int(total_imm) < 0:
+				return {"valid": false, "error": "total_immigrants_admitted trong immigration phải là số nguyên >= 0: %s." % str(total_imm)}
+		if imm_val.has("next_citizen_index"):
+			var next_idx = imm_val.get("next_citizen_index")
+			if not _is_valid_integer_val(next_idx) or int(next_idx) < 1 or int(next_idx) > 1000000:
+				return {"valid": false, "error": "next_citizen_index trong immigration phải là số nguyên trong [1, 1000000]: %s." % str(next_idx)}
+		if imm_val.has("rng_state"):
+			var rng_st = imm_val.get("rng_state")
+			var rng_ok: bool = _is_valid_integer_val(rng_st) or (rng_st is String and not String(rng_st).is_empty() and String(rng_st).is_valid_int())
+			if not rng_ok:
+				return {"valid": false, "error": "rng_state trong immigration phải là số nguyên hoặc chuỗi số nguyên hợp lệ: %s." % str(rng_st)}
 
 	return {"valid": true, "error": ""}
 
@@ -574,17 +629,37 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 
 	# 1. Restore Game Clock
 	var clock_data: Dictionary = loaded_data.get("game_clock", {})
+	var restored_clock_day: int = int(clock_data.get("current_day", 1)) if not clock_data.is_empty() else -1
 	if not clock_data.is_empty() and (Engine.has_singleton("TimeManager") or world_view.has_node("/root/TimeManager")):
 		var tm: Node = world_view.get_node("/root/TimeManager")
 		# BUG-01 fix: restore only real TimeManager fields.
-		# season_index replaces the non-existent "current_season" field.
-		# Removed: total_elapsed_seconds, current_minute, is_paused (don't exist on TimeManager).
-		# _hour_accumulator is intentionally not restored (resets to 0.0 = lose < 1 game-hour, acceptable).
-		tm.set("current_day", clock_data.get("current_day", 1))
-		tm.set("current_hour", clock_data.get("current_hour", 6))
-		tm.set("season_index", clock_data.get("season_index", 0))
-		tm.set("current_year", clock_data.get("current_year", 1))
-		tm.set_speed(clock_data.get("current_speed", 1))
+		# For legacy saves lacking season_index or current_year, derive them deterministically
+		# from current_day using TimeManager's authoritative calendar constants.
+		var c_day: int = maxi(1, int(clock_data.get("current_day", 1)))
+		var c_hour: int = clampi(int(clock_data.get("current_hour", 6)), 0, 23)
+		var days_per_season: int = int(tm.get("DAYS_PER_SEASON")) if tm.get("DAYS_PER_SEASON") != null else 10
+		var seasons_per_year: int = int(tm.get("SEASONS_PER_YEAR")) if tm.get("SEASONS_PER_YEAR") != null else 4
+		var days_per_year: int = int(tm.get("DAYS_PER_YEAR")) if tm.get("DAYS_PER_YEAR") != null else 40
+
+		var s_idx: int = 0
+		if clock_data.has("season_index") and _is_valid_integer_val(clock_data.get("season_index")):
+			s_idx = clampi(int(clock_data.get("season_index")), 0, seasons_per_year - 1)
+		else:
+			s_idx = int(float(c_day - 1) / float(days_per_season)) % seasons_per_year
+
+		var c_year: int = 1
+		if clock_data.has("current_year") and _is_valid_integer_val(clock_data.get("current_year")):
+			c_year = maxi(1, int(clock_data.get("current_year")))
+		else:
+			c_year = 1 + int(float(c_day - 1) / float(days_per_year))
+
+		tm.set("current_day", c_day)
+		tm.set("current_hour", c_hour)
+		tm.set("season_index", s_idx)
+		tm.set("current_year", c_year)
+		tm.set("_hour_accumulator", 0.0)
+		tm.set_speed(int(clock_data.get("current_speed", 1)))
+		restored_clock_day = c_day
 
 	# 2. Restore Resources
 	var res_data: Dictionary = loaded_data.get("resources", {})
@@ -598,6 +673,15 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 		for r_id in caps:
 			rm.get("_capacities")[r_id] = caps[r_id]
 		rm.set("active_population", res_data.get("active_population", 24))
+		# BUG-02 fix: Restore authoritative starvation flag immediately after load.
+		# If save explicitly includes boolean is_starving, restore it; otherwise (legacy save),
+		# derive deterministically from restored available food and active population.
+		if res_data.has("is_starving") and (res_data.get("is_starving") is bool):
+			rm.set("_is_starving", bool(res_data.get("is_starving")))
+		else:
+			var food_avail: int = int(rm.call("get_available_stock", EconomyConfig.RES_FOOD))
+			var act_pop: int = int(rm.get("active_population"))
+			rm.set("_is_starving", food_avail <= 0 and act_pop > 0)
 
 	# 3. Clean and Reconstruct Buildings
 	var world_data = world_view.get("world_data")
@@ -717,7 +801,7 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 		var imm_data = loaded_data.get("immigration", {})
 		if not (imm_data is Dictionary):
 			imm_data = {}
-		imm_mgr.call("deserialize", imm_data, saved_citizens)
+		imm_mgr.call("deserialize", imm_data, saved_citizens, restored_clock_day)
 
 	# 5. Restore Research
 	var res_data_dict: Dictionary = loaded_data.get("research", {})

@@ -33,9 +33,11 @@ var last_immigration_day: int = 0
 var total_immigrants_admitted: int = 0
 var next_citizen_index: int = 25 # Starter citizens are 1..24
 
+var _initial_seed: int = 12345
 var _rng: RandomNumberGenerator = RandomNumberGenerator.new()
 
 func _init(seed_val: int = 12345) -> void:
+	_initial_seed = seed_val
 	_rng.seed = seed_val
 
 func can_evaluate_today(day: int, hour: int) -> bool:
@@ -124,21 +126,37 @@ func serialize() -> Dictionary:
 	return {
 		"last_immigration_day": last_immigration_day,
 		"total_immigrants_admitted": total_immigrants_admitted,
-		"next_citizen_index": next_citizen_index
+		"next_citizen_index": next_citizen_index,
+		"rng_state": str(_rng.state)
 	}
 
-func deserialize(data: Dictionary, existing_citizens: Array = []) -> void:
-	last_immigration_day = maxi(0, int(data.get("last_immigration_day", 0)))
+func deserialize(data: Dictionary, existing_citizens: Array = [], current_day: int = -1) -> void:
+	var raw_last_day: int = maxi(0, int(data.get("last_immigration_day", 0)))
+	if current_day >= 1 and raw_last_day > current_day:
+		raw_last_day = current_day
+	last_immigration_day = raw_last_day
 	total_immigrants_admitted = maxi(0, int(data.get("total_immigrants_admitted", 0)))
 	var next_idx: int = maxi(25, int(data.get("next_citizen_index", 25)))
 	# DEBT-03 fix: Guarantee next_citizen_index never collides with any existing citizen_<N> ID
 	for c in existing_citizens:
+		var cid_str: String = ""
 		if c is Dictionary and c.has("id"):
-			var cid_str: String = String(c["id"])
-			if cid_str.begins_with("citizen_"):
-				var num_part: String = cid_str.substr(8)
-				if num_part.is_valid_int():
-					var parsed_idx: int = int(num_part)
-					if parsed_idx >= next_idx:
-						next_idx = parsed_idx + 1
+			cid_str = String(c["id"])
+		elif c is Object and c.get("citizen_id") != null:
+			cid_str = String(c.get("citizen_id"))
+		if cid_str.begins_with("citizen_"):
+			var num_part: String = cid_str.substr(8)
+			if num_part.is_valid_int():
+				var parsed_idx: int = int(num_part)
+				if parsed_idx >= next_idx:
+					next_idx = parsed_idx + 1
 	next_citizen_index = next_idx
+
+	if data.has("rng_state"):
+		var raw_rng = data.get("rng_state")
+		if raw_rng is String and String(raw_rng).is_valid_int():
+			_rng.state = int(String(raw_rng))
+		elif raw_rng is int:
+			_rng.state = raw_rng
+	else:
+		_rng.seed = _initial_seed

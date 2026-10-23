@@ -504,7 +504,12 @@ func deserialize(data: Dictionary) -> void:
 	_processed_raids.clear()
 	_in_flight_raids.clear()
 	_in_flight_offensive.clear()
-	_offensive_campaign_sequence = maxi(0, int(data.get("offensive_sequence", 0)))
+	var raw_seq: int = 0
+	if data.has("offensive_sequence"):
+		raw_seq = int(data.get("offensive_sequence", 0))
+	elif data.has("campaign_sequence"):
+		raw_seq = int(data.get("campaign_sequence", 0))
+	_offensive_campaign_sequence = maxi(0, raw_seq)
 
 	var raw_processed: Dictionary = data.get("processed_raids", {})
 	for k in raw_processed:

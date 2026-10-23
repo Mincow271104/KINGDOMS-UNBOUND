@@ -4810,3 +4810,50 @@ Following completion of Package 1R Cross-Package Review Fix (`6e93bc9`), perform
 
 ### Next Exact Step
 - Commit Batch 2 changes and await user direction on whether to proceed with Batch 3 (performance optimizations & remaining tech debt) or push to remote.
+
+---
+
+## [2026-10-23] Batch 3A: Save/Load & Immigration Integrity Hardening
+
+### Context & Objective
+Following the local/remote bugfix reconciliation audit on `feature/package-1r-faction-strategic-decision-engine` (preserving local commits `f7c1caa` and `b5a3956`), hardened save/load schema validation, legacy fallback compatibility, starvation restoration, battle campaign sequence alias compatibility, and `ImmigrationManager` RNG/ID persistence.
+
+### Completed Work
+1. **BUG-01 — `TimeManager` Save/Load Validation & Legacy Season/Year Derivation (`scripts/persistence/save_manager.gd`):**
+   - Validated optional `game_clock` fields when present: `current_day >= 1`, `current_hour` in `[0, 23]`, `current_year >= 1`, `season_index` in `[0, 3]`, and `current_speed` in `[0, 3]`.
+   - In `apply_loaded_state_to_world()`, preserved direct restoration of `season_index` and `current_year` when present, and added deterministic fallback derivation from `current_day` using `TimeManager` calendar constants (`DAYS_PER_SEASON = 10`, `SEASONS_PER_YEAR = 4`, `DAYS_PER_YEAR = 40`) for legacy saves lacking `season_index` or `current_year`. Reset `_hour_accumulator = 0.0` on load.
+2. **BUG-02 — Authoritative Starvation State After Reset & Load (`scripts/persistence/save_manager.gd`, `scripts/economy/resource_manager.gd`):**
+   - Validated `resources` as `Dictionary` and optional `resources.is_starving` as `bool` in `validate_save_data()`.
+   - Documented and enforced the authoritative load rule in `apply_loaded_state_to_world()`: after `reset_economy()` (which resets `_is_starving = false`) and stock/population restoration, if `resources.is_starving` is present as a boolean, restore `_is_starving` immediately; if omitted (legacy save), derive `_is_starving = (available_food <= 0 and active_population > 0)`.
+3. **BUG-05 — Battle Campaign Sequence Compatibility Policy (`scripts/persistence/save_manager.gd`, `scripts/combat/battle_campaign_manager.gd`):**
+   - Restored and tightened validation for both the active runtime key `"offensive_sequence"` and the recognized Package 1N legacy alias `"campaign_sequence"` using `_is_valid_integer_val(...)` and `>= 0` in `validate_save_data()`, ensuring malformed legacy keys cannot bypass validation.
+   - Updated `BattleCampaignManager.deserialize()` to fall back to `"campaign_sequence"` when `"offensive_sequence"` is omitted in a legacy save.
+4. **DEBT-03 — `ImmigrationManager` Validation, RNG State Continuation & Collision-Proof IDs (`scripts/economy/immigration_manager.gd`, `scripts/persistence/save_manager.gd`):**
+   - Added lossless 64-bit RNG state persistence (`"rng_state": str(_rng.state)`) to `ImmigrationManager.serialize()` and restored it in `deserialize()`, falling back to `_initial_seed` for legacy saves without `rng_state`.
+   - Added strict schema validation in `SaveManager.validate_save_data()` for optional `immigration` section (`Dictionary`, `last_immigration_day >= 0` and `<= game_clock.current_day`, `total_immigrants_admitted >= 0`, `next_citizen_index` in `[1, 1000000]`, and `rng_state` as valid integer or numeric string) before any destructive world mutation begins.
+   - Hardened `ImmigrationManager.deserialize()` to accept both `Dictionary` and `Object` citizen records and bump `next_citizen_index` strictly above all existing `citizen_<N>` IDs.
+5. **Regression & Integration Tests (`scripts/test/test_save_load.gd`):**
+   - Added assertion counting (`76` assertions across `TC-8.4`..`TC-8.7`) and 4 new test functions:
+     - `TC-8.4`: Non-Spring (`autumn`, Day 25) save/load roundtrip on live `TimeManager`, legacy Day 55 (`summer`, Year 2) fallback derivation without `season_index`, and out-of-range clock validation.
+     - `TC-8.5`: `reset_economy()` starvation reset, starving save/load immediate restoration, legacy 0-food vs 120-food starvation derivation, and non-boolean `is_starving` rejection.
+     - `TC-8.6`: Valid/invalid `offensive_sequence`, legacy `campaign_sequence` restoration, and fail-closed rejection of negative `campaign_sequence` before live-world mutation.
+     - `TC-8.7`: Malformed `immigration` rejection before world mutation, Wave 1 -> save -> perturb -> load -> Wave 2 deterministic RNG name/ID continuation, and high citizen ID (`citizen_42`) collision-proof wave spawning (`citizen_43`..`citizen_46`).
+
+### Verification & Test Evidence
+- `scripts/test/test_save_load.gd`: **PASS (Exit Code 0 — TC-8.1..TC-8.7, 76 assertions passed, 0 failed)**
+- `scripts/test/test_offensive_campaign.gd`: **PASS (Exit Code 0 — 160 assertions passed, 0 failed)**
+- `scripts/test/test_live_battle_loop.gd`: **PASS (Exit Code 0 — 19/19 TC, 47 checks passed, 0 failed)**
+- `scripts/test/test_army_movement.gd`: **PASS (Exit Code 0 — 33/33 TC, 33 checks passed, 0 failed)**
+- `scripts/test/test_faction_profiles.gd`: **PASS (Exit Code 0 — 9/9 TC, 217 assertions passed, 0 failed)**
+- Headless Editor Parse & Class Registration (`--headless --path . --editor --quit`): **PASS (Exit Code 0)**
+- `git diff --check`: **PASS (Exit Code 0)**
+
+### Files Modified
+- `scripts/persistence/save_manager.gd`
+- `scripts/economy/immigration_manager.gd`
+- `scripts/combat/battle_campaign_manager.gd`
+- `scripts/test/test_save_load.gd`
+- `docs/WORKLOG.md`
+
+### Next Exact Step
+- Commit Batch 3A locally with message `Harden save/load legacy compatibility and immigration persistence` (without pushing to remote) and await review / Batch 3B instructions.
