@@ -4,6 +4,7 @@ extends SceneTree
 
 const SaveManager = preload("res://scripts/persistence/save_manager.gd")
 const ImmigrationManagerScript = preload("res://scripts/economy/immigration_manager.gd")
+const WorldEventSystemScript = preload("res://scripts/core/world_event_system.gd")
 
 const SAVE_PATH_1: String = "user://saves/test_roundtrip_1.json"
 const SAVE_PATH_2: String = "user://saves/test_roundtrip_2.json"
@@ -59,10 +60,11 @@ func _process(_delta: float) -> bool:
 		var pass_tc5: bool = _test_tc8_5_starvation_reset_and_load_integrity()
 		var pass_tc6: bool = _test_tc8_6_battle_campaign_sequence_compatibility()
 		var pass_tc7: bool = _test_tc8_7_immigration_persistence_and_collision_proof_ids()
+		var pass_tc8: bool = _test_tc8_8_world_event_persistence_and_legacy_fallback()
 		
 		print("\n--------------------------------------------------------")
 		print("  Assertions Passed: %d | Failed: %d" % [_assertions_passed, _assertions_failed])
-		if pass_tc1 and pass_tc2 and pass_tc3 and pass_tc4 and pass_tc5 and pass_tc6 and pass_tc7 and _assertions_failed == 0:
+		if pass_tc1 and pass_tc2 and pass_tc3 and pass_tc4 and pass_tc5 and pass_tc6 and pass_tc7 and pass_tc8 and _assertions_failed == 0:
 			print("  ALL PHASE 8 PERSISTENCE TESTS PASSED! (Exit Code 0)")
 			print("--------------------------------------------------------\n")
 			quit(0)
@@ -577,5 +579,160 @@ func _test_tc8_7_immigration_persistence_and_collision_proof_ids() -> bool:
 	_assert_eq(has_duplicate_id, false, "TC-8.7-ZERO-ID-COLLISIONS", "All live citizen IDs in citizen_list are 100% unique")
 	_assert_eq(imm_mgr.next_citizen_index, 43 + int(wave_after_high["count"]), "TC-8.7-NEXT-IDX-ADVANCED", "next_citizen_index advanced to 43 + wave_size")
 
+	# Restore clean baseline state after TC-8.7
+	SaveManager.apply_loaded_state_to_world(world_instance, base_save)
+
 	print("  [PASS] TC-8.7 PASSED.\n")
+	return _assertions_failed == 0
+
+func _test_tc8_8_world_event_persistence_and_legacy_fallback() -> bool:
+	print("--- Running TC-8.8: BUG-04 World Event Timed Modifiers, RNG, Cooldown & Legacy Save Persistence ---")
+	var es = world_instance.get("event_system")
+	var tm: Node = root.get_node_or_null("TimeManager")
+	var rm: Node = root.get_node_or_null("ResourceManager")
+	var wp_mgr = world_instance.get("workplace_mgr")
+	var job_mgr = world_instance.get("job_mgr")
+	var imm_mgr = world_instance.get("immigration_mgr")
+	if not _assert_true(es != null and tm != null and rm != null and wp_mgr != null and job_mgr != null and imm_mgr != null, "TC-8.8-DEPS-EXIST", "WorldEventSystem, TimeManager, ResourceManager, WorkplaceManager, JobManager, ImmigrationManager exist"):
+		return false
+
+	# Reset immigration_mgr from TC-8.7's Day 9 test so last_immigration_day <= Day 5/6
+	imm_mgr._init(12345)
+
+	# 1. Validation tests for malformed world_events section BEFORE mutating live world
+	var base_save: Dictionary = SaveManager.serialize_world_state(world_instance)
+	base_save["game_clock"]["current_day"] = 10
+
+	var bad_ev_type: Dictionary = base_save.duplicate(true)
+	bad_ev_type["world_events"] = "not_a_dict"
+	_assert_eq(SaveManager.validate_save_data(bad_ev_type).get("valid", true), false, "TC-8.8-VAL-EV-NOT-DICT", "Non-Dictionary world_events rejected")
+
+	var bad_ev_future_day: Dictionary = base_save.duplicate(true)
+	bad_ev_future_day["world_events"] = {"last_event_day": 14, "min_days_between_events": 4}
+	_assert_eq(SaveManager.validate_save_data(bad_ev_future_day).get("valid", true), false, "TC-8.8-VAL-EV-FUTURE-DAY", "last_event_day (14) > current_day (10) rejected")
+
+	var bad_ev_neg_farm: Dictionary = base_save.duplicate(true)
+	bad_ev_neg_farm["world_events"] = {"last_event_day": 5, "active_farm_modifier_bonus": -0.5, "farm_bonus_expires_day": 7}
+	_assert_eq(SaveManager.validate_save_data(bad_ev_neg_farm).get("valid", true), false, "TC-8.8-VAL-EV-NEG-FARM", "Negative active_farm_modifier_bonus rejected")
+
+	var bad_ev_zero_fatigue: Dictionary = base_save.duplicate(true)
+	bad_ev_zero_fatigue["world_events"] = {"last_event_day": 5, "active_fatigue_multiplier": 0.0, "fatigue_mult_expires_day": 7}
+	_assert_eq(SaveManager.validate_save_data(bad_ev_zero_fatigue).get("valid", true), false, "TC-8.8-VAL-EV-ZERO-FATIGUE", "Non-positive active_fatigue_multiplier = 0.0 rejected")
+
+	var bad_ev_rng: Dictionary = base_save.duplicate(true)
+	bad_ev_rng["world_events"] = {"last_event_day": 5, "rng_state": "corrupt_rng"}
+	_assert_eq(SaveManager.validate_save_data(bad_ev_rng).get("valid", true), false, "TC-8.8-VAL-EV-BAD-RNG", "Non-numeric world_events.rng_state rejected")
+
+	tm.reset_time(6, 7, 1)
+	var apply_bad_ev: Dictionary = SaveManager.apply_loaded_state_to_world(world_instance, bad_ev_future_day)
+	_assert_eq(apply_bad_ev.get("success", true), false, "TC-8.8-APPLY-BAD-EV-REJECTED", "Invalid world_events save rejected before world mutation")
+	_assert_eq(tm.get("current_day"), 7, "TC-8.8-NO-MUTATION-ON-BAD-EV", "Live TimeManager.current_day remained 7")
+
+	# 2. Save while bountiful_harvest is active on Day 5 (expires Day 7) -> Load on Day 6 -> Verify:
+	#    (a) bonus_food (+30) is NOT granted a second time on load,
+	#    (b) farm modifier bonus (+0.5 -> 8 food/cycle) is still active on Day 6,
+	#    (c) farm modifier bonus expires cleanly on Day 7 (back to 5 food/cycle).
+	rm.reset_economy()
+	tm.reset_time(8, 5, 1) # Day 5, Spring (season_mod = 1.0)
+	es._init(12345)
+	var food_before_bh: int = rm.get_available_stock("food")
+	es.trigger_event_by_id("bountiful_harvest", 5, rm, null, world_instance.get("citizen_list"))
+	var food_after_bh: int = rm.get_available_stock("food")
+	_assert_eq(food_after_bh, food_before_bh + 30, "TC-8.8-BH-INITIAL-BONUS-FOOD", "bountiful_harvest granted +30 food once on Day 5")
+
+	# Advance clock to Day 6 (day 2 of 2 of bountiful_harvest) and save
+	tm.reset_time(9, 6, 1)
+	es.update_daily_modifiers(6)
+	var save_bh_day6: Dictionary = SaveManager.serialize_world_state(world_instance)
+
+	# Compute reference next event on Day 9 (5 + 4 cooldown = Day 9) from an uninterrupted clone
+	var ref_es := WorldEventSystemScript.new(12345)
+	ref_es.deserialize(save_bh_day6["world_events"], 6)
+	var ref_day9_ev: Dictionary = ref_es.check_and_trigger_event(9, null, null, [])
+
+	# Perturb live world state (reset event_system and change food stock)
+	es.reset_state()
+	rm.add_resource("food", 100)
+	_assert_eq(es.is_farm_bonus_active(6), false, "TC-8.8-BH-PERTURBED", "Live farm bonus cleared before load")
+
+	# Load the Day 6 save
+	var apply_bh_day6: Dictionary = SaveManager.apply_loaded_state_to_world(world_instance, save_bh_day6)
+	_assert_true(apply_bh_day6.get("success", false), "TC-8.8-BH-LOAD-SUCCESS", "Day 6 save with active bountiful_harvest loaded")
+	_assert_eq(rm.get_available_stock("food"), food_after_bh, "TC-8.8-NO-DOUBLE-BONUS-ON-LOAD", "Loading save did NOT grant +30 bonus_food a second time")
+	_assert_eq(es.is_farm_bonus_active(6), true, "TC-8.8-BH-ACTIVE-AFTER-LOAD", "Farm bonus (+0.5) is active on Day 6 after load")
+	_assert_eq(es._farm_bonus_expires_day, 7, "TC-8.8-BH-EXPIRES-DAY-7", "Restored farm_bonus_expires_day == 7")
+
+	# Verify actual farmer citizen production on Day 6 after load yields 8 food (5.0 * 1.5 = 7.5 -> 8)
+	var farmer_cit = null
+	for cit in world_instance.get("citizen_list"):
+		if cit.get("role") == "farmer":
+			farmer_cit = cit
+			break
+	_assert_true(farmer_cit != null, "TC-8.8-FARMER-FOUND", "Found restored farmer citizen in WorldView")
+	var farm_wp = wp_mgr.get_workplace("farm_starter")
+	farm_wp.buffer_amount = 0
+	var test_farm_job = job_mgr.create_job("farmer", Vector2i(35, 35), "Test Harvest", "farm_starter", 1.0, 1, true)
+	test_farm_job.state = 2 # JobState.IN_PROGRESS
+	test_farm_job.work_hours_done = 0.0
+	farmer_cit.active_job = test_farm_job
+	farmer_cit.current_state = 2 # State.WORKING
+	farmer_cit._process_working(1.0)
+	_assert_eq(farm_wp.buffer_amount, 8, "TC-8.8-FARM-PROD-DAY6-AFTER-LOAD", "Restored farmer produces 8 food on Day 6 while bountiful_harvest active")
+
+	# Advance to Day 7 (expiration boundary): verify cooldown blocks new event AND farm bonus expires to 0.0 (5 food/cycle)
+	tm.reset_time(9, 7, 1)
+	var day7_ev: Dictionary = es.check_and_trigger_event(7, null, null, [])
+	_assert_eq(day7_ev.is_empty(), true, "TC-8.8-COOLDOWN-BLOCKS-DAY7", "Cooldown (last_event_day=5, min=4) blocks event trigger on Day 7 after load")
+	_assert_eq(es.is_farm_bonus_active(7), false, "TC-8.8-BH-EXPIRED-DAY7", "Farm bonus expired on Day 7 after load")
+	farm_wp.buffer_amount = 0
+	test_farm_job.state = 2
+	test_farm_job.work_hours_done = 0.0
+	farmer_cit.active_job = test_farm_job
+	farmer_cit.current_state = 2
+	farmer_cit._process_working(1.0)
+	_assert_eq(farm_wp.buffer_amount, 5, "TC-8.8-FARM-PROD-DAY7-EXPIRED", "Restored farmer returns to baseline 5 food on Day 7 after expiration")
+
+	# Verify RNG continuation on Day 9 (when cooldown expires) matches uninterrupted reference
+	var restored_day9_ev: Dictionary = es.check_and_trigger_event(9, null, null, [])
+	_assert_eq(restored_day9_ev.get("id", ""), ref_day9_ev.get("id", ""), "TC-8.8-RNG-MATCH-DAY9", "Restored RNG stream produces identical event on Day 9")
+
+	# 3. Save while heatwave is active on Day 12 (expires Day 14) -> Load on Day 13 -> Verify fatigue 1.25x & expiration on Day 14
+	tm.reset_time(8, 12, 1)
+	es.trigger_event_by_id("heatwave", 12, rm, null, [])
+	tm.reset_time(10, 13, 1)
+	es.update_daily_modifiers(13)
+	var save_hw_day13: Dictionary = SaveManager.serialize_world_state(world_instance)
+
+	es.reset_state()
+	_assert_eq(es.is_heatwave_active(13), false, "TC-8.8-HW-PERTURBED", "Live heatwave cleared before load")
+
+	var apply_hw_day13: Dictionary = SaveManager.apply_loaded_state_to_world(world_instance, save_hw_day13)
+	_assert_true(apply_hw_day13.get("success", false), "TC-8.8-HW-LOAD-SUCCESS", "Day 13 save with active heatwave loaded")
+	_assert_eq(es.is_heatwave_active(13), true, "TC-8.8-HW-ACTIVE-AFTER-LOAD", "Heatwave (1.25x) is active on Day 13 after load")
+
+	farmer_cit = world_instance.get("citizen_list")[0]
+	farmer_cit.hunger = 10.0
+	farmer_cit.fatigue = 10.0
+	farmer_cit.current_state = 2 # State.WORKING
+	farmer_cit._on_hour_passed(11, 13)
+	_assert_true(is_equal_approx(farmer_cit.fatigue, 15.0), "TC-8.8-HW-FATIGUE-DAY13", "Citizen working fatigue increases by +5.0 (4.0 * 1.25) on Day 13 after load")
+
+	# Advance to Day 14 (expiration boundary): heatwave expires, working fatigue gain reverts to +4.0
+	farmer_cit.fatigue = 10.0
+	farmer_cit._on_hour_passed(8, 14)
+	_assert_eq(es.is_heatwave_active(14), false, "TC-8.8-HW-EXPIRED-DAY14", "Heatwave expired on Day 14 after load")
+	_assert_true(is_equal_approx(farmer_cit.fatigue, 14.0), "TC-8.8-HW-FATIGUE-DAY14-EXPIRED", "Citizen working fatigue reverts to +4.0 on Day 14 after expiration")
+
+	# 4. Legacy save lacking "world_events" section resets WorldEventSystem cleanly to baseline
+	es.trigger_event_by_id("heatwave", 15, rm, null, [])
+	_assert_eq(es.is_heatwave_active(15), true, "TC-8.8-PRE-LEGACY-HW-ACTIVE", "Heatwave active in memory before legacy load")
+	var legacy_no_ev_save: Dictionary = base_save.duplicate(true)
+	legacy_no_ev_save.erase("world_events")
+	var apply_legacy_no_ev: Dictionary = SaveManager.apply_loaded_state_to_world(world_instance, legacy_no_ev_save)
+	_assert_true(apply_legacy_no_ev.get("success", false), "TC-8.8-LEGACY-NO-EV-APPLY", "Legacy save without world_events loaded cleanly")
+	_assert_eq(es.last_event_day, -99, "TC-8.8-LEGACY-RESET-LAST-DAY", "Legacy load reset last_event_day to -99")
+	_assert_eq(es.is_farm_bonus_active(10), false, "TC-8.8-LEGACY-RESET-FARM", "Legacy load cleared stale farm bonus")
+	_assert_eq(es.is_heatwave_active(15), false, "TC-8.8-LEGACY-RESET-HW", "Legacy load cleared stale heatwave multiplier")
+
+	print("  [PASS] TC-8.8 PASSED.\n")
 	return _assertions_failed == 0

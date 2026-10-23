@@ -4913,3 +4913,51 @@ On branch `feature/package-1r-faction-strategic-decision-engine` starting from l
 
 ### Next Exact Step
 - Commit Batch 3B locally with message `Fix world event effect lifecycle and application` (without pushing to remote) and await review / next batch instructions.
+
+---
+
+## [2026-10-23] Post-Batch 3B Audit & Hardening: Timed Event Persistence & Regression Coverage
+
+### Context & Audit Findings
+Performed a post-commit audit of Batch 3B (`70522e61a475812433bc09eb7673b794308d420a`) on `feature/package-1r-faction-strategic-decision-engine`:
+1. **Root Cause of Prior Combined-Command Exit Code 1:**
+   - During Batch 3B verification, `--headless --path . --editor --quit` and `git diff --check` were chained in one shell invocation; Godot editor initialization exited `0`, while `git diff --check` returned exit code `1` due to a trailing tab on line 194 of `scripts/core/world_event_system.gd`. The trailing whitespace was removed before committing `70522e61a475812433bc09eb7673b794308d420a`, and independent re-runs at `70522e6` confirmed exit code `0`.
+2. **Persistence Gap Identified by Post-Batch 3B Audit:**
+   - While `WorldEventSystem` in `70522e6` tracked timed modifiers (`_active_farm_modifier_bonus`, `_farm_bonus_expires_day`, `_active_fatigue_multiplier`, `_fatigue_mult_expires_day`), cooldown (`last_event_day`), and `rng.state` in memory, `SaveManager` did not yet serialize or restore `WorldEventSystem` state across Save/Load.
+   - Consequently, saving and loading mid-event lost active `bountiful_harvest` / `heatwave` modifiers, lost event cooldown (`last_event_day`), and did not reset stale in-memory modifiers when loading a legacy save.
+
+### Completed Hardening Work
+1. **`WorldEventSystem` Serialization & Legacy Reset (`scripts/core/world_event_system.gd`):**
+   - Added `_initial_seed`, `reset_state()`, `serialize()`, and `deserialize(data, current_day)` persisting `last_event_day`, `min_days_between_events`, `active_farm_modifier_bonus`, `farm_bonus_expires_day`, `active_fatigue_multiplier`, `fatigue_mult_expires_day`, and lossless 64-bit `rng_state` (`str(rng.state)`).
+   - If `data` is empty (legacy save lacking `"world_events"`), `deserialize()` calls `reset_state()` to clear any stale in-memory modifiers and reset `last_event_day = -99`.
+   - Upon restoration with a valid `current_day >= 1`, `deserialize()` invokes `update_daily_modifiers(current_day)` so any modifier whose expiration day has been reached is immediately expired.
+2. **`SaveManager` Integration & Fail-Closed Validation (`scripts/persistence/save_manager.gd`):**
+   - Added Step 15 in `serialize_world_state()` to serialize `world_view.event_system.serialize()` under `"world_events"`.
+   - Added fail-closed schema validation in `validate_save_data()` for optional `"world_events"` before any world mutation: validates `Dictionary` type, `last_event_day >= -99` and `<= game_clock.current_day`, `min_days_between_events` in `[1, 365]`, `active_farm_modifier_bonus` in `[0.0, 10.0]`, `farm_bonus_expires_day` (`-1` or `>= 1`), `active_fatigue_multiplier` in `(0.0, 10.0]`, `fatigue_mult_expires_day` (`-1` or `>= 1`), and integer/numeric-string `rng_state`.
+   - Added Step 4c in `apply_loaded_state_to_world()` to restore `event_system.deserialize(ev_data, restored_clock_day)`.
+3. **Expanded Deterministic Test Coverage (`scripts/test/test_world_events.gd`, `scripts/test/test_save_load.gd`):**
+   - Expanded `scripts/test/test_world_events.gd` from 52 to **72 assertions**: added Summer/Winter seasonal multiplier composition checks, `_on_hour_passed` callback immunity for dead (`_death_processed=true`), `0-HP`, and `is_queued_for_deletion()` citizens during heatwave, and `WorldEventSystem` serialize/deserialize/RNG-continuation unit checks.
+   - Added `TC-8.8` to `scripts/test/test_save_load.gd` (expanding suite from 76 to **107 assertions**): verified fail-closed validation of malformed `world_events`, mid-event Save/Load for `bountiful_harvest` (no double `+30` food grant on load, `8` food/cycle on Day 6, clean expiration to `5` food/cycle on Day 7), mid-event Save/Load for `heatwave` (`+5.0` working fatigue on Day 13, clean expiration to `+4.0` on Day 14), cooldown + RNG stream continuation on Day 9, and legacy save reset when `"world_events"` is omitted.
+
+### Verification & Test Evidence (Independent Runs on Final Source)
+- `scripts/test/test_world_events.gd`: **PASS (Exit Code 0 — 72 Passed, 0 Failed)**
+- `scripts/test/test_citizens.gd`: **PASS (Exit Code 0)**
+- `scripts/test/test_economy.gd`: **PASS (Exit Code 0)**
+- `scripts/test/test_time_manager.gd`: **PASS (Exit Code 0)**
+- `scripts/test/test_save_load.gd`: **PASS (Exit Code 0 — TC-8.1..TC-8.8, 107 Assertions Passed, 0 Failed)**
+- `scripts/test/test_offensive_campaign.gd`: **PASS (Exit Code 0 — 160 Passed, 0 Failed)**
+- `scripts/test/test_live_battle_loop.gd`: **PASS (Exit Code 0 — 19/19 TC, 47 Checks Passed, 0 Failed)**
+- `scripts/test/test_army_movement.gd`: **PASS (Exit Code 0 — 33/33 TC, 33 Checks Passed, 0 Failed)**
+- `scripts/test/test_faction_profiles.gd`: **PASS (Exit Code 0 — 9/9 TC, 217 Assertions Passed, 0 Failed)**
+- Headless Editor Parse & Class Registration (`--headless --path . --editor --quit`): **PASS (Exit Code 0)**
+- `git diff --check`: **PASS (Exit Code 0)**
+
+### Files Modified
+- `scripts/core/world_event_system.gd`
+- `scripts/persistence/save_manager.gd`
+- `scripts/test/test_world_events.gd`
+- `scripts/test/test_save_load.gd`
+- `docs/WORKLOG.md`
+
+### Next Exact Step
+- Commit follow-up hardening locally with message `Harden world event persistence and regression coverage` (without pushing to remote) and await review / Batch 3C instructions.

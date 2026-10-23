@@ -129,6 +129,10 @@ func _init() -> void:
 	es.trigger_event_by_id("bountiful_harvest", 6, rm, em, [farmer])
 	_assert(is_equal_approx(es.get_active_farm_modifier_bonus(6), 0.5), "Re-triggering bountiful_harvest does not stack farm bonus above 0.5")
 
+	# Seasonal interaction during bountiful_harvest: Summer (1.2) * 1.5 = 1.8 -> 5.0 * 1.8 = 9 food; Winter (0.5) * 1.5 = 0.75 -> round(5.0 * 0.75) = 4 food
+	_assert(is_equal_approx(es.get_farm_production_multiplier(1.2, 6), 1.8), "Summer (1.2x) + bountiful_harvest (+50%%) yields 1.8x farm multiplier")
+	_assert(is_equal_approx(es.get_farm_production_multiplier(0.5, 6), 0.75), "Winter (0.5x) + bountiful_harvest (+50%%) yields 0.75x farm multiplier")
+
 	# Day 8 (after 2-day duration from Day 6 trigger expires): bonus must be 0.0 and production back to 5
 	es.update_daily_modifiers(8)
 	_assert(is_equal_approx(es.get_active_farm_modifier_bonus(8), 0.0), "Farm modifier bonus expires to 0.0 on Day 8 after 2-day duration")
@@ -277,6 +281,66 @@ func _init() -> void:
 	_assert(rm.get_available_stock(EconomyConfigScript.RES_HERBS) == herbs_start + 20, "Resource grant applied once even if _apply_resource_effects is called again")
 	_assert(is_equal_approx(cit_injured.health, 65.0), "Citizen heal applied once (+15.0 -> 65.0) despite duplicate list entries and second apply_citizen_effects call (got %.1f)" % cit_injured.health)
 	_assert(second_apply_count == 0, "Second apply_citizen_effects call on same event instance returns 0")
+
+	# -------------------------------------------------------------------------
+	# Test 12: Heatwave Callback on Dead, 0-HP, and Queued-For-Deletion Citizens
+	# -------------------------------------------------------------------------
+	print("\n--- Test 12: Heatwave Callback Safety on Dead / 0-HP / Queued-For-Deletion Citizens ---")
+	es.trigger_event_by_id("heatwave", 45, rm, em, [cit_injured])
+	cit_dead_flag.fatigue = 30.0
+	cit_dead_flag._on_hour_passed(12, 45)
+	_assert(is_equal_approx(cit_dead_flag.fatigue, 30.0), "Dead citizen (_death_processed=true) ignores _on_hour_passed during heatwave (fatigue remained %.1f)" % cit_dead_flag.fatigue)
+
+	cit_zero_hp.fatigue = 25.0
+	cit_zero_hp._on_hour_passed(12, 45)
+	_assert(is_equal_approx(cit_zero_hp.fatigue, 25.0), "Zero-HP citizen (health=0.0) ignores _on_hour_passed during heatwave (fatigue remained %.1f)" % cit_zero_hp.fatigue)
+
+	var cit_queued = CitizenControllerScript.new()
+	cit_queued.init_citizen("cit_queued", "Dân Sắp Xóa", "idle", Vector2i(32, 32), nav, job_mgr, wp_mgr)
+	cit_queued.health = 70.0
+	cit_queued.morale = 70.0
+	root.add_child(cit_queued)
+	cit_queued.queue_free()
+	_assert(cit_queued.is_queued_for_deletion(), "cit_queued is marked is_queued_for_deletion()")
+	var queued_ev: Dictionary = es.get_event_definition("wandering_herbalist")
+	var queued_affected: int = es.apply_citizen_effects(queued_ev, [cit_queued, null])
+	_assert(queued_affected == 0 and is_equal_approx(cit_queued.health, 70.0), "Queued-for-deletion and null citizen entries are safely skipped by apply_citizen_effects")
+
+	# -------------------------------------------------------------------------
+	# Test 13: WorldEventSystem Serialization, Deserialization, Legacy Reset & RNG Continuation
+	# -------------------------------------------------------------------------
+	print("\n--- Test 13: WorldEventSystem Serialization, Deserialization & RNG Stream Continuation ---")
+	var es_persist = WorldEventSystemScript.new(77777)
+	es_persist.trigger_event_by_id("bountiful_harvest", 10, rm, em, [])
+	es_persist.trigger_event_by_id("heatwave", 11, rm, em, [])
+	var snap: Dictionary = es_persist.serialize()
+
+	_assert(int(snap.get("last_event_day", -1)) == 11, "Serialized last_event_day == 11")
+	_assert(is_equal_approx(float(snap.get("active_farm_modifier_bonus", 0.0)), 0.5), "Serialized active_farm_modifier_bonus == 0.5")
+	_assert(int(snap.get("farm_bonus_expires_day", -1)) == 12, "Serialized farm_bonus_expires_day == 12")
+	_assert(is_equal_approx(float(snap.get("active_fatigue_multiplier", 1.0)), 1.25), "Serialized active_fatigue_multiplier == 1.25")
+	_assert(int(snap.get("fatigue_mult_expires_day", -1)) == 13, "Serialized fatigue_mult_expires_day == 13")
+	_assert(String(snap.get("rng_state", "")).is_valid_int(), "Serialized rng_state is a valid integer string")
+
+	# Compute reference next event on Day 15 from es_persist
+	var ref_next_ev: Dictionary = es_persist.check_and_trigger_event(15, null, null, [])
+
+	# Restore into a fresh instance on Day 11 (both modifiers still active)
+	var es_restored = WorldEventSystemScript.new(11111)
+	es_restored.deserialize(snap, 11)
+	_assert(is_equal_approx(es_restored.get_active_farm_modifier_bonus(11), 0.5), "Restored farm bonus is 0.5 on Day 11")
+	_assert(is_equal_approx(es_restored.get_active_fatigue_multiplier(11), 1.25), "Restored fatigue multiplier is 1.25 on Day 11")
+	_assert(es_restored.check_and_trigger_event(12, null, null, []).is_empty(), "Cooldown preserved after deserialize (Day 12 blocked since last_event_day=11)")
+	_assert(is_equal_approx(es_restored.get_active_farm_modifier_bonus(12), 0.0), "Restored farm bonus expires cleanly on Day 12")
+	_assert(is_equal_approx(es_restored.get_active_fatigue_multiplier(12), 1.25), "Restored heatwave remains active on Day 12")
+	_assert(is_equal_approx(es_restored.get_active_fatigue_multiplier(13), 1.0), "Restored heatwave expires cleanly on Day 13")
+
+	var restored_next_ev: Dictionary = es_restored.check_and_trigger_event(15, null, null, [])
+	_assert(restored_next_ev.get("id", "") == ref_next_ev.get("id", ""), "Restored RNG state produces identical next scheduled event on Day 15 ('%s')" % str(restored_next_ev.get("id", "")))
+
+	# Legacy empty dictionary resets cleanly to baseline
+	es_restored.deserialize({}, 15)
+	_assert(es_restored.last_event_day == -99 and not es_restored.is_farm_bonus_active(15) and not es_restored.is_heatwave_active(15), "Legacy empty deserialize resets timed modifiers and last_event_day to baseline")
 
 	# Cleanup
 	farmer.queue_free()

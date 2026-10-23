@@ -57,6 +57,7 @@ const EVENTS: Array[Dictionary] = [
 var last_event_day: int = -99
 var min_days_between_events: int = 4
 var rng: RandomNumberGenerator
+var _initial_seed: int = 12345
 
 # Timed modifier state (BUG-04B & BUG-04C)
 var _active_farm_modifier_bonus: float = BASE_FARM_MODIFIER_BONUS
@@ -65,8 +66,73 @@ var _active_fatigue_multiplier: float = BASE_FATIGUE_MULTIPLIER
 var _fatigue_mult_expires_day: int = -1
 
 func _init(seed_val: int = 12345) -> void:
+	_initial_seed = seed_val + 9999
 	rng = RandomNumberGenerator.new()
-	rng.seed = seed_val + 9999
+	rng.seed = _initial_seed
+
+func reset_state() -> void:
+	last_event_day = -99
+	min_days_between_events = 4
+	_active_farm_modifier_bonus = BASE_FARM_MODIFIER_BONUS
+	_farm_bonus_expires_day = -1
+	_active_fatigue_multiplier = BASE_FATIGUE_MULTIPLIER
+	_fatigue_mult_expires_day = -1
+	rng.seed = _initial_seed
+
+func serialize() -> Dictionary:
+	return {
+		"last_event_day": last_event_day,
+		"min_days_between_events": min_days_between_events,
+		"active_farm_modifier_bonus": _active_farm_modifier_bonus,
+		"farm_bonus_expires_day": _farm_bonus_expires_day,
+		"active_fatigue_multiplier": _active_fatigue_multiplier,
+		"fatigue_mult_expires_day": _fatigue_mult_expires_day,
+		"rng_state": str(rng.state)
+	}
+
+func deserialize(data: Dictionary, current_day: int = -1) -> void:
+	reset_state()
+	if data == null or data.is_empty():
+		return
+
+	if data.has("last_event_day"):
+		var raw_last: int = int(data.get("last_event_day", -99))
+		if current_day >= 1 and raw_last > current_day:
+			raw_last = current_day
+		last_event_day = raw_last
+
+	if data.has("min_days_between_events"):
+		min_days_between_events = maxi(1, int(data.get("min_days_between_events", 4)))
+
+	var restored_farm_bonus: float = maxf(0.0, float(data.get("active_farm_modifier_bonus", BASE_FARM_MODIFIER_BONUS)))
+	var restored_farm_exp: int = int(data.get("farm_bonus_expires_day", -1))
+	if restored_farm_exp >= 1 and restored_farm_bonus > 0.0:
+		_active_farm_modifier_bonus = restored_farm_bonus
+		_farm_bonus_expires_day = restored_farm_exp
+	else:
+		_active_farm_modifier_bonus = BASE_FARM_MODIFIER_BONUS
+		_farm_bonus_expires_day = -1
+
+	var restored_fatigue_mult: float = float(data.get("active_fatigue_multiplier", BASE_FATIGUE_MULTIPLIER))
+	if is_nan(restored_fatigue_mult) or is_inf(restored_fatigue_mult) or restored_fatigue_mult <= 0.0:
+		restored_fatigue_mult = BASE_FATIGUE_MULTIPLIER
+	var restored_fatigue_exp: int = int(data.get("fatigue_mult_expires_day", -1))
+	if restored_fatigue_exp >= 1 and not is_equal_approx(restored_fatigue_mult, BASE_FATIGUE_MULTIPLIER):
+		_active_fatigue_multiplier = restored_fatigue_mult
+		_fatigue_mult_expires_day = restored_fatigue_exp
+	else:
+		_active_fatigue_multiplier = BASE_FATIGUE_MULTIPLIER
+		_fatigue_mult_expires_day = -1
+
+	if data.has("rng_state"):
+		var raw_rng = data.get("rng_state")
+		if raw_rng is String and String(raw_rng).is_valid_int():
+			rng.state = int(String(raw_rng))
+		elif raw_rng is int:
+			rng.state = raw_rng
+
+	if current_day >= 1:
+		update_daily_modifiers(current_day)
 
 func update_daily_modifiers(current_day: int) -> void:
 	if _farm_bonus_expires_day >= 0 and current_day >= _farm_bonus_expires_day:

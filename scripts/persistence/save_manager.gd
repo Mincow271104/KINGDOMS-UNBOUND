@@ -227,6 +227,11 @@ static func serialize_world_state(world_view: Node) -> Dictionary:
 	if imm_mgr != null and imm_mgr.has_method("serialize"):
 		data["immigration"] = imm_mgr.call("serialize")
 
+	# 15. World Event System (BUG-04: preserve timed farm/heatwave modifiers, cooldown, and RNG state)
+	var ev_sys = world_view.get("event_system")
+	if ev_sys != null and ev_sys.has_method("serialize"):
+		data["world_events"] = ev_sys.call("serialize")
+
 	return data
 
 static func save_to_file(world_view: Node, filepath: String = DEFAULT_SAVE_PATH) -> Dictionary:
@@ -584,6 +589,48 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 			if not rng_ok:
 				return {"valid": false, "error": "rng_state trong immigration phải là số nguyên hoặc chuỗi số nguyên hợp lệ: %s." % str(rng_st)}
 
+	# Validate optional world_events section (BUG-04 timed modifier & RNG persistence)
+	if json_dict.has("world_events"):
+		var ev_val = json_dict.get("world_events")
+		if not (ev_val is Dictionary):
+			return {"valid": false, "error": "Mục 'world_events' phải là một Dictionary hợp lệ."}
+		var max_allowed_ev_day: int = -1
+		if json_dict.has("game_clock") and (json_dict.get("game_clock") is Dictionary):
+			var gc_ev: Dictionary = json_dict.get("game_clock")
+			if gc_ev.has("current_day") and _is_valid_integer_val(gc_ev.get("current_day")):
+				max_allowed_ev_day = int(gc_ev.get("current_day"))
+		if ev_val.has("last_event_day"):
+			var led = ev_val.get("last_event_day")
+			if not _is_valid_integer_val(led) or int(led) < -99:
+				return {"valid": false, "error": "last_event_day trong world_events phải là số nguyên >= -99: %s." % str(led)}
+			if max_allowed_ev_day >= 1 and int(led) > max_allowed_ev_day:
+				return {"valid": false, "error": "last_event_day (%d) không thể lớn hơn current_day (%d)." % [int(led), max_allowed_ev_day]}
+		if ev_val.has("min_days_between_events"):
+			var mdbe = ev_val.get("min_days_between_events")
+			if not _is_valid_integer_val(mdbe) or int(mdbe) < 1 or int(mdbe) > 365:
+				return {"valid": false, "error": "min_days_between_events trong world_events phải là số nguyên trong [1, 365]: %s." % str(mdbe)}
+		if ev_val.has("active_farm_modifier_bonus"):
+			var fmb = ev_val.get("active_farm_modifier_bonus")
+			if not (fmb is int or fmb is float) or is_nan(float(fmb)) or is_inf(float(fmb)) or float(fmb) < 0.0 or float(fmb) > 10.0:
+				return {"valid": false, "error": "active_farm_modifier_bonus trong world_events phải là số thực trong [0.0, 10.0]: %s." % str(fmb)}
+		if ev_val.has("farm_bonus_expires_day"):
+			var fbed = ev_val.get("farm_bonus_expires_day")
+			if not _is_valid_integer_val(fbed) or (int(fbed) != -1 and int(fbed) < 1):
+				return {"valid": false, "error": "farm_bonus_expires_day trong world_events phải là -1 hoặc số nguyên >= 1: %s." % str(fbed)}
+		if ev_val.has("active_fatigue_multiplier"):
+			var afm = ev_val.get("active_fatigue_multiplier")
+			if not (afm is int or afm is float) or is_nan(float(afm)) or is_inf(float(afm)) or float(afm) <= 0.0 or float(afm) > 10.0:
+				return {"valid": false, "error": "active_fatigue_multiplier trong world_events phải là số thực trong (0.0, 10.0]: %s." % str(afm)}
+		if ev_val.has("fatigue_mult_expires_day"):
+			var fmed = ev_val.get("fatigue_mult_expires_day")
+			if not _is_valid_integer_val(fmed) or (int(fmed) != -1 and int(fmed) < 1):
+				return {"valid": false, "error": "fatigue_mult_expires_day trong world_events phải là -1 hoặc số nguyên >= 1: %s." % str(fmed)}
+		if ev_val.has("rng_state"):
+			var ev_rng = ev_val.get("rng_state")
+			var ev_rng_ok: bool = _is_valid_integer_val(ev_rng) or (ev_rng is String and not String(ev_rng).is_empty() and String(ev_rng).is_valid_int())
+			if not ev_rng_ok:
+				return {"valid": false, "error": "rng_state trong world_events phải là số nguyên hoặc chuỗi số nguyên hợp lệ: %s." % str(ev_rng)}
+
 	return {"valid": true, "error": ""}
 
 static func load_from_file(filepath: String = DEFAULT_SAVE_PATH) -> Dictionary:
@@ -802,6 +849,14 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 		if not (imm_data is Dictionary):
 			imm_data = {}
 		imm_mgr.call("deserialize", imm_data, saved_citizens, restored_clock_day)
+
+	# 4c. Restore World Event System state (BUG-04 timed modifiers, cooldown, and RNG continuation)
+	var ev_sys = world_view.get("event_system")
+	if ev_sys != null and ev_sys.has_method("deserialize"):
+		var ev_data = loaded_data.get("world_events", {})
+		if not (ev_data is Dictionary):
+			ev_data = {}
+		ev_sys.call("deserialize", ev_data, restored_clock_day)
 
 	# 5. Restore Research
 	var res_data_dict: Dictionary = loaded_data.get("research", {})
