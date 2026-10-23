@@ -545,6 +545,75 @@ func test_tc_fexec_8_invalid_input_fail_closed() -> void:
 	_assert_eq(merch_res.resources.get(EconomyConfigScript.RES_TOOLS, 0), 45, "TC-FEXEC.8-RECOVERED-TOOLS-45")
 	_assert_eq(fm_res.get_faction_last_executed_day("rival_merchant"), 1, "TC-FEXEC.8-RECOVERED-LAST-DAY-1")
 
+	# 7. BUG-1S-03: Prevent Gold Cap Regression and 64-bit Integer Overflow in trade_expansion
+	var fm_gold := FactionManagerScript.new()
+	var merch_gold: FactionData = fm_gold.get_faction("rival_merchant")
+
+	# 7a. Normal headroom near cap (985 -> 1000): bounded gain (+15) without exceeding cap
+	merch_gold.resources = {EconomyConfigScript.RES_GOLD: 985, EconomyConfigScript.RES_TOOLS: 50}
+	merch_gold.stability = 70.0
+	var snap_headroom: Dictionary = _take_snapshot(merch_gold)
+	var headroom_res: Dictionary = fm_gold.execute_faction_strategic_intent("rival_merchant", 1)
+	_assert_true(headroom_res.get("success", false), "TC-FEXEC.8-GOLD-HEADROOM-SUCCESS")
+	_assert_eq(headroom_res.get("reason_code", ""), FactionStrategyExecutorScript.REASON_EXECUTED, "TC-FEXEC.8-GOLD-HEADROOM-REASON")
+	_assert_eq(merch_gold.resources.get(EconomyConfigScript.RES_GOLD, 0), 1000, "TC-FEXEC.8-GOLD-HEADROOM-CLAMPED-1000")
+	_assert_eq(merch_gold.resources.get(EconomyConfigScript.RES_TOOLS, 0), 45, "TC-FEXEC.8-GOLD-HEADROOM-TOOLS-45")
+	_assert_approx(merch_gold.stability, 72.0, "TC-FEXEC.8-GOLD-HEADROOM-STAB-72")
+	_assert_eq(int(headroom_res.get("changes", {}).get("gold", -1)), 1000, "TC-FEXEC.8-GOLD-HEADROOM-CHANGES-GOLD")
+	_assert_eq(int(headroom_res.get("changes", {}).get("resources_delta", {}).get(EconomyConfigScript.RES_GOLD, -1)), 15, "TC-FEXEC.8-GOLD-HEADROOM-DELTA-15")
+	_assert_eq(int(headroom_res.get("changes", {}).get("resources_delta", {}).get(EconomyConfigScript.RES_TOOLS, 0)), -5, "TC-FEXEC.8-GOLD-HEADROOM-TOOLS-DELTA")
+	_assert_eq(fm_gold.get_faction_last_executed_day("rival_merchant"), 1, "TC-FEXEC.8-GOLD-HEADROOM-LAST-DAY-1")
+	_assert_eq(merch_gold.military_power, snap_headroom["military_power"], "TC-FEXEC.8-GOLD-HEADROOM-MIL-UNCHANGED")
+	_assert_eq(merch_gold.population, snap_headroom["population"], "TC-FEXEC.8-GOLD-HEADROOM-POP-UNCHANGED")
+
+	# 7b. Exactly at Gold cap (1000) with stability below cap (72.0 < 95.0): Gold remains 1000 (delta 0), stability +2.0, Tools -5
+	var snap_exact_cap: Dictionary = _take_snapshot(merch_gold)
+	var exact_cap_res: Dictionary = fm_gold.execute_faction_strategic_intent("rival_merchant", 2)
+	_assert_true(exact_cap_res.get("success", false), "TC-FEXEC.8-GOLD-EXACT-CAP-SUCCESS")
+	_assert_eq(exact_cap_res.get("reason_code", ""), FactionStrategyExecutorScript.REASON_EXECUTED, "TC-FEXEC.8-GOLD-EXACT-CAP-REASON")
+	_assert_eq(merch_gold.resources.get(EconomyConfigScript.RES_GOLD, 0), 1000, "TC-FEXEC.8-GOLD-EXACT-CAP-REMAINS-1000")
+	_assert_eq(merch_gold.resources.get(EconomyConfigScript.RES_TOOLS, 0), 40, "TC-FEXEC.8-GOLD-EXACT-CAP-TOOLS-40")
+	_assert_approx(merch_gold.stability, 74.0, "TC-FEXEC.8-GOLD-EXACT-CAP-STAB-74")
+	_assert_eq(int(exact_cap_res.get("changes", {}).get("gold", -1)), 1000, "TC-FEXEC.8-GOLD-EXACT-CAP-CHANGES-GOLD")
+	_assert_eq(int(exact_cap_res.get("changes", {}).get("resources_delta", {}).get(EconomyConfigScript.RES_GOLD, -1)), 0, "TC-FEXEC.8-GOLD-EXACT-CAP-DELTA-0")
+	_assert_eq(fm_gold.get_faction_last_executed_day("rival_merchant"), 2, "TC-FEXEC.8-GOLD-EXACT-CAP-LAST-DAY-2")
+	_assert_eq(merch_gold.military_power, snap_exact_cap["military_power"], "TC-FEXEC.8-GOLD-EXACT-CAP-MIL-UNCHANGED")
+	_assert_eq(merch_gold.population, snap_exact_cap["population"], "TC-FEXEC.8-GOLD-EXACT-CAP-POP-UNCHANGED")
+
+	# 7c. Above Gold cap (1200) with stability below cap (74.0 < 95.0): Gold MUST remain 1200 (never reduced to 1000), stability +2.0, Tools -5
+	merch_gold.resources[EconomyConfigScript.RES_GOLD] = 1200
+	var snap_above_cap: Dictionary = _take_snapshot(merch_gold)
+	var above_cap_res: Dictionary = fm_gold.execute_faction_strategic_intent("rival_merchant", 3)
+	_assert_true(above_cap_res.get("success", false), "TC-FEXEC.8-GOLD-ABOVE-CAP-SUCCESS")
+	_assert_eq(above_cap_res.get("reason_code", ""), FactionStrategyExecutorScript.REASON_EXECUTED, "TC-FEXEC.8-GOLD-ABOVE-CAP-REASON")
+	_assert_eq(merch_gold.resources.get(EconomyConfigScript.RES_GOLD, 0), 1200, "TC-FEXEC.8-GOLD-ABOVE-CAP-REMAINS-1200")
+	_assert_eq(merch_gold.resources.get(EconomyConfigScript.RES_TOOLS, 0), 35, "TC-FEXEC.8-GOLD-ABOVE-CAP-TOOLS-35")
+	_assert_approx(merch_gold.stability, 76.0, "TC-FEXEC.8-GOLD-ABOVE-CAP-STAB-76")
+	_assert_eq(int(above_cap_res.get("changes", {}).get("gold", -1)), 1200, "TC-FEXEC.8-GOLD-ABOVE-CAP-CHANGES-GOLD")
+	_assert_eq(int(above_cap_res.get("changes", {}).get("resources_delta", {}).get(EconomyConfigScript.RES_GOLD, -1)), 0, "TC-FEXEC.8-GOLD-ABOVE-CAP-DELTA-0")
+	_assert_eq(int(above_cap_res.get("changes", {}).get("resources_delta", {}).get(EconomyConfigScript.RES_TOOLS, 0)), -5, "TC-FEXEC.8-GOLD-ABOVE-CAP-TOOLS-DELTA")
+	_assert_eq(fm_gold.get_faction_last_executed_day("rival_merchant"), 3, "TC-FEXEC.8-GOLD-ABOVE-CAP-LAST-DAY-3")
+	_assert_eq(merch_gold.military_power, snap_above_cap["military_power"], "TC-FEXEC.8-GOLD-ABOVE-CAP-MIL-UNCHANGED")
+	_assert_eq(merch_gold.population, snap_above_cap["population"], "TC-FEXEC.8-GOLD-ABOVE-CAP-POP-UNCHANGED")
+
+	# 7d. Maximum signed 64-bit integer (9223372036854775807) as Gold: must NEVER overflow to negative or lose Gold
+	const MAX_INT64: int = 9223372036854775807
+	merch_gold.resources[EconomyConfigScript.RES_GOLD] = MAX_INT64
+	var snap_max_int: Dictionary = _take_snapshot(merch_gold)
+	var max_int_res: Dictionary = fm_gold.execute_faction_strategic_intent("rival_merchant", 4)
+	_assert_true(max_int_res.get("success", false), "TC-FEXEC.8-GOLD-MAX-INT64-SUCCESS")
+	_assert_eq(max_int_res.get("reason_code", ""), FactionStrategyExecutorScript.REASON_EXECUTED, "TC-FEXEC.8-GOLD-MAX-INT64-REASON")
+	_assert_eq(merch_gold.resources.get(EconomyConfigScript.RES_GOLD, 0), MAX_INT64, "TC-FEXEC.8-GOLD-MAX-INT64-PRESERVED")
+	_assert_true(int(merch_gold.resources.get(EconomyConfigScript.RES_GOLD, 0)) > 0, "TC-FEXEC.8-GOLD-MAX-INT64-POSITIVE")
+	_assert_eq(merch_gold.resources.get(EconomyConfigScript.RES_TOOLS, 0), 30, "TC-FEXEC.8-GOLD-MAX-INT64-TOOLS-30")
+	_assert_approx(merch_gold.stability, 78.0, "TC-FEXEC.8-GOLD-MAX-INT64-STAB-78")
+	_assert_eq(int(max_int_res.get("changes", {}).get("gold", -1)), MAX_INT64, "TC-FEXEC.8-GOLD-MAX-INT64-CHANGES-GOLD")
+	_assert_eq(int(max_int_res.get("changes", {}).get("resources_delta", {}).get(EconomyConfigScript.RES_GOLD, -1)), 0, "TC-FEXEC.8-GOLD-MAX-INT64-DELTA-0")
+	_assert_eq(int(max_int_res.get("changes", {}).get("resources_delta", {}).get(EconomyConfigScript.RES_TOOLS, 0)), -5, "TC-FEXEC.8-GOLD-MAX-INT64-TOOLS-DELTA")
+	_assert_eq(fm_gold.get_faction_last_executed_day("rival_merchant"), 4, "TC-FEXEC.8-GOLD-MAX-INT64-LAST-DAY-4")
+	_assert_eq(merch_gold.military_power, snap_max_int["military_power"], "TC-FEXEC.8-GOLD-MAX-INT64-MIL-UNCHANGED")
+	_assert_eq(merch_gold.population, snap_max_int["population"], "TC-FEXEC.8-GOLD-MAX-INT64-POP-UNCHANGED")
+
 # -----------------------------------------------------------------------------
 # TC-FEXEC.9: Same-day idempotency & deterministic alphabetical order
 # -----------------------------------------------------------------------------

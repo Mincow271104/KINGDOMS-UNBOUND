@@ -266,8 +266,10 @@ func _execute_trade_expansion(fac: FactionData, day: int, posture: String) -> Di
 	var changes: Dictionary = {}
 	_deduct_resources(fac, cost, changes)
 
-	var new_gold: int = mini(cur_gold + TRADE_EXPANSION_GAIN_GOLD, TRADE_EXPANSION_CAP_GOLD)
-	var gold_gain: int = new_gold - cur_gold
+	var gold_gain: int = 0
+	if cur_gold < TRADE_EXPANSION_CAP_GOLD:
+		gold_gain = mini(TRADE_EXPANSION_GAIN_GOLD, TRADE_EXPANSION_CAP_GOLD - cur_gold)
+	var new_gold: int = cur_gold + gold_gain
 	fac.resources[EconomyConfig.RES_GOLD] = new_gold
 	changes["resources_delta"][EconomyConfig.RES_GOLD] = gold_gain
 	changes["gold"] = new_gold

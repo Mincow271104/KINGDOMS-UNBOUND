@@ -5163,3 +5163,54 @@ On branch `feature/package-1r-faction-strategic-decision-engine` starting from l
 
 ### Next Exact Step
 - Commit follow-up on `feature/package-1s-faction-strategic-intent-execution` with message `Validate faction strategy persistence against saved clock` and push to `origin/feature/package-1s-faction-strategic-intent-execution`.
+
+---
+
+## [2026-10-24] Package 1S Follow-Up 2: Prevent Gold Cap Regression and Integer Overflow (`BUG-1S-03`)
+
+### Status
+- **Phase:** Post-Gate 9 — Package 1S Follow-Up (`BUG-1S-03`)
+- **Branch:** `feature/package-1s-faction-strategic-intent-execution`
+- **Parent Commit:** `5ea1653eb624a3fc037ac29e9e3181262b870515`
+- **Milestone:** **COMPLETE (Ready for Commit & Push)**
+
+### Completed Work
+1. **`BUG-1S-03` — Pre-Addition Gold Headroom Calculation in `FactionStrategyExecutor._execute_trade_expansion()`:**
+   - Replaced `mini(cur_gold + TRADE_EXPANSION_GAIN_GOLD, TRADE_EXPANSION_CAP_GOLD)` in `scripts/factions/faction_strategy_executor.gd` with pre-addition headroom calculation:
+     - When `cur_gold < TRADE_EXPANSION_CAP_GOLD`, `gold_gain = mini(TRADE_EXPANSION_GAIN_GOLD, TRADE_EXPANSION_CAP_GOLD - cur_gold)`.
+     - When `cur_gold >= TRADE_EXPANSION_CAP_GOLD`, `gold_gain = 0` so existing Gold above `1000` is preserved rather than reduced to `1000`, and adding `gold_gain` to `cur_gold` near 64-bit integer limits (`9223372036854775807`) can never overflow or wrap negative.
+   - Updated `changes["resources_delta"][EconomyConfig.RES_GOLD]` and `changes["gold"]` consistently with `gold_gain` and `new_gold = cur_gold + gold_gain`.
+2. **Expanded Deterministic Regression Tests (`scripts/test/test_faction_strategy_execution.gd`):**
+   - Extended `TC-FEXEC.8` (Section 7a–7d) with explicit assertions and snapshots covering:
+     - Normal headroom near cap (`985 -> 1000`, delta `+15`, Tools `-5`, stability `+2.0`).
+     - Exactly at Gold cap (`1000 -> 1000`, delta `0`, Tools `-5`, stability `+2.0`).
+     - Above Gold cap (`1200 -> 1200`, delta `0` without reducing existing Gold, Tools `-5`, stability `+2.0`).
+     - Maximum signed 64-bit integer (`9223372036854775807`) as Gold (`MAX_INT64` preserved positive, delta `0`, Tools `-5`, stability `+2.0`, `last_executed_day` updated).
+3. **Updated Documentation:**
+   - Updated `docs/TEST_PLAN.md` and `docs/WORKLOG.md` with the `BUG-1S-03` fix and final test results (preserving accurate `test_army_movement.gd` accounting: 32 test-case IDs `TC-MOVE.1`..`TC-MOVE.32` and 33 `[PASS]` lines).
+
+### Verification & Test Evidence (Independent Runs on Final Source)
+- `scripts/test/test_faction_strategy_execution.gd`: **PASS (Exit Code 0 — 951 Checks Passed, 0 Failed)**
+- `scripts/test/test_faction_strategy_planner.gd`: **PASS (Exit Code 0 — 7/7 TC Passed)**
+- `scripts/test/test_faction_profiles.gd`: **PASS (Exit Code 0 — 9/9 TC Passed)**
+- `scripts/test/test_emerging_faction_ascension.gd`: **PASS (Exit Code 0 — 11/11 TC Passed)**
+- `scripts/test/test_save_load.gd`: **PASS (Exit Code 0 — 107 Assertions Passed, 0 Failed)**
+- `scripts/test/test_factions_and_battles.gd`: **PASS (Exit Code 0 — 48 Assertions Passed, 0 Failed)**
+- `scripts/test/test_battle_diplomacy_consequences.gd`: **PASS (Exit Code 0 — 11/11 TC Passed)**
+- `scripts/test/test_offensive_campaign.gd`: **PASS (Exit Code 0 — 14/14 TC Passed)**
+- `scripts/test/test_live_battle_loop.gd`: **PASS (Exit Code 0 — 19/19 TC Passed)**
+- `scripts/test/test_army_movement.gd`: **PASS (Exit Code 0 — 32/32 TC Passed [TC-MOVE.1..TC-MOVE.32], 33 PASS lines)**
+- `scripts/test/test_player_army.gd`: **PASS (Exit Code 0 — 32/32 TC Passed)**
+- `scripts/test/test_world_events.gd`: **PASS (Exit Code 0 — 72 Assertions Passed, 0 Failed)**
+- `scripts/test/test_victory_and_collapse.gd`: **PASS (Exit Code 0 — TC-7.1..TC-7.4 All Passed)**
+- Headless Editor Parse & Class Registration (`--headless --path . --editor --quit`): **PASS (Exit Code 0)**
+- `git diff --check`: **PASS (Exit Code 0)**
+
+### Files Modified
+- `scripts/factions/faction_strategy_executor.gd`
+- `scripts/test/test_faction_strategy_execution.gd`
+- `docs/TEST_PLAN.md`
+- `docs/WORKLOG.md`
+
+### Next Exact Step
+- Commit follow-up on `feature/package-1s-faction-strategic-intent-execution` with message `Prevent faction trade gold overflow` and push to `origin/feature/package-1s-faction-strategic-intent-execution`.
