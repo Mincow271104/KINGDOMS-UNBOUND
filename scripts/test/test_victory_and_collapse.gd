@@ -15,9 +15,10 @@ func _init() -> void:
 	var pass_tc1: bool = _test_tc7_1_immigration()
 	var pass_tc2: bool = _test_tc7_2_prosperity_victory_hold()
 	var pass_tc3: bool = _test_tc7_3_collapse_triggers()
+	var pass_tc4: bool = _test_tc7_4_crisis_warning_priority()
 	
 	print("\n--------------------------------------------------------")
-	if pass_tc1 and pass_tc2 and pass_tc3:
+	if pass_tc1 and pass_tc2 and pass_tc3 and pass_tc4:
 		print("  ALL PHASE 7 TESTS PASSED SUCCESSFULLY! (Exit Code 0)")
 		print("--------------------------------------------------------\n")
 		quit(0)
@@ -218,4 +219,81 @@ func _test_tc7_3_collapse_triggers() -> bool:
 		return false
 	print("  [PASS] Collapse summary report validated.")
 	print("  [PASS] TC-7.3 PASSED.\n")
+	return true
+
+func _test_tc7_4_crisis_warning_priority() -> bool:
+	print("--- Running TC-7.4: Crisis Warning Priority & Anarchy Countdown (MISS-02) ---")
+	var vm := VictoryManager.new()
+	var warnings: Array[Dictionary] = []
+	vm.crisis_warning_issued.connect(func(data: Dictionary): warnings.append(data))
+
+	# 1. town_hall_alive == false takes highest priority even when stability <= 0 and food <= 0
+	warnings.clear()
+	vm.tick_hourly(20, 0, 0, 0.0, 10.0, 1, false, 5)
+	if warnings.size() != 1 or warnings[0].get("title", "") != "TÒA THỊ CHÍNH BỊ PHÁ HỦY!" or warnings[0].get("severity", "") != "emergency":
+		print("  [FAIL] Case 1: Town Hall ruin warning did not take top priority: %s" % [warnings])
+		return false
+	print("  [PASS] Case 1: Town Hall ruin takes top priority (emergency) over anarchy and starvation.")
+
+	# 2. town_hall_alive == true, stability <= 0.0, AND food <= 0 -> Anarchy countdown MUST take priority over starvation!
+	var vm_anarchy := VictoryManager.new()
+	var anarchy_warnings: Array[Dictionary] = []
+	vm_anarchy.crisis_warning_issued.connect(func(data: Dictionary): anarchy_warnings.append(data))
+	vm_anarchy.tick_hourly(20, 0, 100, 0.0, 50.0, 1, true, 5)
+	if anarchy_warnings.size() != 1 or anarchy_warnings[0].get("title", "") != "BẤT ỔN NGHIÊM TRỌNG (0%)":
+		print("  [FAIL] Case 2: Expected 'BẤT ỔN NGHIÊM TRỌNG (0%)' when stability=0 and food=0, got: %s" % [anarchy_warnings])
+		return false
+	if not String(anarchy_warnings[0].get("message", "")).contains("71.0 giờ"):
+		print("  [FAIL] Case 2: Expected 71.0h remaining anarchy countdown after 1 hour tick, got: %s" % anarchy_warnings[0].get("message", ""))
+		return false
+	print("  [PASS] Case 2: Stability 0% + Food 0 correctly emits 'BẤT ỔN NGHIÊM TRỌNG (0%)' with 71.0h countdown.")
+
+	# 3. Multiple hourly ticks with stability <= 0.0 and food <= 0 -> anarchy_hours increments and remaining countdown decreases
+	anarchy_warnings.clear()
+	vm_anarchy.tick_hourly(20, 0, 100, 0.0, 50.0, 1, true, 5)
+	if not is_equal_approx(vm_anarchy.anarchy_hours, 2.0) or not String(anarchy_warnings[0].get("message", "")).contains("70.0 giờ"):
+		print("  [FAIL] Case 3: Expected anarchy_hours=2.0 and 70.0h countdown, got hours=%f msg=%s" % [vm_anarchy.anarchy_hours, anarchy_warnings[0].get("message", "")])
+		return false
+	print("  [PASS] Case 3: Anarchy countdown decrements accurately across hourly ticks (70.0h remaining).")
+
+	# 4. town_hall_alive == true, stability > 0.0, food <= 0 -> Starvation warning emitted
+	warnings.clear()
+	vm.tick_hourly(20, 0, 100, 25.0, 50.0, 1, true, 5)
+	if warnings.size() != 1 or warnings[0].get("title", "") != "NẠN ĐÓI TOÀN DIỆN!":
+		print("  [FAIL] Case 4: Expected 'NẠN ĐÓI TOÀN DIỆN!' when stability > 0 and food <= 0, got: %s" % [warnings])
+		return false
+	print("  [PASS] Case 4: Starvation warning ('NẠN ĐÓI TOÀN DIỆN!') emitted when stability > 0 and food <= 0.")
+
+	# 5. town_hall_alive == true, stability > 0.0, 0 < food < 30 -> Medium food shortage warning
+	warnings.clear()
+	vm.tick_hourly(20, 15, 100, 50.0, 50.0, 1, true, 5)
+	if warnings.size() != 1 or warnings[0].get("title", "") != "LƯƠNG THỰC BÁO ĐỘNG":
+		print("  [FAIL] Case 5: Expected 'LƯƠNG THỰC BÁO ĐỘNG', got: %s" % [warnings])
+		return false
+	print("  [PASS] Case 5: Low food warning ('LƯƠNG THỰC BÁO ĐỘNG') emitted when 0 < food < 30.")
+
+	# 6. town_hall_alive == true, stability > 0.0, food >= 30, treasury <= 0 -> Treasury depleted warning
+	warnings.clear()
+	vm.tick_hourly(20, 50, 0, 50.0, 50.0, 1, true, 5)
+	if warnings.size() != 1 or warnings[0].get("title", "") != "NGÂN KHỐ CẠN KIỆT":
+		print("  [FAIL] Case 6: Expected 'NGÂN KHỐ CẠN KIỆT', got: %s" % [warnings])
+		return false
+	print("  [PASS] Case 6: Treasury depleted warning ('NGÂN KHỐ CẠN KIỆT') emitted when food >= 30 and treasury <= 0.")
+
+	# 7. town_hall_alive == true, stability > 0.0, food >= 30, treasury > 0, morale < 20.0 -> Morale collapse warning
+	warnings.clear()
+	vm.tick_hourly(20, 50, 100, 50.0, 15.0, 1, true, 5)
+	if warnings.size() != 1 or warnings[0].get("title", "") != "TINH THẦN SUY SỤP":
+		print("  [FAIL] Case 7: Expected 'TINH THẦN SUY SỤP', got: %s" % [warnings])
+		return false
+	print("  [PASS] Case 7: Low morale warning ('TINH THẦN SUY SỤP') emitted when morale < 20%.")
+
+	# 8. Normal healthy metrics -> Zero crisis warnings emitted
+	warnings.clear()
+	vm.tick_hourly(20, 50, 100, 50.0, 50.0, 1, true, 5)
+	if not warnings.is_empty():
+		print("  [FAIL] Case 8: Expected no crisis warnings under normal metrics, got: %s" % [warnings])
+		return false
+	print("  [PASS] Case 8: Zero crisis warnings emitted when all metrics are healthy.")
+	print("  [PASS] TC-7.4 PASSED.\n")
 	return true

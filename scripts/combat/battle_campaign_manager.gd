@@ -166,6 +166,9 @@ func is_faction_eligible_to_raid(faction_id: String) -> bool:
 	var fac: FactionData = fm.get_faction(faction_id)
 	if fac == null:
 		return false
+	# MISS-01: Only active factions may schedule or execute settlement raids.
+	if fac.existence_status != FactionData.STATUS_ACTIVE:
+		return false
 	return fac.is_at_war and fac.military_power > 0.0
 
 func has_pending_raid(faction_id: String) -> bool:
@@ -417,7 +420,7 @@ func resolve_and_apply_raid(faction_id: String, current_day: int = -1) -> Dictio
 
 	# C4. Schedule next raid or terminate campaign
 	var next_scheduled_day: int = -1
-	if fac.is_at_war and fac.military_power > 0.0:
+	if is_faction_eligible_to_raid(faction_id):
 		next_scheduled_day = current_day + SUBSEQUENT_RAID_INTERVAL_DAYS
 		_pending_raids[faction_id] = {
 			"scheduled_day": next_scheduled_day,
@@ -428,6 +431,8 @@ func resolve_and_apply_raid(faction_id: String, current_day: int = -1) -> Dictio
 		_pending_raids.erase(faction_id)
 		if fac.military_power <= 0.0:
 			raid_cancelled.emit(faction_id, "Quân lực đối phương đã bị tiêu diệt hoàn toàn")
+		elif fac.existence_status != FactionData.STATUS_ACTIVE:
+			raid_cancelled.emit(faction_id, "Thế lực đối phương không còn hoạt động trên bản đồ")
 
 	# C5. Apply Diplomatic Consequences (Package 1O)
 	if fm != null:
@@ -543,6 +548,10 @@ func can_launch_offensive_campaign(target_faction_id: String) -> Dictionary:
 	var fac: FactionData = fm.get_faction(target_faction_id)
 	if fac == null:
 		return {"can_attack": false, "reason": "Thế lực chỉ định không tồn tại."}
+
+	# MISS-01: Block offensive campaigns against non-active factions (in_exile / eliminated).
+	if fac.existence_status != FactionData.STATUS_ACTIVE:
+		return {"can_attack": false, "reason": "Thế lực %s không còn hoạt động trên bản đồ (%s), không thể phát động chiến dịch tấn công." % [fac.name, fac.existence_status]}
 
 	if not fac.is_at_war:
 		return {"can_attack": false, "reason": "Chưa tuyên chiến với %s. Chỉ có thể tấn công thế lực đang có chiến tranh." % fac.name}

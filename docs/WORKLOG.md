@@ -4961,3 +4961,77 @@ Performed a post-commit audit of Batch 3B (`70522e61a475812433bc09eb7673b794308d
 
 ### Next Exact Step
 - Commit follow-up hardening locally with message `Harden world event persistence and regression coverage` (without pushing to remote) and await review / Batch 3C instructions.
+
+---
+
+## [2026-10-23] Batch 3C: Faction Status Guards & Crisis Warning Priority (`MISS-01` & `MISS-02`)
+
+### Context & Objective
+On branch `feature/package-1r-faction-strategic-decision-engine` starting from local HEAD `bb3cfe76ff50ffe023da96a65f933f7ce212c83b` (`ahead 5` of `origin/feature/package-1r-faction-strategic-decision-engine` at `6e93bc92f716c03b08d97cbae044ab21ea79734b`), completed:
+1. **`MISS-01` — Faction `existence_status` Action & Combat Guards (`scripts/factions/faction_manager.gd`, `scripts/combat/battle_campaign_manager.gd`):**
+   - Audited and standardized `existence_status` (`active`, `in_exile`, `eliminated`) guards across diplomatic gift sending, treaties (`nap`, `alliance`, `peace`), war declarations, settlement raid eligibility/scheduling/resolution, and player-led offensive campaigns.
+2. **`MISS-02` — Crisis Warning Priority (`scripts/core/victory_manager.gd`):**
+   - Reordered `VictoryManager._evaluate_crises()` so the 72-hour prolonged anarchy collapse countdown (`stability <= 0.0`) is evaluated immediately after Town Hall destruction (`not town_hall_alive`) and **before** `food <= 0` (`"NẠN ĐÓI TOÀN DIỆN!"`), preventing starvation warnings from masking an imminent anarchy collapse countdown when `food <= 0` simultaneously drives `stability` to `0.0`.
+
+### `MISS-01` Policy Matrix by `existence_status`
+| Action / Entry Point | `STATUS_ACTIVE` (`"active"`) | `STATUS_IN_EXILE` (`"in_exile"`) | `STATUS_ELIMINATED` (`"eliminated"`) |
+|---|---|---|---|
+| `FactionManager.send_gift()` | Allowed when amount/resources valid | **Rejected** before resource check/deduction, opinion change, or `relation_changed` signal | **Rejected** before resource check/deduction, opinion change, or `relation_changed` signal |
+| `FactionManager.propose_treaty(..., "nap")` | Allowed when not at war and `opinion >= 0.0` | **Rejected** before state mutation or signal | **Rejected** before state mutation or signal |
+| `FactionManager.propose_treaty(..., "alliance")` | Allowed when not at war and `opinion >= 60.0` | **Rejected** before state mutation or signal | **Rejected** before state mutation or signal |
+| `FactionManager.propose_treaty(..., "peace")` | Allowed when `is_at_war == true` | **Allowed** when `is_at_war == true` so exiled factions are never trapped in perpetual war | **Rejected** before state mutation or signal |
+| `FactionManager.declare_war()` | Allowed when `not is_at_war` | **Rejected** before state mutation or signal | **Rejected** before state mutation or signal |
+| `BattleCampaignManager.is_faction_eligible_to_raid()` / `schedule_raid()` | Eligible when `is_at_war` and `military_power > 0.0` | **Ineligible (`false`)**; `schedule_raid()` returns `false` with zero signals | **Ineligible (`false`)**; `schedule_raid()` returns `false` with zero signals |
+| `BattleCampaignManager.resolve_and_apply_raid()` | Resolves due raid and schedules next raid only if still `is_faction_eligible_to_raid()` | **Cancels** pending raid and returns `{"success": false}` with zero casualties, zero plunder, and zero `battle_resolved` signals | **Cancels** pending raid and returns `{"success": false}` with zero casualties, zero plunder, and zero `battle_resolved` signals |
+| `BattleCampaignManager.can_launch_offensive_campaign()` / `launch_offensive_campaign()` | Allowed when at war, `military_power > 0.0`, and player army `IDLE_AT_FIELD` away from rally | **Rejected** (`can_attack = false`, `success = false`) with zero casualties, zero opinion/power mutation, and zero signals | **Rejected** (`can_attack = false`, `success = false`) with zero casualties, zero opinion/power mutation, and zero signals |
+
+### `MISS-02` Crisis Warning Priority Order (`VictoryManager._evaluate_crises`)
+1. `not town_hall_alive` — `severity: "emergency"`, `"TÒA THỊ CHÍNH BỊ PHÁ HỦY!"` (72h Town Hall ruin collapse countdown)
+2. `stability <= 0.0` — `severity: "critical"`, `"BẤT ỔN NGHIÊM TRỌNG (0%)"` (72h prolonged anarchy collapse countdown)
+3. `food <= 0` — `severity: "critical"`, `"NẠN ĐÓI TOÀN DIỆN!"`
+4. `food < 30` — `severity: "medium"`, `"LƯƠNG THỰC BÁO ĐỘNG"`
+5. `treasury <= 0` — `severity: "medium"`, `"NGÂN KHỐ CẠN KIỆT"`
+6. `morale < 20.0` — `severity: "medium"`, `"TINH THẦN SUY SỤP"`
+
+### Completed Work
+1. **`FactionManager` Guards (`scripts/factions/faction_manager.gd`):**
+   - Added fail-closed `existence_status` validation at the start of `send_gift()` before `resource_mgr` stock checks or `consume_resource()` calls.
+   - Refined `propose_treaty()` to validate `fac.existence_status in FactionData.VALID_EXISTENCE_STATUSES`, require `STATUS_ACTIVE` for `"nap"` and `"alliance"`, and allow `"peace"` for both `STATUS_ACTIVE` and `STATUS_IN_EXILE` (when `is_at_war == true`) while rejecting `STATUS_ELIMINATED`.
+   - Hardened `declare_war()` to validate `VALID_EXISTENCE_STATUSES` and require `STATUS_ACTIVE`.
+2. **`BattleCampaignManager` Guards (`scripts/combat/battle_campaign_manager.gd`):**
+   - Updated `is_faction_eligible_to_raid()` to require `fac.existence_status == FactionData.STATUS_ACTIVE`.
+   - Updated post-raid rescheduling in `resolve_and_apply_raid()` (Step C4) to check `is_faction_eligible_to_raid(faction_id)` and emit `raid_cancelled` if the faction is no longer active.
+   - Updated `can_launch_offensive_campaign()` to reject targets whose `existence_status != FactionData.STATUS_ACTIVE` before any offensive battle execution.
+3. **`VictoryManager` Crisis Priority (`scripts/core/victory_manager.gd`):**
+   - Moved `elif stability <= 0.0:` immediately after `if not town_hall_alive:` and above `elif food <= 0:` in `_evaluate_crises()`.
+4. **Expanded Deterministic Test Suites (`scripts/test/test_factions_and_battles.gd`, `scripts/test/test_victory_and_collapse.gd`):**
+   - Added `test_faction_existence_status_action_guards()` (`48` assertions total) in `scripts/test/test_factions_and_battles.gd` covering all 11 `MISS-01` scenarios.
+   - Added `_test_tc7_4_crisis_warning_priority()` (`TC-7.4`) in `scripts/test/test_victory_and_collapse.gd` covering all 8 `MISS-02` crisis priority scenarios via `tick_hourly()`.
+
+### Verification & Test Evidence (Independent Runs)
+- `scripts/test/test_factions_and_battles.gd`: **PASS (Exit Code 0 — 48 Assertions Passed, 0 Failed)**
+- `scripts/test/test_battle_diplomacy_consequences.gd`: **PASS (Exit Code 0)**
+- `scripts/test/test_victory_and_collapse.gd`: **PASS (Exit Code 0 — TC-7.1..TC-7.4 All Passed)**
+- `scripts/test/test_faction_profiles.gd`: **PASS (Exit Code 0)**
+- `scripts/test/test_faction_strategy_planner.gd`: **PASS (Exit Code 0)**
+- `scripts/test/test_offensive_campaign.gd`: **PASS (Exit Code 0)**
+- `scripts/test/test_live_battle_loop.gd`: **PASS (Exit Code 0)**
+- `scripts/test/test_army_movement.gd`: **PASS (Exit Code 0)**
+- `scripts/test/test_save_load.gd`: **PASS (Exit Code 0 — 107 Assertions Passed, 0 Failed)**
+- `scripts/test/test_world_events.gd`: **PASS (Exit Code 0 — 72 Assertions Passed, 0 Failed)**
+- `scripts/test/test_citizens.gd`: **PASS (Exit Code 0)**
+- `scripts/test/test_economy.gd`: **PASS (Exit Code 0)**
+- `scripts/test/test_time_manager.gd`: **PASS (Exit Code 0)**
+- Headless Editor Parse & Class Registration (`--headless --path . --editor --quit`): **PASS (Exit Code 0)**
+- `git diff --check`: **PASS (Exit Code 0)**
+
+### Files Modified
+- `scripts/factions/faction_manager.gd`
+- `scripts/combat/battle_campaign_manager.gd`
+- `scripts/core/victory_manager.gd`
+- `scripts/test/test_factions_and_battles.gd`
+- `scripts/test/test_victory_and_collapse.gd`
+- `docs/WORKLOG.md`
+
+### Next Exact Step
+- Commit Batch 3C locally with message `Harden faction status actions and crisis warning priority` (without pushing to remote) and await review / next instructions.

@@ -178,20 +178,20 @@ func _evaluate_crises(food: int, treasury: int, morale: float, stability: float,
 			"message": "Trung tâm quản trị đã sụp đổ! Thời gian tái thiết còn lại: %.1f giờ trước khi vương quốc tan rã." % (MAX_TOWNHALL_RUIN_HOURS - townhall_ruin_hours),
 			"recommended_action": "Xây dựng lại Tòa Thị Chính ngay lập tức!"
 		})
+	elif stability <= 0.0:
+		# MISS-02 fix: Evaluate critical 72h anarchy collapse countdown BEFORE starvation warning so collapse risk is never masked when food <= 0 also drives stability to 0.
+		crisis_warning_issued.emit({
+			"severity": "critical",
+			"title": "BẤT ỔN NGHIÊM TRỌNG (0%)",
+			"message": "Xã hội rơi vào hỗn loạn. Còn %.1f giờ trước khi sụp đổ hoàn toàn." % (MAX_ANARCHY_HOURS - anarchy_hours),
+			"recommended_action": "Cung cấp đầy đủ nhà ở, lương thực và nâng cao tinh thần người dân."
+		})
 	elif food <= 0:
 		crisis_warning_issued.emit({
 			"severity": "critical",
 			"title": "NẠN ĐÓI TOÀN DIỆN!",
 			"message": "Kho lương thực đã cạn sạch! Sức khỏe cư dân đang suy giảm 5%/ngày.",
 			"recommended_action": "Khẩn cấp bổ sung thêm nông dân hoặc mua lương thực từ thương nhân!"
-		})
-	elif stability <= 0.0:
-		# MISS-02 fix: Evaluate critical anarchy countdown before medium food shortage warning
-		crisis_warning_issued.emit({
-			"severity": "critical",
-			"title": "BẤT ỔN NGHIÊM TRỌNG (0%)",
-			"message": "Xã hội rơi vào hỗn loạn. Còn %.1f giờ trước khi sụp đổ hoàn toàn." % (MAX_ANARCHY_HOURS - anarchy_hours),
-			"recommended_action": "Cung cấp đầy đủ nhà ở, lương thực và nâng cao tinh thần người dân."
 		})
 	elif food < 30:
 		crisis_warning_issued.emit({

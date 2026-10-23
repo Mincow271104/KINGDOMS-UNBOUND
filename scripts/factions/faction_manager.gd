@@ -120,6 +120,9 @@ func send_gift(faction_id: String, resource_id: String, amount: int, resource_mg
 	var fac: FactionData = get_faction(faction_id)
 	if fac == null:
 		return {"success": false, "reason": "Thế lực không tồn tại"}
+	# MISS-01: Block gifts to non-active factions (eliminated / in_exile / invalid) before resource check or deduction.
+	if not FactionData.VALID_EXISTENCE_STATUSES.has(fac.existence_status) or fac.existence_status != FactionData.STATUS_ACTIVE:
+		return {"success": false, "reason": "Không thể gửi quà tặng cho thế lực không còn hoạt động (%s)" % fac.existence_status}
 		
 	if amount <= 0:
 		return {"success": false, "reason": "Số lượng quà tặng không hợp lệ"}
@@ -155,12 +158,14 @@ func propose_treaty(faction_id: String, treaty_type: String) -> Dictionary:
 	var fac: FactionData = get_faction(faction_id)
 	if fac == null:
 		return {"success": false, "reason": "Thế lực không tồn tại"}
-	# MISS-01: Block diplomatic actions with non-active factions (eliminated / in_exile).
-	if fac.existence_status != FactionData.STATUS_ACTIVE:
-		return {"success": false, "reason": "Không thể ký hiệp ước với thế lực không còn hoạt động (%s)" % fac.existence_status}
+	if not FactionData.VALID_EXISTENCE_STATUSES.has(fac.existence_status):
+		return {"success": false, "reason": "Trạng thái tồn tại của thế lực không hợp lệ (%s)" % fac.existence_status}
 		
 	match treaty_type:
 		"nap":
+			# MISS-01: Only active factions may sign new non-aggression pacts.
+			if fac.existence_status != FactionData.STATUS_ACTIVE:
+				return {"success": false, "reason": "Không thể ký hiệp ước không xâm phạm với thế lực không còn hoạt động (%s)" % fac.existence_status}
 			if fac.is_at_war:
 				return {"success": false, "reason": "Đang có chiến tranh, không thể ký hiệp ước bất tương xâm phạm"}
 			if fac.opinion < 0.0:
@@ -171,6 +176,9 @@ func propose_treaty(faction_id: String, treaty_type: String) -> Dictionary:
 			return {"success": true, "message": "Đã ký kết Hiệp Ước Không Xâm Phạm thành công"}
 			
 		"alliance":
+			# MISS-01: Only active factions may sign new defensive alliances.
+			if fac.existence_status != FactionData.STATUS_ACTIVE:
+				return {"success": false, "reason": "Không thể ký liên minh với thế lực không còn hoạt động (%s)" % fac.existence_status}
 			if fac.is_at_war:
 				return {"success": false, "reason": "Đang có chiến tranh"}
 			if fac.opinion < 60.0:
@@ -181,6 +189,9 @@ func propose_treaty(faction_id: String, treaty_type: String) -> Dictionary:
 			return {"success": true, "message": "Đã ký kết Liên Minh Phòng Thủ thành công"}
 			
 		"peace":
+			# MISS-01: Active and in-exile factions may sign peace to resolve an ongoing war; eliminated factions cannot.
+			if fac.existence_status == FactionData.STATUS_ELIMINATED:
+				return {"success": false, "reason": "Không thể ký hiệp định đình chiến với thế lực đã bị tiêu diệt (%s)" % fac.existence_status}
 			if not fac.is_at_war:
 				return {"success": false, "reason": "Hai bên đang trong trạng thái hòa bình"}
 			fac.sign_peace()
@@ -196,7 +207,7 @@ func declare_war(faction_id: String) -> Dictionary:
 	if fac == null:
 		return {"success": false, "reason": "Thế lực không tồn tại"}
 	# MISS-01: Block war declaration against non-active factions.
-	if fac.existence_status != FactionData.STATUS_ACTIVE:
+	if not FactionData.VALID_EXISTENCE_STATUSES.has(fac.existence_status) or fac.existence_status != FactionData.STATUS_ACTIVE:
 		return {"success": false, "reason": "Không thể tuyên chiến với thế lực không còn hoạt động (%s)" % fac.existence_status}
 	if fac.is_at_war:
 		return {"success": false, "reason": "Đã ở trong tình trạng chiến tranh"}
