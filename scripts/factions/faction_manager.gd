@@ -155,6 +155,9 @@ func propose_treaty(faction_id: String, treaty_type: String) -> Dictionary:
 	var fac: FactionData = get_faction(faction_id)
 	if fac == null:
 		return {"success": false, "reason": "Thế lực không tồn tại"}
+	# MISS-01: Block diplomatic actions with non-active factions (eliminated / in_exile).
+	if fac.existence_status != FactionData.STATUS_ACTIVE:
+		return {"success": false, "reason": "Không thể ký hiệp ước với thế lực không còn hoạt động (%s)" % fac.existence_status}
 		
 	match treaty_type:
 		"nap":
@@ -192,6 +195,9 @@ func declare_war(faction_id: String) -> Dictionary:
 	var fac: FactionData = get_faction(faction_id)
 	if fac == null:
 		return {"success": false, "reason": "Thế lực không tồn tại"}
+	# MISS-01: Block war declaration against non-active factions.
+	if fac.existence_status != FactionData.STATUS_ACTIVE:
+		return {"success": false, "reason": "Không thể tuyên chiến với thế lực không còn hoạt động (%s)" % fac.existence_status}
 	if fac.is_at_war:
 		return {"success": false, "reason": "Đã ở trong tình trạng chiến tranh"}
 		

@@ -4771,3 +4771,42 @@ Address cross-package code review findings (Findings G and H) on branch `feature
 - Commit with exact message: `Respect faction status in ascension integration`.
 - Push branch `feature/package-1r-faction-strategic-decision-engine` to remote `origin`.
 - Await independent review before beginning Package 1S.
+
+---
+
+## [2026-10-23] Project Audit Bugfixes (Batches 1 & 2)
+
+### Context & Objective
+Following completion of Package 1R Cross-Package Review Fix (`6e93bc9`), performed a full codebase audit across persistence, economy, diplomacy, immigration, world events, and victory/crisis subsystems, and resolved the identified defects in two focused batches.
+
+### Completed Work
+1. **Batch 1 — Critical & Gameplay Fixes (`f7c1caa`):**
+   - **BUG-01 (`scripts/persistence/save_manager.gd`):** Replaced non-existent `TimeManager` properties (`total_elapsed_seconds`, `current_minute`, `current_season`, `is_paused`) with the authoritative `season_index` field during save serialization and restore, preventing calendar season loss on load.
+   - **BUG-02 (`scripts/economy/resource_manager.gd`):** Reset `_is_starving = false` inside `reset_economy()` so stale starvation state cannot persist across world resets or save loads.
+   - **BUG-04 (`scripts/world/world_view.gd`):** Applied `morale_penalty` and `heal_citizens` effects from `WorldEventSystem.check_and_trigger_event()` onto live `citizen_list` entities during `_on_simulation_day_passed()`.
+   - **BUG-05 (`scripts/persistence/save_manager.gd`):** Removed dead validation check for `"campaign_sequence"` in `validate_save_data()`, keeping validation aligned with the serialized `"offensive_sequence"` key.
+2. **Batch 2 — Diplomatic Guards, Crisis Priority & Immigration Persistence:**
+   - **MISS-01 (`scripts/factions/faction_manager.gd`):** Guarded `propose_treaty()` and `declare_war()` so diplomatic treaties and war declarations are rejected for non-active (`in_exile` or `eliminated`) factions.
+   - **MISS-02 (`scripts/core/victory_manager.gd`):** Ordered critical anarchy collapse countdown (`stability <= 0.0`) ahead of medium food warning (`food < 30`) in `_evaluate_crises()` so critical terminal warnings are never masked by medium-severity alerts.
+   - **DEBT-03 (`scripts/economy/immigration_manager.gd`, `scripts/persistence/save_manager.gd`):** Added `serialize()` and `deserialize()` to `ImmigrationManager` and integrated them into `SaveManager`, ensuring `next_citizen_index` never collides with existing `citizen_<N>` IDs after loading a saved world.
+
+### Verification & Test Evidence
+- `scripts/test/test_save_load.gd`: **PASS (Exit Code 0)**
+- `scripts/test/test_victory_and_collapse.gd`: **PASS (Exit Code 0)**
+- `scripts/test/test_factions_and_battles.gd`: **PASS (Exit Code 0)**
+- `scripts/test/test_faction_strategy_planner.gd`: **PASS (Exit Code 0 — 214 assertions)**
+- `scripts/test/test_faction_profiles.gd`: **PASS (Exit Code 0 — 217 assertions)**
+- `scripts/test/test_emerging_faction_ascension.gd`: **PASS (Exit Code 0 — 11/11 TC)**
+- `git diff --check`: **PASS (Exit Code 0)**
+
+### Files Modified
+- `scripts/persistence/save_manager.gd`
+- `scripts/economy/resource_manager.gd`
+- `scripts/world/world_view.gd`
+- `scripts/factions/faction_manager.gd`
+- `scripts/core/victory_manager.gd`
+- `scripts/economy/immigration_manager.gd`
+- `docs/WORKLOG.md`
+
+### Next Exact Step
+- Commit Batch 2 changes and await user direction on whether to proceed with Batch 3 (performance optimizations & remaining tech debt) or push to remote.

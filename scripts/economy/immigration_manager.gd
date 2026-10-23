@@ -119,3 +119,26 @@ func _generate_immigrant_data() -> Dictionary:
 		"health": 100.0,
 		"morale": 75.0
 	}
+
+func serialize() -> Dictionary:
+	return {
+		"last_immigration_day": last_immigration_day,
+		"total_immigrants_admitted": total_immigrants_admitted,
+		"next_citizen_index": next_citizen_index
+	}
+
+func deserialize(data: Dictionary, existing_citizens: Array = []) -> void:
+	last_immigration_day = maxi(0, int(data.get("last_immigration_day", 0)))
+	total_immigrants_admitted = maxi(0, int(data.get("total_immigrants_admitted", 0)))
+	var next_idx: int = maxi(25, int(data.get("next_citizen_index", 25)))
+	# DEBT-03 fix: Guarantee next_citizen_index never collides with any existing citizen_<N> ID
+	for c in existing_citizens:
+		if c is Dictionary and c.has("id"):
+			var cid_str: String = String(c["id"])
+			if cid_str.begins_with("citizen_"):
+				var num_part: String = cid_str.substr(8)
+				if num_part.is_valid_int():
+					var parsed_idx: int = int(num_part)
+					if parsed_idx >= next_idx:
+						next_idx = parsed_idx + 1
+	next_citizen_index = next_idx

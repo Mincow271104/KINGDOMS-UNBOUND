@@ -222,6 +222,11 @@ static func serialize_world_state(world_view: Node) -> Dictionary:
 	if army_mgr != null and army_mgr.has_method("serialize"):
 		data["player_army"] = army_mgr.call("serialize")
 
+	# 14. Immigration Manager (DEBT-03: preserve next_citizen_index to avoid ID collisions)
+	var imm_mgr = world_view.get("immigration_mgr")
+	if imm_mgr != null and imm_mgr.has_method("serialize"):
+		data["immigration"] = imm_mgr.call("serialize")
+
 	return data
 
 static func save_to_file(world_view: Node, filepath: String = DEFAULT_SAVE_PATH) -> Dictionary:
@@ -705,6 +710,14 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 		world_view.get("citizens_by_id")[cid] = cit
 		world_view.get("citizen_list").append(cit)
 		cit.citizen_died.connect(func(died_id: String): world_view.call("_on_citizen_died", died_id))
+
+	# 4b. Restore Immigration Manager state & ensure next_citizen_index never collides (DEBT-03)
+	var imm_mgr = world_view.get("immigration_mgr")
+	if imm_mgr != null and imm_mgr.has_method("deserialize"):
+		var imm_data = loaded_data.get("immigration", {})
+		if not (imm_data is Dictionary):
+			imm_data = {}
+		imm_mgr.call("deserialize", imm_data, saved_citizens)
 
 	# 5. Restore Research
 	var res_data_dict: Dictionary = loaded_data.get("research", {})
