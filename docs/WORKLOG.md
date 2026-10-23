@@ -5079,7 +5079,7 @@ On branch `feature/package-1r-faction-strategic-decision-engine` starting from l
 - `scripts/test/test_battle_diplomacy_consequences.gd`: **PASS (Exit Code 0 — 11/11 TC Passed)**
 - `scripts/test/test_offensive_campaign.gd`: **PASS (Exit Code 0 — 14/14 TC Passed)**
 - `scripts/test/test_live_battle_loop.gd`: **PASS (Exit Code 0 — 19/19 TC Passed)**
-- `scripts/test/test_army_movement.gd`: **PASS (Exit Code 0 — 33/33 TC Passed)**
+- `scripts/test/test_army_movement.gd`: **PASS (Exit Code 0 — 32/32 TC Passed [TC-MOVE.1..TC-MOVE.32], 33 PASS lines)**
 - `scripts/test/test_player_army.gd`: **PASS (Exit Code 0 — 32/32 TC Passed)**
 - `scripts/test/test_save_load.gd`: **PASS (Exit Code 0 — 107 Assertions Passed)**
 - `scripts/test/test_world_events.gd`: **PASS (Exit Code 0 — 72 Assertions Passed)**
@@ -5107,3 +5107,59 @@ On branch `feature/package-1r-faction-strategic-decision-engine` starting from l
 
 ### Next Exact Step
 - Commit Package 1S on `feature/package-1s-faction-strategic-intent-execution` with message `Implement deterministic faction strategic intent execution`, push to `origin/feature/package-1s-faction-strategic-intent-execution`, and await PR review / Package 1T instructions.
+
+---
+
+## [2026-10-24] Package 1S Follow-Up: Save Validation & Fail-Closed Hardening (`BUG-1S-01` & `BUG-1S-02`)
+
+### Status
+- **Phase:** Post-Gate 9 — Package 1S Follow-Up (`BUG-1S-01` & `BUG-1S-02`)
+- **Branch:** `feature/package-1s-faction-strategic-intent-execution`
+- **Parent Commit:** `f00e942d72b2dbdcada95e211c2b7c185b62f957`
+- **Milestone:** **COMPLETE (Ready for Commit & Push)**
+
+### Completed Work
+1. **`BUG-1S-01` — Clock-Synchronized Strategy Day Validation & Second-Layer Deserialize Defense:**
+   - Updated `SaveManager.validate_save_data()` (`scripts/persistence/save_manager.gd`) to extract `max_allowed_fac_day` from `game_clock.current_day` (when `game_clock` is present and valid) and reject any `factions.strategy_executor.last_executed_days[fid] > max_allowed_fac_day` or `factions.strategy_executor.last_tribe_growth_day > max_allowed_fac_day` fail-closed before `apply_loaded_state_to_world()` mutates the world.
+   - Preserved legacy save compatibility when `strategy_executor` or `game_clock` is omitted.
+   - Hardened `FactionStrategyExecutor.deserialize(data, current_day)` (`scripts/factions/faction_strategy_executor.gd`) and `FactionManager.deserialize_executor_state(data, current_day)` (`scripts/factions/faction_manager.gd`) as a second layer of defense so future execution timestamps (`> current_day` when `current_day >= 1`) are never restored into runtime memory.
+   - Aligned `TC-EMERGE.10` in `scripts/test/test_emerging_faction_ascension.gd` so `TimeManager.current_day` is set to `10` before running `fm.update_daily_simulation(10)` and serializing world state.
+2. **`BUG-1S-02` — Authoritative Faction Resource Contract & Fail-Closed Executor Validation:**
+   - Updated `SaveManager.validate_save_data()` (`scripts/persistence/save_manager.gd`) so each faction's optional `resources` field must be a `Dictionary` mapping canonical resource keys (`EconomyConfig.ALL_RESOURCES`) to finite non-negative integer quantities (`_is_valid_integer_val(res_amt) and int(res_amt) >= 0`). Strings, booleans, negative numbers, fractional floats, non-finite numbers (`INF`/`NaN`), or unknown keys are rejected fail-closed before world mutation.
+   - Normalized restored faction resource quantities to `int` in `SaveManager.apply_loaded_state_to_world()`.
+   - Added `REASON_ERR_INVALID_RESOURCES` (`"ERR_INVALID_RESOURCES"`), `_is_valid_non_negative_int()`, and `_are_faction_resources_valid()` in `FactionStrategyExecutor` (`scripts/factions/faction_strategy_executor.gd`), validating `fac.resources` fail-closed before any action or cap check (including `Gold` in `_execute_trade_expansion()`).
+3. **Expanded Deterministic Test Suite (`scripts/test/test_faction_strategy_execution.gd`):**
+   - Expanded `TC-FEXEC.8` to test direct executor rejection of negative `Gold`, string `Gold`, fractional float `Gold`, `INF` `Gold` on `trade_expansion`, and boolean `Metal` on `military_buildup`, verifying via snapshots that resources, attributes, and `last_executed_day` remain completely unmutated, and that valid resources resume normal execution.
+   - Expanded `TC-FEXEC.13` to test `current_day = 12` rejecting `last_executed_days.rival_military = 13` and `last_tribe_growth_day = 13` before world mutation, alongside a separate test for `> 36500`, second-layer `deserialize_executor_state` filtering, and fail-closed rejection of malformed faction `resources` in save data without mutating live world state.
+4. **Updated Documentation:**
+   - Updated `docs/SCOPE_DECISIONS.md` (§1.19), `docs/TEST_PLAN.md` (Package 1S), and `docs/WORKLOG.md` (including accurate accounting for `test_army_movement.gd`: `32/32` `TC-MOVE` cases, `33` `[PASS]` lines).
+
+### Verification & Test Evidence (Independent Runs on Final Source)
+- `scripts/test/test_faction_strategy_execution.gd`: **PASS (Exit Code 0 — 907 Checks Passed, 0 Failed)**
+- `scripts/test/test_faction_strategy_planner.gd`: **PASS (Exit Code 0 — 7/7 TC Passed)**
+- `scripts/test/test_faction_profiles.gd`: **PASS (Exit Code 0 — 9/9 TC Passed)**
+- `scripts/test/test_emerging_faction_ascension.gd`: **PASS (Exit Code 0 — 11/11 TC Passed)**
+- `scripts/test/test_save_load.gd`: **PASS (Exit Code 0 — 107 Assertions Passed, 0 Failed)**
+- `scripts/test/test_factions_and_battles.gd`: **PASS (Exit Code 0 — 48 Assertions Passed, 0 Failed)**
+- `scripts/test/test_battle_diplomacy_consequences.gd`: **PASS (Exit Code 0 — 11/11 TC Passed)**
+- `scripts/test/test_offensive_campaign.gd`: **PASS (Exit Code 0 — 14/14 TC Passed)**
+- `scripts/test/test_live_battle_loop.gd`: **PASS (Exit Code 0 — 19/19 TC Passed)**
+- `scripts/test/test_army_movement.gd`: **PASS (Exit Code 0 — 32/32 TC Passed [TC-MOVE.1..TC-MOVE.32], 33 PASS lines)**
+- `scripts/test/test_player_army.gd`: **PASS (Exit Code 0 — 32/32 TC Passed)**
+- `scripts/test/test_world_events.gd`: **PASS (Exit Code 0 — 72 Assertions Passed, 0 Failed)**
+- `scripts/test/test_victory_and_collapse.gd`: **PASS (Exit Code 0 — TC-7.1..TC-7.4 All Passed)**
+- Headless Editor Parse & Class Registration (`--headless --path . --editor --quit`): **PASS (Exit Code 0)**
+- `git diff --check`: **PASS (Exit Code 0)**
+
+### Files Modified
+- `scripts/persistence/save_manager.gd`
+- `scripts/factions/faction_strategy_executor.gd`
+- `scripts/factions/faction_manager.gd`
+- `scripts/test/test_faction_strategy_execution.gd`
+- `scripts/test/test_emerging_faction_ascension.gd`
+- `docs/SCOPE_DECISIONS.md`
+- `docs/TEST_PLAN.md`
+- `docs/WORKLOG.md`
+
+### Next Exact Step
+- Commit follow-up on `feature/package-1s-faction-strategic-intent-execution` with message `Validate faction strategy persistence against saved clock` and push to `origin/feature/package-1s-faction-strategic-intent-execution`.

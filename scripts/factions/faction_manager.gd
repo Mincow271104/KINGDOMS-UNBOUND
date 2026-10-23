@@ -138,7 +138,8 @@ func deserialize_executor_state(data: Dictionary, current_day: int = -1) -> void
 	var raw_growth = data.get("last_tribe_growth_day", -1)
 	if raw_growth is int or (raw_growth is float and not is_nan(raw_growth) and not is_inf(raw_growth) and floor(raw_growth) == raw_growth):
 		var g_day: int = int(raw_growth)
-		if g_day >= 1 and g_day <= 36500:
+		# BUG-1S-01 second-layer defense: never restore a future tribe growth day (> current_day)
+		if g_day >= 1 and g_day <= 36500 and (current_day < 1 or g_day <= current_day):
 			_last_tribe_growth_day = g_day
 		else:
 			_last_tribe_growth_day = -1

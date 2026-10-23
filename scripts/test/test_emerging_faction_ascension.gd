@@ -380,7 +380,10 @@ func test_tc_emerge_10_save_load_persistence() -> void:
 	var fm: FactionManager = world_instance.get("faction_mgr")
 	_assert_true(fm != null, "TC-EMERGE.10-FM", "FactionManager exists on world instance")
 
-	# Ascend the neutral tribe on the live world instance
+	# Ascend the neutral tribe on the live world instance (align TimeManager to Day 10 so saved clock matches simulation day)
+	var tm: Node = world_instance.get_node_or_null("/root/TimeManager")
+	if tm != null:
+		tm.set("current_day", 10)
 	var tribe: FactionData = fm.get_faction("neutral_tribe")
 	tribe.population = 44
 	tribe.resources = {EconomyConfigScript.RES_WOOD: 125, EconomyConfigScript.RES_HERBS: 65}

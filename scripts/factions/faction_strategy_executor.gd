@@ -44,6 +44,7 @@ const REASON_INELIGIBLE_CONSOLIDATION_STATE: String = "INELIGIBLE_CONSOLIDATION_
 const REASON_ERR_NULL_FACTION: String = "ERR_NULL_FACTION"
 const REASON_ERR_INVALID_DAY: String = "ERR_INVALID_DAY"
 const REASON_ERR_INVALID_DECISION: String = "ERR_INVALID_DECISION"
+const REASON_ERR_INVALID_RESOURCES: String = "ERR_INVALID_RESOURCES"
 
 # Per-faction daily execution tracking (faction_id -> int day)
 var _last_executed_days: Dictionary = {}
@@ -74,7 +75,7 @@ func serialize() -> Dictionary:
 		"last_executed_days": out
 	}
 
-func deserialize(data: Dictionary, _current_day: int = -1) -> void:
+func deserialize(data: Dictionary, current_day: int = -1) -> void:
 	reset_state()
 	if data.is_empty():
 		return
@@ -82,11 +83,31 @@ func deserialize(data: Dictionary, _current_day: int = -1) -> void:
 	if not (raw_days is Dictionary):
 		return
 	for fid in raw_days:
+		if not (fid is String) or String(fid).is_empty():
+			continue
 		var val = raw_days[fid]
-		if val is int or (val is float and not is_nan(val) and not is_inf(val) and floor(val) == val):
+		if _is_valid_non_negative_int(val):
 			var d: int = int(val)
-			if d >= 1 and d <= 36500:
+			# BUG-1S-01 second-layer defense: never restore a future execution day (> current_day)
+			if d >= 1 and d <= 36500 and (current_day < 1 or d <= current_day):
 				_last_executed_days[str(fid)] = d
+
+static func _is_valid_non_negative_int(val: Variant) -> bool:
+	if val is int:
+		return val >= 0
+	if val is float:
+		return not is_nan(val) and not is_inf(val) and floor(val) == val and int(val) >= 0
+	return false
+
+static func _are_faction_resources_valid(fac: FactionData) -> bool:
+	if fac == null or not (fac.resources is Dictionary):
+		return false
+	for res_key in fac.resources:
+		if not (res_key is String) or String(res_key).is_empty() or not EconomyConfig.ALL_RESOURCES.has(String(res_key)):
+			return false
+		if not _is_valid_non_negative_int(fac.resources[res_key]):
+			return false
+	return true
 
 static func _make_result(
 	faction_id: String,
@@ -108,7 +129,7 @@ static func _make_result(
 	}
 
 static func _has_resources(fac: FactionData, cost: Dictionary) -> bool:
-	if fac == null or not (fac.resources is Dictionary):
+	if not _are_faction_resources_valid(fac):
 		return false
 	for res_id in cost:
 		var required: int = int(cost[res_id])
@@ -117,7 +138,7 @@ static func _has_resources(fac: FactionData, cost: Dictionary) -> bool:
 		if not fac.resources.has(res_id):
 			return false
 		var cur_val = fac.resources.get(res_id, 0)
-		if not (cur_val is int or cur_val is float) or is_nan(float(cur_val)) or is_inf(float(cur_val)):
+		if not _is_valid_non_negative_int(cur_val):
 			return false
 		if int(cur_val) < required:
 			return false
@@ -179,6 +200,10 @@ func execute_intent(
 	if fac.population < 0:
 		return _make_result(fac.id, day, intent_id, false, REASON_ERR_INVALID_DECISION, {}, posture)
 
+	# BUG-1S-02: Validate all faction resource entries fail-closed before any action or cap check
+	if not _are_faction_resources_valid(fac):
+		return _make_result(fac.id, day, intent_id, false, REASON_ERR_INVALID_RESOURCES, {}, posture)
+
 	# Per-faction daily idempotency guard: prevent duplicate execution on the same or earlier day
 	var last_day: int = get_last_executed_day(fac.id)
 	if last_day >= day:
@@ -223,7 +248,10 @@ func _execute_trade_expansion(fac: FactionData, day: int, posture: String) -> Di
 	if fac.is_at_war:
 		return _make_result(fac.id, day, FactionStrategyPlanner.INTENT_TRADE_EXPANSION, false, REASON_BLOCKED_BY_WAR, {}, posture)
 
-	var cur_gold: int = int(fac.resources.get(EconomyConfig.RES_GOLD, 0))
+	var raw_gold: Variant = fac.resources.get(EconomyConfig.RES_GOLD, 0)
+	if not _is_valid_non_negative_int(raw_gold):
+		return _make_result(fac.id, day, FactionStrategyPlanner.INTENT_TRADE_EXPANSION, false, REASON_ERR_INVALID_RESOURCES, {}, posture)
+	var cur_gold: int = int(raw_gold)
 	var gold_at_cap: bool = cur_gold >= TRADE_EXPANSION_CAP_GOLD
 	var stab_at_cap: bool = fac.stability >= TRADE_EXPANSION_CAP_STABILITY - 0.0001
 	if gold_at_cap and stab_at_cap:

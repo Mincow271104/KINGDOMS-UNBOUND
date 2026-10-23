@@ -549,6 +549,11 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 		var fac_root = json_dict.get("factions")
 		if not (fac_root is Dictionary):
 			return {"valid": false, "error": "Mục 'factions' phải là từ điển (Dictionary)."}
+		var max_allowed_fac_day: int = -1
+		if json_dict.has("game_clock") and (json_dict.get("game_clock") is Dictionary):
+			var gc_fac: Dictionary = json_dict.get("game_clock")
+			if gc_fac.has("current_day") and _is_valid_integer_val(gc_fac.get("current_day")):
+				max_allowed_fac_day = int(gc_fac.get("current_day"))
 		if fac_root.has("factions"):
 			var facs_map = fac_root.get("factions")
 			if not (facs_map is Dictionary):
@@ -565,6 +570,17 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 					var e_status = f_entry.get("existence_status")
 					if not (e_status is String) or not FactionData.VALID_EXISTENCE_STATUSES.has(e_status):
 						return {"valid": false, "error": "Trạng thái tồn tại existence_status của thế lực '%s' không hợp lệ: %s." % [str(fid), str(e_status)]}
+				# BUG-1S-02: Validate faction resources dictionary fail-closed before world mutation
+				if f_entry.has("resources"):
+					var f_res = f_entry.get("resources")
+					if not (f_res is Dictionary):
+						return {"valid": false, "error": "Trường 'resources' của thế lực '%s' phải là từ điển (Dictionary)." % str(fid)}
+					for res_key in f_res:
+						if not (res_key is String) or String(res_key).is_empty() or not EconomyConfig.ALL_RESOURCES.has(String(res_key)):
+							return {"valid": false, "error": "Khóa tài nguyên '%s' trong resources của thế lực '%s' không hợp lệ." % [str(res_key), str(fid)]}
+						var res_amt = f_res[res_key]
+						if not _is_valid_integer_val(res_amt) or int(res_amt) < 0:
+							return {"valid": false, "error": "Số lượng tài nguyên '%s' của thế lực '%s' phải là số nguyên hữu hạn không âm: %s." % [str(res_key), str(fid), str(res_amt)]}
 		if fac_root.has("strategy_executor"):
 			var exec_val = fac_root.get("strategy_executor")
 			if not (exec_val is Dictionary):
@@ -579,10 +595,16 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 					var d_val = led_map[fid]
 					if not _is_valid_integer_val(d_val) or int(d_val) < 1 or int(d_val) > 36500:
 						return {"valid": false, "error": "Ngày thực thi trong last_executed_days của '%s' phải là số nguyên trong [1, 36500]: %s." % [str(fid), str(d_val)]}
+					# BUG-1S-01: Reject future strategic execution day relative to saved game_clock.current_day
+					if max_allowed_fac_day >= 1 and int(d_val) > max_allowed_fac_day:
+						return {"valid": false, "error": "Ngày thực thi chiến lược trong last_executed_days của '%s' (%d) không được lớn hơn current_day trong game_clock (%d)." % [str(fid), int(d_val), max_allowed_fac_day]}
 			if exec_val.has("last_tribe_growth_day"):
 				var ltgd = exec_val.get("last_tribe_growth_day")
 				if not _is_valid_integer_val(ltgd) or (int(ltgd) != -1 and (int(ltgd) < 1 or int(ltgd) > 36500)):
 					return {"valid": false, "error": "last_tribe_growth_day trong strategy_executor phải là -1 hoặc số nguyên trong [1, 36500]: %s." % str(ltgd)}
+				# BUG-1S-01: Reject future tribe growth day relative to saved game_clock.current_day
+				if max_allowed_fac_day >= 1 and int(ltgd) != -1 and int(ltgd) > max_allowed_fac_day:
+					return {"valid": false, "error": "last_tribe_growth_day trong strategy_executor (%d) không được lớn hơn current_day trong game_clock (%d)." % [int(ltgd), max_allowed_fac_day]}
 
 	# Validate optional immigration section (DEBT-03)
 	if json_dict.has("immigration"):
@@ -929,7 +951,13 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 					f_obj.is_at_war = bool(f_saved.get("is_at_war", false))
 					f_obj.population = int(f_saved.get("population", 40))
 					if f_saved.has("resources") and f_saved["resources"] is Dictionary:
-						f_obj.resources = f_saved["resources"].duplicate()
+						var clean_res: Dictionary = {}
+						for r_key in f_saved["resources"]:
+							if r_key is String and EconomyConfig.ALL_RESOURCES.has(String(r_key)):
+								var r_val = f_saved["resources"][r_key]
+								if _is_valid_integer_val(r_val) and int(r_val) >= 0:
+									clean_res[String(r_key)] = int(r_val)
+						f_obj.resources = clean_res
 					# Strategic Goal & Existence Status (Package 1Q)
 					if f_saved.has("strategic_goal"):
 						var s_goal = str(f_saved["strategic_goal"])

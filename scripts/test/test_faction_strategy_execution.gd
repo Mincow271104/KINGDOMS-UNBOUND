@@ -488,6 +488,63 @@ func test_tc_fexec_8_invalid_input_fail_closed() -> void:
 	_assert_false(bad_status_res.get("success", true), "TC-FEXEC.8-BAD-STATUS")
 	_assert_eq(bad_status_res.get("reason_code", ""), FactionStrategyExecutorScript.REASON_INELIGIBLE_STATUS, "TC-FEXEC.8-BAD-STATUS-REASON")
 
+	# 6. BUG-1S-02: Direct executor rejects malformed/negative/non-integer/non-finite faction resources (including Gold in trade_expansion)
+	var fm_res := FactionManagerScript.new()
+	var merch_res: FactionData = fm_res.get_faction("rival_merchant")
+
+	# 6a. Negative Gold on trade_expansion must fail closed without deducting Tools or mutating Gold/Stability/last_executed_day
+	merch_res.resources = {EconomyConfigScript.RES_GOLD: -50, EconomyConfigScript.RES_TOOLS: 50}
+	var snap_neg_gold: Dictionary = _take_snapshot(merch_res)
+	var neg_gold_res: Dictionary = fm_res.execute_faction_strategic_intent("rival_merchant", 1)
+	_assert_false(neg_gold_res.get("success", true), "TC-FEXEC.8-NEG-GOLD-REJECT")
+	_assert_eq(neg_gold_res.get("reason_code", ""), FactionStrategyExecutorScript.REASON_ERR_INVALID_RESOURCES, "TC-FEXEC.8-NEG-GOLD-REASON")
+	_verify_snapshot(merch_res, snap_neg_gold, "TC-FEXEC.8-NEG-GOLD-SNAP")
+	_assert_eq(fm_res.get_faction_last_executed_day("rival_merchant"), -1, "TC-FEXEC.8-NEG-GOLD-LAST-DAY")
+
+	# 6b. String Gold on trade_expansion must fail closed
+	merch_res.resources = {EconomyConfigScript.RES_GOLD: "400", EconomyConfigScript.RES_TOOLS: 50}
+	var snap_str_gold: Dictionary = _take_snapshot(merch_res)
+	var str_gold_res: Dictionary = fm_res.execute_faction_strategic_intent("rival_merchant", 1)
+	_assert_false(str_gold_res.get("success", true), "TC-FEXEC.8-STR-GOLD-REJECT")
+	_assert_eq(str_gold_res.get("reason_code", ""), FactionStrategyExecutorScript.REASON_ERR_INVALID_RESOURCES, "TC-FEXEC.8-STR-GOLD-REASON")
+	_verify_snapshot(merch_res, snap_str_gold, "TC-FEXEC.8-STR-GOLD-SNAP")
+	_assert_eq(fm_res.get_faction_last_executed_day("rival_merchant"), -1, "TC-FEXEC.8-STR-GOLD-LAST-DAY")
+
+	# 6c. Non-integer fractional float Gold (e.g. 400.5) on trade_expansion must fail closed
+	merch_res.resources = {EconomyConfigScript.RES_GOLD: 400.5, EconomyConfigScript.RES_TOOLS: 50}
+	var snap_frac_gold: Dictionary = _take_snapshot(merch_res)
+	var frac_gold_res: Dictionary = fm_res.execute_faction_strategic_intent("rival_merchant", 1)
+	_assert_false(frac_gold_res.get("success", true), "TC-FEXEC.8-FRAC-GOLD-REJECT")
+	_assert_eq(frac_gold_res.get("reason_code", ""), FactionStrategyExecutorScript.REASON_ERR_INVALID_RESOURCES, "TC-FEXEC.8-FRAC-GOLD-REASON")
+	_verify_snapshot(merch_res, snap_frac_gold, "TC-FEXEC.8-FRAC-GOLD-SNAP")
+	_assert_eq(fm_res.get_faction_last_executed_day("rival_merchant"), -1, "TC-FEXEC.8-FRAC-GOLD-LAST-DAY")
+
+	# 6d. Non-finite (INF / NaN) resource value on trade_expansion must fail closed
+	merch_res.resources = {EconomyConfigScript.RES_GOLD: INF, EconomyConfigScript.RES_TOOLS: 50}
+	var inf_gold_res: Dictionary = fm_res.execute_faction_strategic_intent("rival_merchant", 1)
+	_assert_false(inf_gold_res.get("success", true), "TC-FEXEC.8-INF-GOLD-REJECT")
+	_assert_eq(inf_gold_res.get("reason_code", ""), FactionStrategyExecutorScript.REASON_ERR_INVALID_RESOURCES, "TC-FEXEC.8-INF-GOLD-REASON")
+	_assert_eq(merch_res.resources.get(EconomyConfigScript.RES_TOOLS, 0), 50, "TC-FEXEC.8-INF-GOLD-TOOLS-INTACT")
+	_assert_eq(fm_res.get_faction_last_executed_day("rival_merchant"), -1, "TC-FEXEC.8-INF-GOLD-LAST-DAY")
+
+	# 6e. Boolean resource value on military_buildup must fail closed without mutating state
+	var mil_res: FactionData = fm_res.get_faction("rival_military")
+	mil_res.resources = {EconomyConfigScript.RES_METAL: true, EconomyConfigScript.RES_GOLD: 150}
+	var snap_bool_res: Dictionary = _take_snapshot(mil_res)
+	var bool_res_out: Dictionary = fm_res.execute_faction_strategic_intent("rival_military", 1)
+	_assert_false(bool_res_out.get("success", true), "TC-FEXEC.8-BOOL-RES-REJECT")
+	_assert_eq(bool_res_out.get("reason_code", ""), FactionStrategyExecutorScript.REASON_ERR_INVALID_RESOURCES, "TC-FEXEC.8-BOOL-RES-REASON")
+	_verify_snapshot(mil_res, snap_bool_res, "TC-FEXEC.8-BOOL-RES-SNAP")
+	_assert_eq(fm_res.get_faction_last_executed_day("rival_military"), -1, "TC-FEXEC.8-BOOL-RES-LAST-DAY")
+
+	# 6f. Restoring valid resources allows normal execution immediately
+	merch_res.resources = {EconomyConfigScript.RES_GOLD: 400, EconomyConfigScript.RES_TOOLS: 50}
+	var valid_merch_out: Dictionary = fm_res.execute_faction_strategic_intent("rival_merchant", 1)
+	_assert_true(valid_merch_out.get("success", false), "TC-FEXEC.8-RECOVERED-VALID-EXEC")
+	_assert_eq(merch_res.resources.get(EconomyConfigScript.RES_GOLD, 0), 430, "TC-FEXEC.8-RECOVERED-GOLD-430")
+	_assert_eq(merch_res.resources.get(EconomyConfigScript.RES_TOOLS, 0), 45, "TC-FEXEC.8-RECOVERED-TOOLS-45")
+	_assert_eq(fm_res.get_faction_last_executed_day("rival_merchant"), 1, "TC-FEXEC.8-RECOVERED-LAST-DAY-1")
+
 # -----------------------------------------------------------------------------
 # TC-FEXEC.9: Same-day idempotency & deterministic alphabetical order
 # -----------------------------------------------------------------------------
@@ -686,18 +743,107 @@ func test_tc_fexec_13_save_load_persistence_and_validation() -> void:
 	_assert_true(apply_legacy.get("success", false), "TC-FEXEC.13-LEGACY-APPLY")
 	_assert_eq(fm.get_faction_last_executed_day("rival_military"), -1, "TC-FEXEC.13-LEGACY-RESET-DAY")
 
-	# Fail-closed validation on corrupted strategy_executor payloads
+	# Restore Day 12 save so last_executed_day is 12 before testing rejected payloads
+	var apply_restore_d12: Dictionary = SaveManagerScript.apply_loaded_state_to_world(world_instance, saved_data)
+	_assert_true(apply_restore_d12.get("success", false), "TC-FEXEC.13-RESTORE-D12-BASELINE")
+	_assert_eq(fm.get_faction_last_executed_day("rival_military"), 12, "TC-FEXEC.13-BASELINE-MIL-DAY12")
+	_assert_eq(fm.get_faction_last_executed_day("rival_merchant"), 12, "TC-FEXEC.13-BASELINE-MERCH-DAY12")
+	_assert_eq(fm.get_faction_last_executed_day("neutral_tribe"), 12, "TC-FEXEC.13-BASELINE-TRIBE-DAY12")
+
+	# Take full live world snapshots BEFORE attempting rejected loads
+	var live_snap_mil: Dictionary = _take_snapshot(fm.get_faction("rival_military"))
+	var live_snap_merch: Dictionary = _take_snapshot(fm.get_faction("rival_merchant"))
+	var live_snap_tribe: Dictionary = _take_snapshot(fm.get_faction("neutral_tribe"))
+
+	# Fail-closed validation on corrupted strategy_executor payloads (BUG-1S-01)
 	var bad_exec_type: Dictionary = saved_data.duplicate(true)
 	bad_exec_type["factions"]["strategy_executor"] = "not_a_dict"
 	_assert_false(SaveManagerScript.validate_save_data(bad_exec_type).get("valid", true), "TC-FEXEC.13-BAD-EXEC-TYPE")
 
-	var bad_day_future: Dictionary = saved_data.duplicate(true)
-	bad_day_future["factions"]["strategy_executor"] = {"last_executed_days": {"rival_military": 99999}}
-	_assert_false(SaveManagerScript.validate_save_data(bad_day_future).get("valid", true), "TC-FEXEC.13-BAD-FUTURE-DAY")
+	# 1. Future last_executed_days (13 > game_clock.current_day == 12) must be rejected before world mutation
+	var bad_day_13: Dictionary = saved_data.duplicate(true)
+	bad_day_13["game_clock"]["current_day"] = 12
+	bad_day_13["factions"]["strategy_executor"]["last_executed_days"]["rival_military"] = 13
+	bad_day_13["factions"]["factions"]["rival_military"]["military_power"] = 119.0
+	var val_day_13: Dictionary = SaveManagerScript.validate_save_data(bad_day_13)
+	_assert_false(val_day_13.get("valid", true), "TC-FEXEC.13-REJECT-FUTURE-DAY13", str(val_day_13.get("error", "")))
+	var apply_day_13: Dictionary = SaveManagerScript.apply_loaded_state_to_world(world_instance, bad_day_13)
+	_assert_false(apply_day_13.get("success", true), "TC-FEXEC.13-APPLY-REJECT-FUTURE-DAY13")
+	_verify_snapshot(fm.get_faction("rival_military"), live_snap_mil, "TC-FEXEC.13-NO-MUTATION-ON-DAY13-MIL")
+	_assert_eq(fm.get_faction_last_executed_day("rival_military"), 12, "TC-FEXEC.13-NO-MUTATION-ON-DAY13-EXEC-DAY")
+
+	# 2. Future last_tribe_growth_day (13 > game_clock.current_day == 12) must be rejected before world mutation
+	var bad_tribe_growth_13: Dictionary = saved_data.duplicate(true)
+	bad_tribe_growth_13["game_clock"]["current_day"] = 12
+	bad_tribe_growth_13["factions"]["strategy_executor"]["last_tribe_growth_day"] = 13
+	bad_tribe_growth_13["factions"]["factions"]["neutral_tribe"]["population"] = 79
+	var val_growth_13: Dictionary = SaveManagerScript.validate_save_data(bad_tribe_growth_13)
+	_assert_false(val_growth_13.get("valid", true), "TC-FEXEC.13-REJECT-FUTURE-TRIBE-GROWTH-13", str(val_growth_13.get("error", "")))
+	var apply_growth_13: Dictionary = SaveManagerScript.apply_loaded_state_to_world(world_instance, bad_tribe_growth_13)
+	_assert_false(apply_growth_13.get("success", true), "TC-FEXEC.13-APPLY-REJECT-FUTURE-TRIBE-GROWTH-13")
+	_verify_snapshot(fm.get_faction("neutral_tribe"), live_snap_tribe, "TC-FEXEC.13-NO-MUTATION-ON-GROWTH13-TRIBE")
+
+	# 3. Separate test for day exceeding absolute ceiling 36500
+	var bad_day_abs_ceiling: Dictionary = saved_data.duplicate(true)
+	bad_day_abs_ceiling["factions"]["strategy_executor"] = {"last_executed_days": {"rival_military": 99999}}
+	_assert_false(SaveManagerScript.validate_save_data(bad_day_abs_ceiling).get("valid", true), "TC-FEXEC.13-BAD-ABS-CEILING-DAY")
 
 	var bad_day_neg: Dictionary = saved_data.duplicate(true)
 	bad_day_neg["factions"]["strategy_executor"] = {"last_executed_days": {"rival_military": 0}}
 	_assert_false(SaveManagerScript.validate_save_data(bad_day_neg).get("valid", true), "TC-FEXEC.13-BAD-ZERO-DAY")
+
+	# 4. Second-layer deserialize defense: direct deserialize_executor_state filters future days (> current_day)
+	var fm_deser := FactionManagerScript.new()
+	fm_deser.deserialize_executor_state({
+		"last_executed_days": {"rival_military": 13, "rival_merchant": 12},
+		"last_tribe_growth_day": 13
+	}, 12)
+	_assert_eq(fm_deser.get_faction_last_executed_day("rival_military"), -1, "TC-FEXEC.13-DESER-FILTER-FUTURE-MIL")
+	_assert_eq(fm_deser.get_faction_last_executed_day("rival_merchant"), 12, "TC-FEXEC.13-DESER-KEEP-VALID-MERCH")
+	_assert_eq(fm_deser._last_tribe_growth_day, -1, "TC-FEXEC.13-DESER-FILTER-FUTURE-GROWTH")
+
+	# 5. BUG-1S-02: Fail-closed validation on corrupted faction resources in save data (before any world mutation)
+	# 5a. resources not a Dictionary
+	var bad_res_not_dict: Dictionary = saved_data.duplicate(true)
+	bad_res_not_dict["factions"]["factions"]["rival_merchant"]["resources"] = "not_a_dictionary"
+	bad_res_not_dict["factions"]["factions"]["rival_merchant"]["stability"] = 10.0
+	_assert_false(SaveManagerScript.validate_save_data(bad_res_not_dict).get("valid", true), "TC-FEXEC.13-REJECT-RES-NOT-DICT")
+	_assert_false(SaveManagerScript.apply_loaded_state_to_world(world_instance, bad_res_not_dict).get("success", true), "TC-FEXEC.13-APPLY-REJECT-RES-NOT-DICT")
+	_verify_snapshot(fm.get_faction("rival_merchant"), live_snap_merch, "TC-FEXEC.13-NO-MUTATION-RES-NOT-DICT")
+
+	# 5b. Negative resource quantity
+	var bad_res_neg: Dictionary = saved_data.duplicate(true)
+	bad_res_neg["factions"]["factions"]["rival_merchant"]["resources"][EconomyConfigScript.RES_GOLD] = -10
+	bad_res_neg["factions"]["factions"]["rival_merchant"]["stability"] = 15.0
+	_assert_false(SaveManagerScript.validate_save_data(bad_res_neg).get("valid", true), "TC-FEXEC.13-REJECT-RES-NEGATIVE")
+	_assert_false(SaveManagerScript.apply_loaded_state_to_world(world_instance, bad_res_neg).get("success", true), "TC-FEXEC.13-APPLY-REJECT-RES-NEGATIVE")
+	_verify_snapshot(fm.get_faction("rival_merchant"), live_snap_merch, "TC-FEXEC.13-NO-MUTATION-RES-NEGATIVE")
+
+	# 5c. Wrong resource value type (String / Bool / Fractional Float / INF)
+	var bad_res_str: Dictionary = saved_data.duplicate(true)
+	bad_res_str["factions"]["factions"]["rival_military"]["resources"][EconomyConfigScript.RES_METAL] = "eighty"
+	_assert_false(SaveManagerScript.validate_save_data(bad_res_str).get("valid", true), "TC-FEXEC.13-REJECT-RES-STRING")
+	_assert_false(SaveManagerScript.apply_loaded_state_to_world(world_instance, bad_res_str).get("success", true), "TC-FEXEC.13-APPLY-REJECT-RES-STRING")
+	_verify_snapshot(fm.get_faction("rival_military"), live_snap_mil, "TC-FEXEC.13-NO-MUTATION-RES-STRING")
+
+	var bad_res_bool: Dictionary = saved_data.duplicate(true)
+	bad_res_bool["factions"]["factions"]["rival_military"]["resources"][EconomyConfigScript.RES_METAL] = true
+	_assert_false(SaveManagerScript.validate_save_data(bad_res_bool).get("valid", true), "TC-FEXEC.13-REJECT-RES-BOOL")
+
+	var bad_res_frac: Dictionary = saved_data.duplicate(true)
+	bad_res_frac["factions"]["factions"]["rival_merchant"]["resources"][EconomyConfigScript.RES_TOOLS] = 12.5
+	_assert_false(SaveManagerScript.validate_save_data(bad_res_frac).get("valid", true), "TC-FEXEC.13-REJECT-RES-FRACTIONAL")
+
+	var bad_res_inf: Dictionary = saved_data.duplicate(true)
+	bad_res_inf["factions"]["factions"]["rival_merchant"]["resources"][EconomyConfigScript.RES_GOLD] = INF
+	_assert_false(SaveManagerScript.validate_save_data(bad_res_inf).get("valid", true), "TC-FEXEC.13-REJECT-RES-INF")
+
+	var bad_res_key: Dictionary = saved_data.duplicate(true)
+	bad_res_key["factions"]["factions"]["rival_merchant"]["resources"]["unknown_unobtanium"] = 50
+	_assert_false(SaveManagerScript.validate_save_data(bad_res_key).get("valid", true), "TC-FEXEC.13-REJECT-RES-UNKNOWN-KEY")
+	_verify_snapshot(fm.get_faction("rival_military"), live_snap_mil, "TC-FEXEC.13-FINAL-IMMUTABLE-MIL")
+	_verify_snapshot(fm.get_faction("rival_merchant"), live_snap_merch, "TC-FEXEC.13-FINAL-IMMUTABLE-MERCH")
+	_verify_snapshot(fm.get_faction("neutral_tribe"), live_snap_tribe, "TC-FEXEC.13-FINAL-IMMUTABLE-TRIBE")
 
 # -----------------------------------------------------------------------------
 # TC-FEXEC.14: Cross-system regression (diplomacy, war, raid, offensive campaign)
