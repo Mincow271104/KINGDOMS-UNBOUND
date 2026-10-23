@@ -1355,23 +1355,12 @@ func _on_simulation_day_passed(day: int, _season: String, _year: int) -> void:
 	var em = get_node_or_null("/root/EventManager")
 	
 	if event_system != null:
-		var ev_result: Dictionary = event_system.check_and_trigger_event(day, rm, em)
-		# BUG-04 fix: apply world-event effects that require citizen_list (morale_penalty, heal_citizens).
-		# grant_resource and bonus_food are already handled inside WorldEventSystem.
+		event_system.update_daily_modifiers(day)
+		var ev_result: Dictionary = event_system.check_and_trigger_event(day, rm, em, citizen_list)
+		# BUG-04 fix: apply world-event citizen effects via WorldEventSystem idempotent helper
+		# (validates citizen is alive, not dead/queued_for_deletion, clamps [0, 100], prevents double application).
 		if not ev_result.is_empty():
-			var effect: Dictionary = ev_result.get("effect", {})
-			if effect.has("morale_penalty") and citizen_list != null:
-				var penalty: float = float(effect["morale_penalty"])
-				for cit in citizen_list:
-					if is_instance_valid(cit):
-						var cur_morale: float = float(cit.get("morale"))
-						cit.set("morale", clampf(cur_morale + penalty, 0.0, 100.0))
-			if effect.has("heal_citizens") and citizen_list != null:
-				var heal_amount: float = float(effect["heal_citizens"])
-				for cit in citizen_list:
-					if is_instance_valid(cit):
-						var cur_health: float = float(cit.get("health"))
-						cit.set("health", clampf(cur_health + heal_amount, 0.0, 100.0))
+			event_system.apply_citizen_effects(ev_result, citizen_list)
 		
 	# Update daily faction simulation
 	if faction_mgr != null:

@@ -28,6 +28,7 @@ var construction_checker: Callable = Callable()
 var construction_handler: Callable = Callable()
 var world_view: Node = null
 var world_data: WorldGenerator.WorldData = null
+var event_system: RefCounted = null
 
 # Needs (0..100)
 var hunger: float = 10.0
@@ -90,11 +91,22 @@ func set_construction_handler(handler: Callable) -> void:
 func set_world_view(wv: Node) -> void:
 	world_view = wv
 
+func set_event_system(es: RefCounted) -> void:
+	event_system = es
+
 func _get_world_view() -> Node:
 	if world_view != null:
 		return world_view
 	if is_inside_tree():
 		return get_tree().root.find_child("WorldView", true, false)
+	return null
+
+func _get_event_system() -> RefCounted:
+	if event_system != null:
+		return event_system
+	var wv := _get_world_view()
+	if wv != null and wv.get("event_system") != null:
+		return wv.get("event_system")
 	return null
 
 func is_building_under_construction(b_id: String = "") -> bool:
@@ -328,8 +340,13 @@ func _process_working(delta: float) -> void:
 
 			if active_job.type in ["farmer", "woodcutter", "miner", "quarryman", "smith"] or (workplace_mgr.has_method("has_workplace") and workplace_mgr.has_workplace(target_wp_id)):
 				var season_mod := 1.0
-				if tm != null and tm.has_method("get_farm_efficiency_modifier") and active_job.type == "farmer":
-					season_mod = tm.get_farm_efficiency_modifier()
+				if active_job.type == "farmer":
+					if tm != null and tm.has_method("get_farm_efficiency_modifier"):
+						season_mod = tm.get_farm_efficiency_modifier()
+					var es := _get_event_system()
+					if es != null and es.has_method("get_farm_production_multiplier"):
+						var cur_day: int = int(tm.get("current_day")) if (tm != null and tm.get("current_day") != null) else -1
+						season_mod = float(es.call("get_farm_production_multiplier", season_mod, cur_day))
 				var rm_node: Node = get_node_or_null("/root/ResourceManager") if (is_inside_tree() and has_node("/root/ResourceManager")) else null
 				var produced_qty: int = workplace_mgr.produce_to_buffer(target_wp_id, season_mod, rm_node)
 				if produced_qty > 0:
@@ -478,13 +495,23 @@ func _seek_rest() -> void:
 		current_path = nav.find_path(current_cell, Vector2i(31, 35))
 
 func _on_hour_passed(_hour: int, _day: int) -> void:
+	if not is_alive():
+		return
+
+	var fatigue_mult: float = 1.0
+	var es := _get_event_system()
+	if es != null and es.has_method("get_active_fatigue_multiplier"):
+		fatigue_mult = float(es.call("get_active_fatigue_multiplier", _day))
+		if is_nan(fatigue_mult) or is_inf(fatigue_mult) or fatigue_mult <= 0.0:
+			fatigue_mult = 1.0
+
 	match current_state:
 		State.WORKING, State.HAULING, State.GUARDING:
 			hunger = minf(100.0, hunger + 4.167)
-			fatigue = minf(100.0, fatigue + 4.0)
+			fatigue = minf(100.0, fatigue + 4.0 * fatigue_mult)
 		State.IDLE:
 			hunger = minf(100.0, hunger + 2.0)
-			fatigue = minf(100.0, fatigue + 1.0)
+			fatigue = minf(100.0, fatigue + 1.0 * fatigue_mult)
 		State.RESTING:
 			fatigue = maxf(0.0, fatigue - 12.5)
 
@@ -500,7 +527,7 @@ func _on_hour_passed(_hour: int, _day: int) -> void:
 	if is_starving:
 		# Stage 1: Morale drops by ~15/day (-0.625/hr), Fatigue +20/day (+0.833/hr)
 		morale = maxf(0.0, morale - 0.625)
-		fatigue = minf(100.0, fatigue + 0.833)
+		fatigue = minf(100.0, fatigue + 0.833 * fatigue_mult)
 		# Stage 2: Health drops by ~5%/day (-0.208/hr)
 		health = maxf(0.0, health - 0.208)
 		if health <= 0.0:

@@ -4857,3 +4857,59 @@ Following the local/remote bugfix reconciliation audit on `feature/package-1r-fa
 
 ### Next Exact Step
 - Commit Batch 3A locally with message `Harden save/load legacy compatibility and immigration persistence` (without pushing to remote) and await review / Batch 3B instructions.
+
+---
+
+## [2026-10-23] Batch 3B: World Event Effect Integrity (`BUG-04`)
+
+### Context & Objective
+On branch `feature/package-1r-faction-strategic-decision-engine` starting from local HEAD `2973a9d6cabdc4daeed5a756674f85d920f6eef9` (`ahead 3` of `origin/feature/package-1r-faction-strategic-decision-engine` at `6e93bc92f716c03b08d97cbae044ab21ea79734b`), audited and completed runtime gameplay consumers, timed expiration, citizen lifecycle guards, and idempotency for every event effect in `WorldEventSystem.EVENTS` (`BUG-04A`..`BUG-04D`).
+
+### Effect Key Audit Matrix (`BUG-04A`)
+| Event ID | Effect Key | Value | Runtime Consumer & Behavior |
+|---|---|---|---|
+| `bountiful_harvest` | `farm_modifier_bonus` | `0.5` | `WorldEventSystem._apply_timed_effects()` activates `+50%` farm output bonus for `DEFAULT_TIMED_EFFECT_DAYS = 2` days (`expires_day = current_day + 2`, replaced on re-trigger without infinite stacking); consumed by `CitizenController._process_working()` via `get_farm_production_multiplier(season_mod, cur_day)` -> `WorkplaceManager.produce_to_buffer()`. |
+| `bountiful_harvest` | `bonus_food` | `30` | `WorldEventSystem._apply_resource_effects()` grants `+30` food once via `resource_mgr.add_resource("food", 30)` with `_resource_effects_applied` idempotency guard. |
+| `heatwave` | `fatigue_multiplier` | `1.25` | `WorldEventSystem._apply_timed_effects()` activates `1.25x` fatigue multiplier for `DEFAULT_TIMED_EFFECT_DAYS = 2` days (`expires_day = current_day + 2`, replaced on re-trigger without infinite stacking); consumed by `CitizenController._on_hour_passed()` via `get_active_fatigue_multiplier(_day)` on hourly positive fatigue gains (`WORKING`/`HAULING`/`GUARDING`, `IDLE`, and starvation fatigue). |
+| `wandering_herbalist` | `grant_resource` | `{"herbs": 20}` | `WorldEventSystem._apply_resource_effects()` grants `+20` herbs once via `resource_mgr.add_resource("herbs", 20)` with `_resource_effects_applied` idempotency guard. |
+| `wandering_herbalist` | `heal_citizens` | `15.0` | `WorldEventSystem.apply_citizen_effects()` heals eligible alive citizens by `+15.0`, clamped to `[0.0, 100.0]`, skipping dead/dying/queued-for-deletion citizens and guarding against double application via `_citizen_effects_applied` and per-instance deduplication. |
+| `bandit_scouts` | `morale_penalty` | `-8.0` | `WorldEventSystem.apply_citizen_effects()` applies `-8.0` morale to eligible alive citizens, clamped to `[0.0, 100.0]`, skipping dead/dying/queued-for-deletion citizens and guarding against double application. |
+| `merchant_tribute` | `grant_resource` | `{"gold": 50}` | `WorldEventSystem._apply_resource_effects()` grants `+50` gold once via `resource_mgr.add_resource("gold", 50)` with `_resource_effects_applied` idempotency guard. |
+
+### Completed Work
+1. **Timed Modifiers, Idempotency & Citizen Lifecycle Guards (`scripts/core/world_event_system.gd`):**
+   - Added `DEFAULT_TIMED_EFFECT_DAYS = 2`, `_active_farm_modifier_bonus`, `_farm_bonus_expires_day`, `_active_fatigue_multiplier`, and `_fatigue_mult_expires_day`.
+   - Implemented `update_daily_modifiers(current_day)`, `get_active_farm_modifier_bonus(current_day)`, `get_farm_production_multiplier(base_season_modifier, current_day)`, `get_active_fatigue_multiplier(current_day)`, `is_farm_bonus_active(current_day)`, `is_heatwave_active(current_day)`, `get_event_definition(event_id)`, and `trigger_event_by_id(...)`.
+   - Updated `check_and_trigger_event(...)` and `trigger_event_by_id(...)` to return `.duplicate(true)` instances of event definitions so `EVENTS` constants are never mutated.
+   - Implemented `_is_citizen_eligible(cit)` and `apply_citizen_effects(ev, citizen_list)` verifying `is_instance_valid(cit)`, `not is_queued_for_deletion()`, `cit.is_alive()`, `not _death_processed`, and `health > 0.0`, clamping `health` and `morale` to `[0.0, 100.0]`, deduplicating citizen instances within a pass, and marking `_citizen_effects_applied = true` to prevent double application.
+2. **Farm Production Bonus & Heatwave Fatigue Multiplier (`scripts/entities/citizen_controller.gd`):**
+   - Added `event_system` reference, `set_event_system(es)`, and `_get_event_system()` (resolving either injected `event_system` or `world_view.event_system`).
+   - In `_process_working()`, combined `TimeManager.get_farm_efficiency_modifier()` with `event_system.get_farm_production_multiplier(season_mod, cur_day)` for farmer jobs.
+   - In `_on_hour_passed(_hour, _day)`, added `if not is_alive(): return` guard and scaled positive hourly fatigue gains by `event_system.get_active_fatigue_multiplier(_day)`.
+3. **WorldView Daily Event Wiring (`scripts/world/world_view.gd`):**
+   - Updated `_on_simulation_day_passed()` to call `event_system.update_daily_modifiers(day)`, pass `citizen_list` into `event_system.check_and_trigger_event(day, rm, em, citizen_list)`, and delegate citizen effect application to `event_system.apply_citizen_effects(ev_result, citizen_list)`.
+4. **Dedicated Deterministic Verification Suite (`scripts/test/test_world_events.gd`):**
+   - Created `scripts/test/test_world_events.gd` covering all 11 required verification scenarios (`52` assertions passed, `0` failed).
+
+### Verification & Test Evidence
+- `scripts/test/test_world_events.gd`: **PASS (Exit Code 0 — 52 Passed, 0 Failed)**
+- `scripts/test/test_citizens.gd`: **PASS (Exit Code 0)**
+- `scripts/test/test_economy.gd`: **PASS (Exit Code 0)**
+- `scripts/test/test_time_manager.gd`: **PASS (Exit Code 0)**
+- `scripts/test/test_save_load.gd`: **PASS (Exit Code 0 — 76 Passed, 0 Failed)**
+- `scripts/test/test_offensive_campaign.gd`: **PASS (Exit Code 0 — 160 Passed, 0 Failed)**
+- `scripts/test/test_live_battle_loop.gd`: **PASS (Exit Code 0 — 19/19 TC, 47 checks passed, 0 failed)**
+- `scripts/test/test_army_movement.gd`: **PASS (Exit Code 0 — 33/33 TC, 33 checks passed, 0 failed)**
+- `scripts/test/test_faction_profiles.gd`: **PASS (Exit Code 0 — 9/9 TC, 217 Passed, 0 Failed)**
+- Headless Editor Parse & Class Registration (`--headless --path . --editor --quit`): **PASS (Exit Code 0)**
+- `git diff --check`: **PASS (Exit Code 0)**
+
+### Files Created / Modified
+- `scripts/core/world_event_system.gd`
+- `scripts/entities/citizen_controller.gd`
+- `scripts/world/world_view.gd`
+- `scripts/test/test_world_events.gd` (Created)
+- `docs/WORKLOG.md`
+
+### Next Exact Step
+- Commit Batch 3B locally with message `Fix world event effect lifecycle and application` (without pushing to remote) and await review / next batch instructions.
