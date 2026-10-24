@@ -372,3 +372,23 @@ Execution routes through `FactionManager.propose_treaty(faction_id, "peace")`, w
 ### 12.4 Anti-Oscillation & Save/Load Persistence
 - **At-Most-Once Daily Evaluation:** `FactionManager` records `_last_diplomacy_days[faction_id] = day` when evaluating an active or in-exile faction for day `day`. Any subsequent autonomous diplomacy call for that faction on the same day (or an earlier day) returns `ALREADY_EVALUATED_TODAY` with zero state changes and zero signal emissions, preventing same-day war/peace oscillation.
 - **Persistence & Fail-Closed Validation:** `last_diplomacy_days` is persisted under `factions.strategy_executor.last_diplomacy_days` (`SAVE_SCHEMA_VERSION = 1`). `SaveManager.validate_save_data()` validates that `last_diplomacy_days` is a `Dictionary` with non-empty string keys and integer day values in `[1, 36500]` that do not exceed `game_clock.current_day`, rejecting corrupted or future timestamps fail-closed before world mutation.
+
+---
+
+## 13. Pairwise Faction Relations Rules (Package 1U)
+
+### 13.1 Canonical Pairwise Identity & Player Isolation
+- **Single Canonical Record per Unordered Pair:** Every distinct pair of NPC factions `(A, B)` in `FactionManager` (`neutral_tribe`, `rival_merchant`, `rival_military`) has exactly one `FactionRelationData` record ordered lexicographically (`faction_a < faction_b`) and keyed by `pair_key = faction_a + "__" + faction_b`. Queries and mutations with `(A, B)` and `(B, A)` resolve to the exact same record.
+- **Directional Opinions & Shared Treaty/War State:** Each record stores independent directional opinions `opinion_a_to_b` and `opinion_b_to_a` (initialized to `0.0`, clamped to `[-100.0, 100.0]`) alongside shared `is_at_war`, `has_nap`, and `has_alliance` booleans.
+- **Strict Separation from Player Diplomacy:** NPC-to-NPC relations never mutate `FactionData.opinion`, `FactionData.is_at_war`, `FactionData.has_nap`, or `FactionData.has_alliance`, and never emit player-facing `war_declared` / `peace_signed` signals or schedule settlement raids in `BattleCampaignManager`.
+- **Ascension Identity Preservation:** When `neutral_tribe` ascends to `emerging_power` (`Liên Minh Rừng Thiêng`), its stable faction ID remains `"neutral_tribe"`, preserving all canonical pair keys and existing pairwise relationships.
+
+### 13.2 Pairwise War, Peace, NAP & Alliance Transitions
+- **`declare_war_between_factions(initiator_id, target_id)`:** Requires two distinct known factions with `existence_status == "active"` and `is_at_war == false`. Sets `is_at_war = true`, clears `has_nap = false` and `has_alliance = false`, applies `-50.0` opinion delta in both directions, and emits `faction_pair_war_declared` and `faction_pair_opinion_changed`.
+- **`sign_peace_between_factions(id_1, id_2)`:** Requires two distinct known factions with `existence_status` in `["active", "in_exile"]` (`eliminated` blocked) and `is_at_war == true`. Sets `is_at_war = false`, applies `+20.0` opinion delta in both directions, and emits `faction_pair_peace_signed` and `faction_pair_opinion_changed`.
+- **`sign_nap_between_factions(id_1, id_2)`:** Requires two distinct `active` factions with `is_at_war == false`, `has_nap == false`, and mutual opinions `opinion_a_to_b >= 0.0` and `opinion_b_to_a >= 0.0`. Sets `has_nap = true`, applies `+15.0` opinion delta in both directions, and emits `faction_pair_treaty_signed(..., "nap", ...)` and `faction_pair_opinion_changed`.
+- **`sign_alliance_between_factions(id_1, id_2)`:** Requires two distinct `active` factions with `is_at_war == false`, `has_alliance == false`, and mutual opinions `opinion_a_to_b >= 60.0` and `opinion_b_to_a >= 60.0`. Sets `has_alliance = true` and `has_nap = true`, applies `+25.0` opinion delta in both directions, and emits `faction_pair_treaty_signed(..., "alliance", ...)` and `faction_pair_opinion_changed`.
+
+### 13.3 Save/Load Persistence & Fail-Closed Validation
+- **Persistence Location:** Serialized under `data["factions"]["pairwise_relations"]` (`SAVE_SCHEMA_VERSION = 1`).
+- **Fail-Closed Validation:** `SaveManager.validate_save_data()` rejects non-Dictionary `pairwise_relations`, self-relations, unknown faction IDs, non-canonical ordering (`faction_a > faction_b`), key/field mismatches, duplicate pairs, non-finite or out-of-range opinions (`< -100.0` or `> 100.0`), non-boolean flags, and contradictory states (`is_at_war && (has_nap || has_alliance)` or `has_alliance && !has_nap`) before world mutation. Legacy saves omitting `pairwise_relations` initialize clean neutral defaults.

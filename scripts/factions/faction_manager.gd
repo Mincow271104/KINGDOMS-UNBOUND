@@ -31,6 +31,20 @@ const DIPLO_REASON_ERR_NULL_FACTION: String = "ERR_NULL_FACTION"
 const DIPLO_REASON_ERR_INVALID_DAY: String = "ERR_INVALID_DAY"
 const DIPLO_REASON_ERR_INVALID_DECISION: String = "ERR_INVALID_DECISION"
 
+# Pairwise Faction Relations Reason Codes (Package 1U)
+const PAIR_REASON_OK: String = "OK"
+const PAIR_REASON_ERR_SELF_RELATION: String = "ERR_SELF_RELATION"
+const PAIR_REASON_ERR_UNKNOWN_FACTION: String = "ERR_UNKNOWN_FACTION"
+const PAIR_REASON_ERR_INVALID_NUMBER: String = "ERR_INVALID_NUMBER"
+const PAIR_REASON_ERR_INVALID_STATUS: String = "ERR_INVALID_STATUS"
+const PAIR_REASON_ERR_ALREADY_AT_WAR: String = "ERR_ALREADY_AT_WAR"
+const PAIR_REASON_ERR_NOT_AT_WAR: String = "ERR_NOT_AT_WAR"
+const PAIR_REASON_ERR_AT_WAR: String = "ERR_AT_WAR"
+const PAIR_REASON_ERR_ALREADY_HAS_NAP: String = "ERR_ALREADY_HAS_NAP"
+const PAIR_REASON_ERR_ALREADY_ALLIED: String = "ERR_ALREADY_ALLIED"
+const PAIR_REASON_ERR_INSUFFICIENT_OPINION: String = "ERR_INSUFFICIENT_OPINION"
+const PAIR_REASON_ERR_UNKNOWN_TREATY: String = "ERR_UNKNOWN_TREATY"
+
 signal relation_changed(faction_id: String, new_opinion: float, disposition: int)
 signal treaty_signed(faction_id: String, treaty_type: String)
 signal war_declared(faction_id: String)
@@ -40,8 +54,13 @@ signal strategic_intent_evaluated(faction_id: String, intent_data: Dictionary)
 signal strategic_intent_executed(faction_id: String, execution_result: Dictionary)
 signal diplomatic_action_evaluated(faction_id: String, decision_data: Dictionary)
 signal diplomatic_action_executed(faction_id: String, execution_result: Dictionary)
+signal faction_pair_opinion_changed(from_id: String, to_id: String, new_opinion: float, disposition: int)
+signal faction_pair_war_declared(initiator_id: String, target_id: String, pair_key: String)
+signal faction_pair_peace_signed(faction_a: String, faction_b: String, pair_key: String)
+signal faction_pair_treaty_signed(faction_a: String, faction_b: String, treaty_type: String, pair_key: String)
 
 var _factions: Dictionary = {} # id -> FactionData
+var _pairwise_relations: Dictionary = {} # canonical pair_key -> FactionRelationData
 var _strategy_executor: FactionStrategyExecutor = FactionStrategyExecutor.new()
 var _last_tribe_growth_day: int = -1
 var _last_diplomacy_days: Dictionary = {} # faction_id -> int day
@@ -100,6 +119,469 @@ func _initialize_factions() -> void:
 	neutral_tribe.strategic_goal = FactionData.GOAL_COMMUNITY_GROWTH
 	neutral_tribe.existence_status = FactionData.STATUS_ACTIVE
 	_factions[neutral_tribe.id] = neutral_tribe
+	initialize_pairwise_relations(true)
+
+func initialize_pairwise_relations(reset_existing: bool = false) -> void:
+	if reset_existing:
+		_pairwise_relations.clear()
+	var sorted_ids: Array = _factions.keys()
+	sorted_ids.sort()
+	for i in range(sorted_ids.size()):
+		var id_a: String = str(sorted_ids[i])
+		for j in range(i + 1, sorted_ids.size()):
+			var id_b: String = str(sorted_ids[j])
+			var p_key: String = FactionRelationData.make_pair_key(id_a, id_b)
+			if p_key.is_empty():
+				continue
+			if not _pairwise_relations.has(p_key):
+				_pairwise_relations[p_key] = FactionRelationData.new(id_a, id_b)
+
+func get_faction_pair_key(id_1: String, id_2: String) -> String:
+	if id_1.is_empty() or id_2.is_empty() or id_1 == id_2:
+		return ""
+	if get_faction(id_1) == null or get_faction(id_2) == null:
+		return ""
+	return FactionRelationData.make_pair_key(id_1, id_2)
+
+func get_faction_relation_record(id_1: String, id_2: String) -> FactionRelationData:
+	var p_key: String = get_faction_pair_key(id_1, id_2)
+	if p_key.is_empty():
+		return null
+	if not _pairwise_relations.has(p_key):
+		initialize_pairwise_relations(false)
+	return _pairwise_relations.get(p_key, null)
+
+func get_faction_relation(from_id: String, to_id: String) -> Dictionary:
+	var rec: FactionRelationData = get_faction_relation_record(from_id, to_id)
+	if rec == null:
+		return {}
+	return rec.to_directed_view(from_id, to_id)
+
+func get_directed_faction_opinion(from_id: String, to_id: String) -> float:
+	var rec: FactionRelationData = get_faction_relation_record(from_id, to_id)
+	if rec == null:
+		return 0.0
+	return rec.get_opinion(from_id, to_id)
+
+func are_factions_at_war(id_1: String, id_2: String) -> bool:
+	var rec: FactionRelationData = get_faction_relation_record(id_1, id_2)
+	if rec == null:
+		return false
+	return rec.is_at_war
+
+func do_factions_have_nap(id_1: String, id_2: String) -> bool:
+	var rec: FactionRelationData = get_faction_relation_record(id_1, id_2)
+	if rec == null:
+		return false
+	return rec.has_nap
+
+func do_factions_have_alliance(id_1: String, id_2: String) -> bool:
+	var rec: FactionRelationData = get_faction_relation_record(id_1, id_2)
+	if rec == null:
+		return false
+	return rec.has_alliance
+
+func get_all_faction_relations() -> Array[Dictionary]:
+	initialize_pairwise_relations(false)
+	var out: Array[Dictionary] = []
+	var sorted_keys: Array = _pairwise_relations.keys()
+	sorted_keys.sort()
+	for k in sorted_keys:
+		var rec: FactionRelationData = _pairwise_relations.get(k, null)
+		if rec != null:
+			out.append(rec.serialize())
+	return out
+
+func _validate_faction_pair_ids(id_1: String, id_2: String) -> Dictionary:
+	if id_1 == id_2 and not id_1.is_empty():
+		return {
+			"valid": false,
+			"reason_code": PAIR_REASON_ERR_SELF_RELATION,
+			"reason": "Một thế lực không thể thiết lập quan hệ ngoại giao với chính mình (%s)" % id_1
+		}
+	var fac_1: FactionData = get_faction(id_1)
+	var fac_2: FactionData = get_faction(id_2)
+	if fac_1 == null or fac_2 == null:
+		return {
+			"valid": false,
+			"reason_code": PAIR_REASON_ERR_UNKNOWN_FACTION,
+			"reason": "Một hoặc cả hai thế lực không tồn tại (%s, %s)" % [id_1, id_2]
+		}
+	var rec: FactionRelationData = get_faction_relation_record(id_1, id_2)
+	if rec == null:
+		return {
+			"valid": false,
+			"reason_code": PAIR_REASON_ERR_UNKNOWN_FACTION,
+			"reason": "Không tìm thấy bản ghi quan hệ giữa (%s, %s)" % [id_1, id_2]
+		}
+	return {
+		"valid": true,
+		"fac_1": fac_1,
+		"fac_2": fac_2,
+		"record": rec,
+		"pair_key": rec.get_pair_key()
+	}
+
+func _emit_pair_opinion_signals(rec: FactionRelationData) -> void:
+	if rec == null:
+		return
+	faction_pair_opinion_changed.emit(
+		rec.faction_a,
+		rec.faction_b,
+		rec.opinion_a_to_b,
+		rec.get_disposition(rec.faction_a, rec.faction_b)
+	)
+	faction_pair_opinion_changed.emit(
+		rec.faction_b,
+		rec.faction_a,
+		rec.opinion_b_to_a,
+		rec.get_disposition(rec.faction_b, rec.faction_a)
+	)
+
+func set_faction_pair_opinion(from_id: String, to_id: String, value: Variant) -> Dictionary:
+	var check: Dictionary = _validate_faction_pair_ids(from_id, to_id)
+	if not bool(check.get("valid", false)):
+		return {
+			"success": false,
+			"reason_code": str(check.get("reason_code", PAIR_REASON_ERR_UNKNOWN_FACTION)),
+			"reason": str(check.get("reason", ""))
+		}
+	if not FactionRelationData.is_valid_finite_number(value):
+		return {
+			"success": false,
+			"reason_code": PAIR_REASON_ERR_INVALID_NUMBER,
+			"reason": "Giá trị thiện cảm phải là số hữu hạn hợp lệ"
+		}
+	var rec: FactionRelationData = check["record"]
+	var prev_op: float = rec.get_opinion(from_id, to_id)
+	rec.set_opinion(from_id, to_id, float(value))
+	var new_op: float = rec.get_opinion(from_id, to_id)
+	var new_disp: int = rec.get_disposition(from_id, to_id)
+	faction_pair_opinion_changed.emit(from_id, to_id, new_op, new_disp)
+	return {
+		"success": true,
+		"reason_code": PAIR_REASON_OK,
+		"pair_key": rec.get_pair_key(),
+		"from_id": from_id,
+		"to_id": to_id,
+		"previous_opinion": prev_op,
+		"new_opinion": new_op,
+		"disposition": new_disp
+	}
+
+func modify_faction_pair_opinion(from_id: String, to_id: String, delta: Variant) -> Dictionary:
+	var check: Dictionary = _validate_faction_pair_ids(from_id, to_id)
+	if not bool(check.get("valid", false)):
+		return {
+			"success": false,
+			"reason_code": str(check.get("reason_code", PAIR_REASON_ERR_UNKNOWN_FACTION)),
+			"reason": str(check.get("reason", ""))
+		}
+	if not FactionRelationData.is_valid_finite_number(delta):
+		return {
+			"success": false,
+			"reason_code": PAIR_REASON_ERR_INVALID_NUMBER,
+			"reason": "Độ biến thiên thiện cảm phải là số hữu hạn hợp lệ"
+		}
+	var rec: FactionRelationData = check["record"]
+	var prev_op: float = rec.get_opinion(from_id, to_id)
+	rec.change_opinion(from_id, to_id, float(delta))
+	var new_op: float = rec.get_opinion(from_id, to_id)
+	var new_disp: int = rec.get_disposition(from_id, to_id)
+	faction_pair_opinion_changed.emit(from_id, to_id, new_op, new_disp)
+	return {
+		"success": true,
+		"reason_code": PAIR_REASON_OK,
+		"pair_key": rec.get_pair_key(),
+		"from_id": from_id,
+		"to_id": to_id,
+		"previous_opinion": prev_op,
+		"new_opinion": new_op,
+		"disposition": new_disp
+	}
+
+func declare_war_between_factions(initiator_id: String, target_id: String) -> Dictionary:
+	var check: Dictionary = _validate_faction_pair_ids(initiator_id, target_id)
+	if not bool(check.get("valid", false)):
+		return {
+			"success": false,
+			"reason_code": str(check.get("reason_code", PAIR_REASON_ERR_UNKNOWN_FACTION)),
+			"reason": str(check.get("reason", ""))
+		}
+	var fac_1: FactionData = check["fac_1"]
+	var fac_2: FactionData = check["fac_2"]
+	if not FactionData.VALID_EXISTENCE_STATUSES.has(fac_1.existence_status) or fac_1.existence_status != FactionData.STATUS_ACTIVE:
+		return {
+			"success": false,
+			"reason_code": PAIR_REASON_ERR_INVALID_STATUS,
+			"reason": "Thế lực phát động '%s' không ở trạng thái hoạt động (%s)" % [fac_1.id, fac_1.existence_status]
+		}
+	if not FactionData.VALID_EXISTENCE_STATUSES.has(fac_2.existence_status) or fac_2.existence_status != FactionData.STATUS_ACTIVE:
+		return {
+			"success": false,
+			"reason_code": PAIR_REASON_ERR_INVALID_STATUS,
+			"reason": "Thế lực mục tiêu '%s' không ở trạng thái hoạt động (%s)" % [fac_2.id, fac_2.existence_status]
+		}
+	var rec: FactionRelationData = check["record"]
+	if rec.is_at_war:
+		return {
+			"success": false,
+			"reason_code": PAIR_REASON_ERR_ALREADY_AT_WAR,
+			"reason": "Hai thế lực đã ở trong tình trạng chiến tranh"
+		}
+	rec.apply_declare_war()
+	var p_key: String = rec.get_pair_key()
+	faction_pair_war_declared.emit(initiator_id, target_id, p_key)
+	_emit_pair_opinion_signals(rec)
+	return {
+		"success": true,
+		"reason_code": PAIR_REASON_OK,
+		"pair_key": p_key,
+		"initiator_id": initiator_id,
+		"target_id": target_id,
+		"is_at_war": rec.is_at_war,
+		"has_nap": rec.has_nap,
+		"has_alliance": rec.has_alliance,
+		"opinion_a_to_b": rec.opinion_a_to_b,
+		"opinion_b_to_a": rec.opinion_b_to_a
+	}
+
+func sign_peace_between_factions(id_1: String, id_2: String) -> Dictionary:
+	var check: Dictionary = _validate_faction_pair_ids(id_1, id_2)
+	if not bool(check.get("valid", false)):
+		return {
+			"success": false,
+			"reason_code": str(check.get("reason_code", PAIR_REASON_ERR_UNKNOWN_FACTION)),
+			"reason": str(check.get("reason", ""))
+		}
+	var fac_1: FactionData = check["fac_1"]
+	var fac_2: FactionData = check["fac_2"]
+	if not FactionData.VALID_EXISTENCE_STATUSES.has(fac_1.existence_status) or fac_1.existence_status == FactionData.STATUS_ELIMINATED:
+		return {
+			"success": false,
+			"reason_code": PAIR_REASON_ERR_INVALID_STATUS,
+			"reason": "Thế lực '%s' không thể ký hòa ước ở trạng thái (%s)" % [fac_1.id, fac_1.existence_status]
+		}
+	if not FactionData.VALID_EXISTENCE_STATUSES.has(fac_2.existence_status) or fac_2.existence_status == FactionData.STATUS_ELIMINATED:
+		return {
+			"success": false,
+			"reason_code": PAIR_REASON_ERR_INVALID_STATUS,
+			"reason": "Thế lực '%s' không thể ký hòa ước ở trạng thái (%s)" % [fac_2.id, fac_2.existence_status]
+		}
+	var rec: FactionRelationData = check["record"]
+	if not rec.is_at_war:
+		return {
+			"success": false,
+			"reason_code": PAIR_REASON_ERR_NOT_AT_WAR,
+			"reason": "Hai thế lực đang trong trạng thái hòa bình"
+		}
+	rec.apply_sign_peace()
+	var p_key: String = rec.get_pair_key()
+	faction_pair_peace_signed.emit(rec.faction_a, rec.faction_b, p_key)
+	_emit_pair_opinion_signals(rec)
+	return {
+		"success": true,
+		"reason_code": PAIR_REASON_OK,
+		"pair_key": p_key,
+		"faction_a": rec.faction_a,
+		"faction_b": rec.faction_b,
+		"is_at_war": rec.is_at_war,
+		"opinion_a_to_b": rec.opinion_a_to_b,
+		"opinion_b_to_a": rec.opinion_b_to_a
+	}
+
+func sign_nap_between_factions(id_1: String, id_2: String) -> Dictionary:
+	var check: Dictionary = _validate_faction_pair_ids(id_1, id_2)
+	if not bool(check.get("valid", false)):
+		return {
+			"success": false,
+			"reason_code": str(check.get("reason_code", PAIR_REASON_ERR_UNKNOWN_FACTION)),
+			"reason": str(check.get("reason", ""))
+		}
+	var fac_1: FactionData = check["fac_1"]
+	var fac_2: FactionData = check["fac_2"]
+	if not FactionData.VALID_EXISTENCE_STATUSES.has(fac_1.existence_status) or fac_1.existence_status != FactionData.STATUS_ACTIVE:
+		return {
+			"success": false,
+			"reason_code": PAIR_REASON_ERR_INVALID_STATUS,
+			"reason": "Thế lực '%s' không ở trạng thái hoạt động (%s)" % [fac_1.id, fac_1.existence_status]
+		}
+	if not FactionData.VALID_EXISTENCE_STATUSES.has(fac_2.existence_status) or fac_2.existence_status != FactionData.STATUS_ACTIVE:
+		return {
+			"success": false,
+			"reason_code": PAIR_REASON_ERR_INVALID_STATUS,
+			"reason": "Thế lực '%s' không ở trạng thái hoạt động (%s)" % [fac_2.id, fac_2.existence_status]
+		}
+	var rec: FactionRelationData = check["record"]
+	if rec.is_at_war:
+		return {
+			"success": false,
+			"reason_code": PAIR_REASON_ERR_AT_WAR,
+			"reason": "Đang có chiến tranh, không thể ký Hiệp Ước Không Xâm Phạm"
+		}
+	if rec.has_nap:
+		return {
+			"success": false,
+			"reason_code": PAIR_REASON_ERR_ALREADY_HAS_NAP,
+			"reason": "Hai thế lực đã có Hiệp Ước Không Xâm Phạm"
+		}
+	if rec.opinion_a_to_b < FactionRelationData.NAP_MIN_OPINION or rec.opinion_b_to_a < FactionRelationData.NAP_MIN_OPINION:
+		return {
+			"success": false,
+			"reason_code": PAIR_REASON_ERR_INSUFFICIENT_OPINION,
+			"reason": "Thiện cảm song phương chưa đủ (cần >= 0 từ cả hai phía)"
+		}
+	rec.apply_sign_nap()
+	var p_key: String = rec.get_pair_key()
+	faction_pair_treaty_signed.emit(rec.faction_a, rec.faction_b, "nap", p_key)
+	_emit_pair_opinion_signals(rec)
+	return {
+		"success": true,
+		"reason_code": PAIR_REASON_OK,
+		"pair_key": p_key,
+		"treaty_type": "nap",
+		"has_nap": rec.has_nap,
+		"has_alliance": rec.has_alliance,
+		"opinion_a_to_b": rec.opinion_a_to_b,
+		"opinion_b_to_a": rec.opinion_b_to_a
+	}
+
+func sign_alliance_between_factions(id_1: String, id_2: String) -> Dictionary:
+	var check: Dictionary = _validate_faction_pair_ids(id_1, id_2)
+	if not bool(check.get("valid", false)):
+		return {
+			"success": false,
+			"reason_code": str(check.get("reason_code", PAIR_REASON_ERR_UNKNOWN_FACTION)),
+			"reason": str(check.get("reason", ""))
+		}
+	var fac_1: FactionData = check["fac_1"]
+	var fac_2: FactionData = check["fac_2"]
+	if not FactionData.VALID_EXISTENCE_STATUSES.has(fac_1.existence_status) or fac_1.existence_status != FactionData.STATUS_ACTIVE:
+		return {
+			"success": false,
+			"reason_code": PAIR_REASON_ERR_INVALID_STATUS,
+			"reason": "Thế lực '%s' không ở trạng thái hoạt động (%s)" % [fac_1.id, fac_1.existence_status]
+		}
+	if not FactionData.VALID_EXISTENCE_STATUSES.has(fac_2.existence_status) or fac_2.existence_status != FactionData.STATUS_ACTIVE:
+		return {
+			"success": false,
+			"reason_code": PAIR_REASON_ERR_INVALID_STATUS,
+			"reason": "Thế lực '%s' không ở trạng thái hoạt động (%s)" % [fac_2.id, fac_2.existence_status]
+		}
+	var rec: FactionRelationData = check["record"]
+	if rec.is_at_war:
+		return {
+			"success": false,
+			"reason_code": PAIR_REASON_ERR_AT_WAR,
+			"reason": "Đang có chiến tranh, không thể ký Liên Minh Phòng Thủ"
+		}
+	if rec.has_alliance:
+		return {
+			"success": false,
+			"reason_code": PAIR_REASON_ERR_ALREADY_ALLIED,
+			"reason": "Hai thế lực đã trong Liên Minh Phòng Thủ"
+		}
+	if rec.opinion_a_to_b < FactionRelationData.ALLIANCE_MIN_OPINION or rec.opinion_b_to_a < FactionRelationData.ALLIANCE_MIN_OPINION:
+		return {
+			"success": false,
+			"reason_code": PAIR_REASON_ERR_INSUFFICIENT_OPINION,
+			"reason": "Thiện cảm song phương chưa đủ cao (cần >= 60 từ cả hai phía)"
+		}
+	rec.apply_sign_alliance()
+	var p_key: String = rec.get_pair_key()
+	faction_pair_treaty_signed.emit(rec.faction_a, rec.faction_b, "alliance", p_key)
+	_emit_pair_opinion_signals(rec)
+	return {
+		"success": true,
+		"reason_code": PAIR_REASON_OK,
+		"pair_key": p_key,
+		"treaty_type": "alliance",
+		"has_nap": rec.has_nap,
+		"has_alliance": rec.has_alliance,
+		"opinion_a_to_b": rec.opinion_a_to_b,
+		"opinion_b_to_a": rec.opinion_b_to_a
+	}
+
+func propose_treaty_between_factions(id_1: String, id_2: String, treaty_type: String) -> Dictionary:
+	match treaty_type:
+		"peace":
+			return sign_peace_between_factions(id_1, id_2)
+		"nap":
+			return sign_nap_between_factions(id_1, id_2)
+		"alliance":
+			return sign_alliance_between_factions(id_1, id_2)
+		_:
+			var check: Dictionary = _validate_faction_pair_ids(id_1, id_2)
+			if not bool(check.get("valid", false)):
+				return {
+					"success": false,
+					"reason_code": str(check.get("reason_code", PAIR_REASON_ERR_UNKNOWN_FACTION)),
+					"reason": str(check.get("reason", ""))
+				}
+			return {
+				"success": false,
+				"reason_code": PAIR_REASON_ERR_UNKNOWN_TREATY,
+				"reason": "Loại hiệp ước không xác định: %s" % treaty_type
+			}
+
+func serialize_pairwise_relations() -> Dictionary:
+	initialize_pairwise_relations(false)
+	var out: Dictionary = {}
+	var sorted_keys: Array = _pairwise_relations.keys()
+	sorted_keys.sort()
+	for k in sorted_keys:
+		var rec: FactionRelationData = _pairwise_relations.get(k, null)
+		if rec != null:
+			out[String(k)] = rec.serialize()
+	return out
+
+func deserialize_pairwise_relations(data: Dictionary) -> void:
+	initialize_pairwise_relations(true)
+	if data.is_empty():
+		return
+	var sorted_keys: Array = data.keys()
+	sorted_keys.sort()
+	for raw_key in sorted_keys:
+		if not (raw_key is String):
+			continue
+		var entry = data[raw_key]
+		if not (entry is Dictionary):
+			continue
+		var fa: String = str(entry.get("faction_a", ""))
+		var fb: String = str(entry.get("faction_b", ""))
+		if fa.is_empty() or fb.is_empty() or fa == fb:
+			continue
+		if get_faction(fa) == null or get_faction(fb) == null:
+			continue
+		var p_key: String = FactionRelationData.make_pair_key(fa, fb)
+		if p_key.is_empty() or not _pairwise_relations.has(p_key):
+			continue
+		var rec: FactionRelationData = _pairwise_relations[p_key]
+		var raw_op_ab = entry.get("opinion_a_to_b", 0.0)
+		var raw_op_ba = entry.get("opinion_b_to_a", 0.0)
+		var op_ab: float = float(raw_op_ab) if FactionRelationData.is_valid_finite_number(raw_op_ab) else 0.0
+		var op_ba: float = float(raw_op_ba) if FactionRelationData.is_valid_finite_number(raw_op_ba) else 0.0
+		if fa == rec.faction_a and fb == rec.faction_b:
+			rec.set_opinion(rec.faction_a, rec.faction_b, op_ab)
+			rec.set_opinion(rec.faction_b, rec.faction_a, op_ba)
+		else:
+			rec.set_opinion(rec.faction_a, rec.faction_b, op_ba)
+			rec.set_opinion(rec.faction_b, rec.faction_a, op_ab)
+		var at_war: bool = bool(entry.get("is_at_war", false)) if (entry.get("is_at_war", false) is bool) else false
+		var nap: bool = bool(entry.get("has_nap", false)) if (entry.get("has_nap", false) is bool) else false
+		var allied: bool = bool(entry.get("has_alliance", false)) if (entry.get("has_alliance", false) is bool) else false
+		if at_war:
+			rec.is_at_war = true
+			rec.has_nap = false
+			rec.has_alliance = false
+		elif allied:
+			rec.is_at_war = false
+			rec.has_alliance = true
+			rec.has_nap = true
+		else:
+			rec.is_at_war = false
+			rec.has_alliance = false
+			rec.has_nap = nap
 
 func get_faction(id: String) -> FactionData:
 	return _factions.get(id, null)

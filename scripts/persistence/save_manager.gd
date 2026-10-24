@@ -159,9 +159,13 @@ static func serialize_world_state(world_view: Node) -> Dictionary:
 		var exec_state: Dictionary = {}
 		if fac_mgr.has_method("serialize_executor_state"):
 			exec_state = fac_mgr.call("serialize_executor_state")
+		var pair_rel_state: Dictionary = {}
+		if fac_mgr.has_method("serialize_pairwise_relations"):
+			pair_rel_state = fac_mgr.call("serialize_pairwise_relations")
 		data["factions"] = {
 			"factions": fac_dict,
-			"strategy_executor": exec_state
+			"strategy_executor": exec_state,
+			"pairwise_relations": pair_rel_state
 		}
 
 	# 8. POIs
@@ -617,6 +621,61 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 						return {"valid": false, "error": "Ngày ngoại giao trong last_diplomacy_days của '%s' phải là số nguyên trong [1, 36500]: %s." % [str(fid), str(d_val)]}
 					if max_allowed_fac_day >= 1 and int(d_val) > max_allowed_fac_day:
 						return {"valid": false, "error": "Ngày ngoại giao trong last_diplomacy_days của '%s' (%d) không được lớn hơn current_day trong game_clock (%d)." % [str(fid), int(d_val), max_allowed_fac_day]}
+		if fac_root.has("pairwise_relations"):
+			var pair_map = fac_root.get("pairwise_relations")
+			if not (pair_map is Dictionary):
+				return {"valid": false, "error": "pairwise_relations trong mục 'factions' phải là từ điển (Dictionary)."}
+			const KNOWN_NPC_FACTION_IDS: Array[String] = ["neutral_tribe", "rival_merchant", "rival_military"]
+			var seen_canonical_pairs: Dictionary = {}
+			for raw_p_key in pair_map:
+				if not (raw_p_key is String) or String(raw_p_key).is_empty():
+					return {"valid": false, "error": "Khóa cặp quan hệ trong pairwise_relations không hợp lệ."}
+				var p_entry = pair_map[raw_p_key]
+				if not (p_entry is Dictionary):
+					return {"valid": false, "error": "Bản ghi quan hệ pairwise_relations['%s'] phải là từ điển (Dictionary)." % str(raw_p_key)}
+				var fa_raw = p_entry.get("faction_a", "")
+				var fb_raw = p_entry.get("faction_b", "")
+				if not (fa_raw is String) or not (fb_raw is String):
+					return {"valid": false, "error": "faction_a và faction_b trong pairwise_relations['%s'] phải là chuỗi hợp lệ." % str(raw_p_key)}
+				var fa: String = String(fa_raw)
+				var fb: String = String(fb_raw)
+				if fa.is_empty() or fb.is_empty():
+					return {"valid": false, "error": "faction_a và faction_b trong pairwise_relations['%s'] không được rỗng." % str(raw_p_key)}
+				if fa == fb:
+					return {"valid": false, "error": "Không cho phép tự quan hệ (self-relation) trong pairwise_relations['%s']: '%s'." % [str(raw_p_key), fa]}
+				if not KNOWN_NPC_FACTION_IDS.has(fa) or not KNOWN_NPC_FACTION_IDS.has(fb):
+					return {"valid": false, "error": "ID thế lực không hợp lệ trong pairwise_relations['%s']: (%s, %s)." % [str(raw_p_key), fa, fb]}
+				if not (fa < fb):
+					return {"valid": false, "error": "Thứ tự cặp thế lực trong pairwise_relations['%s'] không chuẩn tắc (cần faction_a < faction_b): (%s, %s)." % [str(raw_p_key), fa, fb]}
+				var expected_p_key: String = FactionRelationData.make_pair_key(fa, fb)
+				if String(raw_p_key) != expected_p_key:
+					return {"valid": false, "error": "Khóa pairwise_relations ('%s') không khớp khóa chuẩn tắc ('%s')." % [str(raw_p_key), expected_p_key]}
+				if p_entry.has("pair_key"):
+					var entry_pk = p_entry.get("pair_key")
+					if not (entry_pk is String) or String(entry_pk) != expected_p_key:
+						return {"valid": false, "error": "Trường pair_key ('%s') không khớp khóa chuẩn tắc ('%s')." % [str(entry_pk), expected_p_key]}
+				if seen_canonical_pairs.has(expected_p_key):
+					return {"valid": false, "error": "Cặp thế lực bị trùng lặp trong pairwise_relations: '%s'." % expected_p_key}
+				seen_canonical_pairs[expected_p_key] = true
+				for op_field in ["opinion_a_to_b", "opinion_b_to_a"]:
+					if not p_entry.has(op_field):
+						return {"valid": false, "error": "Bản ghi pairwise_relations['%s'] thiếu trường '%s'." % [expected_p_key, op_field]}
+					var op_val = p_entry.get(op_field)
+					if not FactionRelationData.is_valid_finite_number(op_val):
+						return {"valid": false, "error": "Giá trị '%s' trong pairwise_relations['%s'] phải là số hữu hạn: %s." % [op_field, expected_p_key, str(op_val)]}
+					var op_f: float = float(op_val)
+					if op_f < FactionRelationData.OPINION_MIN or op_f > FactionRelationData.OPINION_MAX:
+						return {"valid": false, "error": "Giá trị '%s' trong pairwise_relations['%s'] nằm ngoài phạm vi [-100, 100]: %s." % [op_field, expected_p_key, str(op_val)]}
+				for bool_field in ["is_at_war", "has_nap", "has_alliance"]:
+					if not p_entry.has(bool_field) or not (p_entry.get(bool_field) is bool):
+						return {"valid": false, "error": "Trường '%s' trong pairwise_relations['%s'] phải là boolean." % [bool_field, expected_p_key]}
+				var p_war: bool = bool(p_entry.get("is_at_war"))
+				var p_nap: bool = bool(p_entry.get("has_nap"))
+				var p_allied: bool = bool(p_entry.get("has_alliance"))
+				if p_war and (p_nap or p_allied):
+					return {"valid": false, "error": "Trạng thái mâu thuẫn trong pairwise_relations['%s']: không thể vừa chiến tranh vừa có hiệp ước (has_nap=%s, has_alliance=%s)." % [expected_p_key, str(p_nap), str(p_allied)]}
+				if p_allied and not p_nap:
+					return {"valid": false, "error": "Trạng thái mâu thuẫn trong pairwise_relations['%s']: liên minh (has_alliance=true) đòi hỏi has_nap=true." % expected_p_key}
 
 	# Validate optional immigration section (DEBT-03)
 	if json_dict.has("immigration"):
@@ -993,6 +1052,11 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 			if not (exec_saved is Dictionary):
 				exec_saved = {}
 			fac_mgr.call("deserialize_executor_state", exec_saved, restored_clock_day)
+		if fac_mgr.has_method("deserialize_pairwise_relations"):
+			var pair_saved = fac_section.get("pairwise_relations", {})
+			if not (pair_saved is Dictionary):
+				pair_saved = {}
+			fac_mgr.call("deserialize_pairwise_relations", pair_saved)
 
 	# 8. Restore POIs
 	var poi_mgr = world_view.get("poi_mgr")

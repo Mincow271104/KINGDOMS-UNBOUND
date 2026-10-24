@@ -8,6 +8,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### [Package 1U] - 2026-10-24
+#### Added
+- Pairwise Faction Relations Foundation (`FactionRelationData`, `FactionManager`, `SaveManager`):
+  - Canonical pairwise relationship model `scripts/factions/faction_relation_data.gd` (`FactionRelationData`) representing each unordered NPC faction pair `(faction_a < faction_b)` with canonical `pair_key = faction_a + "__" + faction_b`, directional opinions (`opinion_a_to_b`, `opinion_b_to_a` clamped to `[-100.0, 100.0]`), and shared war/treaty state (`is_at_war`, `has_nap`, `has_alliance`).
+  - Authoritative query and mutation APIs in `FactionManager`:
+    - Query helpers: `get_faction_pair_key(id_1, id_2)`, `get_faction_relation_record(id_1, id_2)`, `get_faction_relation(from_id, to_id)`, `get_directed_faction_opinion(from_id, to_id)`, `are_factions_at_war(id_1, id_2)`, `do_factions_have_nap(id_1, id_2)`, `do_factions_have_alliance(id_1, id_2)`, `get_all_faction_relations()`.
+    - Validated atomic mutation APIs: `set_faction_pair_opinion`, `modify_faction_pair_opinion`, `declare_war_between_factions`, `sign_peace_between_factions`, `sign_nap_between_factions`, `sign_alliance_between_factions`, `propose_treaty_between_factions`, and pair-specific signals (`faction_pair_opinion_changed`, `faction_pair_war_declared`, `faction_pair_peace_signed`, `faction_pair_treaty_signed`) strictly isolated from player-facing `FactionData` fields and settlement raids.
+  - Save/Load persistence and fail-closed validation in `SaveManager`:
+    - Serializes and restores `factions.pairwise_relations` (`SAVE_SCHEMA_VERSION = 1`) with full legacy save compatibility and fail-closed rejection of self-relations, unknown faction IDs, non-canonical pair ordering, mismatched keys, out-of-range/non-finite opinions, non-boolean flags, and contradictory war/treaty states.
+  - Dedicated automated test suite `scripts/test/test_faction_relation_matrix.gd` covering TC-FREL.1 through TC-FREL.16 (16/16 tests passed, 151 checks passed, Exit Code 0).
+
 ### [Package 1T] - 2026-10-24
 #### Added
 - Deterministic Autonomous Faction Diplomacy (`FactionDiplomacyPlanner`, `FactionManager`, `SaveManager`, `HUD`):

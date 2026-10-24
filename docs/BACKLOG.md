@@ -212,3 +212,11 @@
 - [x] **TASK-1T.3:** `SaveManager` persistence and fail-closed validation for `factions.strategy_executor.last_diplomacy_days` (`1..36500` and `<= game_clock.current_day`) with second-layer filtering in `FactionManager.deserialize_executor_state()` and legacy save compatibility.
 - [x] **TASK-1T.4:** In-Game `HUD` Vietnamese event banner and diplomacy UI refresh integration for both `war_declared` and `peace_signed` signals.
 - [x] **TASK-1T.5:** Automated test suite `scripts/test/test_faction_diplomacy_ai.gd` covering TC-FDIP.1 through TC-FDIP.16 (PASS, Exit Code 0).
+
+---
+
+## Package 1U: Pairwise Faction Relations Foundation (Completed)
+- [x] **TASK-1U.1:** Canonical pairwise relationship model `FactionRelationData` (`scripts/factions/faction_relation_data.gd`) storing unordered NPC faction pairs `(faction_a < faction_b)` with canonical `pair_key = faction_a + "__" + faction_b`, directional opinions (`opinion_a_to_b`, `opinion_b_to_a` clamped to `[-100.0, 100.0]`), and shared war/treaty state (`is_at_war`, `has_nap`, `has_alliance`).
+- [x] **TASK-1U.2:** `FactionManager` pairwise relationship lifecycle, queries (`get_faction_pair_key`, `get_faction_relation_record`, `get_faction_relation`, `get_directed_faction_opinion`, `are_factions_at_war`, `do_factions_have_nap`, `do_factions_have_alliance`, `get_all_faction_relations`), validated atomic mutations (`set_faction_pair_opinion`, `modify_faction_pair_opinion`, `declare_war_between_factions`, `sign_peace_between_factions`, `sign_nap_between_factions`, `sign_alliance_between_factions`, `propose_treaty_between_factions`), and pair-specific signals (`faction_pair_opinion_changed`, `faction_pair_war_declared`, `faction_pair_peace_signed`, `faction_pair_treaty_signed`) isolated from player-facing `FactionData` fields and settlement raids.
+- [x] **TASK-1U.3:** `SaveManager` persistence and fail-closed validation for `factions.pairwise_relations` (`SAVE_SCHEMA_VERSION = 1`) with full legacy save compatibility and double-load idempotency.
+- [x] **TASK-1U.4:** Automated test suite `scripts/test/test_faction_relation_matrix.gd` covering TC-FREL.1 through TC-FREL.16 (PASS, Exit Code 0).

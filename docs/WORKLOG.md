@@ -5281,3 +5281,65 @@ On branch `feature/package-1r-faction-strategic-decision-engine` starting from l
 
 ### Next Exact Step
 - Commit Package 1T on `feature/package-1t-faction-diplomatic-autonomy` with message `Implement deterministic autonomous faction diplomacy` and push to `origin/feature/package-1t-faction-diplomatic-autonomy`.
+
+---
+
+## [2026-10-24] Package 1U: Pairwise Faction Relations Foundation
+
+### Status
+- **Phase:** Post-Gate 9 — Package 1U (`Pairwise Faction Relations Foundation`)
+- **Branch:** `feature/package-1u-faction-relations-matrix`
+- **Base Commit:** `af4c9d0508cd019136f43b01e4c5f636f22b386e`
+- **Milestone:** **COMPLETE (Ready for Commit & Push)**
+
+### Completed Work
+1. **Canonical Pairwise Relationship Model (`scripts/factions/faction_relation_data.gd`):**
+   - Created `FactionRelationData` (`class_name FactionRelationData`) storing the single authoritative relationship record for each unordered pair of distinct NPC factions `(faction_a < faction_b)` with canonical `pair_key = faction_a + "__" + faction_b`.
+   - Implemented directional opinions (`opinion_a_to_b`, `opinion_b_to_a`, default `0.0`, clamped to `[-100.0, 100.0]`), directional disposition calculation, and atomic war/peace/NAP/Alliance transitions (`apply_declare_war`, `apply_sign_peace`, `apply_sign_nap`, `apply_sign_alliance`), directed view helper (`to_directed_view`), and `serialize()`.
+2. **Authoritative Pairwise APIs & Isolation in `FactionManager` (`scripts/factions/faction_manager.gd`):**
+   - Added `_pairwise_relations` dictionary initialized deterministically in `_initialize_factions()` via `initialize_pairwise_relations(reset_existing: bool = false)` across all unordered pairs of `_factions` in sorted ID order (`neutral_tribe__rival_merchant`, `neutral_tribe__rival_military`, `rival_merchant__rival_military`).
+   - Added query APIs (`get_faction_pair_key`, `get_faction_relation_record`, `get_faction_relation`, `get_directed_faction_opinion`, `are_factions_at_war`, `do_factions_have_nap`, `do_factions_have_alliance`, `get_all_faction_relations`), validated mutation APIs (`set_faction_pair_opinion`, `modify_faction_pair_opinion`, `declare_war_between_factions`, `sign_peace_between_factions`, `sign_nap_between_factions`, `sign_alliance_between_factions`, `propose_treaty_between_factions`), pair-specific signals (`faction_pair_opinion_changed`, `faction_pair_war_declared`, `faction_pair_peace_signed`, `faction_pair_treaty_signed`), and `serialize_pairwise_relations()` / `deserialize_pairwise_relations()`.
+   - Guaranteed strict isolation from player-facing `FactionData` diplomatic fields (`opinion`, `is_at_war`, `has_nap`, `has_alliance`), player-facing signals (`war_declared`, `peace_signed`), and `BattleCampaignManager` settlement raids.
+3. **Save/Load Persistence & Fail-Closed Validation (`scripts/persistence/save_manager.gd`):**
+   - Persisted pairwise relations under `data["factions"]["pairwise_relations"]` (`SAVE_SCHEMA_VERSION = 1`).
+   - Added fail-closed validation in `SaveManager.validate_save_data()` rejecting non-Dictionary `pairwise_relations`, self-relations, unknown faction IDs, non-canonical ordering (`faction_a > faction_b`), mismatched dictionary keys vs `faction_a`/`faction_b`, duplicate pairs, non-finite or out-of-range opinions (`< -100.0` or `> 100.0`), non-boolean flags, and contradictory war/treaty states (`is_at_war && (has_nap || has_alliance)` or `has_alliance && !has_nap`) before world mutation.
+   - Restored `pairwise_relations` in `SaveManager.apply_loaded_state_to_world()` with clean neutral fallback for legacy saves omitting `pairwise_relations`.
+4. **Automated Test Suite (`scripts/test/test_faction_relation_matrix.gd`):**
+   - Created `scripts/test/test_faction_relation_matrix.gd` covering `TC-FREL.1` through `TC-FREL.16` (151 checks passed, 0 failures).
+5. **Documentation Synchronization:**
+   - Updated `docs/BACKLOG.md`, `docs/GAME_RULES.md`, `docs/SCOPE_DECISIONS.md`, `docs/ARCHITECTURE.md`, `docs/TEST_PLAN.md`, `docs/CHANGELOG.md`, and `docs/WORKLOG.md`.
+
+### Verification & Test Evidence (Independent Runs on Final Source)
+- `scripts/test/test_faction_relation_matrix.gd`: **PASS (Exit Code 0 — 16/16 TC Passed, 151 Checks Passed, 0 Failed)**
+- `scripts/test/test_faction_diplomacy_ai.gd`: **PASS (Exit Code 0 — 16/16 TC Passed, 437 Checks Passed, 0 Failed)**
+- `scripts/test/test_faction_strategy_execution.gd`: **PASS (Exit Code 0 — 14/14 TC Passed, 951 Checks Passed, 0 Failed)**
+- `scripts/test/test_faction_strategy_planner.gd`: **PASS (Exit Code 0 — 7/7 TC Passed)**
+- `scripts/test/test_faction_profiles.gd`: **PASS (Exit Code 0 — 9/9 TC Passed)**
+- `scripts/test/test_emerging_faction_ascension.gd`: **PASS (Exit Code 0 — 11/11 TC Passed)**
+- `scripts/test/test_save_load.gd`: **PASS (Exit Code 0 — 107 Assertions Passed, 0 Failed)**
+- `scripts/test/test_factions_and_battles.gd`: **PASS (Exit Code 0 — 48 Assertions Passed, 0 Failed)**
+- `scripts/test/test_battle_diplomacy_consequences.gd`: **PASS (Exit Code 0 — 11/11 TC Passed)**
+- `scripts/test/test_offensive_campaign.gd`: **PASS (Exit Code 0 — 14/14 TC Passed)**
+- `scripts/test/test_live_battle_loop.gd`: **PASS (Exit Code 0 — 19/19 TC Passed)**
+- `scripts/test/test_army_movement.gd`: **PASS (Exit Code 0 — 32/32 TC Passed [TC-MOVE.1..TC-MOVE.32], 33 PASS lines)**
+- `scripts/test/test_player_army.gd`: **PASS (Exit Code 0 — 32/32 TC Passed)**
+- `scripts/test/test_world_events.gd`: **PASS (Exit Code 0 — 72 Assertions Passed, 0 Failed)**
+- `scripts/test/test_victory_and_collapse.gd`: **PASS (Exit Code 0 — TC-7.1..TC-7.4 All Passed)**
+- Headless Editor Parse & Class Registration (`--headless --path . --editor --quit`): **PASS (Exit Code 0)**
+- `git diff --check`: **PASS (Exit Code 0)**
+
+### Files Created / Modified
+- `scripts/factions/faction_relation_data.gd` (Created)
+- `scripts/factions/faction_manager.gd` (Modified)
+- `scripts/persistence/save_manager.gd` (Modified)
+- `scripts/test/test_faction_relation_matrix.gd` (Created)
+- `docs/BACKLOG.md` (Modified)
+- `docs/GAME_RULES.md` (Modified)
+- `docs/SCOPE_DECISIONS.md` (Modified)
+- `docs/ARCHITECTURE.md` (Modified)
+- `docs/TEST_PLAN.md` (Modified)
+- `docs/CHANGELOG.md` (Modified)
+- `docs/WORKLOG.md` (Modified)
+
+### Next Exact Step
+- Commit Package 1U on `feature/package-1u-faction-relations-matrix` with message `Implement pairwise faction relations foundation` and push to `origin/feature/package-1u-faction-relations-matrix`.
