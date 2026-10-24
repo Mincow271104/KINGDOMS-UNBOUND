@@ -256,12 +256,21 @@
   - **Strict Separation from Player Diplomacy:** Pairwise NPC-to-NPC relationships are stored in `FactionManager._pairwise_relations` and emit pair-specific signals (`faction_pair_opinion_changed`, `faction_pair_war_declared`, `faction_pair_peace_signed`, `faction_pair_treaty_signed`). They never repurpose `FactionData` player-facing fields or trigger `BattleCampaignManager` settlement raids.
   - **Validated Transitions & Existence Status Guards:** War declaration (`declare_war_between_factions`, `-50.0` opinion delta, clears NAP/Alliance), NAP (`sign_nap_between_factions`, mutual opinion `>= 0.0`, `+15.0` delta), and Alliance (`sign_alliance_between_factions`, mutual opinion `>= 60.0`, `+25.0` delta, sets `has_nap = true`) require both factions to be `active`. Peace (`sign_peace_between_factions`, `+20.0` delta) permits `active` or `in_exile` factions while blocking `eliminated` factions.
   - **Persistence & Fail-Closed Validation (`SaveManager`):** Persisted under `factions.pairwise_relations` (`SAVE_SCHEMA_VERSION = 1`), validated fail-closed in `SaveManager.validate_save_data()` against self-relations, unknown IDs, non-canonical ordering, mismatched keys, out-of-range/non-finite opinions, non-boolean flags, and contradictory war/treaty flags, with clean neutral fallback for legacy saves.
+- **1.22 Functional Automation Graph MVP (GDD §7.3, Stage 11 HTML Reference — Package 1V):**
+  - **Data Model & Schema:** `AutomationProgram` (`scripts/economy/automation_program.gd`) encapsulates graph programs with `id`, `name`, `enabled`, `priority`, `nodes`, and `edges`, with full serialization and deserialization.
+  - **Strict Fail-Closed Validation (`AutomationGraphValidator`):** Validates node schemas, coordinates, type/subtype constraints, trigger presence, duplicate IDs, port compatibility (Flow ports `out`, `true`, `false` vs Boolean ports `bool`, `cond`, `inA`, `inB`), BFS reachability + backward data dependency tracing, IfElse branch completeness, and iterative DFS cycle detection.
+  - **Graph Execution Engine (`AutomationManager`):** Evaluates condition nodes (`ResourceCompare`, `CitizenFatigue`, `StorageFull`), combinational logic gates (`AND`, `OR`, `NOT`), dynamic `IfElse` branching, and authoritative action execution (`AssignRole`, `BoostJobPriority`, `EmitLog`) with per-citizen action locking. Enforces strict step budget (`MAX_STEPS_PER_RUN = 60`) and respects simulation pause (`is_paused: true`).
+  - **Dry Run Simulation Guarantee:** Test/Simulate mode executes 100% side-effect-free, guaranteeing zero mutation to citizen roles, resource stocks, job priorities, or persistent execution logs, while returning a complete diagnostic execution trace.
+  - **Visual Editor UI (`AutomationEditor`):** Implemented in `scenes/ui/automation_editor.tscn` and `scripts/ui/automation_editor.gd`, embedded in `HUD` (`hud.tscn`, shortcut `G`, BottomBar button `AutomationBtn`). Features `GraphEdit`/`GraphNode` canvas, interactive wiring, parameter inspector, validation status badge, and dry-run simulation log viewer.
+  - **Persistence & Compatibility:** Persisted in `SaveManager` under `data["automation"]` (`SAVE_SCHEMA_VERSION = 1`), with fail-closed validation on malformed graphs and seamless legacy save compatibility without schema bump.
+  - **Preset Rules Non-Regression:** Existing preset rules in `AutomationManager` (`food_emergency_threshold`, `buffer_congestion_ratio`, `winter_prep_food_threshold`) remain fully operational alongside visual graph programs.
 
 ---
 
 ## 2. Deferred & Excluded Scope for MVP
 | Feature | GDD Section | Status for MVP | Rationale |
 |---|---|---|---|
+| Automation Graph Delay & Repeat Nodes | Phần VII | Deferred | Bounded MVP node set; timer queues deferred to future package |
 | Complex family trees & genetics | Phần IV | Deferred | Replaced by deterministic immigration system |
 | Real-time physical tactical combat | Phần VII | Simplified | Abstract BattleResolver with deterministic factors |
 | Cosmetic Legacy store | Phần IX | Post-MVP | Preserves focus on core simulation and save/load |

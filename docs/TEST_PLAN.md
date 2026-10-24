@@ -450,3 +450,25 @@ When Godot Editor is running with the MCP plugin:
     - **TC-FREL.15 (Double-Load Idempotency):** Consecutive calls to `SaveManager.apply_loaded_state_to_world()` produce identical pairwise relationship states with zero leakage from prior in-memory state.
     - **TC-FREL.16 (Fail-Closed Validation & Completeness):** `SaveManager.validate_save_data()` rejects non-Dictionary `pairwise_relations`, empty `pairwise_relations` (`{}`), missing any of the 3 canonical pair records, self-relations, unknown IDs, non-canonical ordering (`faction_a > faction_b`), mismatched keys, out-of-range opinions (`> 100.0`), `NaN` opinions, non-boolean flags, contradictory war+NAP, and contradictory Alliance-without-NAP before any world mutation, while cleanly accepting valid complete saves and preserving live world state.
   - *Status:* **PASSED** (2026-10-25, Exit Code 0: 16/16 tests passed, 160 checks passed).
+
+### Package 1V: Functional Automation Graph MVP
+- **TC-AGRAPH.1 to TC-AGRAPH.16: Automation Graph MVP Verification Suite**
+  - *Script:* `res://scripts/test/test_automation_graph.gd`
+  - *Acceptance Criteria:*
+    - **TC-AGRAPH.1 (Data Model & Serialization):** `AutomationProgram` correctly stores `id`, `name`, `enabled`, `priority`, `nodes`, and `edges`, and roundtrips cleanly through `serialize()` and `deserialize()`.
+    - **TC-AGRAPH.2 (Structural Validation):** `AutomationGraphValidator` rejects null programs, empty node graphs, missing trigger nodes, duplicate node IDs, and invalid node types/subtypes.
+    - **TC-AGRAPH.3 (Orphan & Reachability Detection):** Graph validator detects orphan/unreachable nodes via BFS and backward data dependency tracing, rejecting disconnected subgraphs while accepting valid flow and condition inputs.
+    - **TC-AGRAPH.4 (Socket/Port Compatibility):** Enforces strict port typing; rejects connecting flow outputs (`out`, `true`, `false`) into boolean input sockets (`cond`, `inA`, `inB`) and rejects connecting nodes to themselves.
+    - **TC-AGRAPH.5 (Cycle & Infinite Loop Prevention):** Iterative DFS cycle detector rejects cyclic connections fail-closed before runtime execution.
+    - **TC-AGRAPH.6 (IfElse Node Constraints):** Requires IfElse nodes to have a valid condition input connected to `cond` and at least one outgoing branch (`true` or `false`).
+    - **TC-AGRAPH.7 (Condition Evaluation):** Evaluates `ResourceCompare` (<, <=, >, >=, ==) against stock and gold/treasury, `CitizenFatigue` against citizen thresholds, and `StorageFull` against capacity limits.
+    - **TC-AGRAPH.8 (LogicGate Combinations):** Evaluates `AND`, `OR`, and `NOT` gates with single and nested inputs deterministically.
+    - **TC-AGRAPH.9 (Runtime IfElse Branching):** Dynamically evaluates condition node and dispatches control flow strictly to the `true` branch or `false` branch.
+    - **TC-AGRAPH.10 (Action AssignRole & Guard Guardrails):** Assigns living citizens from `from_role` to `to_role`, prevents duplicate reassignment in the same tick via action locks, and enforces Barracks activity requirement for guard role.
+    - **TC-AGRAPH.11 (Action BoostJobPriority & EmitLog):** Calls authoritative `JobManager.boost_jobs_priority()` and writes diagnostic entries to trace and persistent execution logs.
+    - **TC-AGRAPH.12 (Execution Step Budget Enforcement):** Strict budget (`MAX_STEPS_PER_RUN = 60`) halts execution safely without freezing or crashing when exceeded.
+    - **TC-AGRAPH.13 (Dry Run Immutability Guarantee):** Test/Simulate mode executes side-effect-free, guaranteeing zero mutation to citizen roles, resource stocks, job priorities, or persistent execution logs while returning complete diagnostic trace.
+    - **TC-AGRAPH.14 (Priority Ordering & Simulation Pause):** Higher priority programs execute first; simulation pause (`is_paused: true`) halts graph execution completely.
+    - **TC-AGRAPH.15 (Save/Load Integration & Legacy Compatibility):** `SaveManager` validates and persists `automation.programs` and `execution_logs`; rejects malformed graphs fail-closed; and seamlessly loads legacy saves lacking the `automation` section without schema bump.
+    - **TC-AGRAPH.16 (Preset Rules Non-Regression):** Existing preset rules in `AutomationManager` (food emergency priority boost, buffer congestion, winter preparation) remain 100% operational alongside graph programs.
+  - *Status:* **PASSED** (2026-10-25, Exit Code 0: 16/16 tests passed, 69 checks passed).

@@ -5400,4 +5400,85 @@ On branch `feature/package-1r-faction-strategic-decision-engine` starting from l
 - `docs/WORKLOG.md`
 
 ### Next Exact Step
-- Commit follow-up on `feature/package-1u-faction-relations-matrix` with message `Enforce fail-closed completeness for pairwise relations` and push to `origin/feature/package-1u-faction-relations-matrix`.
+- Package 1U Follow-up committed and pushed (`d427429be76f0acded4de309f0689e00867a7a13`). Ready for Package 1V.
+
+---
+
+## 2026-10-25: Package 1V — Functional Automation Graph MVP
+
+### Branch & Working Tree Preflight
+- Branch: `feature/package-1v-automation-graph` created from commit `d427429be76f0acded4de309f0689e00867a7a13` (Package 1U Follow-up).
+- Head SHA: `d427429be76f0acded4de309f0689e00867a7a13`.
+- Untracked user files preserved (`docs/visual_validation/`, `.uid` files, visual validation scripts).
+
+### Completed Work
+1. **Data Model (`scripts/economy/automation_program.gd`):**
+   - Implemented `AutomationProgram` storing `id`, `name`, `enabled`, `priority`, `cooldown_sec`, `last_run_time`, `nodes: Array[Dictionary]`, and `edges: Array[Dictionary]`.
+   - Built full `serialize() -> Dictionary` and static `deserialize(data: Dictionary) -> AutomationProgram`.
+2. **Strict Fail-Closed Validator (`scripts/economy/automation_graph_validator.gd`):**
+   - Validates node schemas, finite coordinates, permitted node types (`Trigger`, `Condition`, `LogicGate`, `IfElse`, `Action`, `End`) and subtypes.
+   - Enforces unique node IDs, trigger existence, and edge endpoint validity.
+   - Enforces port typing: prevents connecting flow outputs (`out`, `true`, `false`) to boolean sockets (`cond`, `inA`, `inB`), prevents self-connections.
+   - Detects orphan/unreachable nodes via BFS starting from Triggers combined with backward data dependency tracing for inputs.
+   - Validates IfElse structure: requires input condition connected to `cond` and at least one outgoing branch (`true` or `false`).
+   - Prevents cycles and infinite loops via an iterative DFS stack with visiting/visited tracking.
+3. **Execution Engine & Preset Rules (`scripts/economy/automation_manager.gd`):**
+   - Implemented program CRUD: `create_program`, `duplicate_program`, `delete_program`, `get_program`, `get_all_programs`, `add_node`, `connect_nodes`, `disconnect_nodes`.
+   - Condition evaluation: `ResourceCompare` (<, <=, >, >=, ==) against stock and gold/treasury, `CitizenFatigue` against thresholds, and `StorageFull` against capacities.
+   - LogicGate evaluation: combinational evaluation of `AND`, `OR`, `NOT` gates.
+   - Dynamic `IfElse` branching routing execution to `true` or `false` based on evaluated condition input.
+   - Action execution: `AssignRole` with candidate selection, living status check, per-citizen action locking (`cit_<id>`), and active Barracks check for `guard`; `BoostJobPriority` via authoritative `JobManager`; `EmitLog` to trace and execution logs.
+   - Strict execution budget: halts execution safely when `steps > MAX_STEPS_PER_RUN (60)`.
+   - Dry Run mode: 100% side-effect-free simulation guarantee (zero mutation to resources, citizens, jobs, time, or persistent execution logs).
+   - Priority-ordered graph evaluation: runs enabled programs in descending priority order and respects simulation pause (`is_paused: true`).
+   - Preset rules non-regression: `evaluate_rules()` continues to evaluate preset rules (food emergency, buffer congestion, winter preparation) alongside graph programs.
+4. **Save/Load Persistence (`scripts/persistence/save_manager.gd`):**
+   - Serializes `automation_mgr.serialize()` under `data["automation"]` (`SAVE_SCHEMA_VERSION = 1`).
+   - Fail-closed validation in `SaveManager.validate_save_data()` for `automation.programs` and `execution_logs`.
+   - 100% backward compatibility for legacy saves lacking `automation` without schema version bump.
+   - Restores programs and logs in `apply_loaded_state_to_world()`.
+5. **Visual Graph Editor UI (`scenes/ui/automation_editor.tscn`, `scripts/ui/automation_editor.gd`):**
+   - Built full visual editor UI featuring `GraphEdit`/`GraphNode` canvas, node slot wiring (Flow vs Boolean types), program dropdown, new/duplicate/delete program buttons, enabled toggle, and priority spinner.
+   - Node palette buttons for adding Trigger, Condition (Resource, Fatigue, Storage), Logic (AND, OR, NOT), IfElse, Action (AssignRole, BoostJob, EmitLog), and End nodes.
+   - Interactive parameter inspector displaying and updating node parameters.
+   - Validation button and status badge showing structural errors or success.
+   - Dry Run button running live simulation and rendering step-by-step trace log.
+   - Integrated into `HUD` (`scenes/ui/hud.tscn`, `scripts/ui/hud.gd`) with BottomBar `AutomationBtn` and keyboard shortcut `G` (ESC closes).
+6. **Hourly Simulation Integration (`scripts/world/world_view.gd`):**
+   - Hourly simulation passes full context (`citizen_list`, `world_data`, `paused`) into `automation_mgr.evaluate_rules()`.
+7. **Comprehensive Test Suite (`scripts/test/test_automation_graph.gd`):**
+   - Created automated test suite covering TC-AGRAPH.1 through TC-AGRAPH.16 (69 checks, 16 test cases).
+8. **Documentation Synchronization:**
+   - Updated `docs/TEST_PLAN.md`, `docs/BACKLOG.md`, `docs/SCOPE_DECISIONS.md`, and `docs/WORKLOG.md`.
+
+### Verification & Test Evidence (Independent Runs on Final Source)
+- `scripts/test/test_automation_graph.gd`: **PASS (Exit Code 0 — 16/16 TC Passed, 69 Checks Passed, 0 Failed)**
+- `scripts/test/test_logistics.gd`: **PASS (Exit Code 0 — TC-4.1..TC-4.3 All Passed)**
+- `scripts/test/test_save_load.gd`: **PASS (Exit Code 0 — 107 Assertions Passed, 0 Failed)**
+- `scripts/test/test_faction_relation_matrix.gd`: **PASS (Exit Code 0 — 16/16 TC Passed, 160 Checks Passed, 0 Failed)**
+- `scripts/test/test_faction_diplomacy_ai.gd`: **PASS (Exit Code 0 — 16/16 TC Passed, 437 Checks Passed, 0 Failed)**
+- `scripts/test/test_faction_strategy_execution.gd`: **PASS (Exit Code 0 — 14/14 TC Passed, 951 Checks Passed, 0 Failed)**
+- Headless Editor Parse & Class Registration (`--headless --path . --editor --quit`): **PASS (Exit Code 0)**
+- `git diff --check`: **PASS (Exit Code 0 — No whitespace errors)**
+
+### Files Created
+- `scripts/economy/automation_program.gd`
+- `scripts/economy/automation_graph_validator.gd`
+- `scripts/ui/automation_editor.gd`
+- `scenes/ui/automation_editor.tscn`
+- `scripts/test/test_automation_graph.gd`
+
+### Files Modified
+- `scripts/economy/automation_manager.gd`
+- `scripts/persistence/save_manager.gd`
+- `scenes/ui/hud.tscn`
+- `scripts/ui/hud.gd`
+- `scripts/world/world_view.gd`
+- `docs/TEST_PLAN.md`
+- `docs/BACKLOG.md`
+- `docs/SCOPE_DECISIONS.md`
+- `docs/WORKLOG.md`
+
+### Next Exact Step
+- Stage Package 1V files and commit on `feature/package-1v-automation-graph`.
+- Push feature branch to `origin/feature/package-1v-automation-graph`.

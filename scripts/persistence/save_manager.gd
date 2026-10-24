@@ -30,7 +30,8 @@ static func serialize_world_state(world_view: Node) -> Dictionary:
 		"factions": {},
 		"pois": [],
 		"victory": {},
-		"fog_of_war": []
+		"fog_of_war": [],
+		"automation": {}
 	}
 	
 	if world_view == null:
@@ -239,6 +240,11 @@ static func serialize_world_state(world_view: Node) -> Dictionary:
 	var ev_sys = world_view.get("event_system")
 	if ev_sys != null and ev_sys.has_method("serialize"):
 		data["world_events"] = ev_sys.call("serialize")
+
+	# 16. Automation Graph Programs & Logs
+	var auto_mgr = world_view.get("automation_mgr")
+	if auto_mgr != null and auto_mgr.has_method("serialize"):
+		data["automation"] = auto_mgr.call("serialize")
 
 	return data
 
@@ -752,6 +758,27 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 			if not ev_rng_ok:
 				return {"valid": false, "error": "rng_state trong world_events phải là số nguyên hoặc chuỗi số nguyên hợp lệ: %s." % str(ev_rng)}
 
+	# Validate optional automation section (Package 1V)
+	if json_dict.has("automation"):
+		var auto_val = json_dict.get("automation")
+		if not (auto_val is Dictionary):
+			return {"valid": false, "error": "Mục 'automation' phải là từ điển (Dictionary)."}
+		if auto_val.has("programs"):
+			var progs_val = auto_val.get("programs")
+			if not (progs_val is Array):
+				return {"valid": false, "error": "Mục 'programs' trong automation phải là danh sách (Array)."}
+			for p_entry in progs_val:
+				if not (p_entry is Dictionary):
+					return {"valid": false, "error": "Bản ghi chương trình automation không đúng định dạng Dictionary."}
+				var val_prog := AutomationGraphValidator.validate_program(p_entry)
+				if not val_prog.get("valid", false):
+					var err_list: Array = val_prog.get("errors", ["Lỗi đồ thị không xác định"])
+					return {"valid": false, "error": "Chương trình automation '%s' không hợp lệ: %s." % [str(p_entry.get("id", "unknown")), "; ".join(err_list)]}
+		if auto_val.has("execution_logs"):
+			var logs_val = auto_val.get("execution_logs")
+			if not (logs_val is Array):
+				return {"valid": false, "error": "Mục 'execution_logs' trong automation phải là danh sách (Array)."}
+
 	return {"valid": true, "error": ""}
 
 static func load_from_file(filepath: String = DEFAULT_SAVE_PATH) -> Dictionary:
@@ -1132,6 +1159,15 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 
 	if hud and hud.has_method("_refresh_army_panel"):
 		hud.call("_refresh_army_panel")
+
+	# 16. Restore Automation Graph Programs & Logs
+	var auto_mgr = world_view.get("automation_mgr")
+	if auto_mgr != null and auto_mgr.has_method("deserialize"):
+		var auto_data = loaded_data.get("automation", {})
+		if auto_data is Dictionary:
+			auto_mgr.call("deserialize", auto_data)
+		else:
+			auto_mgr.call("deserialize", {})
 
 	print("[SaveManager] Loaded world state restored successfully (%d citizens, %d buildings)" % [world_view.get("citizen_list").size(), world_data.buildings.size()])
 	return {"success": true}

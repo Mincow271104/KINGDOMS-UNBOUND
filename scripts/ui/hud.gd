@@ -27,6 +27,8 @@ signal citizen_role_changed(citizen_id: String, new_role: String)
 @onready var open_research_btn: Button = $BottomBar/PanelContainer/MarginContainer/HBoxContainer/ResearchBtn
 @onready var open_diplomacy_btn: Button = $BottomBar/PanelContainer/MarginContainer/HBoxContainer/DiplomacyBtn
 @onready var open_military_btn: Button = $BottomBar/PanelContainer/MarginContainer/HBoxContainer.get_node_or_null("MilitaryBtn")
+@onready var open_automation_btn: Button = $BottomBar/PanelContainer/MarginContainer/HBoxContainer.get_node_or_null("AutomationBtn")
+@onready var automation_editor: AutomationEditor = get_node_or_null("AutomationEditor")
 @onready var pause_menu_dialog: Control = $PauseMenuOverlay
 @onready var save_game_btn: Button = $PauseMenuOverlay/CenterContainer/PanelContainer/MarginContainer/VBoxContainer/SaveGameBtn
 @onready var load_game_btn: Button = $PauseMenuOverlay/CenterContainer/PanelContainer/MarginContainer/VBoxContainer/LoadGameBtn
@@ -223,6 +225,12 @@ func _ready() -> void:
 		return_home_btn.pressed.connect(_on_return_home_btn_pressed)
 	if attack_campaign_btn:
 		attack_campaign_btn.pressed.connect(_on_attack_campaign_btn_pressed)
+
+	# Automation Editor controls
+	if automation_editor:
+		automation_editor.visible = false
+	if open_automation_btn:
+		open_automation_btn.pressed.connect(_toggle_automation_editor)
 
 	# Victory & Collapse dialog controls
 	if continue_victory_btn:
@@ -570,7 +578,44 @@ func _toggle_army_menu() -> void:
 		research_menu_panel.visible = false
 		if diplomacy_panel:
 			diplomacy_panel.visible = false
+		if automation_editor:
+			automation_editor.visible = false
 		_refresh_army_panel()
+
+func _toggle_automation_editor() -> void:
+	if not automation_editor:
+		return
+	if _army_move_targeting:
+		cancel_army_move_targeting()
+	automation_editor.visible = not automation_editor.visible
+	if automation_editor.visible:
+		build_menu_panel.visible = false
+		research_menu_panel.visible = false
+		if diplomacy_panel:
+			diplomacy_panel.visible = false
+		if army_panel:
+			army_panel.visible = false
+		_setup_automation_editor()
+
+func _setup_automation_editor() -> void:
+	if not automation_editor:
+		return
+	var wv = get_parent()
+	var auto_mgr = wv.get("automation_mgr") if wv else null
+	if auto_mgr:
+		var ctx_provider = func() -> Dictionary:
+			var tm = get_node_or_null("/root/TimeManager")
+			return {
+				"resource_mgr": wv.get("rm"),
+				"job_mgr": wv.get("job_mgr"),
+				"workplace_mgr": wv.get("workplace_mgr"),
+				"citizens": wv.get("citizen_list") if wv.get("citizen_list") else [],
+				"world_data": wv.get("world_data"),
+				"world_view": wv,
+				"is_paused": tm.is_paused() if tm and tm.has_method("is_paused") else false,
+				"current_day": tm.get_day() if tm and tm.has_method("get_day") else 1
+			}
+		automation_editor.setup(auto_mgr, ctx_provider)
 
 func _refresh_army_panel() -> void:
 	if not army_panel or not is_instance_valid(army_panel):
@@ -1030,6 +1075,8 @@ func _unhandled_input(event: InputEvent) -> void:
 				diplomacy_panel.visible = false
 			elif army_panel and army_panel.visible:
 				army_panel.visible = false
+			elif automation_editor and automation_editor.visible:
+				automation_editor.visible = false
 			else:
 				_toggle_pause_menu()
 		elif k.keycode == KEY_SPACE:
@@ -1042,6 +1089,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			_toggle_diplomacy_menu()
 		elif k.keycode == KEY_U:
 			_toggle_army_menu()
+		elif k.keycode == KEY_G:
+			_toggle_automation_editor()
 		elif k.keycode == KEY_1:
 			get_node("/root/TimeManager").set_speed(1)
 		elif k.keycode == KEY_2:

@@ -1,0 +1,223 @@
+[gd_scene load_steps=2 format=3 uid="uid://ci74y8e1x8mvw"]
+
+[ext_resource type="Script" path="res://scripts/ui/automation_editor.gd" id="1_auto_ed"]
+
+[node name="AutomationEditor" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_auto_ed")
+
+[node name="Panel" type="Panel" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="MarginContainer" type="MarginContainer" parent="Panel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 16
+theme_override_constants/margin_top = 16
+theme_override_constants/margin_right = 16
+theme_override_constants/margin_bottom = 16
+
+[node name="VBoxContainer" type="VBoxContainer" parent="Panel/MarginContainer"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="TopBar" type="HBoxContainer" parent="Panel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Title" type="Label" parent="Panel/MarginContainer/VBoxContainer/TopBar"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.9, 0.75, 0.2, 1)
+theme_override_font_sizes/font_size = 15
+text = "⚙️ BỘ SOẠN THẢO TỰ ĐỘNG HÓA"
+
+[node name="VSeparator1" type="VSeparator" parent="Panel/MarginContainer/VBoxContainer/TopBar"]
+layout_mode = 2
+
+[node name="ProgramSelect" type="OptionButton" parent="Panel/MarginContainer/VBoxContainer/TopBar"]
+custom_minimum_size = Vector2(220, 32)
+layout_mode = 2
+
+[node name="NewProgBtn" type="Button" parent="Panel/MarginContainer/VBoxContainer/TopBar"]
+layout_mode = 2
+text = "➕ Mới"
+
+[node name="DupProgBtn" type="Button" parent="Panel/MarginContainer/VBoxContainer/TopBar"]
+layout_mode = 2
+text = "📋 Bản sao"
+
+[node name="DelProgBtn" type="Button" parent="Panel/MarginContainer/VBoxContainer/TopBar"]
+layout_mode = 2
+text = "🗑️ Xóa"
+
+[node name="VSeparator2" type="VSeparator" parent="Panel/MarginContainer/VBoxContainer/TopBar"]
+layout_mode = 2
+
+[node name="EnableCheck" type="CheckBox" parent="Panel/MarginContainer/VBoxContainer/TopBar"]
+layout_mode = 2
+text = "Kích hoạt"
+
+[node name="PrioLabel" type="Label" parent="Panel/MarginContainer/VBoxContainer/TopBar"]
+layout_mode = 2
+text = "Ưu tiên:"
+
+[node name="PrioritySpin" type="SpinBox" parent="Panel/MarginContainer/VBoxContainer/TopBar"]
+layout_mode = 2
+min_value = 1.0
+max_value = 100.0
+value = 5.0
+
+[node name="Spacer" type="Control" parent="Panel/MarginContainer/VBoxContainer/TopBar"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="CloseBtn" type="Button" parent="Panel/MarginContainer/VBoxContainer/TopBar"]
+custom_minimum_size = Vector2(100, 32)
+layout_mode = 2
+text = "❌ Đóng (ESC)"
+
+[node name="HSplit" type="HSplitContainer" parent="Panel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+size_flags_vertical = 3
+split_offset = 680
+
+[node name="LeftBox" type="VBoxContainer" parent="Panel/MarginContainer/VBoxContainer/HSplit"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 8
+
+[node name="Palette" type="HFlowContainer" parent="Panel/MarginContainer/VBoxContainer/HSplit/LeftBox"]
+layout_mode = 2
+theme_override_constants/h_separation = 6
+theme_override_constants/v_separation = 4
+
+[node name="AddTriggerBtn" type="Button" parent="Panel/MarginContainer/VBoxContainer/HSplit/LeftBox/Palette"]
+layout_mode = 2
+text = "⚡ Trigger"
+
+[node name="AddCondResBtn" type="Button" parent="Panel/MarginContainer/VBoxContainer/HSplit/LeftBox/Palette"]
+layout_mode = 2
+text = "❓ Kho < X"
+
+[node name="AddCondFatBtn" type="Button" parent="Panel/MarginContainer/VBoxContainer/HSplit/LeftBox/Palette"]
+layout_mode = 2
+text = "❓ Dân Mệt"
+
+[node name="AddCondStoreBtn" type="Button" parent="Panel/MarginContainer/VBoxContainer/HSplit/LeftBox/Palette"]
+layout_mode = 2
+text = "❓ Kho Đầy"
+
+[node name="AddLogicAndBtn" type="Button" parent="Panel/MarginContainer/VBoxContainer/HSplit/LeftBox/Palette"]
+layout_mode = 2
+text = "🔗 AND"
+
+[node name="AddLogicOrBtn" type="Button" parent="Panel/MarginContainer/VBoxContainer/HSplit/LeftBox/Palette"]
+layout_mode = 2
+text = "🔗 OR"
+
+[node name="AddLogicNotBtn" type="Button" parent="Panel/MarginContainer/VBoxContainer/HSplit/LeftBox/Palette"]
+layout_mode = 2
+text = "🔗 NOT"
+
+[node name="AddIfElseBtn" type="Button" parent="Panel/MarginContainer/VBoxContainer/HSplit/LeftBox/Palette"]
+layout_mode = 2
+text = "🔀 IF/ELSE"
+
+[node name="AddActRoleBtn" type="Button" parent="Panel/MarginContainer/VBoxContainer/HSplit/LeftBox/Palette"]
+layout_mode = 2
+text = "🎯 Đổi Vai Trò"
+
+[node name="AddActBoostBtn" type="Button" parent="Panel/MarginContainer/VBoxContainer/HSplit/LeftBox/Palette"]
+layout_mode = 2
+text = "🎯 Tăng Ưu Tiên"
+
+[node name="AddActLogBtn" type="Button" parent="Panel/MarginContainer/VBoxContainer/HSplit/LeftBox/Palette"]
+layout_mode = 2
+text = "📝 Ghi Log"
+
+[node name="AddEndBtn" type="Button" parent="Panel/MarginContainer/VBoxContainer/HSplit/LeftBox/Palette"]
+layout_mode = 2
+text = "🛑 End"
+
+[node name="DelNodeBtn" type="Button" parent="Panel/MarginContainer/VBoxContainer/HSplit/LeftBox/Palette"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.4, 0.4, 1)
+text = "🗑️ Xóa Node"
+
+[node name="GraphEdit" type="GraphEdit" parent="Panel/MarginContainer/VBoxContainer/HSplit/LeftBox"]
+custom_minimum_size = Vector2(400, 300)
+layout_mode = 2
+size_flags_vertical = 3
+right_disconnects = true
+scroll_offset = Vector2(-20, -20)
+
+[node name="RightBox" type="VBoxContainer" parent="Panel/MarginContainer/VBoxContainer/HSplit"]
+custom_minimum_size = Vector2(320, 0)
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="InspectorHeader" type="Label" parent="Panel/MarginContainer/VBoxContainer/HSplit/RightBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.4, 0.8, 1, 1)
+text = "THUỘC TÍNH NODE ĐƯỢC CHỌN"
+
+[node name="InspectorTitle" type="Label" parent="Panel/MarginContainer/VBoxContainer/HSplit/RightBox"]
+layout_mode = 2
+text = "Chưa chọn Node"
+
+[node name="ParamsBox" type="VBoxContainer" parent="Panel/MarginContainer/VBoxContainer/HSplit/RightBox"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="HSeparator1" type="HSeparator" parent="Panel/MarginContainer/VBoxContainer/HSplit/RightBox"]
+layout_mode = 2
+
+[node name="ActionHeader" type="Label" parent="Panel/MarginContainer/VBoxContainer/HSplit/RightBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.9, 0.75, 0.2, 1)
+text = "KIỂM TRA & MÔ PHỎNG"
+
+[node name="ButtonsHBox" type="HBoxContainer" parent="Panel/MarginContainer/VBoxContainer/HSplit/RightBox"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="ValidateBtn" type="Button" parent="Panel/MarginContainer/VBoxContainer/HSplit/RightBox/ButtonsHBox"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "🔍 Kiểm tra"
+
+[node name="DryRunBtn" type="Button" parent="Panel/MarginContainer/VBoxContainer/HSplit/RightBox/ButtonsHBox"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "▶️ Chạy thử (Dry Run)"
+
+[node name="StatusBadge" type="Label" parent="Panel/MarginContainer/VBoxContainer/HSplit/RightBox"]
+layout_mode = 2
+text = "Trạng thái: Sẵn sàng"
+
+[node name="HSeparator2" type="HSeparator" parent="Panel/MarginContainer/VBoxContainer/HSplit/RightBox"]
+layout_mode = 2
+
+[node name="TraceHeader" type="Label" parent="Panel/MarginContainer/VBoxContainer/HSplit/RightBox"]
+layout_mode = 2
+text = "NHẬT KÝ MÔ PHỎNG (TRACE):"
+
+[node name="TraceText" type="TextEdit" parent="Panel/MarginContainer/VBoxContainer/HSplit/RightBox"]
+layout_mode = 2
+size_flags_vertical = 3
+editable = false
+wrap_mode = 1
