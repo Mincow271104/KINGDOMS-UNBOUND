@@ -498,3 +498,47 @@ When Godot Editor is running with the MCP plugin:
       - **Panel Non-Overlap Verification:** When floating panels are active, `BuildMenuPanel`, `ResearchMenuPanel`, and `DiplomacyPanel` have bottom bounds strictly above BottomBar top (`end.y <= bot_bar.pos.y`) and top bounds strictly below TopBar bottom (`pos.y >= top_bar.end.y`), proving zero overlap across all resolutions.
       - **Automation Editor Containment & Usable Child Geometry:** `AutomationEditor` Panel is enclosed within viewport bounds; `GraphEdit` canvas and `RightScroll` inspector have usable non-zero dimensions (`GraphEdit >= (200, 150)`, `RightScroll >= (150, 100)`) and are strictly enclosed within the editor panel.
   - *Status:* **PASSED** (2026-10-25, Exit Code 0: 435/435 checks passed across Section A structural checks and Section B runtime bounds across 5 viewport resolutions).
+
+---
+
+### Package 1W: Tactical Military Units & Command MVP
+- **TC-TAC.1 to TC-TAC.30: Tactical Military Units & Command Test Suite**
+  - *Tracked Test Suite:* `res://scripts/test/test_tactical_military.gd`
+  - *Command:* `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64.exe" --headless --path "e:\KINGDOMS UNBOUND\kingdoms-unbound" -s res://scripts/test/test_tactical_military.gd`
+  - *Acceptance Criteria by Group:*
+    - **Group 1: Data & Roster Synchronization (TC-TAC.1 to TC-TAC.7)**
+      - **TC-TAC.1 (Initial Empty State):** Clean initialization starts with 0 tactical units and empty selection.
+      - **TC-TAC.2 (Recruitment Synchronization):** Recruiting 1 soldier in `PlayerArmyManager` creates exactly 1 `TacticalUnit` actor at rally cell with unique ID.
+      - **TC-TAC.3 (Multi-Unit Roster Scaling):** Recruiting multiple soldiers expands the roster 1:1 with unique IDs.
+      - **TC-TAC.4 (Signal Idempotency):** Replaying army recruitment signals does not duplicate units.
+      - **TC-TAC.5 (Casualty Deduction):** Removing casualties authoritatively synchronizes tactical roster without double deduction.
+      - **TC-TAC.6 (Civilian Isolation):** Military unit operations never modify civilian citizen count or roles.
+      - **TC-TAC.7 (Economic Integrity):** Barracks capacity and recruitment resource costs remain authoritative and invariant.
+    - **Group 2: Tactical Unit Selection (TC-TAC.8 to TC-TAC.12)**
+      - **TC-TAC.8 (Single Selection):** Left-clicking a unit selects only that unit and activates its ground selection ring indicator.
+      - **TC-TAC.9 (Additive Selection):** Shift+left-click toggles units into or out of selection.
+      - **TC-TAC.10 (Screen-Space Drag Selection):** Dragging a viewport rectangle selects enclosed units; dragging in empty space deselects.
+      - **TC-TAC.11 (Raycast Layer Separation):** Clicking civilian citizens does not select military units.
+      - **TC-TAC.12 (Overlay Layer Isolation):** Selection box operates on dedicated overlay layer without displacing HUD layout.
+    - **Group 3: Tactical Movement & Pathfinding (TC-TAC.13 to TC-TAC.20)**
+      - **TC-TAC.13 (Single Unit Movement):** Right-click dispatches move order using A* grid navigation; unit transitions to `MOVING` state.
+      - **TC-TAC.14 (Out-of-Bounds Movement Rejection):** Orders to out-of-bounds coordinates fail closed with informative reason.
+      - **TC-TAC.15 (Unwalkable Terrain Rejection):** Orders to impassable cells fail closed.
+      - **TC-TAC.16 (Multi-Unit Collision Avoidance):** Group move orders compute distinct, non-overlapping, walkable destination slots.
+      - **TC-TAC.17 (Order Completion):** Units follow waypoint path and transition cleanly to `IDLE` at target cells.
+      - **TC-TAC.18 (TimeManager Pause Compliance):** Pausing the simulation freezes tactical movement immediately without coordinate loss.
+      - **TC-TAC.19 (TimeManager Speed Scaling):** Simulation speeds (1x, 2x, 3x) scale movement speed cleanly without cell-skipping glitches.
+      - **TC-TAC.20 (Order Retasking):** New move orders interrupt and replace active movement paths immediately.
+    - **Group 4: Formations & Control Groups (TC-TAC.21 to TC-TAC.25)**
+      - **TC-TAC.21 (Formation Slot Geometries):** `Line`, `Column`, and `Scatter` produce valid, distinct, walkable destination slots with zero duplicates.
+      - **TC-TAC.22 (Control Group Recall):** Recalling assigned control groups reselects the registered units.
+      - **TC-TAC.23 (Keybinding Isolation):** `Ctrl+1/2/3` and `Shift+1/2/3` do not mutate `TimeManager` simulation speed.
+      - **TC-TAC.24 (Dead Unit Pruning):** Casualty deductions automatically prune dead units from control groups.
+      - **TC-TAC.25 (HUD Integration & Panel Containment):** Tactical command widgets reside within `ArmyPanel` without breaking responsive HUD bounds.
+    - **Group 5: Persistence, Save/Load & Integrity (TC-TAC.26 to TC-TAC.30)**
+      - **TC-TAC.26 (Tactical State Serialization):** Serializes active formation and unit coordinates faithfully.
+      - **TC-TAC.27 (Save & Load Roundtrip):** World state save and load restores exact unit coordinates, formation, and 1:1 count match.
+      - **TC-TAC.28 (Load Idempotency):** Consecutive loads restore cleanly with zero duplicate or orphaned units.
+      - **TC-TAC.29 (Legacy Save Reconstruction):** Pre-tactical saves without `tactical_military` synthesize a valid roster from `soldier_count` at rally point.
+      - **TC-TAC.30 (Fail-Closed Integrity Validation):** Malformed saves (duplicate IDs, count mismatch vs authoritative army, out-of-bounds coords) are rejected fail-closed.
+  - *Status:* **PASSED** (2026-10-25, Exit Code 0: 74/74 assertions passed across all 30 test cases).

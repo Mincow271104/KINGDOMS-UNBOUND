@@ -7,6 +7,7 @@ extends Node2D
 const CitizenControllerScript = preload("res://scripts/entities/citizen_controller.gd")
 const BattleCampaignManagerScript = preload("res://scripts/combat/battle_campaign_manager.gd")
 const PlayerArmyManagerScript = preload("res://scripts/military/player_army_manager.gd")
+const TacticalMilitaryManagerScript = preload("res://scripts/military/tactical_military_manager.gd")
 const ArmyMarkerScript = preload("res://scripts/military/army_marker.gd")
 
 @export var world_seed: int = 12345
@@ -36,9 +37,18 @@ var immigration_mgr: ImmigrationManager
 var victory_mgr: VictoryManager
 var battle_campaign_mgr: RefCounted = null
 var player_army_mgr: RefCounted = null
+var tactical_military_mgr: RefCounted = null
 var army_marker: Node2D = null
 var autosave_enabled: bool = true
 var autosave_interval_days: int = 1
+
+# Tactical Box Selection State (Package 1W)
+var _selection_box_layer: CanvasLayer = null
+var _selection_box_control: Control = null
+var _is_left_mouse_down: bool = false
+var _is_drag_box_active: bool = false
+var _drag_start_screen: Vector2 = Vector2.ZERO
+var _drag_current_screen: Vector2 = Vector2.ZERO
 
 var buildings_by_cell: Dictionary = {} # cell (Vector2i) -> building_type (String)
 var citizens_by_id: Dictionary = {}
@@ -165,6 +175,8 @@ func _generate_and_build_world() -> void:
 	victory_mgr = VictoryManager.new()
 	battle_campaign_mgr = BattleCampaignManagerScript.new(self, faction_mgr, world_seed)
 	player_army_mgr = PlayerArmyManagerScript.new(self)
+	tactical_military_mgr = TacticalMilitaryManagerScript.new(self, player_army_mgr)
+	_setup_selection_box_overlay()
 
 	job_mgr.set_barracks_checker(func(b_id: String = ""): return BuildingSystem.is_barracks_active(world_data, b_id))
 	job_mgr.set_construction_checker(func(b_id: String = ""): return BuildingSystem.is_building_under_construction(world_data, b_id))
@@ -173,6 +185,8 @@ func _generate_and_build_world() -> void:
 		hud.set_faction_manager(faction_mgr, self)
 		hud.set_battle_campaign_manager(battle_campaign_mgr)
 		hud.set_player_army_manager(player_army_mgr)
+		if hud.has_method("set_tactical_military_manager"):
+			hud.set_tactical_military_manager(tactical_military_mgr)
 		hud.set_barracks_checker(func(b_id: String = ""): return BuildingSystem.is_barracks_active(world_data, b_id))
 		victory_mgr.victory_achieved.connect(func(report: Dictionary): hud.show_victory_panel(report))
 		victory_mgr.collapse_triggered.connect(func(report: Dictionary): hud.show_collapse_panel(report))
@@ -493,6 +507,49 @@ func _setup_army_marker() -> void:
 func get_army_marker() -> Node2D:
 	return army_marker
 
+func get_tactical_military_manager() -> RefCounted:
+	return tactical_military_mgr
+
+func _setup_selection_box_overlay() -> void:
+	if _selection_box_layer == null:
+		_selection_box_layer = CanvasLayer.new()
+		_selection_box_layer.name = "SelectionBoxLayer"
+		_selection_box_layer.layer = 10
+		_selection_box_control = Control.new()
+		_selection_box_control.name = "SelectionBoxControl"
+		_selection_box_control.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_selection_box_control.set_anchors_preset(Control.PRESET_FULL_RECT)
+		_selection_box_control.draw.connect(_on_selection_box_draw)
+		_selection_box_layer.add_child(_selection_box_control)
+		add_child(_selection_box_layer)
+
+func _on_selection_box_draw() -> void:
+	if _is_drag_box_active and _selection_box_control != null:
+		var r := Rect2(_drag_start_screen, _drag_current_screen - _drag_start_screen).abs()
+		if r.size.x > 2.0 and r.size.y > 2.0:
+			_selection_box_control.draw_rect(r, Color(0.2, 0.75, 1.0, 0.2), true)
+			_selection_box_control.draw_rect(r, Color(0.4, 0.9, 1.0, 0.95), false, 1.5)
+
+func _update_selection_box_display() -> void:
+	if _selection_box_control != null and is_instance_valid(_selection_box_control):
+		_selection_box_control.queue_redraw()
+
+func _clear_selection_box_display() -> void:
+	if _selection_box_control != null and is_instance_valid(_selection_box_control):
+		_selection_box_control.queue_redraw()
+
+func _find_tactical_unit_at_cell(cell: Vector2i) -> Node2D:
+	if tactical_military_mgr == null:
+		return null
+	var best_unit: Node2D = null
+	var best_dist := 2 # Current cell or adjacent 1 tile
+	for u in tactical_military_mgr.call("get_all_units"):
+		var d := IsoMath.grid_distance(cell, u.current_cell)
+		if d < best_dist:
+			best_dist = d
+			best_unit = u
+	return best_unit
+
 func _process(delta: float) -> void:
 	_update_tile_hover()
 	if player_army_mgr != null and player_army_mgr.has_method("advance_movement"):
@@ -504,6 +561,8 @@ func _process(delta: float) -> void:
 			elif tm.get("current_speed") != null:
 				speed_mult = float(tm.get("current_speed"))
 		player_army_mgr.advance_movement(delta, speed_mult)
+		if tactical_military_mgr != null and tactical_military_mgr.has_method("advance_movement"):
+			tactical_military_mgr.advance_movement(delta, speed_mult, nav)
 
 func _update_tile_hover() -> void:
 	var mouse_local := terrain_layer.get_local_mouse_position()
@@ -551,25 +610,78 @@ func _unhandled_input(event: InputEvent) -> void:
 		if k.keycode == KEY_ESCAPE:
 			if placing_building_type != "":
 				_cancel_placement()
+			elif tactical_military_mgr != null and tactical_military_mgr.call("get_selected_count") > 0:
+				tactical_military_mgr.call("clear_selection")
+				get_viewport().set_input_as_handled()
+		elif k.keycode in [KEY_1, KEY_2, KEY_3]:
+			var grp: int = k.keycode - KEY_1 + 1
+			if k.ctrl_pressed:
+				if tactical_military_mgr != null:
+					tactical_military_mgr.call("assign_control_group", grp)
+					get_viewport().set_input_as_handled()
+			elif k.shift_pressed:
+				if tactical_military_mgr != null:
+					tactical_military_mgr.call("recall_control_group", grp)
+					get_viewport().set_input_as_handled()
 
-	if event is InputEventMouseButton and event.pressed:
+	if event is InputEventMouseMotion:
+		if _is_left_mouse_down:
+			var mm: InputEventMouseMotion = event as InputEventMouseMotion
+			if not _is_drag_box_active and (mm.position - _drag_start_screen).length() > 6.0:
+				_is_drag_box_active = true
+			if _is_drag_box_active:
+				_drag_current_screen = mm.position
+				_update_selection_box_display()
+
+	if event is InputEventMouseButton:
 		var mb: InputEventMouseButton = event as InputEventMouseButton
 		var mouse_local := terrain_layer.get_local_mouse_position()
 		var cell := IsoMath.local_to_map(mouse_local)
 		
 		if placing_building_type != "":
-			if mb.button_index == MOUSE_BUTTON_LEFT:
-				_execute_placement(cell)
-			elif mb.button_index == MOUSE_BUTTON_RIGHT:
-				_cancel_placement()
+			if mb.pressed:
+				if mb.button_index == MOUSE_BUTTON_LEFT:
+					_execute_placement(cell)
+				elif mb.button_index == MOUSE_BUTTON_RIGHT:
+					_cancel_placement()
 		elif hud != null and hud.has_method("is_army_move_targeting") and hud.call("is_army_move_targeting"):
-			if mb.button_index == MOUSE_BUTTON_LEFT:
-				hud.call("execute_army_move_target", cell)
-			elif mb.button_index == MOUSE_BUTTON_RIGHT:
-				hud.call("cancel_army_move_targeting")
+			if mb.pressed:
+				if mb.button_index == MOUSE_BUTTON_LEFT:
+					hud.call("execute_army_move_target", cell)
+				elif mb.button_index == MOUSE_BUTTON_RIGHT:
+					hud.call("cancel_army_move_targeting")
 		else:
 			if mb.button_index == MOUSE_BUTTON_LEFT:
-				_check_citizen_click(cell)
+				if mb.pressed:
+					_is_left_mouse_down = true
+					_drag_start_screen = mb.position
+					_drag_current_screen = mb.position
+					_is_drag_box_active = false
+				else:
+					# Left mouse button released
+					_is_left_mouse_down = false
+					if _is_drag_box_active:
+						_is_drag_box_active = false
+						_clear_selection_box_display()
+						var rect := Rect2(_drag_start_screen, _drag_current_screen - _drag_start_screen).abs()
+						if tactical_military_mgr != null:
+							tactical_military_mgr.call("select_in_screen_rect", rect, camera, mb.shift_pressed)
+					else:
+						# Simple left click
+						_clear_selection_box_display()
+						var clicked_unit = _find_tactical_unit_at_cell(cell)
+						if clicked_unit != null:
+							if tactical_military_mgr != null:
+								tactical_military_mgr.call("select_unit", clicked_unit.unit_id, mb.shift_pressed)
+						else:
+							if not mb.shift_pressed and tactical_military_mgr != null:
+								tactical_military_mgr.call("clear_selection")
+							_check_citizen_click(cell)
+			elif mb.button_index == MOUSE_BUTTON_RIGHT and mb.pressed:
+				if tactical_military_mgr != null and tactical_military_mgr.call("get_selected_count") > 0:
+					var res: Dictionary = tactical_military_mgr.call("issue_move_order", cell, nav)
+					if not res.get("success", false) and hud != null:
+						hud.show_event_banner("Lệnh Thất Bại", res.get("reason", "Vị trí không thể đi tới"), false, 3.0)
 
 func _check_citizen_click(cell: Vector2i) -> void:
 	# Find closest citizen to the clicked cell

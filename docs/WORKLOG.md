@@ -5677,3 +5677,68 @@ On branch `feature/package-1r-faction-strategic-decision-engine` starting from l
 - Commit with message: `Harden responsive layout test suite with actual viewport bounds across resolutions`.
 - Push commit to `origin/fix/responsive-layout-validation`.
 - Await next instructions (do not merge to master, do not start Package 1W).
+
+---
+
+## 2026-10-25: Package 1W — Tactical Military Units & Command MVP (Implementation In Progress)
+
+### Branch & Working Tree Preflight
+- Repository: `Mincow271104/KINGDOMS-UNBOUND`
+- Base Branch: `fix/responsive-layout-validation`
+- Base Commit: `ae56ad23960d433681516502d92c72d2d4a0e0b3`
+- Feature Branch: `feature/package-1w-tactical-unit-control`
+- Working Tree: Clean for tracked files. All pre-existing untracked files (`docs/visual_validation/`, `scripts/test/visual_*.gd`, `.uid` files) preserved untouched.
+
+### Architectural Strategy & Integration Design
+1. **Single Authoritative Source of Truth:**
+   - `PlayerArmyManager` remains the sole authoritative ledger for soldier count, barracks capacity, food upkeep transactions, combat morale, and campaign casualty allocation.
+   - `TacticalMilitaryManager` synchronizes its tactical unit roster to strictly match `PlayerArmyManager.soldier_count` ($|\text{tactical\_units}| == \text{soldier\_count}$).
+   - Roster additions occur on recruitment transactions; removals occur deterministically on casualty deductions or capacity reductions. Zero phantom units, zero double-deductions.
+2. **ArmyMarker Coexistence & Strategic Demarcation:**
+   - `ArmyMarker` transitions to represent the **Strategic Rally Point Banner** (`🚩 Điểm tập kết`) rather than a duplicate individual soldier sprite.
+   - Preserves `visible` toggling on `soldier_count > 0` to maintain 100% test contract compliance with `test_army_movement.gd` (TC-MOVE.24).
+3. **Tactical Unit Actor (`TacticalUnit`):**
+   - Ground-anchored foot contact pivot `(-12, -30)` with 2D isometric Y-sorting enabled.
+   - Modulated with distinct royal military gold attire (`Color(1.0, 0.85, 0.35, 1.0)`) and ground-circle selection indicator.
+   - Discrete logical grid traversal with `TimeManager` speed scaling (1x, 2x, 3x) and absolute freeze on pause, paired with continuous visual interpolation.
+4. **Formations & Spatial Coordination:**
+   - Supports `Line`, `Column`, and `Scatter` formations.
+   - Computes deterministic, distinct, walkable, in-bounds destination cells for all selected units without overlaps or occupation of invalid terrain.
+   - Fails gracefully if reachable path or unblocked destination slots cannot be found.
+5. **Control Groups & Input Discipline:**
+   - `Ctrl+1/2/3`: Assign selected units to control group 1/2/3.
+   - `Shift+1/2/3`: Recall/select control group 1/2/3.
+   - Isolated from HUD speed controls so plain `1/2/3` remains dedicated to simulation speed.
+   - Left-click single select, Shift+left-click additive multi-select, and screen-space drag selection box.
+6. **Persistence & Backwards Compatibility:**
+   - `SaveManager` serializes and validates `tactical_military` with fail-closed integrity checks.
+   - Legacy saves without tactical data automatically construct a valid tactical roster from `player_army.soldier_count` at the rally point.
+
+### Implementation Summary & Deliverables
+1. **Tactical Unit Actor (`TacticalUnit`):**
+   - Created `scripts/military/tactical_unit.gd` and `scenes/world/tactical_unit.tscn`.
+   - Modulated with royal military gold (`Color(1.0, 0.85, 0.35, 1.0)`) and foot-anchored ground contact `Vector2(-12, -30)` with `y_sort_enabled = true`.
+   - Custom `_draw()` dimetric ellipse ground selection ring with glow.
+   - Discrete logical cell traversal with continuous visual interpolation, honoring `TimeManager` pause and speeds.
+2. **Tactical Military Coordinator (`TacticalMilitaryManager`):**
+   - Created `scripts/military/tactical_military_manager.gd`.
+   - Maintains 1:1 synchronization with authoritative `PlayerArmyManager.soldier_count`.
+   - Handles selection (single click, Shift+click toggle, screen-space bounding box) and formations (`Line`, `Column`, `Scatter`).
+   - Supports control groups 1..3 with automatic pruning of eliminated units.
+3. **Strategic Rally Point Banner (`ArmyMarker`):**
+   - Refined `scripts/military/army_marker.gd` to represent the Strategic Rally Point Banner (`🚩 Điểm tập kết`).
+   - Hides duplicate soldier body sprite in tactical mode while strictly preserving `visible` toggling on `soldier_count > 0` for 100% test contract compliance (TC-MOVE.24).
+4. **World & HUD Integration:**
+   - Updated `scripts/world/world_view.gd` with canvas-layer selection overlay (`SelectionBoxLayer`), click selection, drag-box selection, and right-click move dispatching.
+   - Updated `scripts/ui/hud.gd` to isolate `Ctrl+1/2/3` and `Shift+1/2/3` from simulation speed controls, and embedded tactical formation controls into `ArmyPanel`.
+5. **Persistence & Save/Load:**
+   - Updated `scripts/persistence/save_manager.gd` to persist and validate `tactical_military`.
+   - Enforces fail-closed schema checks, coordinate bounds, distinct IDs, valid formations, and unit count consistency against authoritative army.
+   - Provides automatic legacy reconstruction for saves lacking tactical military fields.
+6. **Automated Verification:**
+   - Created `scripts/test/test_tactical_military.gd` covering TC-TAC.1 through TC-TAC.30 (74/74 assertions passed, Exit Code 0).
+   - Full regression suite verified green: `test_player_army.gd`, `test_army_movement.gd`, `test_live_battle_loop.gd`, `test_offensive_campaign.gd`, `test_save_load.gd`, `test_responsive_layout.gd`, `test_automation_graph.gd`, `test_logistics.gd`, `test_faction_relation_matrix.gd`.
+   - Headless editor check passed with zero errors or class registration warnings.
+
+### Next Step
+Package 1W is complete, validated, committed, and pushed. Await user authorization before proceeding to Package 1X (Tactical Combat & Enemy Military Entities).

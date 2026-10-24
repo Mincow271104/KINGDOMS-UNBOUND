@@ -63,7 +63,15 @@ signal citizen_role_changed(citizen_id: String, new_role: String)
 @onready var close_army_btn: Button = get_node_or_null("ArmyPanel/MarginContainer/VBoxContainer/CloseArmyBtn")
 
 var player_army_mgr: Object = null
+var tactical_military_mgr: Object = null
 var _army_move_targeting: bool = false
+
+# Tactical Army UI Controls (Package 1W)
+var tactical_selection_label: Label = null
+var tactical_order_label: Label = null
+var formation_line_btn: Button = null
+var formation_col_btn: Button = null
+var formation_scatter_btn: Button = null
 
 # Event Banner
 @onready var event_banner: Control = $EventBanner
@@ -549,7 +557,105 @@ func set_player_army_manager(mgr: Object) -> void:
 			player_army_mgr.movement_state_changed.connect(_on_army_movement_state_changed)
 		if player_army_mgr.has_signal("army_moved") and not player_army_mgr.army_moved.is_connected(_on_army_moved):
 			player_army_mgr.army_moved.connect(_on_army_moved)
+	_setup_tactical_army_ui()
 	_refresh_army_panel()
+
+func set_tactical_military_manager(mgr: Object) -> void:
+	tactical_military_mgr = mgr
+	if tactical_military_mgr != null:
+		if tactical_military_mgr.has_signal("selection_changed") and not tactical_military_mgr.selection_changed.is_connected(_on_tactical_selection_changed):
+			tactical_military_mgr.selection_changed.connect(_on_tactical_selection_changed)
+		if tactical_military_mgr.has_signal("formation_changed") and not tactical_military_mgr.formation_changed.is_connected(_on_tactical_formation_changed):
+			tactical_military_mgr.formation_changed.connect(_on_tactical_formation_changed)
+		if tactical_military_mgr.has_signal("control_groups_changed") and not tactical_military_mgr.control_groups_changed.is_connected(_on_tactical_control_groups_changed):
+			tactical_military_mgr.control_groups_changed.connect(_on_tactical_control_groups_changed)
+	_setup_tactical_army_ui()
+	_refresh_army_panel()
+
+func _on_tactical_selection_changed(_ids: Array) -> void:
+	_refresh_army_panel()
+
+func _on_tactical_formation_changed(_f: String) -> void:
+	_refresh_army_panel()
+
+func _on_tactical_control_groups_changed(_g: Dictionary) -> void:
+	_refresh_army_panel()
+
+func _setup_tactical_army_ui() -> void:
+	if not army_panel:
+		return
+	var vbox: VBoxContainer = army_panel.get_node_or_null("MarginContainer/VBoxContainer")
+	if vbox == null:
+		return
+	if vbox.has_node("TacticalControlsVBox"):
+		return
+
+	var tac_vbox := VBoxContainer.new()
+	tac_vbox.name = "TacticalControlsVBox"
+	tac_vbox.add_theme_constant_override("separation", 4)
+
+	var sep := HSeparator.new()
+	tac_vbox.add_child(sep)
+
+	var header := Label.new()
+	header.text = "CHỈ HUY CHIẾN THUẬT (Tactical Command)"
+	header.add_theme_color_override("font_color", Color(0.4, 0.85, 1.0, 1.0))
+	header.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	tac_vbox.add_child(header)
+
+	tactical_selection_label = Label.new()
+	tactical_selection_label.name = "TacticalSelectionLabel"
+	tactical_selection_label.text = "🎯 Đang chọn: 0 lính (Ctrl+1..3 gán, Shift+1..3 gọi)"
+	tactical_selection_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	tac_vbox.add_child(tactical_selection_label)
+
+	var form_hbox := HBoxContainer.new()
+	form_hbox.name = "FormationHBox"
+	form_hbox.alignment = BoxContainer.ALIGNMENT_CENTER
+	form_hbox.add_theme_constant_override("separation", 6)
+
+	var form_lbl := Label.new()
+	form_lbl.text = "Đội hình:"
+	form_hbox.add_child(form_lbl)
+
+	formation_line_btn = Button.new()
+	formation_line_btn.text = "Hàng ngang"
+	formation_line_btn.pressed.connect(func():
+		if tactical_military_mgr:
+			tactical_military_mgr.call("set_formation", "Line")
+			_refresh_army_panel()
+	)
+	form_hbox.add_child(formation_line_btn)
+
+	formation_col_btn = Button.new()
+	formation_col_btn.text = "Hàng dọc"
+	formation_col_btn.pressed.connect(func():
+		if tactical_military_mgr:
+			tactical_military_mgr.call("set_formation", "Column")
+			_refresh_army_panel()
+	)
+	form_hbox.add_child(formation_col_btn)
+
+	formation_scatter_btn = Button.new()
+	formation_scatter_btn.text = "Tản khai"
+	formation_scatter_btn.pressed.connect(func():
+		if tactical_military_mgr:
+			tactical_military_mgr.call("set_formation", "Scatter")
+			_refresh_army_panel()
+	)
+	form_hbox.add_child(formation_scatter_btn)
+	tac_vbox.add_child(form_hbox)
+
+	tactical_order_label = Label.new()
+	tactical_order_label.name = "TacticalOrderLabel"
+	tactical_order_label.text = "📍 Nhấp phải trên bản đồ để di chuyển quân đang chọn"
+	tactical_order_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	tactical_order_label.add_theme_color_override("font_color", Color(0.8, 0.8, 0.8, 1.0))
+	tac_vbox.add_child(tactical_order_label)
+
+	var idx := maxi(0, vbox.get_child_count() - 2)
+	vbox.add_child(tac_vbox)
+	vbox.move_child(tac_vbox, idx)
 
 func _on_army_changed(_count: int, _cap: int) -> void:
 	_refresh_army_panel()
@@ -699,6 +805,24 @@ func _refresh_army_panel() -> void:
 			var rally_cell: Vector2i = player_army_mgr.call("get_rally_cell") if player_army_mgr.has_method("get_rally_cell") else Vector2i.ZERO
 			can_atk = (m_state_int == 2 and cur_cell != rally_cell)
 		attack_campaign_btn.disabled = not can_atk
+
+	if tactical_military_mgr != null:
+		var sel_count: int = int(tactical_military_mgr.call("get_selected_count")) if tactical_military_mgr.has_method("get_selected_count") else 0
+		var f_name: String = String(tactical_military_mgr.call("get_formation")) if tactical_military_mgr.has_method("get_formation") else "Line"
+		if tactical_selection_label:
+			tactical_selection_label.text = "🎯 Đang chọn: %d lính (Ctrl+1..3 gán, Shift+1..3 gọi)" % sel_count
+			tactical_selection_label.modulate = Color(0.4, 1.0, 0.6) if sel_count > 0 else Color(0.8, 0.8, 0.8)
+		if tactical_order_label:
+			if sel_count > 0:
+				tactical_order_label.text = "📍 Đội hình [%s] | Nhấp phải trên bản đồ để di chuyển" % f_name
+			else:
+				tactical_order_label.text = "📍 Đội hình [%s] | Nhấp trái hoặc kéo chuột để chọn lính" % f_name
+		if formation_line_btn:
+			formation_line_btn.modulate = Color(1.2, 1.2, 0.4) if f_name == "Line" else Color(1, 1, 1)
+		if formation_col_btn:
+			formation_col_btn.modulate = Color(1.2, 1.2, 0.4) if f_name == "Column" else Color(1, 1, 1)
+		if formation_scatter_btn:
+			formation_scatter_btn.modulate = Color(1.2, 1.2, 0.4) if f_name == "Scatter" else Color(1, 1, 1)
 
 func _on_attack_campaign_btn_pressed() -> void:
 	if faction_mgr == null:
@@ -1098,11 +1222,11 @@ func _unhandled_input(event: InputEvent) -> void:
 				DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
 			else:
 				DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
-		elif k.keycode == KEY_1:
+		elif k.keycode == KEY_1 and not k.ctrl_pressed and not k.shift_pressed:
 			get_node("/root/TimeManager").set_speed(1)
-		elif k.keycode == KEY_2:
+		elif k.keycode == KEY_2 and not k.ctrl_pressed and not k.shift_pressed:
 			get_node("/root/TimeManager").set_speed(2)
-		elif k.keycode == KEY_3:
+		elif k.keycode == KEY_3 and not k.ctrl_pressed and not k.shift_pressed:
 			get_node("/root/TimeManager").set_speed(3)
 
 func _process(_delta: float) -> void:

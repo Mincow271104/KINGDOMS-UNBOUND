@@ -31,7 +31,8 @@ static func serialize_world_state(world_view: Node) -> Dictionary:
 		"pois": [],
 		"victory": {},
 		"fog_of_war": [],
-		"automation": {}
+		"automation": {},
+		"tactical_military": {}
 	}
 	
 	if world_view == null:
@@ -245,6 +246,13 @@ static func serialize_world_state(world_view: Node) -> Dictionary:
 	var auto_mgr = world_view.get("automation_mgr")
 	if auto_mgr != null and auto_mgr.has_method("serialize"):
 		data["automation"] = auto_mgr.call("serialize")
+
+	# 17. Tactical Military (Package 1W)
+	var tac_mgr = world_view.get("tactical_military_mgr")
+	if tac_mgr != null and tac_mgr.has_method("sync_with_player_army"):
+		tac_mgr.call("sync_with_player_army")
+	if tac_mgr != null and tac_mgr.has_method("serialize"):
+		data["tactical_military"] = tac_mgr.call("serialize")
 
 	return data
 
@@ -779,6 +787,93 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 			if not (logs_val is Array):
 				return {"valid": false, "error": "Mục 'execution_logs' trong automation phải là danh sách (Array)."}
 
+	# Validate optional tactical_military section (Package 1W)
+	if json_dict.has("tactical_military"):
+		var tac_val = json_dict.get("tactical_military")
+		if not (tac_val is Dictionary):
+			return {"valid": false, "error": "Dữ liệu quân sự chiến thuật 'tactical_military' phải là Dictionary."}
+
+		if tac_val.has("current_formation"):
+			var cur_f = tac_val.get("current_formation")
+			if not (cur_f is String) or not (cur_f in ["Line", "Column", "Scatter"]):
+				return {"valid": false, "error": "Đội hình current_formation trong tactical_military không hợp lệ: %s." % str(cur_f)}
+
+		if tac_val.has("next_unit_index"):
+			var nxt_idx = tac_val.get("next_unit_index")
+			if not _is_valid_integer_val(nxt_idx) or int(nxt_idx) < 1:
+				return {"valid": false, "error": "next_unit_index trong tactical_military phải là số nguyên >= 1: %s." % str(nxt_idx)}
+
+		var seen_tac_ids: Dictionary = {}
+		if tac_val.has("units"):
+			var units_val = tac_val.get("units")
+			if not (units_val is Array):
+				return {"valid": false, "error": "units trong tactical_military phải là danh sách (Array)."}
+
+			# Authoritative consistency check: if player_army.soldier_count exists, units size must match
+			if json_dict.has("player_army") and json_dict.get("player_army") is Dictionary:
+				var p_army = json_dict.get("player_army")
+				var is_legacy_army: bool = not p_army.has("movement_state")
+				if not is_legacy_army and p_army.has("soldier_count"):
+					var expected_soldiers: int = int(p_army.get("soldier_count"))
+					if units_val.size() > 0 and units_val.size() != expected_soldiers:
+						return {"valid": false, "error": "Số lượng đơn vị trong tactical_military (%d) không khớp với soldier_count của player_army (%d)." % [units_val.size(), expected_soldiers]}
+
+			for u in units_val:
+				if not (u is Dictionary):
+					return {"valid": false, "error": "Mỗi đơn vị trong units của tactical_military phải là Dictionary."}
+				var u_id = u.get("unit_id")
+				if not (u_id is String) or String(u_id).strip_edges().is_empty():
+					return {"valid": false, "error": "unit_id của đơn vị trong tactical_military không hợp lệ."}
+				if seen_tac_ids.has(String(u_id)):
+					return {"valid": false, "error": "Phát hiện unit_id trùng lặp trong tactical_military: %s." % String(u_id)}
+				seen_tac_ids[String(u_id)] = true
+
+				if not _is_valid_coord_arr(u.get("current_cell")):
+					return {"valid": false, "error": "Tọa độ current_cell của đơn vị %s trong tactical_military không hợp lệ." % String(u_id)}
+				if u.has("target_cell") and not _is_valid_coord_arr(u.get("target_cell")):
+					return {"valid": false, "error": "Tọa độ target_cell của đơn vị %s trong tactical_military không hợp lệ." % String(u_id)}
+
+				if u.has("order_state"):
+					var o_state = u.get("order_state")
+					if not (o_state is String) or not (o_state in ["idle", "moving", "holding"]):
+						return {"valid": false, "error": "order_state của đơn vị %s trong tactical_military không hợp lệ: %s." % [String(u_id), str(o_state)]}
+
+				if u.has("formation"):
+					var u_form = u.get("formation")
+					if not (u_form is String) or not (u_form in ["Line", "Column", "Scatter"]):
+						return {"valid": false, "error": "formation của đơn vị %s trong tactical_military không hợp lệ: %s." % [String(u_id), str(u_form)]}
+
+				if u.has("control_group_id"):
+					var cg_id = u.get("control_group_id")
+					if not _is_valid_integer_val(cg_id) or int(cg_id) < 0 or int(cg_id) > 3:
+						return {"valid": false, "error": "control_group_id của đơn vị %s không hợp lệ (phải từ 0 đến 3): %s." % [String(u_id), str(cg_id)]}
+
+				if u.has("current_path"):
+					var u_path = u.get("current_path")
+					if not (u_path is Array):
+						return {"valid": false, "error": "current_path của đơn vị %s phải là Array." % String(u_id)}
+					for step in u_path:
+						if not _is_valid_coord_arr(step):
+							return {"valid": false, "error": "Điểm nút trong current_path của đơn vị %s không hợp lệ: %s." % [String(u_id), str(step)]}
+
+		if tac_val.has("control_groups"):
+			var cg_val = tac_val.get("control_groups")
+			if not (cg_val is Dictionary):
+				return {"valid": false, "error": "control_groups trong tactical_military phải là Dictionary."}
+			for g in [1, 2, 3]:
+				var k_str := str(g)
+				var members = null
+				if cg_val.has(k_str):
+					members = cg_val.get(k_str)
+				elif cg_val.has(g):
+					members = cg_val.get(g)
+				if members != null:
+					if not (members is Array):
+						return {"valid": false, "error": "Thành viên nhóm điều khiển %s trong tactical_military phải là Array." % k_str}
+					for mem_id in members:
+						if not (mem_id is String) or not seen_tac_ids.has(String(mem_id)):
+							return {"valid": false, "error": "Nhóm điều khiển %s chứa unit_id không tồn tại trong units: %s." % [k_str, str(mem_id)]}
+
 	return {"valid": true, "error": ""}
 
 static func load_from_file(filepath: String = DEFAULT_SAVE_PATH) -> Dictionary:
@@ -1168,6 +1263,19 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 			auto_mgr.call("deserialize", auto_data)
 		else:
 			auto_mgr.call("deserialize", {})
+
+	# 17. Restore Tactical Military (Package 1W)
+	var tac_mgr = world_view.get("tactical_military_mgr")
+	if tac_mgr != null:
+		var tac_data = loaded_data.get("tactical_military", {})
+		var s_count: int = army_mgr.call("get_army_count") if army_mgr else 0
+		var r_cell: Vector2i = army_mgr.call("get_rally_cell") if army_mgr else Vector2i(32, 33)
+		var nav_obj = world_view.get("nav")
+		if tac_data is Dictionary and not tac_data.is_empty() and tac_data.get("units", []).size() == s_count:
+			tac_mgr.call("deserialize", tac_data)
+		else:
+			# Legacy save, empty tactical data, or unit mismatch: rebuild from authoritative player army
+			tac_mgr.call("deserialize_legacy", s_count, r_cell, nav_obj)
 
 	print("[SaveManager] Loaded world state restored successfully (%d citizens, %d buildings)" % [world_view.get("citizen_list").size(), world_data.buildings.size()])
 	return {"success": true}

@@ -230,3 +230,21 @@
 - [x] **TASK-1V.4:** Integrate graph persistence into `SaveManager` (`scripts/persistence/save_manager.gd`) under `data["automation"]` with fail-closed validation on malformed graph programs and 100% backward compatibility for legacy saves lacking the `automation` section.
 - [x] **TASK-1V.5:** Implement visual graph editor UI `AutomationEditor` (`scenes/ui/automation_editor.tscn`, `scripts/ui/automation_editor.gd`) with `GraphEdit`/`GraphNode` canvas, program selector, node creation palette, parameter inspector, validation badge, dry run simulator with trace output, and wire shortcut `G` and BottomBar button in `HUD`.
 - [x] **TASK-1V.6:** Automated test suite `scripts/test/test_automation_graph.gd` covering TC-AGRAPH.1 through TC-AGRAPH.16 (PASS, Exit Code 0: 16/16 tests passed, 69 checks passed).
+
+---
+
+## Package 1W: Tactical Military Units & Command MVP (Completed)
+- [x] **TASK-1W.1:** Implement individual visual tactical soldier actor `TacticalUnit` (`scenes/world/tactical_unit.tscn`, `scripts/military/tactical_unit.gd`) with dimetric 2D isometric projection, foot-anchored pivot `(-12, -30)`, Y-sorting, royal military gold attire, ground-circle selection indicator, discrete grid traversal, smooth interpolation, and TimeManager speed/pause support.
+- [x] **TASK-1W.2:** Implement `TacticalMilitaryManager` (`scripts/military/tactical_military_manager.gd`) maintaining strict 1:1 synchronization with authoritative `PlayerArmyManager.soldier_count`, selection management (single, Shift additive, screen-space drag box), and spatial formations (`Line`, `Column`, `Scatter`) calculating distinct non-overlapping walkable destination slots.
+- [x] **TASK-1W.3:** Implement control groups (`Ctrl+1/2/3` to assign, `Shift+1/2/3` to recall) with dead-unit pruning, isolating them from HUD speed controls so plain `1/2/3` continues controlling simulation speed.
+- [x] **TASK-1W.4:** Refine `ArmyMarker` (`scripts/military/army_marker.gd`) into the Strategic Rally Point Banner (`🚩 Điểm tập kết`), maintaining 100% backward compatibility with `test_army_movement.gd` (TC-MOVE.24) while avoiding visual soldier duplication.
+- [x] **TASK-1W.5:** Integrate tactical military command UI into `ArmyPanel` in `HUD` (`scripts/ui/hud.gd`) and selection box overlay in `WorldView` (`scripts/world/world_view.gd`) without adding extra buttons to `BottomBar` or breaking responsive layout.
+- [x] **TASK-1W.6:** Add persistence and fail-closed validation in `SaveManager` (`scripts/persistence/save_manager.gd`) under `data["tactical_military"]`, with legacy save fallback reconstructing units from `soldier_count` at rally cell.
+- [x] **TASK-1W.7:** Automated test suite `scripts/test/test_tactical_military.gd` covering TC-TAC.1 through TC-TAC.30 (PASS, Exit Code 0: 74/74 assertions passed).
+
+---
+
+## Package 1X: Tactical Combat & Enemy Military Entities (Upcoming)
+- [ ] **TASK-1X.1:** Real-time tactical combat engagements between player tactical units and hostile forces.
+- [ ] **TASK-1X.2:** Enemy military tactical units on the world map with tactical AI behaviors.
+- [ ] **TASK-1X.3:** Direct field siege operations and tactical combat victory conditions.
