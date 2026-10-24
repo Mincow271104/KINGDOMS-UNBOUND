@@ -625,7 +625,9 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 			var pair_map = fac_root.get("pairwise_relations")
 			if not (pair_map is Dictionary):
 				return {"valid": false, "error": "pairwise_relations trong mục 'factions' phải là từ điển (Dictionary)."}
-			const KNOWN_NPC_FACTION_IDS: Array[String] = ["neutral_tribe", "rival_merchant", "rival_military"]
+			var expected_keys: Array[String] = FactionManager.get_expected_canonical_pair_keys()
+			if pair_map.is_empty():
+				return {"valid": false, "error": "pairwise_relations trong mục 'factions' không được rỗng khi trường này tồn tại trong bản lưu."}
 			var seen_canonical_pairs: Dictionary = {}
 			for raw_p_key in pair_map:
 				if not (raw_p_key is String) or String(raw_p_key).is_empty():
@@ -643,7 +645,7 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 					return {"valid": false, "error": "faction_a và faction_b trong pairwise_relations['%s'] không được rỗng." % str(raw_p_key)}
 				if fa == fb:
 					return {"valid": false, "error": "Không cho phép tự quan hệ (self-relation) trong pairwise_relations['%s']: '%s'." % [str(raw_p_key), fa]}
-				if not KNOWN_NPC_FACTION_IDS.has(fa) or not KNOWN_NPC_FACTION_IDS.has(fb):
+				if not FactionManager.NPC_FACTION_IDS.has(fa) or not FactionManager.NPC_FACTION_IDS.has(fb):
 					return {"valid": false, "error": "ID thế lực không hợp lệ trong pairwise_relations['%s']: (%s, %s)." % [str(raw_p_key), fa, fb]}
 				if not (fa < fb):
 					return {"valid": false, "error": "Thứ tự cặp thế lực trong pairwise_relations['%s'] không chuẩn tắc (cần faction_a < faction_b): (%s, %s)." % [str(raw_p_key), fa, fb]}
@@ -676,6 +678,10 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 					return {"valid": false, "error": "Trạng thái mâu thuẫn trong pairwise_relations['%s']: không thể vừa chiến tranh vừa có hiệp ước (has_nap=%s, has_alliance=%s)." % [expected_p_key, str(p_nap), str(p_allied)]}
 				if p_allied and not p_nap:
 					return {"valid": false, "error": "Trạng thái mâu thuẫn trong pairwise_relations['%s']: liên minh (has_alliance=true) đòi hỏi has_nap=true." % expected_p_key}
+
+			for exp_k in expected_keys:
+				if not seen_canonical_pairs.has(exp_k):
+					return {"valid": false, "error": "pairwise_relations bị thiếu bản ghi quan hệ chuẩn tắc bắt buộc: '%s'." % exp_k}
 
 	# Validate optional immigration section (DEBT-03)
 	if json_dict.has("immigration"):

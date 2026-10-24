@@ -21,6 +21,12 @@ const ASCENSION_NEW_MILITARY_POWER: float = 55.0
 const ASCENSION_NEW_STABILITY: float = 85.0
 const ASCENSION_NEW_STRATEGIC_GOAL: String = FactionData.GOAL_CONSOLIDATE_POWER
 
+const NPC_FACTION_IDS: Array[String] = [
+	"neutral_tribe",
+	"rival_merchant",
+	"rival_military"
+]
+
 # Autonomous Diplomacy Execution Reason Codes (Package 1T)
 const DIPLO_REASON_EXECUTED_WAR: String = "EXECUTED_DECLARE_WAR"
 const DIPLO_REASON_EXECUTED_PEACE: String = "EXECUTED_SIGN_PEACE"
@@ -191,6 +197,18 @@ func get_all_faction_relations() -> Array[Dictionary]:
 		if rec != null:
 			out.append(rec.serialize())
 	return out
+
+static func get_expected_canonical_pair_keys() -> Array[String]:
+	var keys: Array[String] = []
+	var sorted_ids: Array[String] = NPC_FACTION_IDS.duplicate()
+	sorted_ids.sort()
+	for i in range(sorted_ids.size()):
+		for j in range(i + 1, sorted_ids.size()):
+			var p_key: String = FactionRelationData.make_pair_key(sorted_ids[i], sorted_ids[j])
+			if not p_key.is_empty():
+				keys.append(p_key)
+	keys.sort()
+	return keys
 
 func _validate_faction_pair_ids(id_1: String, id_2: String) -> Dictionary:
 	if id_1 == id_2 and not id_1.is_empty():

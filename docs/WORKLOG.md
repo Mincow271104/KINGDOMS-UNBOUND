@@ -5342,4 +5342,62 @@ On branch `feature/package-1r-faction-strategic-decision-engine` starting from l
 - `docs/WORKLOG.md` (Modified)
 
 ### Next Exact Step
-- Commit Package 1U on `feature/package-1u-faction-relations-matrix` with message `Implement pairwise faction relations foundation` and push to `origin/feature/package-1u-faction-relations-matrix`.
+- Follow up on Package 1U review: enforce fail-closed completeness validation for `factions.pairwise_relations`.
+
+---
+
+## [2026-10-25] Package 1U Follow-up: Fail-Closed Pairwise Relation Completeness
+
+### Status
+- **Phase:** Post-Gate 9 — Package 1U Follow-up (`Fail-Closed Pairwise Relation Completeness`)
+- **Branch:** `feature/package-1u-faction-relations-matrix`
+- **Base Commit:** `4598d3f1af78f00298be0dad9a10f22623ddb345`
+- **Milestone:** **COMPLETE (Ready for Commit & Push)**
+
+### Completed Work
+1. **Authoritative Canonical Pair Keys Query (`scripts/factions/faction_manager.gd`):**
+   - Added canonical constant `NPC_FACTION_IDS: Array[String] = ["neutral_tribe", "rival_merchant", "rival_military"]`.
+   - Added static helper `FactionManager.get_expected_canonical_pair_keys() -> Array[String]` returning all expected canonical pairs in sorted order (`["neutral_tribe__rival_merchant", "neutral_tribe__rival_military", "rival_merchant__rival_military"]`).
+2. **Fail-Closed Completeness Validation (`scripts/persistence/save_manager.gd`):**
+   - Enhanced `SaveManager.validate_save_data()` when `factions.pairwise_relations` is present:
+     - Rejects empty dictionary `pairwise_relations: {}` fail-closed when the field is explicitly present in a non-legacy save.
+     - Enforces that every expected canonical pair key from `FactionManager.get_expected_canonical_pair_keys()` is present exactly once, rejecting incomplete sets (e.g. missing any one of the 3 pairs) before world state mutation.
+     - Preserves full legacy save compatibility when `pairwise_relations` is completely absent.
+3. **Automated Regression Test Suite Extension (`scripts/test/test_faction_relation_matrix.gd`):**
+   - Extended `TC-FREL.16` with explicit assertions verifying:
+     - Valid save containing all 3 expected pairs passes schema validation.
+     - Save missing each of the three pair records is rejected.
+     - Save with `pairwise_relations: {}` is rejected.
+     - Legacy save with `pairwise_relations` omitted remains valid.
+     - `apply_loaded_state_to_world()` rejects empty or incomplete pairwise data before any live-world mutation, keeping existing live pairwise relationships intact.
+4. **Documentation Synchronization:**
+   - Updated `docs/TEST_PLAN.md` and `docs/WORKLOG.md`.
+
+### Verification & Test Evidence (Independent Runs on Final Source)
+- `scripts/test/test_faction_relation_matrix.gd`: **PASS (Exit Code 0 — 16/16 TC Passed, 160 Checks Passed, 0 Failed)**
+- `scripts/test/test_save_load.gd`: **PASS (Exit Code 0 — 107 Assertions Passed, 0 Failed)**
+- `scripts/test/test_faction_diplomacy_ai.gd`: **PASS (Exit Code 0 — 16/16 TC Passed, 437 Checks Passed, 0 Failed)**
+- `scripts/test/test_faction_strategy_execution.gd`: **PASS (Exit Code 0 — 14/14 TC Passed, 951 Checks Passed, 0 Failed)**
+- `scripts/test/test_faction_strategy_planner.gd`: **PASS (Exit Code 0 — 7/7 TC Passed)**
+- `scripts/test/test_faction_profiles.gd`: **PASS (Exit Code 0 — 9/9 TC Passed)**
+- `scripts/test/test_emerging_faction_ascension.gd`: **PASS (Exit Code 0 — 11/11 TC Passed)**
+- `scripts/test/test_factions_and_battles.gd`: **PASS (Exit Code 0 — 48 Assertions Passed, 0 Failed)**
+- `scripts/test/test_battle_diplomacy_consequences.gd`: **PASS (Exit Code 0 — 11/11 TC Passed)**
+- `scripts/test/test_offensive_campaign.gd`: **PASS (Exit Code 0 — 14/14 TC Passed)**
+- `scripts/test/test_live_battle_loop.gd`: **PASS (Exit Code 0 — 19/19 TC Passed)**
+- `scripts/test/test_player_army.gd`: **PASS (Exit Code 0 — 32/32 TC Passed)**
+- `scripts/test/test_army_movement.gd`: **PASS (Exit Code 0 — 32/32 TC Passed [TC-MOVE.1..TC-MOVE.32], 33 PASS lines)**
+- `scripts/test/test_world_events.gd`: **PASS (Exit Code 0 — 72 Assertions Passed, 0 Failed)**
+- `scripts/test/test_victory_and_collapse.gd`: **PASS (Exit Code 0 — TC-7.1..TC-7.4 All Passed)**
+- Headless Editor Parse & Class Registration (`--headless --path . --editor --quit`): **PASS (Exit Code 0)**
+- `git diff --check`: **PASS (Exit Code 0)**
+
+### Files Modified
+- `scripts/factions/faction_manager.gd`
+- `scripts/persistence/save_manager.gd`
+- `scripts/test/test_faction_relation_matrix.gd`
+- `docs/TEST_PLAN.md`
+- `docs/WORKLOG.md`
+
+### Next Exact Step
+- Commit follow-up on `feature/package-1u-faction-relations-matrix` with message `Enforce fail-closed completeness for pairwise relations` and push to `origin/feature/package-1u-faction-relations-matrix`.

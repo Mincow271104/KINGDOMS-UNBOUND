@@ -614,7 +614,39 @@ func _test_tc_frel_16_fail_closed_validation() -> void:
 	bad_10["factions"]["pairwise_relations"]["neutral_tribe__rival_merchant"]["has_nap"] = false
 	_assert_false(bool(SaveManagerScript.validate_save_data(bad_10).get("valid", true)), "TC-FREL.16-ALLIANCE-WITHOUT-NAP")
 
-	# Verify apply_loaded_state_to_world rejects invalid payload before mutating live world state
+	# 11. Empty pairwise_relations dictionary (explicitly present in non-legacy save)
+	var bad_11: Dictionary = base_save.duplicate(true)
+	bad_11["factions"]["pairwise_relations"] = {}
+	var val_empty = SaveManagerScript.validate_save_data(bad_11)
+	_assert_false(bool(val_empty.get("valid", true)), "TC-FREL.16-EMPTY-DICT-REJECTED")
+
+	# 12. Missing each of the three expected pair records
+	var bad_missing_1: Dictionary = base_save.duplicate(true)
+	bad_missing_1["factions"]["pairwise_relations"].erase("neutral_tribe__rival_merchant")
+	_assert_false(bool(SaveManagerScript.validate_save_data(bad_missing_1).get("valid", true)), "TC-FREL.16-MISSING-PAIR-1-REJECTED")
+
+	var bad_missing_2: Dictionary = base_save.duplicate(true)
+	bad_missing_2["factions"]["pairwise_relations"].erase("neutral_tribe__rival_military")
+	_assert_false(bool(SaveManagerScript.validate_save_data(bad_missing_2).get("valid", true)), "TC-FREL.16-MISSING-PAIR-2-REJECTED")
+
+	var bad_missing_3: Dictionary = base_save.duplicate(true)
+	bad_missing_3["factions"]["pairwise_relations"].erase("rival_merchant__rival_military")
+	_assert_false(bool(SaveManagerScript.validate_save_data(bad_missing_3).get("valid", true)), "TC-FREL.16-MISSING-PAIR-3-REJECTED")
+
+	# 13. Valid save containing all expected pair records passes
+	var val_valid = SaveManagerScript.validate_save_data(base_save)
+	_assert_true(bool(val_valid.get("valid", false)), "TC-FREL.16-VALID-ALL-PAIRS-PASS")
+
+	# 14. Verify apply_loaded_state_to_world rejects incomplete/missing saves before mutating live world state
+	var apply_empty = SaveManagerScript.apply_loaded_state_to_world(world_instance, bad_11)
+	_assert_false(bool(apply_empty.get("success", true)), "TC-FREL.16-APPLY-EMPTY-REJECTED")
+	_assert_eq(fm.serialize_pairwise_relations(), clean_before, "TC-FREL.16-WORLD-UNTOUCHED-AFTER-EMPTY")
+
+	var apply_missing = SaveManagerScript.apply_loaded_state_to_world(world_instance, bad_missing_2)
+	_assert_false(bool(apply_missing.get("success", true)), "TC-FREL.16-APPLY-MISSING-REJECTED")
+	_assert_eq(fm.serialize_pairwise_relations(), clean_before, "TC-FREL.16-WORLD-UNTOUCHED-AFTER-MISSING")
+
+	# 15. Verify apply_loaded_state_to_world rejects contradictory payload before mutating live world state
 	var apply_bad: Dictionary = SaveManagerScript.apply_loaded_state_to_world(world_instance, bad_9)
 	_assert_false(bool(apply_bad.get("success", true)), "TC-FREL.16-APPLY-REJECTED")
 	_assert_eq(fm.serialize_pairwise_relations(), clean_before, "TC-FREL.16-WORLD-STATE-UNTOUCHED")
