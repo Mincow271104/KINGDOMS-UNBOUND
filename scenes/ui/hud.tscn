@@ -10,7 +10,7 @@ script = ExtResource("1_hud")
 layout_mode = 3
 anchors_preset = 10
 anchor_right = 1.0
-offset_bottom = 54.0
+offset_bottom = 68.0
 grow_horizontal = 2
 
 [node name="PanelContainer" type="PanelContainer" parent="TopBar"]
@@ -23,66 +23,72 @@ grow_vertical = 2
 
 [node name="MarginContainer" type="MarginContainer" parent="TopBar/PanelContainer"]
 layout_mode = 2
-theme_override_constants/margin_left = 16
-theme_override_constants/margin_top = 8
-theme_override_constants/margin_right = 16
-theme_override_constants/margin_bottom = 8
+theme_override_constants/margin_left = 12
+theme_override_constants/margin_top = 4
+theme_override_constants/margin_right = 12
+theme_override_constants/margin_bottom = 4
 
-[node name="HBoxContainer" type="HBoxContainer" parent="TopBar/PanelContainer/MarginContainer"]
+[node name="HBoxContainer" type="VBoxContainer" parent="TopBar/PanelContainer/MarginContainer"]
 layout_mode = 2
-theme_override_constants/separation = 20
+theme_override_constants/separation = 4
 
-[node name="Title" type="Label" parent="TopBar/PanelContainer/MarginContainer/HBoxContainer"]
-layout_mode = 2
-theme_override_colors/font_color = Color(0.9, 0.72, 0.23, 1)
-text = "KINGDOMS UNBOUND"
-
-[node name="VSeparator1" type="VSeparator" parent="TopBar/PanelContainer/MarginContainer/HBoxContainer"]
-layout_mode = 2
-
-[node name="TimeInfo" type="HBoxContainer" parent="TopBar/PanelContainer/MarginContainer/HBoxContainer"]
+[node name="TopRow" type="HBoxContainer" parent="TopBar/PanelContainer/MarginContainer/HBoxContainer"]
 layout_mode = 2
 theme_override_constants/separation = 12
 
-[node name="DateLabel" type="Label" parent="TopBar/PanelContainer/MarginContainer/HBoxContainer/TimeInfo"]
+[node name="Title" type="Label" parent="TopBar/PanelContainer/MarginContainer/HBoxContainer/TopRow"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.9, 0.72, 0.23, 1)
+theme_override_font_sizes/font_size = 14
+text = "👑 KINGDOMS UNBOUND"
+
+[node name="VSeparator1" type="VSeparator" parent="TopBar/PanelContainer/MarginContainer/HBoxContainer/TopRow"]
+layout_mode = 2
+
+[node name="TimeInfo" type="HBoxContainer" parent="TopBar/PanelContainer/MarginContainer/HBoxContainer/TopRow"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="DateLabel" type="Label" parent="TopBar/PanelContainer/MarginContainer/HBoxContainer/TopRow/TimeInfo"]
 layout_mode = 2
 text = "Ngày 1 (Xuân) - Năm 1"
 
-[node name="ClockLabel" type="Label" parent="TopBar/PanelContainer/MarginContainer/HBoxContainer/TimeInfo"]
+[node name="ClockLabel" type="Label" parent="TopBar/PanelContainer/MarginContainer/HBoxContainer/TopRow/TimeInfo"]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.4, 0.8, 1, 1)
 text = "06:00"
 
-[node name="SpeedControls" type="HBoxContainer" parent="TopBar/PanelContainer/MarginContainer/HBoxContainer"]
+[node name="Spacer" type="Control" parent="TopBar/PanelContainer/MarginContainer/HBoxContainer/TopRow"]
 layout_mode = 2
-theme_override_constants/separation = 6
+size_flags_horizontal = 3
 
-[node name="PauseBtn" type="Button" parent="TopBar/PanelContainer/MarginContainer/HBoxContainer/SpeedControls"]
-custom_minimum_size = Vector2(36, 0)
+[node name="SpeedControls" type="HBoxContainer" parent="TopBar/PanelContainer/MarginContainer/HBoxContainer/TopRow"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="PauseBtn" type="Button" parent="TopBar/PanelContainer/MarginContainer/HBoxContainer/TopRow/SpeedControls"]
+custom_minimum_size = Vector2(32, 24)
 layout_mode = 2
 text = "⏸"
 
-[node name="Speed1xBtn" type="Button" parent="TopBar/PanelContainer/MarginContainer/HBoxContainer/SpeedControls"]
-custom_minimum_size = Vector2(36, 0)
+[node name="Speed1xBtn" type="Button" parent="TopBar/PanelContainer/MarginContainer/HBoxContainer/TopRow/SpeedControls"]
+custom_minimum_size = Vector2(32, 24)
 layout_mode = 2
 text = "1x"
 
-[node name="Speed2xBtn" type="Button" parent="TopBar/PanelContainer/MarginContainer/HBoxContainer/SpeedControls"]
-custom_minimum_size = Vector2(36, 0)
+[node name="Speed2xBtn" type="Button" parent="TopBar/PanelContainer/MarginContainer/HBoxContainer/TopRow/SpeedControls"]
+custom_minimum_size = Vector2(32, 24)
 layout_mode = 2
 text = "2x"
 
-[node name="Speed3xBtn" type="Button" parent="TopBar/PanelContainer/MarginContainer/HBoxContainer/SpeedControls"]
-custom_minimum_size = Vector2(36, 0)
+[node name="Speed3xBtn" type="Button" parent="TopBar/PanelContainer/MarginContainer/HBoxContainer/TopRow/SpeedControls"]
+custom_minimum_size = Vector2(32, 24)
 layout_mode = 2
 text = "3x"
 
-[node name="VSeparator2" type="VSeparator" parent="TopBar/PanelContainer/MarginContainer/HBoxContainer"]
-layout_mode = 2
-
 [node name="Resources" type="HBoxContainer" parent="TopBar/PanelContainer/MarginContainer/HBoxContainer"]
 layout_mode = 2
-theme_override_constants/separation = 12
+theme_override_constants/separation = 10
 
 [node name="FoodLabel" type="Label" parent="TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources"]
 layout_mode = 2
@@ -137,46 +143,47 @@ grow_vertical = 2
 
 [node name="MarginContainer" type="MarginContainer" parent="BottomBar/PanelContainer"]
 layout_mode = 2
-theme_override_constants/margin_left = 16
+theme_override_constants/margin_left = 12
 theme_override_constants/margin_top = 6
-theme_override_constants/margin_right = 16
+theme_override_constants/margin_right = 12
 theme_override_constants/margin_bottom = 6
 
 [node name="HBoxContainer" type="HBoxContainer" parent="BottomBar/PanelContainer/MarginContainer"]
 layout_mode = 2
-theme_override_constants/separation = 24
+theme_override_constants/separation = 8
 
 [node name="TileInfoLabel" type="Label" parent="BottomBar/PanelContainer/MarginContainer/HBoxContainer"]
 layout_mode = 2
 size_flags_horizontal = 3
 text = "Ô: (32, 32) | Khu vực quảng trường định cư"
+text_overrun_behavior = 3
 
 [node name="BuildBtn" type="Button" parent="BottomBar/PanelContainer/MarginContainer/HBoxContainer"]
-custom_minimum_size = Vector2(140, 36)
+custom_minimum_size = Vector2(115, 34)
 layout_mode = 2
 theme_override_colors/font_color = Color(0.9, 0.8, 0.3, 1)
 text = "🏗️ Xây Dựng (B)"
 
 [node name="ResearchBtn" type="Button" parent="BottomBar/PanelContainer/MarginContainer/HBoxContainer"]
-custom_minimum_size = Vector2(140, 36)
+custom_minimum_size = Vector2(120, 34)
 layout_mode = 2
 theme_override_colors/font_color = Color(0.4, 0.8, 1, 1)
 text = "🔬 Nghiên Cứu (T)"
 
 [node name="DiplomacyBtn" type="Button" parent="BottomBar/PanelContainer/MarginContainer/HBoxContainer"]
-custom_minimum_size = Vector2(150, 36)
+custom_minimum_size = Vector2(120, 34)
 layout_mode = 2
 theme_override_colors/font_color = Color(1, 0.75, 0.35, 1)
 text = "👑 Ngoại Giao (Y)"
 
 [node name="MilitaryBtn" type="Button" parent="BottomBar/PanelContainer/MarginContainer/HBoxContainer"]
-custom_minimum_size = Vector2(140, 36)
+custom_minimum_size = Vector2(115, 34)
 layout_mode = 2
 theme_override_colors/font_color = Color(1, 0.5, 0.5, 1)
 text = "⚔️ Quân Đội (U)"
 
 [node name="AutomationBtn" type="Button" parent="BottomBar/PanelContainer/MarginContainer/HBoxContainer"]
-custom_minimum_size = Vector2(140, 36)
+custom_minimum_size = Vector2(115, 34)
 layout_mode = 2
 theme_override_colors/font_color = Color(0.4, 0.9, 0.6, 1)
 text = "⚙️ Tự Động (G)"
@@ -454,9 +461,9 @@ anchor_top = 0.5
 anchor_right = 0.5
 anchor_bottom = 0.5
 offset_left = -340.0
-offset_top = -240.0
+offset_top = -220.0
 offset_right = 340.0
-offset_bottom = 240.0
+offset_bottom = 220.0
 grow_horizontal = 2
 grow_vertical = 2
 
@@ -483,7 +490,7 @@ text = "Chưa có dự án nghiên cứu nào đang tiến hành"
 horizontal_alignment = 1
 
 [node name="ScrollContainer" type="ScrollContainer" parent="ResearchMenuPanel/MarginContainer/VBoxContainer"]
-custom_minimum_size = Vector2(0, 300)
+custom_minimum_size = Vector2(0, 260)
 layout_mode = 2
 size_flags_vertical = 3
 
@@ -502,9 +509,9 @@ anchors_preset = 5
 anchor_left = 0.5
 anchor_right = 0.5
 offset_left = -300.0
-offset_top = 64.0
+offset_top = 76.0
 offset_right = 300.0
-offset_bottom = 144.0
+offset_bottom = 156.0
 grow_horizontal = 2
 
 [node name="MarginContainer" type="MarginContainer" parent="EventBanner"]
@@ -534,10 +541,10 @@ anchor_left = 0.5
 anchor_top = 0.5
 anchor_right = 0.5
 anchor_bottom = 0.5
-offset_left = -380.0
-offset_top = -250.0
-offset_right = 380.0
-offset_bottom = 250.0
+offset_left = -360.0
+offset_top = -220.0
+offset_right = 360.0
+offset_bottom = 220.0
 grow_horizontal = 2
 grow_vertical = 2
 
@@ -564,7 +571,7 @@ text = "Đang chờ thương đoàn ghé thăm..."
 horizontal_alignment = 1
 
 [node name="ScrollContainer" type="ScrollContainer" parent="DiplomacyPanel/MarginContainer/VBoxContainer"]
-custom_minimum_size = Vector2(0, 320)
+custom_minimum_size = Vector2(0, 260)
 layout_mode = 2
 size_flags_vertical = 3
 
@@ -682,9 +689,9 @@ anchors_preset = 5
 anchor_left = 0.5
 anchor_right = 0.5
 offset_left = -280.0
-offset_top = 64.0
+offset_top = 76.0
 offset_right = 280.0
-offset_bottom = 124.0
+offset_bottom = 136.0
 grow_horizontal = 2
 
 [node name="MarginContainer" type="MarginContainer" parent="CrisisBanner"]

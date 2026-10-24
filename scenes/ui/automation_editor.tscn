@@ -49,18 +49,21 @@ text = "⚙️ BỘ SOẠN THẢO TỰ ĐỘNG HÓA"
 layout_mode = 2
 
 [node name="ProgramSelect" type="OptionButton" parent="Panel/MarginContainer/VBoxContainer/TopBar"]
-custom_minimum_size = Vector2(220, 32)
+custom_minimum_size = Vector2(170, 30)
 layout_mode = 2
 
 [node name="NewProgBtn" type="Button" parent="Panel/MarginContainer/VBoxContainer/TopBar"]
+custom_minimum_size = Vector2(0, 30)
 layout_mode = 2
 text = "➕ Mới"
 
 [node name="DupProgBtn" type="Button" parent="Panel/MarginContainer/VBoxContainer/TopBar"]
+custom_minimum_size = Vector2(0, 30)
 layout_mode = 2
-text = "📋 Bản sao"
+text = "📋 Sao"
 
 [node name="DelProgBtn" type="Button" parent="Panel/MarginContainer/VBoxContainer/TopBar"]
+custom_minimum_size = Vector2(0, 30)
 layout_mode = 2
 text = "🗑️ Xóa"
 
@@ -86,14 +89,14 @@ layout_mode = 2
 size_flags_horizontal = 3
 
 [node name="CloseBtn" type="Button" parent="Panel/MarginContainer/VBoxContainer/TopBar"]
-custom_minimum_size = Vector2(100, 32)
+custom_minimum_size = Vector2(90, 30)
 layout_mode = 2
 text = "❌ Đóng (ESC)"
 
 [node name="HSplit" type="HSplitContainer" parent="Panel/MarginContainer/VBoxContainer"]
 layout_mode = 2
 size_flags_vertical = 3
-split_offset = 680
+split_offset = 540
 
 [node name="LeftBox" type="VBoxContainer" parent="Panel/MarginContainer/VBoxContainer/HSplit"]
 layout_mode = 2
@@ -165,58 +168,65 @@ size_flags_vertical = 3
 right_disconnects = true
 scroll_offset = Vector2(-20, -20)
 
-[node name="RightBox" type="VBoxContainer" parent="Panel/MarginContainer/VBoxContainer/HSplit"]
-custom_minimum_size = Vector2(320, 0)
+[node name="RightScroll" type="ScrollContainer" parent="Panel/MarginContainer/VBoxContainer/HSplit"]
+custom_minimum_size = Vector2(280, 0)
 layout_mode = 2
+horizontal_scroll_mode = 0
+
+[node name="RightBox" type="VBoxContainer" parent="Panel/MarginContainer/VBoxContainer/HSplit/RightScroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
 theme_override_constants/separation = 8
 
-[node name="InspectorHeader" type="Label" parent="Panel/MarginContainer/VBoxContainer/HSplit/RightBox"]
+[node name="InspectorHeader" type="Label" parent="Panel/MarginContainer/VBoxContainer/HSplit/RightScroll/RightBox"]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.4, 0.8, 1, 1)
 text = "THUỘC TÍNH NODE ĐƯỢC CHỌN"
 
-[node name="InspectorTitle" type="Label" parent="Panel/MarginContainer/VBoxContainer/HSplit/RightBox"]
+[node name="InspectorTitle" type="Label" parent="Panel/MarginContainer/VBoxContainer/HSplit/RightScroll/RightBox"]
 layout_mode = 2
 text = "Chưa chọn Node"
 
-[node name="ParamsBox" type="VBoxContainer" parent="Panel/MarginContainer/VBoxContainer/HSplit/RightBox"]
+[node name="ParamsBox" type="VBoxContainer" parent="Panel/MarginContainer/VBoxContainer/HSplit/RightScroll/RightBox"]
 layout_mode = 2
 theme_override_constants/separation = 6
 
-[node name="HSeparator1" type="HSeparator" parent="Panel/MarginContainer/VBoxContainer/HSplit/RightBox"]
+[node name="HSeparator1" type="HSeparator" parent="Panel/MarginContainer/VBoxContainer/HSplit/RightScroll/RightBox"]
 layout_mode = 2
 
-[node name="ActionHeader" type="Label" parent="Panel/MarginContainer/VBoxContainer/HSplit/RightBox"]
+[node name="ActionHeader" type="Label" parent="Panel/MarginContainer/VBoxContainer/HSplit/RightScroll/RightBox"]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.9, 0.75, 0.2, 1)
 text = "KIỂM TRA & MÔ PHỎNG"
 
-[node name="ButtonsHBox" type="HBoxContainer" parent="Panel/MarginContainer/VBoxContainer/HSplit/RightBox"]
+[node name="ButtonsHBox" type="HBoxContainer" parent="Panel/MarginContainer/VBoxContainer/HSplit/RightScroll/RightBox"]
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="ValidateBtn" type="Button" parent="Panel/MarginContainer/VBoxContainer/HSplit/RightBox/ButtonsHBox"]
+[node name="ValidateBtn" type="Button" parent="Panel/MarginContainer/VBoxContainer/HSplit/RightScroll/RightBox/ButtonsHBox"]
 layout_mode = 2
 size_flags_horizontal = 3
 text = "🔍 Kiểm tra"
 
-[node name="DryRunBtn" type="Button" parent="Panel/MarginContainer/VBoxContainer/HSplit/RightBox/ButtonsHBox"]
+[node name="DryRunBtn" type="Button" parent="Panel/MarginContainer/VBoxContainer/HSplit/RightScroll/RightBox/ButtonsHBox"]
 layout_mode = 2
 size_flags_horizontal = 3
 text = "▶️ Chạy thử (Dry Run)"
 
-[node name="StatusBadge" type="Label" parent="Panel/MarginContainer/VBoxContainer/HSplit/RightBox"]
+[node name="StatusBadge" type="Label" parent="Panel/MarginContainer/VBoxContainer/HSplit/RightScroll/RightBox"]
 layout_mode = 2
 text = "Trạng thái: Sẵn sàng"
 
-[node name="HSeparator2" type="HSeparator" parent="Panel/MarginContainer/VBoxContainer/HSplit/RightBox"]
+[node name="HSeparator2" type="HSeparator" parent="Panel/MarginContainer/VBoxContainer/HSplit/RightScroll/RightBox"]
 layout_mode = 2
 
-[node name="TraceHeader" type="Label" parent="Panel/MarginContainer/VBoxContainer/HSplit/RightBox"]
+[node name="TraceHeader" type="Label" parent="Panel/MarginContainer/VBoxContainer/HSplit/RightScroll/RightBox"]
 layout_mode = 2
 text = "NHẬT KÝ MÔ PHỎNG (TRACE):"
 
-[node name="TraceText" type="TextEdit" parent="Panel/MarginContainer/VBoxContainer/HSplit/RightBox"]
+[node name="TraceText" type="TextEdit" parent="Panel/MarginContainer/VBoxContainer/HSplit/RightScroll/RightBox"]
+custom_minimum_size = Vector2(0, 140)
 layout_mode = 2
 size_flags_vertical = 3
 editable = false

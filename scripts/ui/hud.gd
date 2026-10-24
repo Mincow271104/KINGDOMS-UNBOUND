@@ -6,12 +6,12 @@ signal return_to_menu_requested
 signal build_requested(building_type: String)
 signal citizen_role_changed(citizen_id: String, new_role: String)
 
-@onready var clock_label: Label = $TopBar/PanelContainer/MarginContainer/HBoxContainer/TimeInfo/ClockLabel
-@onready var date_label: Label = $TopBar/PanelContainer/MarginContainer/HBoxContainer/TimeInfo/DateLabel
-@onready var speed_pause_btn: Button = $TopBar/PanelContainer/MarginContainer/HBoxContainer/SpeedControls/PauseBtn
-@onready var speed_1x_btn: Button = $TopBar/PanelContainer/MarginContainer/HBoxContainer/SpeedControls/Speed1xBtn
-@onready var speed_2x_btn: Button = $TopBar/PanelContainer/MarginContainer/HBoxContainer/SpeedControls/Speed2xBtn
-@onready var speed_3x_btn: Button = $TopBar/PanelContainer/MarginContainer/HBoxContainer/SpeedControls/Speed3xBtn
+@onready var clock_label: Label = (get_node_or_null("TopBar/PanelContainer/MarginContainer/HBoxContainer/TopRow/TimeInfo/ClockLabel") if has_node("TopBar/PanelContainer/MarginContainer/HBoxContainer/TopRow/TimeInfo/ClockLabel") else get_node_or_null("TopBar/PanelContainer/MarginContainer/HBoxContainer/TimeInfo/ClockLabel"))
+@onready var date_label: Label = (get_node_or_null("TopBar/PanelContainer/MarginContainer/HBoxContainer/TopRow/TimeInfo/DateLabel") if has_node("TopBar/PanelContainer/MarginContainer/HBoxContainer/TopRow/TimeInfo/DateLabel") else get_node_or_null("TopBar/PanelContainer/MarginContainer/HBoxContainer/TimeInfo/DateLabel"))
+@onready var speed_pause_btn: Button = (get_node_or_null("TopBar/PanelContainer/MarginContainer/HBoxContainer/TopRow/SpeedControls/PauseBtn") if has_node("TopBar/PanelContainer/MarginContainer/HBoxContainer/TopRow/SpeedControls/PauseBtn") else get_node_or_null("TopBar/PanelContainer/MarginContainer/HBoxContainer/SpeedControls/PauseBtn"))
+@onready var speed_1x_btn: Button = (get_node_or_null("TopBar/PanelContainer/MarginContainer/HBoxContainer/TopRow/SpeedControls/Speed1xBtn") if has_node("TopBar/PanelContainer/MarginContainer/HBoxContainer/TopRow/SpeedControls/Speed1xBtn") else get_node_or_null("TopBar/PanelContainer/MarginContainer/HBoxContainer/SpeedControls/Speed1xBtn"))
+@onready var speed_2x_btn: Button = (get_node_or_null("TopBar/PanelContainer/MarginContainer/HBoxContainer/TopRow/SpeedControls/Speed2xBtn") if has_node("TopBar/PanelContainer/MarginContainer/HBoxContainer/TopRow/SpeedControls/Speed2xBtn") else get_node_or_null("TopBar/PanelContainer/MarginContainer/HBoxContainer/SpeedControls/Speed2xBtn"))
+@onready var speed_3x_btn: Button = (get_node_or_null("TopBar/PanelContainer/MarginContainer/HBoxContainer/TopRow/SpeedControls/Speed3xBtn") if has_node("TopBar/PanelContainer/MarginContainer/HBoxContainer/TopRow/SpeedControls/Speed3xBtn") else get_node_or_null("TopBar/PanelContainer/MarginContainer/HBoxContainer/SpeedControls/Speed3xBtn"))
 
 @onready var food_label: Label = $TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources/FoodLabel
 @onready var wood_label: Label = $TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources/WoodLabel
@@ -1091,6 +1091,13 @@ func _unhandled_input(event: InputEvent) -> void:
 			_toggle_army_menu()
 		elif k.keycode == KEY_G:
 			_toggle_automation_editor()
+		elif k.keycode == KEY_F11:
+			var cur_mode := DisplayServer.window_get_mode()
+			var is_fs := (cur_mode == DisplayServer.WINDOW_MODE_FULLSCREEN or cur_mode == DisplayServer.WINDOW_MODE_EXCLUSIVE_FULLSCREEN)
+			if is_fs:
+				DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
+			else:
+				DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
 		elif k.keycode == KEY_1:
 			get_node("/root/TimeManager").set_speed(1)
 		elif k.keycode == KEY_2:

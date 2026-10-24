@@ -53,6 +53,7 @@ var ghost_building_node: Node2D
 var ghost_building_sprite: Sprite2D
 
 func _ready() -> void:
+	DisplayServer.window_set_min_size(Vector2i(1024, 576))
 	_load_assets()
 	_generate_and_build_world()
 	_setup_ghost_preview()

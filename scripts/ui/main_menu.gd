@@ -25,6 +25,7 @@ extends Control
 @onready var fullscreen_checkbox: CheckBox = $SettingsOverlay/CenterContainer/SettingsPanel/MarginContainer/VBoxContainer/FullscreenCheck
 
 func _ready() -> void:
+	DisplayServer.window_set_min_size(Vector2i(1024, 576))
 	new_world_overlay.visible = false
 	settings_overlay.visible = false
 	
@@ -52,6 +53,9 @@ func _ready() -> void:
 	
 	# Settings dialog
 	close_settings_btn.pressed.connect(func(): settings_overlay.visible = false)
+	var cur_mode := DisplayServer.window_get_mode()
+	var is_fs := (cur_mode == DisplayServer.WINDOW_MODE_FULLSCREEN or cur_mode == DisplayServer.WINDOW_MODE_EXCLUSIVE_FULLSCREEN)
+	fullscreen_checkbox.set_pressed_no_signal(is_fs)
 	fullscreen_checkbox.toggled.connect(_on_fullscreen_toggled)
 	
 	_setup_difficulty_options()
@@ -74,7 +78,19 @@ func _on_open_new_world() -> void:
 
 func _on_open_settings() -> void:
 	_play_click()
+	var cur_mode := DisplayServer.window_get_mode()
+	var is_fs := (cur_mode == DisplayServer.WINDOW_MODE_FULLSCREEN or cur_mode == DisplayServer.WINDOW_MODE_EXCLUSIVE_FULLSCREEN)
+	fullscreen_checkbox.set_pressed_no_signal(is_fs)
 	settings_overlay.visible = true
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo:
+		if event.keycode == KEY_F11:
+			var cur_mode := DisplayServer.window_get_mode()
+			var is_fs := (cur_mode == DisplayServer.WINDOW_MODE_FULLSCREEN or cur_mode == DisplayServer.WINDOW_MODE_EXCLUSIVE_FULLSCREEN)
+			_on_fullscreen_toggled(not is_fs)
+			if fullscreen_checkbox:
+				fullscreen_checkbox.set_pressed_no_signal(not is_fs)
 
 func _on_randomize_seed() -> void:
 	_play_click()

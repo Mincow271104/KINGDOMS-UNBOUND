@@ -30,14 +30,14 @@ var context_provider: Callable
 @onready var btn_del_node: Button = $Panel/MarginContainer/VBoxContainer/HSplit/LeftBox/Palette/DelNodeBtn
 
 # Inspector Controls
-@onready var inspector_node_title: Label = $Panel/MarginContainer/VBoxContainer/HSplit/RightBox/InspectorTitle
-@onready var inspector_params_box: VBoxContainer = $Panel/MarginContainer/VBoxContainer/HSplit/RightBox/ParamsBox
+@onready var inspector_node_title: Label = (get_node_or_null("Panel/MarginContainer/VBoxContainer/HSplit/RightScroll/RightBox/InspectorTitle") if has_node("Panel/MarginContainer/VBoxContainer/HSplit/RightScroll/RightBox/InspectorTitle") else get_node_or_null("Panel/MarginContainer/VBoxContainer/HSplit/RightBox/InspectorTitle"))
+@onready var inspector_params_box: VBoxContainer = (get_node_or_null("Panel/MarginContainer/VBoxContainer/HSplit/RightScroll/RightBox/ParamsBox") if has_node("Panel/MarginContainer/VBoxContainer/HSplit/RightScroll/RightBox/ParamsBox") else get_node_or_null("Panel/MarginContainer/VBoxContainer/HSplit/RightBox/ParamsBox"))
 
 # Validation & Simulation Controls
-@onready var btn_validate: Button = $Panel/MarginContainer/VBoxContainer/HSplit/RightBox/ButtonsHBox/ValidateBtn
-@onready var btn_dry_run: Button = $Panel/MarginContainer/VBoxContainer/HSplit/RightBox/ButtonsHBox/DryRunBtn
-@onready var label_status: Label = $Panel/MarginContainer/VBoxContainer/HSplit/RightBox/StatusBadge
-@onready var text_trace: TextEdit = $Panel/MarginContainer/VBoxContainer/HSplit/RightBox/TraceText
+@onready var btn_validate: Button = (get_node_or_null("Panel/MarginContainer/VBoxContainer/HSplit/RightScroll/RightBox/ButtonsHBox/ValidateBtn") if has_node("Panel/MarginContainer/VBoxContainer/HSplit/RightScroll/RightBox/ButtonsHBox/ValidateBtn") else get_node_or_null("Panel/MarginContainer/VBoxContainer/HSplit/RightBox/ButtonsHBox/ValidateBtn"))
+@onready var btn_dry_run: Button = (get_node_or_null("Panel/MarginContainer/VBoxContainer/HSplit/RightScroll/RightBox/ButtonsHBox/DryRunBtn") if has_node("Panel/MarginContainer/VBoxContainer/HSplit/RightScroll/RightBox/ButtonsHBox/DryRunBtn") else get_node_or_null("Panel/MarginContainer/VBoxContainer/HSplit/RightBox/ButtonsHBox/DryRunBtn"))
+@onready var label_status: Label = (get_node_or_null("Panel/MarginContainer/VBoxContainer/HSplit/RightScroll/RightBox/StatusBadge") if has_node("Panel/MarginContainer/VBoxContainer/HSplit/RightScroll/RightBox/StatusBadge") else get_node_or_null("Panel/MarginContainer/VBoxContainer/HSplit/RightBox/StatusBadge"))
+@onready var text_trace: TextEdit = (get_node_or_null("Panel/MarginContainer/VBoxContainer/HSplit/RightScroll/RightBox/TraceText") if has_node("Panel/MarginContainer/VBoxContainer/HSplit/RightScroll/RightBox/TraceText") else get_node_or_null("Panel/MarginContainer/VBoxContainer/HSplit/RightBox/TraceText"))
 
 var _inspector_controls: Dictionary = {}
 

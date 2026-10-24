@@ -5480,5 +5480,84 @@ On branch `feature/package-1r-faction-strategic-decision-engine` starting from l
 - `docs/WORKLOG.md`
 
 ### Next Exact Step
-- Stage Package 1V files and commit on `feature/package-1v-automation-graph`.
-- Push feature branch to `origin/feature/package-1v-automation-graph`.
+- Package 1V committed and pushed (`cd89260a658d23c4d584b7d587cc19deddadcd9a`).
+
+---
+
+## 2026-10-25: Fix Package — Responsive Game Window & HUD Layout
+
+### Branch & Working Tree Preflight
+- Branch: `fix/responsive-game-layout` created from Package 1V base commit `cd89260a658d23c4d584b7d587cc19deddadcd9a`.
+- Head SHA: `cd89260a658d23c4d584b7d587cc19deddadcd9a`.
+- Untracked user files preserved (`docs/visual_validation/`, `.uid` files, visual validation scripts).
+
+### Root Cause Diagnosis
+1. **Window Sizing & Black Letterboxing:**
+   - `project.godot` lacked explicit declarations for `display/window/size/viewport_width` (defaulting to 1152), `display/window/size/viewport_height` (defaulting to 648), and `display/window/size/resizable` (was implicit).
+   - In editor run preview or when not launched with explicit geometry, letterboxing/pillarboxing occurred.
+2. **HUD TopBar Overflow:**
+   - `TopBar` previously laid out Title, TimeInfo, SpeedControls, and all 8 resource labels (`Food`, `Wood`, `Stone`, `Ore`, `Metal`, `Tools`, `Gold`, `Pop`) in a single horizontal `HBoxContainer` with 20px/12px separations, requiring a minimum combined width of **1504px**.
+   - On screens narrower than 1504px (1024x576, 1152x648, 1280x720, 1366x768), resource labels (`ToolsLabel`, `GoldLabel`, `PopLabel`) overflowed off the right edge of the screen.
+3. **HUD BottomBar Overflow:**
+   - `BottomBar` contained 5 action buttons with widths of 140-150px each plus 24px separation, and `TileInfoLabel` had `size_flags_horizontal = 3` (EXPAND), yielding a total minimum width of 1101px to 1400px.
+   - On resolutions <= 1280, the rightmost button `AutomationBtn` ("Tự Động (G)") was pushed off the screen.
+4. **Secondary Panels & Editor Sizing:**
+   - `ResearchMenuPanel` and `DiplomacyPanel` had vertical extents of 480-500px, colliding with TopBar and BottomBar at 576p height.
+   - `AutomationEditor` had a hardcoded `split_offset = 680` and `RightBox` min width 320px, overflowing at 1024x576, and the inspector lacked vertical scrolling.
+
+### Completed Work
+1. **Explicit Project Window Configuration (`project.godot`):**
+   - Configured `window/size/viewport_width = 1280` and `window/size/viewport_height = 720`.
+   - Set `window/size/resizable = true`.
+   - Maintained `window/stretch/mode = "canvas_items"` and `window/stretch/aspect = "expand"` to allow the world viewport to scale while UI adapts responsively.
+2. **Fail-Safe Minimum Window Size & Fullscreen Sync (`scripts/ui/main_menu.gd`, `scripts/world/world_view.gd`):**
+   - Added `DisplayServer.window_set_min_size(Vector2i(1024, 576))` at startup in `MainMenu` and `WorldView`.
+   - Synchronized `fullscreen_checkbox` state with `DisplayServer.window_get_mode()` when settings open.
+   - Added standard `F11` fullscreen toggle in `MainMenu` and `WorldView` (`InGameHUD`).
+3. **2-Row Responsive TopBar (`scenes/ui/hud.tscn`, `scripts/ui/hud.gd`):**
+   - Reorganized `TopBar` into:
+     - Row 1 (`TopRow`): Title ("👑 KINGDOMS UNBOUND"), TimeInfo ("Ngày 1 (Xuân) - Năm 1", "06:00"), Spacer, SpeedControls ("⏸", "1x", "2x", "3x").
+     - Row 2 (`Resources`): 8 resource labels with 10px spacing.
+   - Preserved exact backward-compatible node paths (`TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources/...`), guaranteeing 100% compatibility with `test_mine.gd` and `test_workshop.gd`.
+   - Clears 1024x576 with 166px margin and 1920x1080 with 1062px margin (zero overflow).
+4. **Responsive BottomBar (`scenes/ui/hud.tscn`, `scripts/ui/hud.gd`):**
+   - Standardized button min widths to 115-120px and reduced spacing to 8px.
+   - Added `text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS` on `TileInfoLabel`.
+   - Reduced combined minimum width to 730px, providing 294px clearance at 1024x576 and 1190px clearance at 1920x1080.
+   - All 5 action buttons (`BuildBtn`, `ResearchBtn`, `DiplomacyBtn`, `MilitaryBtn`, `AutomationBtn`) are 100% visible and accessible.
+5. **Panels & AutomationEditor Viewport Fitting (`scenes/ui/hud.tscn`, `scenes/ui/automation_editor.tscn`, `scripts/ui/automation_editor.gd`):**
+   - Adjusted `ResearchMenuPanel` and `DiplomacyPanel` vertical bounds to `offset_top = -220.0`, `offset_bottom = 220.0` (height 440px), fitting cleanly between TopBar (Y=68) and BottomBar (Y=528).
+   - Adjusted `EventBanner` and `CrisisBanner` `offset_top = 76.0`.
+   - Refactored `AutomationEditor` with `split_offset = 540`, wrapped `RightBox` inside `RightScroll` (ScrollContainer) with `custom_minimum_size = Vector2(280, 0)`, and added `TraceText` `custom_minimum_size = Vector2(0, 140)`.
+6. **Visual & Runtime Validation Suite (`scripts/test/visual_responsive_validation.gd`):**
+   - Created standalone GPU runtime test checking Main Menu, WorldView HUD, Panel positioning, AutomationEditor, and isometric coordinate invariance across 5 resolutions (`1024x576`, `1152x648`, `1280x720`, `1366x768`, `1920x1080`).
+   - Verified 105/105 checks passed (Exit Code 0).
+   - Captured real PNG screenshots in `docs/visual_validation/`.
+
+### Verification & Test Evidence
+- Standalone Visual & Runtime Validation (`scripts/test/visual_responsive_validation.gd`): **PASS (Exit Code 0 — 5/5 Resolutions, 105/105 Checks Passed)**
+- Automation Graph Test (`scripts/test/test_automation_graph.gd`): **PASS (Exit Code 0 — 16/16 TC Passed, 69 Checks Passed)**
+- Save/Load Persistence Test (`scripts/test/test_save_load.gd`): **PASS (Exit Code 0 — 107 Assertions Passed)**
+- Palisade & HUD Build Panel Test (`scripts/test/test_palisade.gd`): **PASS (Exit Code 0 — All checks passed, no panel overlap)**
+- Mine & HUD Ore Row Test (`scripts/test/test_mine.gd`): **PASS (Exit Code 0 — TC-M.1..TC-M.6 All Passed)**
+- Workshop & HUD Metal/Tools Row Test (`scripts/test/test_workshop.gd`): **PASS (Exit Code 0 — TC-WS.1..TC-WS.7 All Passed)**
+- Research Hall Test (`scripts/test/test_research_hall.gd`): **PASS (Exit Code 0 — TC-RH.1..TC-RH.7 All Passed)**
+- Logistics Test (`scripts/test/test_logistics.gd`): **PASS (Exit Code 0 — All Passed)**
+- Headless Editor Parse Check (`--headless --editor --quit`): **PASS (Exit Code 0)**
+- `git diff --check`: **PASS (Exit Code 0 — No whitespace errors)**
+
+### Files Modified
+- `project.godot`
+- `scenes/ui/hud.tscn`
+- `scripts/ui/hud.gd`
+- `scenes/ui/automation_editor.tscn`
+- `scripts/ui/automation_editor.gd`
+- `scripts/ui/main_menu.gd`
+- `scripts/world/world_view.gd`
+- `docs/TEST_PLAN.md`
+- `docs/WORKLOG.md`
+
+### Next Exact Step
+- Stage modified files on branch `fix/responsive-game-layout`.
+- Commit with message: `Fix responsive game window and HUD layout`.
+- Push branch to `origin/fix/responsive-game-layout`.

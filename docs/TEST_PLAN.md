@@ -472,3 +472,16 @@ When Godot Editor is running with the MCP plugin:
     - **TC-AGRAPH.15 (Save/Load Integration & Legacy Compatibility):** `SaveManager` validates and persists `automation.programs` and `execution_logs`; rejects malformed graphs fail-closed; and seamlessly loads legacy saves lacking the `automation` section without schema bump.
     - **TC-AGRAPH.16 (Preset Rules Non-Regression):** Existing preset rules in `AutomationManager` (food emergency priority boost, buffer congestion, winter preparation) remain 100% operational alongside graph programs.
   - *Status:* **PASSED** (2026-10-25, Exit Code 0: 16/16 tests passed, 69 checks passed).
+
+---
+
+### Fix Package: Responsive Game Window & HUD Layout
+- **TC-RESP.1 to TC-RESP.5: Responsive Window, Viewport, HUD & Panels Suite**
+  - *Script:* `res://scripts/test/visual_responsive_validation.gd`
+  - *Acceptance Criteria:*
+    - **TC-RESP.1 (Window Configuration & Multi-Resolution Support):** `project.godot` explicitly configures `viewport_width = 1280`, `viewport_height = 720`, `resizable = true`, `stretch/mode = "canvas_items"`, and `stretch/aspect = "expand"`. `DisplayServer.window_set_min_size(Vector2i(1024, 576))` enforces minimum OS window boundaries without crashes.
+    - **TC-RESP.2 (Main Menu Centering & Boundaries):** At all tested resolutions (1024x576, 1152x648, 1280x720, 1366x768, 1920x1080), `MainMenu` `MainPanel` remains strictly centered and bounded within the visible screen rect with zero clipping. Fullscreen checkbox cleanly syncs with `DisplayServer.window_get_mode()`.
+    - **TC-RESP.3 (TopBar 2-Row Responsive Layout):** `TopBar` reorganizes into Row 1 (`Title`, `TimeInfo`, `SpeedControls`) and Row 2 (`Resources`). All 8 resource labels (`Food`, `Wood`, `Stone`, `Ore`, `Metal`, `Tools`, `Gold`, `Pop`) maintain exact backward-compatible node paths (`TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources/...`), with zero horizontal overflow across 1024p, 720p, 768p, and 1080p.
+    - **TC-RESP.4 (BottomBar Zero-Overflow & Button Visibility):** `BottomBar` spacing reduced to 8px and button min widths standardized (115-120px) with `TileInfoLabel` `OVERRUN_TRIM_ELLIPSIS`. All 5 primary action buttons (`BuildBtn`, `ResearchBtn`, `DiplomacyBtn`, `MilitaryBtn`, `AutomationBtn`) are 100% visible and within window bounds at every resolution down to 1024x576.
+    - **TC-RESP.5 (Panel Positioning, AutomationEditor & Coordinate Invariance):** `BuildMenuPanel` and `DiplomacyPanel` fit cleanly without overlapping TopBar (Y=68) or BottomBar (Y=528). `AutomationEditor` fits viewport with responsive `split_offset = 540`, `RightScroll` scroll container, and expanding `GraphEdit` canvas. `IsoMath.map_to_local` and `local_to_map` roundtrip mapping remains 100% invariant.
+  - *Status:* **PASSED** (2026-10-25, Exit Code 0: 5/5 resolutions verified, 105/105 checks passed).
