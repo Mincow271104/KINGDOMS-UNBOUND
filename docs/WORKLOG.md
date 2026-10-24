@@ -5623,7 +5623,57 @@ On branch `feature/package-1r-faction-strategic-decision-engine` starting from l
 - `docs/WORKLOG.md`
 
 ### Next Exact Step
-- Stage `scripts/test/test_responsive_layout.gd`, `docs/TEST_PLAN.md`, `docs/WORKLOG.md`.
-- Commit to branch `fix/responsive-layout-validation` with message: `Add reproducible responsive layout test suite and document embedded game behavior`.
-- Push branch to `origin/fix/responsive-layout-validation`.
+- Follow-up test suite created and committed (`a435f5e2a7350f75af9a88f97cf23a72e0aec407`).
+- Harden test suite with actual viewport bounds across multiple resolutions.
+
+---
+
+## 2026-10-25: Follow-up — Harden Responsive Layout Tests with Actual Viewport Bounds
+
+### Branch & Working Tree Preflight
+- Base Branch: `fix/responsive-layout-validation`
+- Expected HEAD: `a435f5e2a7350f75af9a88f97cf23a72e0aec407`
+- Untracked user files preserved (`docs/visual_validation/`, `scripts/test/visual_*.gd`, `.uid` files).
+
+### 1. Test Hardening & Viewport Containment Architecture
+- Enhanced `scripts/test/test_responsive_layout.gd` to test actual runtime control rectangles, viewport containment, and non-overlap rules instead of relying solely on declared minimum sizes or `visible == true`:
+  - **Controlled Dual-SubViewport Architecture:** Utilizes dedicated `SubViewport` containers (`hud_vp` and `menu_vp`) in the test runner, processing multiple frames per resolution step to allow Godot's container sorting (`NOTIFICATION_SORT_CHILDREN`) and anchor recalculations to settle deterministically.
+  - **Multi-Resolution Viewport Testing:** Programmatically steps through all 5 targeted screen resolutions:
+    1. `1024x576` (Minimum supported window geometry)
+    2. `1152x648` (Godot Editor dock fallback geometry observed in user screenshot)
+    3. `1280x720` (Project base viewport geometry)
+    4. `1366x768` (Standard laptop display resolution)
+    5. `1920x1080` (Full HD desktop display resolution)
+  - **Actual Runtime Bounds Assertions (Section B):**
+    - `MainMenu`: Verified `MainPanel` has non-empty geometry (`size > (0, 0)`), is strictly enclosed in viewport rect, and is horizontally centered (`abs(pos.x - (res.x - width)/2) <= 1.0`).
+    - `TopBar` & `BottomBar`: Verified both bars are strictly enclosed in viewport rect; TopBar anchored at `y = 0.0`; BottomBar bottom edge anchored at `y = res.y`.
+    - Action Buttons: All 5 primary action buttons (`BuildBtn`, `ResearchBtn`, `DiplomacyBtn`, `MilitaryBtn`, `AutomationBtn`) verified to have non-empty geometry, be strictly visible, enclosed within viewport bounds, and contained inside BottomBar bounds.
+    - Resource Labels: All 8 resource labels verified to have non-empty geometry and right edges within viewport width (`end.x <= res.x`), maintaining a positive right-edge safety clearance (>= 40px at 1024x576, up to 970px at 1920x1080).
+    - Panel Non-Overlap: Verified `BuildMenuPanel`, `ResearchMenuPanel`, and `DiplomacyPanel` have bottom bounds strictly above BottomBar top (`end.y <= bot_bar.pos.y`) and top bounds strictly below TopBar bottom (`pos.y >= top_bar.end.y`), guaranteeing zero overlap across all 5 resolutions.
+    - Automation Editor Usable Dimensions: Refactored `AutomationEditor` header bar and added `size_flags_vertical = 3` + `custom_minimum_size = Vector2(280, 200)` to `RightScroll` in `scenes/ui/automation_editor.tscn` to ensure that `GraphEdit` canvas and `RightScroll` inspector maintain usable non-zero dimensions (`GraphEdit >= (200, 150)`, `RightScroll >= (150, 100)`) and remain strictly enclosed inside the editor panel.
+  - **Isometric Transformation Purity Clarification:** Clarified in TC-RESP.6 that `IsoMath.map_to_local` <-> `local_to_map` roundtrip invariance proves mathematical purity of discrete coordinate transformations, but mouse picking under dynamic window resizing additionally depends on camera viewport matrix and display stretch transform.
+
+### 2. Verification & Test Evidence
+- Hardened Responsive Layout Test Suite (`scripts/test/test_responsive_layout.gd`):
+  - Headless Run: **PASS (Exit Code 0 — 435/435 Checks Passed, 0 Failures)**
+- Automation Graph Test Suite (`scripts/test/test_automation_graph.gd`): **PASS (Exit Code 0 — 16/16 TC Passed, 69 Checks Passed)**
+- Save/Load Persistence Test Suite (`scripts/test/test_save_load.gd`): **PASS (Exit Code 0 — 107 Assertions Passed)**
+- Palisade & HUD Build Panel Test Suite (`scripts/test/test_palisade.gd`): **PASS (Exit Code 0 — All checks passed, no panel overlap)**
+- Mine & HUD Ore Row Test Suite (`scripts/test/test_mine.gd`): **PASS (Exit Code 0 — TC-M.1..TC-M.6 All Passed)**
+- Workshop & HUD Metal/Tools Row Test Suite (`scripts/test/test_workshop.gd`): **PASS (Exit Code 0 — TC-WS.1..TC-WS.7 All Passed)**
+- Research Hall Test Suite (`scripts/test/test_research_hall.gd`): **PASS (Exit Code 0 — TC-RH.1..TC-RH.7 All Passed)**
+- Logistics Test Suite (`scripts/test/test_logistics.gd`): **PASS (Exit Code 0 — All Passed)**
+- Headless Editor Parse Check (`--headless --editor --quit`): **PASS (Exit Code 0)**
+- `git diff --check`: **PASS (Exit Code 0 — No whitespace errors)**
+
+### Files Modified
+- `scenes/ui/automation_editor.tscn`
+- `scripts/test/test_responsive_layout.gd`
+- `docs/TEST_PLAN.md`
+- `docs/WORKLOG.md`
+
+### Next Exact Step
+- Stage modified files (`scenes/ui/automation_editor.tscn`, `scripts/test/test_responsive_layout.gd`, `docs/TEST_PLAN.md`, `docs/WORKLOG.md`).
+- Commit with message: `Harden responsive layout test suite with actual viewport bounds across resolutions`.
+- Push commit to `origin/fix/responsive-layout-validation`.
 - Await next instructions (do not merge to master, do not start Package 1W).
