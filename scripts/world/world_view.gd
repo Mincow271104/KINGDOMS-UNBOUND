@@ -176,6 +176,7 @@ func _generate_and_build_world() -> void:
 	battle_campaign_mgr = BattleCampaignManagerScript.new(self, faction_mgr, world_seed)
 	player_army_mgr = PlayerArmyManagerScript.new(self)
 	tactical_military_mgr = TacticalMilitaryManagerScript.new(self, player_army_mgr)
+	player_army_mgr.set_tactical_military_manager(tactical_military_mgr)
 	_setup_selection_box_overlay()
 
 	job_mgr.set_barracks_checker(func(b_id: String = ""): return BuildingSystem.is_barracks_active(world_data, b_id))

@@ -5742,3 +5742,67 @@ On branch `feature/package-1r-faction-strategic-decision-engine` starting from l
 
 ### Next Step
 Package 1W is complete, validated, committed, and pushed. Await user authorization before proceeding to Package 1X (Tactical Combat & Enemy Military Entities).
+
+---
+
+## 2026-10-25: Package 1W Follow-Up — Occupancy-Safe Tactical Roster, Fail-Closed Save & Strategic/Tactical Consistency (Completed)
+
+### Branch & Working Tree Preflight
+- Repository: `Mincow271104/KINGDOMS-UNBOUND`
+- Base Branch: `feature/package-1w-tactical-unit-control`
+- Base Commit: `18c907e0e7c0ac31416ca805b09f16664d733998`
+- Dedicated Fix Branch: `fix/package-1w-tactical-integration`
+- Working Tree: All tracked modifications isolated to follow-up deliverables. Pre-existing untracked files (`docs/visual_validation/`, `scripts/test/visual_*.gd`, `.uid` files) strictly preserved untouched.
+
+### Problem Diagnosis & Architectural Solutions
+1. **Fix A: Multi-Transaction Spawn & Formation Occupancy Safety:**
+   - *Problem:* Sequentially recruited units across multiple recruitment transactions could stack on top of existing active units or batch units when calculating spawn slots.
+   - *Solution:* Implemented `get_occupied_cells()` collecting current and target cells of all active units, `can_allocate_spawns()` spatial preflight in `TacticalMilitaryManager`, and updated `_find_distinct_walkable_cells()` with outward spiral search up to `IsoMath.MAP_SIZE` strictly excluding occupied cells. In `PlayerArmyManager.can_recruit()`, added spatial capacity validation prior to resource deduction.
+   - *Collision Avoidance in Formations:* Updated `compute_formation_slots()` and `_find_nearest_unassigned_cell()` to take `excluded_cells`, and wired `issue_move_order()` to pass cells occupied by unselected units so moving formations never overwrite unselected unit locations. Enforced all-or-nothing atomic order rejection when insufficient distinct walkable slots are available.
+2. **Fix B: Fail-Closed Persistence & Legacy Reconstruction Gating:**
+   - *Problem:* Previous save validation checked individual records but did not enforce strict schema completeness, and `apply_loaded_state_to_world()` could fall back to legacy reconstruction inappropriately.
+   - *Solution:* Hardened `SaveManager.validate_save_data()`: `units` array presence is mandatory when `tactical_military` exists; `units.size()` must strictly match `soldier_count` (both non-zero and zero); unit IDs must be unique; coordinates must be in-bounds; order states and paths must be consistent (`moving` requires non-empty cardinal path ending at target; `idle`/`holding` requires empty path). In `apply_loaded_state_to_world()`, legacy reconstruction (`deserialize_legacy`) is strictly gated to saves where `tactical_military` is completely missing (or where `player_army` is a legacy dictionary without `movement_state`). Presence of malformed or corrupt tactical data fails closed before world mutation.
+3. **Fix C & D: Strategic vs. Tactical Consistency Contract:**
+   - *Documentation:* Formally specified and documented the contract in `docs/SCOPE_DECISIONS.md` (§1.23).
+   - *Base Rally Perimeter:* Defined `RALLY_PERIMETER_DISTANCE = 5` Manhattan distance from `rally_cell`.
+   - *Settlement Defense Gating:* In `BattleCampaignManager.construct_defending_force()`, defense eligibility and soldier count are derived from `PlayerArmyManager.get_defending_soldier_count()`, which queries `TacticalMilitaryManager.get_garrisoned_unit_count()`. Only units stationed within Manhattan distance <= 5 participate in settlement defense.
+   - *Campaign Attack Gating:* In `BattleCampaignManager.can_launch_offensive_campaign()`, verified `get_field_unit_count() > 0`, requiring soldiers to be assembled in the field outside the base perimeter before launching offensive strikes.
+   - *Strategic Synchronization:* `PlayerArmyManager.order_move()` and `order_return_home()` delegate group movement to `TacticalMilitaryManager.order_move_all()` and `order_return_all_to_rally()`, keeping tactical unit positions and strategic army marker synchronized. When an army completes its march (`_arrive_at_destination()`), `arrive_all_at_destination()` settles tactical units at their destination slots.
+   - *Casualty Attribution:* Single authoritative deduction via `remove_casualties(count, from_field)` without double deduction, prioritizing field units for campaign losses and garrisoned units for settlement raids.
+
+### Verification & Test Evidence
+- **Tactical Military Test Suite (`scripts/test/test_tactical_military.gd`):**
+  - Group 1 to 5 (TC-TAC.1 to TC-TAC.30): 74 assertions passed.
+  - Group 6 Follow-Up (FU-CASE.1 to FU-CASE.22): 38 assertions passed.
+  - Total: **112/112 Assertions PASSED (Exit Code 0, 0 Failures, 0 Script Errors)**.
+- **Full Project Regression Test Suites (All 10 Headless Suites):**
+  1. `test_tactical_military.gd`: **PASS (112 assertions, Exit Code 0)**
+  2. `test_player_army.gd`: **PASS (Exit Code 0)**
+  3. `test_army_movement.gd`: **PASS (Exit Code 0)**
+  4. `test_live_battle_loop.gd`: **PASS (Exit Code 0)**
+  5. `test_offensive_campaign.gd`: **PASS (Exit Code 0)**
+  6. `test_save_load.gd`: **PASS (107 assertions, Exit Code 0)**
+  7. `test_responsive_layout.gd`: **PASS (435 checks, Exit Code 0)**
+  8. `test_automation_graph.gd`: **PASS (69 checks, Exit Code 0)**
+  9. `test_logistics.gd`: **PASS (Exit Code 0)**
+  10. `test_faction_relation_matrix.gd`: **PASS (160 checks, Exit Code 0)**
+- **Headless Editor Import Check (`--headless --editor --quit`):** **PASS (Exit Code 0)**
+- **Whitespace / Git Check (`git diff --check`):** **PASS (Exit Code 0, 0 Whitespace Errors)**
+
+### Files Created or Modified
+- `docs/SCOPE_DECISIONS.md`
+- `docs/TEST_PLAN.md`
+- `docs/BACKLOG.md`
+- `docs/WORKLOG.md`
+- `scripts/combat/battle_campaign_manager.gd`
+- `scripts/military/player_army_manager.gd`
+- `scripts/military/tactical_military_manager.gd`
+- `scripts/persistence/save_manager.gd`
+- `scripts/world/world_view.gd`
+- `scripts/test/test_tactical_military.gd`
+
+### Next Exact Step
+- Stage modified files and commit to dedicated branch `fix/package-1w-tactical-integration`.
+- Push to remote `origin/fix/package-1w-tactical-integration`.
+- Deliver comprehensive completion report to user.
+- Await next instructions (do not merge to master, do not start Package 1X).

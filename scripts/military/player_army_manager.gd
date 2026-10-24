@@ -29,6 +29,9 @@ var soldier_count: int = 0
 var is_supplied: bool = true
 var last_upkeep_day: int = -1
 
+const RALLY_PERIMETER_DISTANCE: int = 5
+var tactical_military_mgr: Object = null
+
 # Authoritative Movement State (Package 1M)
 var current_cell: Vector2i = Vector2i(32, 33)
 var rally_cell: Vector2i = Vector2i(32, 33)
@@ -55,10 +58,17 @@ func _init(wv: Node = null) -> void:
 	movement_state = MovementState.GARRISONED
 	current_path = []
 	step_accumulator = 0.0
+	tactical_military_mgr = null
 	if is_instance_valid(world_view) and world_view.get("world_data") != null:
 		rally_cell = get_default_rally_cell()
 		current_cell = rally_cell
 		destination_cell = rally_cell
+
+func set_tactical_military_manager(mgr: Object) -> void:
+	tactical_military_mgr = mgr
+	if tactical_military_mgr != null and tactical_military_mgr.has_signal("tactical_state_updated"):
+		if not tactical_military_mgr.tactical_state_updated.is_connected(sync_state_from_tactical):
+			tactical_military_mgr.tactical_state_updated.connect(sync_state_from_tactical)
 
 # -----------------------------------------------------------------------------
 # Dependency Accessors
@@ -183,6 +193,10 @@ func can_recruit(count: int = 1) -> Dictionary:
 
 	if not rm.has_method("can_afford") or not rm.can_afford(cost):
 		return {"can_recruit": false, "reason": "Không đủ tài nguyên chiêu mộ"}
+
+	if tactical_military_mgr != null and tactical_military_mgr.has_method("can_allocate_spawns"):
+		if not tactical_military_mgr.call("can_allocate_spawns", count, rally_cell, get_nav()):
+			return {"can_recruit": false, "reason": "Không đủ vị trí trống an toàn xung quanh điểm tập kết để chiêu mộ"}
 
 	return {"can_recruit": true, "reason": "", "cost": cost}
 
@@ -317,7 +331,30 @@ func get_movement_state_string() -> String:
 	return movement_state_to_string(movement_state)
 
 func is_defense_eligible() -> bool:
-	return soldier_count > 0 and movement_state == MovementState.GARRISONED and current_cell == rally_cell and current_path.is_empty()
+	if soldier_count <= 0:
+		return false
+	if tactical_military_mgr != null and tactical_military_mgr.has_method("get_garrisoned_unit_count"):
+		var garrisoned: int = int(tactical_military_mgr.call("get_garrisoned_unit_count", rally_cell))
+		return garrisoned > 0
+	return movement_state == MovementState.GARRISONED and current_cell == rally_cell and current_path.is_empty()
+
+func get_defending_soldier_count() -> int:
+	if soldier_count <= 0:
+		return 0
+	if tactical_military_mgr != null and tactical_military_mgr.has_method("get_garrisoned_unit_count"):
+		return maxi(0, int(tactical_military_mgr.call("get_garrisoned_unit_count", rally_cell)))
+	if is_defense_eligible():
+		return soldier_count
+	return 0
+
+func get_field_unit_count() -> int:
+	if soldier_count <= 0:
+		return 0
+	if tactical_military_mgr != null and tactical_military_mgr.has_method("get_field_unit_count"):
+		return maxi(0, int(tactical_military_mgr.call("get_field_unit_count", rally_cell)))
+	if movement_state == MovementState.IDLE_AT_FIELD and current_cell != rally_cell:
+		return soldier_count
+	return 0
 
 func is_garrisoned() -> bool:
 	return is_defense_eligible()
@@ -404,6 +441,11 @@ func order_move(target_cell: Vector2i) -> Dictionary:
 	if path.is_empty():
 		return {"success": false, "reason": "Không tìm thấy đường đi tới vị trí chỉ định"}
 
+	if tactical_military_mgr != null and tactical_military_mgr.has_method("order_move_all"):
+		var tac_res: Dictionary = tactical_military_mgr.call("order_move_all", target_cell, nav)
+		if not tac_res.get("success", false):
+			return tac_res
+
 	current_path = path
 	destination_cell = target_cell
 	step_accumulator = 0.0
@@ -430,6 +472,8 @@ func order_return_home() -> Dictionary:
 
 	if current_cell == rally_cell:
 		if movement_state == MovementState.MARCHING:
+			if tactical_military_mgr != null and tactical_military_mgr.has_method("order_return_all_to_rally"):
+				tactical_military_mgr.call("order_return_all_to_rally", rally_cell, get_nav())
 			current_path.clear()
 			step_accumulator = 0.0
 			destination_cell = rally_cell
@@ -441,6 +485,8 @@ func order_return_home() -> Dictionary:
 				"action": "canceled_at_rally"
 			}
 		elif movement_state == MovementState.IDLE_AT_FIELD:
+			if tactical_military_mgr != null and tactical_military_mgr.has_method("order_return_all_to_rally"):
+				tactical_military_mgr.call("order_return_all_to_rally", rally_cell, get_nav())
 			current_path.clear()
 			step_accumulator = 0.0
 			destination_cell = rally_cell
@@ -452,6 +498,8 @@ func order_return_home() -> Dictionary:
 				"action": "returned_to_garrison"
 			}
 		else:
+			if tactical_military_mgr != null and tactical_military_mgr.has_method("order_return_all_to_rally"):
+				tactical_military_mgr.call("order_return_all_to_rally", rally_cell, get_nav())
 			return {
 				"success": true,
 				"reason": "Quân đội đã ở căn cứ",
@@ -530,6 +578,8 @@ func _arrive_at_destination() -> void:
 		movement_state = MovementState.GARRISONED
 	else:
 		movement_state = MovementState.IDLE_AT_FIELD
+	if tactical_military_mgr != null and tactical_military_mgr.has_method("arrive_all_at_destination"):
+		tactical_military_mgr.call("arrive_all_at_destination")
 	movement_state_changed.emit(movement_state, current_cell, destination_cell)
 
 static func movement_state_to_string(state: int) -> String:
@@ -556,7 +606,7 @@ static func string_to_movement_state(s: String) -> int:
 # Casualty Allocation
 # -----------------------------------------------------------------------------
 
-func remove_casualties(count: int) -> int:
+func remove_casualties(count: int, from_field: bool = false) -> int:
 	if count <= 0:
 		return 0
 	var removed: int = mini(count, soldier_count)
@@ -568,8 +618,72 @@ func remove_casualties(count: int) -> int:
 		current_cell = rally_cell
 		destination_cell = rally_cell
 		movement_state_changed.emit(movement_state, current_cell, destination_cell)
-	army_changed.emit(soldier_count, get_army_capacity())
+	if tactical_military_mgr != null and tactical_military_mgr.has_method("sync_with_player_army"):
+		tactical_military_mgr.call("sync_with_player_army", from_field)
+	else:
+		army_changed.emit(soldier_count, get_army_capacity())
 	return removed
+
+func sync_state_from_tactical() -> void:
+	if tactical_military_mgr == null:
+		return
+	if soldier_count <= 0:
+		if movement_state != MovementState.GARRISONED or current_cell != rally_cell:
+			movement_state = MovementState.GARRISONED
+			current_cell = rally_cell
+			destination_cell = rally_cell
+			current_path.clear()
+			movement_state_changed.emit(movement_state, current_cell, destination_cell)
+		return
+
+	var all_units: Array = tactical_military_mgr.call("get_all_units")
+	if all_units.is_empty():
+		return
+
+	var any_moving: bool = false
+	for u in all_units:
+		if u.get("order_state") == 1: # OrderState.MOVING
+			any_moving = true
+			break
+
+	if any_moving:
+		if movement_state != MovementState.MARCHING:
+			movement_state = MovementState.MARCHING
+			movement_state_changed.emit(movement_state, current_cell, destination_cell)
+		return
+
+	# If army is already IDLE_AT_FIELD at a valid field position and no units are moving:
+	if movement_state == MovementState.IDLE_AT_FIELD and current_cell != rally_cell:
+		return
+
+	# All units are idle: evaluate spatial distribution vs rally_cell
+	var all_at_base: bool = true
+	var first_field_cell := Vector2i(-1, -1)
+
+	for u in all_units:
+		var u_cell: Vector2i = u.get("current_cell")
+		var dist: int = IsoMath.grid_distance(u_cell, rally_cell)
+		if dist > RALLY_PERIMETER_DISTANCE:
+			all_at_base = false
+			if first_field_cell == Vector2i(-1, -1):
+				first_field_cell = u_cell
+
+	if all_at_base:
+		if movement_state != MovementState.GARRISONED or current_cell != rally_cell:
+			movement_state = MovementState.GARRISONED
+			current_cell = rally_cell
+			destination_cell = rally_cell
+			current_path.clear()
+			movement_state_changed.emit(movement_state, current_cell, destination_cell)
+	else:
+		var fallback_cell: Vector2i = all_units[0].current_cell if all_units[0] is Node2D else Vector2i(all_units[0].get("current_cell"))
+		var target_loc: Vector2i = first_field_cell if first_field_cell != Vector2i(-1, -1) else fallback_cell
+		if movement_state != MovementState.IDLE_AT_FIELD or current_cell != target_loc:
+			movement_state = MovementState.IDLE_AT_FIELD
+			current_cell = target_loc
+			destination_cell = target_loc
+			current_path.clear()
+			movement_state_changed.emit(movement_state, current_cell, destination_cell)
 
 # -----------------------------------------------------------------------------
 # Serialization & Persistence

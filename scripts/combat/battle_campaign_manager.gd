@@ -243,8 +243,11 @@ func construct_defending_force() -> Dictionary:
 		elif army_mgr.has_method("is_garrisoned"):
 			is_eligible = bool(army_mgr.call("is_garrisoned"))
 
-	if is_eligible and army_mgr != null and army_mgr.has_method("get_army_count"):
-		army_soldiers = maxi(0, int(army_mgr.call("get_army_count")))
+	if is_eligible and army_mgr != null:
+		if army_mgr.has_method("get_defending_soldier_count"):
+			army_soldiers = maxi(0, int(army_mgr.call("get_defending_soldier_count")))
+		elif army_mgr.has_method("get_army_count"):
+			army_soldiers = maxi(0, int(army_mgr.call("get_army_count")))
 		if army_mgr.has_method("get_combat_morale"):
 			army_morale = float(army_mgr.call("get_combat_morale"))
 
@@ -358,11 +361,11 @@ func resolve_and_apply_raid(faction_id: String, current_day: int = -1) -> Dictio
 		elif army_mgr.has_method("is_garrisoned"):
 			army_can_defend = bool(army_mgr.call("is_garrisoned"))
 
-	if army_can_defend and army_mgr != null and army_mgr.has_method("get_army_count"):
-		var cur_army: int = maxi(0, int(army_mgr.call("get_army_count")))
+	if army_can_defend and army_mgr != null:
+		var cur_army: int = maxi(0, int(army_mgr.call("get_defending_soldier_count"))) if army_mgr.has_method("get_defending_soldier_count") else maxi(0, int(army_mgr.call("get_army_count")))
 		army_casualties = mini(total_def_casualties, cur_army)
 		if army_casualties > 0 and army_mgr.has_method("remove_casualties"):
-			army_mgr.call("remove_casualties", army_casualties)
+			army_mgr.call("remove_casualties", army_casualties, false)
 
 	var remaining_casualties: int = total_def_casualties - army_casualties
 	var eligible_guards: Array = get_eligible_guards()
@@ -581,6 +584,9 @@ func can_launch_offensive_campaign(target_faction_id: String) -> Dictionary:
 	if cur_cell == rally_cell:
 		return {"can_attack": false, "reason": "Quân đội đang ở tại vị trí căn cứ, không thể mở chiến dịch tấn công từ căn cứ."}
 
+	if army_mgr.has_method("get_field_unit_count") and army_mgr.call("get_field_unit_count") == 0:
+		return {"can_attack": false, "reason": "Quân đội chưa có lực lượng tập kết dã chiến ngoài thành để tấn công."}
+
 	return {"can_attack": true, "reason": "Quân đội sẵn sàng mở chiến dịch tấn công."}
 
 func launch_offensive_campaign(target_faction_id: String, custom_seed: int = -1) -> Dictionary:
@@ -639,7 +645,7 @@ func launch_offensive_campaign(target_faction_id: String, custom_seed: int = -1)
 	# 5a. Apply player casualties
 	var player_lost: int = clampi(report.attacker_casualties, 0, atk_troops)
 	if player_lost > 0 and army_mgr.has_method("remove_casualties"):
-		army_mgr.call("remove_casualties", player_lost)
+		army_mgr.call("remove_casualties", player_lost, true)
 
 	# 5b. Apply enemy military power reduction
 	var enemy_lost: int = clampi(report.defender_casualties, 0, def_troops)

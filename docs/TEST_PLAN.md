@@ -542,3 +542,31 @@ When Godot Editor is running with the MCP plugin:
       - **TC-TAC.29 (Legacy Save Reconstruction):** Pre-tactical saves without `tactical_military` synthesize a valid roster from `soldier_count` at rally point.
       - **TC-TAC.30 (Fail-Closed Integrity Validation):** Malformed saves (duplicate IDs, count mismatch vs authoritative army, out-of-bounds coords) are rejected fail-closed.
   - *Status:* **PASSED** (2026-10-25, Exit Code 0: 74/74 assertions passed across all 30 test cases).
+
+---
+
+### Package 1W Follow-Up: Occupancy-Safe Tactical Roster, Fail-Closed Save & Strategic/Tactical Consistency
+- **FU-CASE.1 to FU-CASE.22: Tactical Integration & Hardening Test Suite**
+  - *Tracked Test Suite:* `res://scripts/test/test_tactical_military.gd` (Group 6)
+  - *Command:* `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64.exe" --headless --path "e:\KINGDOMS UNBOUND\kingdoms-unbound" -s res://scripts/test/test_tactical_military.gd`
+  - *Acceptance Criteria by Problem Group:*
+    - **Group A: Multi-Transaction Spawn & Formation Occupancy Safety (FU-CASE.1 to FU-CASE.10)**
+      - **FU-CASE.1 to FU-CASE.3:** Recruited units across sequential transactions occupy strictly unique, pairwise-distinct coordinates with zero coordinate stacking against existing active units or batch units.
+      - **FU-CASE.4:** Replaying `army_changed` signal is strictly idempotent with zero coordinate mutation or duplicate spawns.
+      - **FU-CASE.5:** Casualties reduce units correctly without mutating civilian citizens.
+      - **FU-CASE.6:** `can_allocate_spawns()` verifies spatial availability; over-capacity requests fail closed cleanly without stacking.
+      - **FU-CASE.7 & FU-CASE.8:** Moving a selected group when unselected units occupy target cells avoids collision and assigns distinct slots excluding cells occupied by unselected units.
+      - **FU-CASE.9 & FU-CASE.10:** Insufficient slots reject orders atomically (all-or-nothing dispatch); `Line`, `Column`, and `Scatter` produce valid non-overlapping slots.
+    - **Group B: Fail-Closed Persistence & Legacy Reconstruction Gating (FU-CASE.11 to FU-CASE.17)**
+      - **FU-CASE.11:** Valid tactical saves with matching `soldier_count` pass schema validation.
+      - **FU-CASE.12:** Saves where `tactical_military.units` is empty while `soldier_count > 0` are rejected fail-closed.
+      - **FU-CASE.13 & FU-CASE.14:** Missing `units` field or invalid types in `tactical_military` are rejected before world mutation.
+      - **FU-CASE.15:** Pure legacy saves completely lacking `tactical_military` are accepted and reconstruct roster safely.
+      - **FU-CASE.16 & FU-CASE.17:** Consecutive loads produce zero duplicates, and serialization roundtrip faithfully preserves units, coordinates, and formation.
+    - **Group C & D: Strategic vs Tactical Consistency & Defense/Campaign Gates (FU-CASE.18 to FU-CASE.22)**
+      - **FU-CASE.18:** When army is at base within rally perimeter (Manhattan distance <= 5), army is defense-eligible and all garrisoned soldiers count toward settlement defense.
+      - **FU-CASE.19:** Deploying part of the force into the field (distance > 5) updates `get_garrisoned_unit_count()` and `get_defending_soldier_count()` to reflect only garrisoned soldiers.
+      - **FU-CASE.20:** Strategic commands (`order_move`, `order_return_home`) synchronize tactical unit movements and high-level movement states.
+      - **FU-CASE.21:** Offensive campaigns strictly reject launching if the army is garrisoned at base.
+      - **FU-CASE.22:** Casualties reduce authoritative soldier count once, and tactical roster stays synchronized without double deduction.
+  - *Status:* **PASSED** (2026-10-25, Exit Code 0: 112/112 assertions passed in `test_tactical_military.gd`; all 10 project regression test suites passed with 0 failures).

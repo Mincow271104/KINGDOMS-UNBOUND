@@ -14,6 +14,8 @@ const ArmyMarkerScript = preload("res://scripts/military/army_marker.gd")
 const BuildingSystemScript = preload("res://scripts/economy/building_system.gd")
 const EconomyConfigScript = preload("res://scripts/economy/economy_config.gd")
 const SaveManagerScript = preload("res://scripts/persistence/save_manager.gd")
+const BattleCampaignManagerScript = preload("res://scripts/combat/battle_campaign_manager.gd")
+const FactionManagerScript = preload("res://scripts/factions/faction_manager.gd")
 const WorldViewScene: PackedScene = preload("res://scenes/world/world_view.tscn")
 
 var frame_count: int = 0
@@ -463,4 +465,255 @@ func _run_all_tests() -> void:
 	}
 	var oob_check = SaveManagerScript.validate_save_data(bad_data_oob)
 	_assert(not oob_check.get("valid", true), "TC-TAC.30: Out-of-bounds tactical unit coordinate rejected")
+
+	# =========================================================================
+	# GROUP 6: Follow-Up Integration Verification (Cases 1 - 22)
+	# =========================================================================
+	print("\n--- Group 6: Follow-Up Integration Verification (Cases 1 - 22) ---")
+
+	# --- A. Spawn & Occupancy (Cases 1 - 6) ---
+	var fu_army = PlayerArmyManagerScript.new()
+	var fu_tac = TacticalMilitaryManagerScript.new(null, fu_army)
+	fu_army.set_tactical_military_manager(fu_tac)
+	var fu_rm := MockResourceManager.new()
+	var fu_tm := MockTimeManager.new()
+	fu_army.set_custom_resource_manager(fu_rm)
+	fu_army.set_custom_time_manager(fu_tm)
+	fu_army.set_custom_nav(live_nav)
+	fu_tac.set_custom_nav(live_nav)
+	fu_tac.set_custom_time_manager(fu_tm)
+
+	var fu_wd = WorldGenerator.WorldData.new()
+	fu_wd.buildings.append({
+		"id": "fu_barracks",
+		"type": "barracks",
+		"cell": Vector2i(30, 30),
+		"size": Vector2i(3, 3),
+		"state": "active"
+	})
+	fu_army.set_custom_world_data(fu_wd)
+	fu_army.refresh_rally_cell()
+
+	# Case 1: From 0 soldiers, recruit 1 -> exactly 1 unit and valid cell
+	var fu_r1 = fu_army.recruit(1)
+	_assert(fu_r1.get("success", false) and fu_tac.get_unit_count() == 1, "FU-CASE.1: 1 soldier recruited, roster has exactly 1 unit")
+	var fu_u1 = fu_tac.get_all_units()[0]
+	_assert(fu_u1 != null and IsoMath.is_in_bounds(fu_u1.current_cell), "FU-CASE.1: Unit 1 has valid in-bounds cell: %s" % str(fu_u1.current_cell if fu_u1 else ""))
+
+	# Case 2: Recruit 3 more in next transaction -> total 4 units, unique IDs, pairwise distinct coordinates
+	var fu_r2 = fu_army.recruit(3)
+	_assert(fu_r2.get("success", false) and fu_tac.get_unit_count() == 4, "FU-CASE.2: Recruited 3 more soldiers (total 4)")
+	var fu_cells_2: Array[Vector2i] = []
+	var has_duplicate_coords_2 := false
+	for u in fu_tac.get_all_units():
+		if fu_cells_2.has(u.current_cell):
+			has_duplicate_coords_2 = true
+		fu_cells_2.append(u.current_cell)
+	_assert(not has_duplicate_coords_2, "FU-CASE.2: All 4 units occupy pairwise distinct, non-overlapping cells: %s" % str(fu_cells_2))
+
+	# Case 3: Sequential recruitment across 3 transactions -> zero overlap with existing or batch units
+	fu_tac.clear_all_units()
+	fu_army.soldier_count = 0
+	fu_army.recruit(1) # Tx 1: 1 unit
+	var pos_tx1 = fu_tac.get_all_units()[0].current_cell
+	fu_army.recruit(2) # Tx 2: 2 units (total 3)
+	fu_army.recruit(2) # Tx 3: 2 units (total 5)
+	_assert(fu_tac.get_unit_count() == 5, "FU-CASE.3: 3 consecutive recruitment transactions produced 5 total units")
+	var fu_all_cells: Array[Vector2i] = []
+	var has_tx_overlap := false
+	for u in fu_tac.get_all_units():
+		if fu_all_cells.has(u.current_cell):
+			has_tx_overlap = true
+		fu_all_cells.append(u.current_cell)
+	_assert(not has_tx_overlap, "FU-CASE.3: All 5 sequentially recruited units have zero coordinate overlap across transactions")
+
+	# Case 4: Replay army_changed signal -> does not spawn duplicate units or mutate coordinates
+	var coords_before_replay: Array[Vector2i] = []
+	for u in fu_tac.get_all_units():
+		coords_before_replay.append(u.current_cell)
+	fu_army.notify_capacity_changed()
+	fu_tac.sync_with_player_army()
+	var coords_after_replay: Array[Vector2i] = []
+	for u in fu_tac.get_all_units():
+		coords_after_replay.append(u.current_cell)
+	_assert(fu_tac.get_unit_count() == 5 and coords_before_replay == coords_after_replay, "FU-CASE.4: Replaying army_changed signal is strictly idempotent with zero coordinate mutation")
+
+	# Case 5: Reduce soldier count -> removes correct number of units, citizen registry untouched
+	var fu_initial_cit_count = world_instance.get("citizen_list").size() if world_instance.get("citizen_list") else 0
+	fu_army.remove_casualties(2)
+	_assert(fu_army.get_army_count() == 3 and fu_tac.get_unit_count() == 3, "FU-CASE.5: Removed 2 casualties, soldier count and tactical units both at 3")
+	var fu_final_cit_count = world_instance.get("citizen_list").size() if world_instance.get("citizen_list") else 0
+	_assert(fu_initial_cit_count == fu_final_cit_count, "FU-CASE.5: Military casualties did not mutate civilian citizen registry")
+
+	# Case 6: Insufficient valid positions -> fails closed cleanly without stacking
+	_assert(fu_tac.can_allocate_spawns(0, fu_army.get_rally_cell(), live_nav), "FU-CASE.6: Zero spawn request returns true")
+	_assert(fu_tac.can_allocate_spawns(3, fu_army.get_rally_cell(), live_nav), "FU-CASE.6: Valid allocation check returns true when cells are available")
+	_assert(not fu_tac.can_allocate_spawns(999999, fu_army.get_rally_cell(), live_nav), "FU-CASE.6: Massive spawn request fails closed cleanly without stacking")
+
+	# --- B. Formation & Collision Avoidance (Cases 7 - 10) ---
+	# Case 7 & 8: Move selected group when unselected units stand near destination
+	fu_tac.clear_all_units()
+	fu_army.soldier_count = 0
+	fu_army.movement_state = PlayerArmyManagerScript.MovementState.GARRISONED
+	fu_army.current_cell = fu_army.get_rally_cell()
+	fu_army.destination_cell = fu_army.get_rally_cell()
+	fu_army.current_path.clear()
+	fu_army.sync_state_from_tactical()
+
+	var r7 = fu_army.recruit(3)
+	_assert(r7.get("success", false), "FU-CASE.7: Recruitment of 3 units for collision test succeeded")
+	var all_3 = fu_tac.get_all_units()
+	var u_unsel = all_3[0]
+	var u_sel_1 = all_3[1]
+	var u_sel_2 = all_3[2]
+
+	# Place unselected unit at (25, 25)
+	u_unsel.current_cell = Vector2i(25, 25)
+	u_unsel.target_cell = Vector2i(25, 25)
+	u_unsel.order_state = TacticalUnitScript.OrderState.IDLE
+	u_unsel.current_path.clear()
+
+	# Select only u_sel_1 and u_sel_2
+	fu_tac.clear_selection()
+	fu_tac.select_unit(u_sel_1.unit_id, true)
+	fu_tac.select_unit(u_sel_2.unit_id, true)
+
+	# Issue move order to (25, 25)
+	var move_order_res = fu_tac.issue_move_order(Vector2i(25, 25), live_nav)
+	_assert(move_order_res.get("success", false), "FU-CASE.7: Move order to occupied center succeeded with avoidance")
+	_assert(u_sel_1.target_cell != Vector2i(25, 25) and u_sel_2.target_cell != Vector2i(25, 25), "FU-CASE.8: Neither selected unit was assigned the cell occupied by unselected unit (25, 25)")
+	_assert(u_sel_1.target_cell != u_sel_2.target_cell, "FU-CASE.8: Selected units have distinct destination slots (%s vs %s)" % [str(u_sel_1.target_cell), str(u_sel_2.target_cell)])
+
+	# Case 9: Insufficient valid slots -> rejects entire order atomically
+	var empty_slots := fu_tac.compute_formation_slots(Vector2i(-99, -99), 5, "Line", live_nav)
+	_assert(empty_slots.is_empty(), "FU-CASE.9: Invalid out-of-bounds target produces empty formation slots")
+
+	# Case 10: Line/Column/Scatter all produce valid non-overlapping slots
+	var slots_line = fu_tac.compute_formation_slots(Vector2i(35, 35), 4, "Line", live_nav)
+	var slots_col = fu_tac.compute_formation_slots(Vector2i(35, 35), 4, "Column", live_nav)
+	var slots_scat = fu_tac.compute_formation_slots(Vector2i(35, 35), 4, "Scatter", live_nav)
+	_assert(slots_line.size() == 4 and slots_col.size() == 4 and slots_scat.size() == 4, "FU-CASE.10: Formations produce 4 slots each")
+	_assert(slots_line != slots_col, "FU-CASE.10: Line and Column produce distinct geometry")
+
+	# --- C. Save/Load & Fail-Closed Integrity (Cases 11 - 17) ---
+	# Case 11: Valid save with tactical units and matching soldier_count
+	var base_valid_save: Dictionary = SaveManagerScript.serialize_world_state(world_instance).duplicate(true)
+	base_valid_save["player_army"]["soldier_count"] = 2
+	base_valid_save["tactical_military"] = {
+		"units": [
+			{"unit_id": "u1", "current_cell": [30, 30], "target_cell": [30, 30], "order_state": "idle", "current_path": []},
+			{"unit_id": "u2", "current_cell": [31, 30], "target_cell": [31, 30], "order_state": "idle", "current_path": []}
+		],
+		"current_formation": "Line",
+		"control_groups": {}
+	}
+	var val_valid = SaveManagerScript.validate_save_data(base_valid_save)
+	_assert(val_valid.get("valid", false), "FU-CASE.11: Valid tactical save accepted by validator: %s" % val_valid.get("error", ""))
+
+	# Case 12: tactical_military.units = [] while soldier_count > 0 -> rejected fail-closed
+	var bad_empty_units: Dictionary = base_valid_save.duplicate(true)
+	bad_empty_units["player_army"]["soldier_count"] = 3
+	bad_empty_units["tactical_military"]["units"] = []
+	var val_empty = SaveManagerScript.validate_save_data(bad_empty_units)
+	_assert(not val_empty.get("valid", true), "FU-CASE.12: Empty units array with soldier_count > 0 rejected fail-closed")
+
+	# Case 13: tactical_military exists but missing 'units' field -> rejected fail-closed
+	var bad_missing_units: Dictionary = base_valid_save.duplicate(true)
+	bad_missing_units["tactical_military"].erase("units")
+	var val_missing = SaveManagerScript.validate_save_data(bad_missing_units)
+	_assert(not val_missing.get("valid", true), "FU-CASE.13: tactical_military missing 'units' field rejected fail-closed")
+
+	# Case 14: tactical_military exists but is invalid type -> rejected before world mutation
+	var bad_type_tac: Dictionary = base_valid_save.duplicate(true)
+	bad_type_tac["tactical_military"] = "not_a_dictionary"
+	var val_type = SaveManagerScript.validate_save_data(bad_type_tac)
+	_assert(not val_type.get("valid", true), "FU-CASE.14: tactical_military of non-Dictionary type rejected fail-closed")
+
+	# Case 15: Pure legacy save completely lacking tactical_military -> accepted and reconstructs
+	var pure_legacy_save: Dictionary = base_valid_save.duplicate(true)
+	pure_legacy_save.erase("tactical_military")
+	var val_legacy = SaveManagerScript.validate_save_data(pure_legacy_save)
+	_assert(val_legacy.get("valid", false), "FU-CASE.15: Pure legacy save without tactical_military field accepted: %s" % val_legacy.get("error", ""))
+
+	# Case 16: Double load produces zero duplicate units
+	var dbl_tac = TacticalMilitaryManagerScript.new()
+	dbl_tac.deserialize(base_valid_save["tactical_military"])
+	var cnt_first = dbl_tac.get_unit_count()
+	dbl_tac.deserialize(base_valid_save["tactical_military"])
+	var cnt_second = dbl_tac.get_unit_count()
+	_assert(cnt_first == 2 and cnt_second == 2, "FU-CASE.16: Consecutive deserialization produces zero duplicate units")
+
+	# Case 17: Roundtrip preserves IDs, coordinates, paths, formation
+	var roundtrip_dict = dbl_tac.serialize()
+	_assert(roundtrip_dict.has("units") and roundtrip_dict["units"].size() == 2, "FU-CASE.17: Roundtrip serialization preserved 2 units")
+
+	# --- D. Tactical vs Strategic Consistency & Defense Eligibility (Cases 18 - 22) ---
+	# Case 18: Army at base within rally perimeter -> defense eligible, defending count matches
+	fu_tac.clear_all_units()
+	fu_army.soldier_count = 0
+	fu_army.movement_state = PlayerArmyManagerScript.MovementState.GARRISONED
+	fu_army.current_cell = fu_army.get_rally_cell()
+	fu_army.destination_cell = fu_army.get_rally_cell()
+	fu_army.current_path.clear()
+	fu_army.sync_state_from_tactical()
+
+	var r18 = fu_army.recruit(3)
+	_assert(r18.get("success", false), "FU-CASE.18: Recruitment of 3 soldiers succeeded: %s" % r18.get("reason", ""))
+	_assert(fu_tac.get_unit_count() == 3, "FU-CASE.18: Tactical unit count is 3")
+	_assert(fu_army.is_defense_eligible(), "FU-CASE.18: Army at base is defense-eligible")
+	_assert(fu_army.get_defending_soldier_count() == 3, "FU-CASE.18: All 3 soldiers counted as defending: %d" % fu_army.get_defending_soldier_count())
+
+	# Case 19: Order part of force into the field (outside perimeter) -> defending count reflects only garrisoned units
+	var fu_units_arr = fu_tac.get_all_units()
+	var field_pos := Vector2i(10, 10)
+	if not live_nav.is_cell_walkable(field_pos):
+		field_pos = fu_tac._find_distinct_walkable_cells(Vector2i(10, 10), 1, live_nav)[0]
+	fu_units_arr[0].current_cell = field_pos
+	fu_units_arr[0].target_cell = field_pos
+	fu_units_arr[0].order_state = TacticalUnitScript.OrderState.IDLE
+	fu_units_arr[0].current_path.clear()
+	fu_tac.tactical_state_updated.emit()
+
+	_assert(fu_tac.get_garrisoned_unit_count(fu_army.get_rally_cell()) == 2, "FU-CASE.19: Garrisoned count is 2 (1 unit deployed to field)")
+	_assert(fu_army.get_defending_soldier_count() == 2, "FU-CASE.19: PlayerArmyManager defending count reflects only 2 garrisoned soldiers")
+
+	# Case 20: Strategic Move Army and Return Home synchronization
+	for u in fu_units_arr:
+		u.current_cell = fu_army.get_rally_cell()
+		u.target_cell = fu_army.get_rally_cell()
+		u.order_state = TacticalUnitScript.OrderState.IDLE
+		u.current_path.clear()
+	fu_army.current_cell = fu_army.get_rally_cell()
+	fu_army.movement_state = PlayerArmyManagerScript.MovementState.GARRISONED
+	fu_tac.tactical_state_updated.emit()
+
+	var march_dest := Vector2i(25, 25)
+	if not live_nav.is_cell_walkable(march_dest):
+		march_dest = fu_tac._find_distinct_walkable_cells(Vector2i(25, 25), 1, live_nav)[0]
+	var move_to_field_res = fu_army.order_move(march_dest)
+	_assert(move_to_field_res.get("success", false), "FU-CASE.20: Strategic order_move to field succeeded: %s" % move_to_field_res.get("reason", ""))
+	_assert(fu_army.get_movement_state() == PlayerArmyManagerScript.MovementState.MARCHING, "FU-CASE.20: Strategic army entered MARCHING state")
+	var return_res = fu_army.order_return_home()
+	_assert(return_res.get("success", false), "FU-CASE.20: Strategic order_return_home succeeded: %s" % return_res.get("reason", ""))
+
+	# Case 21: Offensive campaign cannot launch if soldiers are at base
+	for u in fu_units_arr:
+		u.current_cell = fu_army.get_rally_cell()
+		u.target_cell = fu_army.get_rally_cell()
+		u.order_state = TacticalUnitScript.OrderState.IDLE
+		u.current_path.clear()
+	fu_army.current_cell = fu_army.get_rally_cell()
+	fu_army.movement_state = PlayerArmyManagerScript.MovementState.GARRISONED
+	fu_tac.tactical_state_updated.emit()
+
+	var camp_mgr = BattleCampaignManagerScript.new(world_instance, FactionManagerScript.new(), 12345)
+	camp_mgr.set_custom_army_manager(fu_army)
+	var atk_check = camp_mgr.can_launch_offensive_campaign("rival_military")
+	_assert(not atk_check.get("can_attack", true), "FU-CASE.21: Offensive campaign rejected when army is at base: %s" % atk_check.get("reason", ""))
+
+	# Case 22: Casualties reduce army count authoritatively once, tactical roster stays synchronized
+	var pre_cas_count = fu_army.get_army_count()
+	fu_army.remove_casualties(1, false)
+	_assert(fu_army.get_army_count() == pre_cas_count - 1, "FU-CASE.22: Authoritative soldier count decremented by exactly 1")
+	_assert(fu_tac.get_unit_count() == fu_army.get_army_count(), "FU-CASE.22: Tactical unit count strictly matches soldier count after casualty (%d == %d)" % [fu_tac.get_unit_count(), fu_army.get_army_count()])
 

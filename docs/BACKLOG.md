@@ -244,6 +244,14 @@
 
 ---
 
+## Package 1W Follow-Up: Occupancy-Safe Tactical Roster, Fail-Closed Save & Strategic/Tactical Consistency (Completed)
+- [x] **TASK-1W-FU.1:** Multi-transaction spawn safety and formation collision avoidance in `TacticalMilitaryManager`: guaranteed distinct, non-overlapping coordinates for sequentially recruited units across multiple transactions, `can_allocate_spawns()` capacity preflight, and slot calculation excluding unselected units.
+- [x] **TASK-1W-FU.2:** Fail-closed save validation and legacy reconstruction gating in `SaveManager`: legacy reconstruction restricted to saves where `tactical_military` is completely absent (or legacy `player_army` lacking `movement_state`); presence of malformed, corrupt, or mismatched tactical military data is rejected fail-closed.
+- [x] **TASK-1W-FU.3:** Strategic vs Tactical architectural consistency contract documented in `docs/SCOPE_DECISIONS.md` (§1.23): base rally perimeter defined at Manhattan distance <= 5, settlement defense dynamically restricted to garrisoned units, offensive campaigns gated on field units, strategic commands (`order_move`, `order_return_home`) synchronized with tactical layer, and casualties deducted authoritatively without double dipping.
+- [x] **TASK-1W-FU.4:** Comprehensive follow-up test suite in `scripts/test/test_tactical_military.gd` covering FU-CASE.1 through FU-CASE.22 (PASS, Exit Code 0: 112/112 assertions passed; full regression across 10 project test suites passed).
+
+---
+
 ## Package 1X: Tactical Combat & Enemy Military Entities (Upcoming)
 - [ ] **TASK-1X.1:** Real-time tactical combat engagements between player tactical units and hostile forces.
 - [ ] **TASK-1X.2:** Enemy military tactical units on the world map with tactical AI behaviors.

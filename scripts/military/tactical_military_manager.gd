@@ -13,6 +13,7 @@ const FORMATION_COLUMN := "Column"
 const FORMATION_SCATTER := "Scatter"
 
 const VALID_FORMATIONS := [FORMATION_LINE, FORMATION_COLUMN, FORMATION_SCATTER]
+const RALLY_PERIMETER_DISTANCE: int = 5
 
 signal selection_changed(selected_ids: Array[String])
 signal formation_changed(formation_name: String)
@@ -20,6 +21,7 @@ signal control_groups_changed(groups: Dictionary)
 signal unit_spawned(unit_id: String, cell: Vector2i)
 signal unit_despawned(unit_id: String)
 signal order_issued(order_type: String, count: int, target_cell: Vector2i)
+signal tactical_state_updated()
 
 var world_view: Node = null
 var player_army_mgr: PlayerArmyManager = null
@@ -61,6 +63,8 @@ func set_player_army_manager(mgr: PlayerArmyManager) -> void:
 func _bind_army_manager(mgr: PlayerArmyManager) -> void:
 	if mgr.has_signal("army_changed") and not mgr.army_changed.is_connected(_on_army_changed):
 		mgr.army_changed.connect(_on_army_changed)
+	if mgr.has_method("sync_state_from_tactical") and not tactical_state_updated.is_connected(mgr.sync_state_from_tactical):
+		tactical_state_updated.connect(mgr.sync_state_from_tactical)
 
 func _on_army_changed(_count: int, _cap: int) -> void:
 	sync_with_player_army()
@@ -104,7 +108,31 @@ func get_unit(unit_id: String) -> Node2D:
 func get_all_units() -> Array:
 	return units.values()
 
-func sync_with_player_army() -> void:
+func get_occupied_cells(exclude_unit_ids: Array = []) -> Array[Vector2i]:
+	var occ: Array[Vector2i] = []
+	for uid in units.keys():
+		if exclude_unit_ids.has(uid):
+			continue
+		var u = units[uid]
+		if is_instance_valid(u):
+			if not occ.has(u.current_cell):
+				occ.append(u.current_cell)
+			if u.target_cell != u.current_cell and not occ.has(u.target_cell):
+				occ.append(u.target_cell)
+	return occ
+
+func can_allocate_spawns(count: int, rally_cell: Vector2i = Vector2i(-1, -1), nav: GridNavigation = null) -> bool:
+	if count <= 0:
+		return true
+	if rally_cell == Vector2i(-1, -1):
+		rally_cell = player_army_mgr.get_rally_cell() if player_army_mgr else Vector2i(32, 33)
+	if nav == null:
+		nav = get_nav()
+	var occupied := get_occupied_cells()
+	var slots := _find_distinct_walkable_cells(rally_cell, count, nav, occupied)
+	return slots.size() >= count
+
+func sync_with_player_army(prefer_field_casualties: bool = false) -> void:
 	if player_army_mgr == null:
 		return
 
@@ -116,6 +144,7 @@ func sync_with_player_army() -> void:
 
 	if target_count == 0:
 		clear_all_units()
+		tactical_state_updated.emit()
 		return
 
 	if current_count < target_count:
@@ -123,10 +152,15 @@ func sync_with_player_army() -> void:
 		var needed := target_count - current_count
 		var base_spawn := player_army_mgr.get_rally_cell()
 		var nav := get_nav()
-		var spawn_slots := _find_distinct_walkable_cells(base_spawn, needed, nav)
+		var occupied := get_occupied_cells()
+		var spawn_slots := _find_distinct_walkable_cells(base_spawn, needed, nav, occupied)
+		var actual_spawn_count := mini(needed, spawn_slots.size())
 
-		for i in range(needed):
-			var slot: Vector2i = spawn_slots[i] if i < spawn_slots.size() else base_spawn
+		if actual_spawn_count < needed:
+			printerr("[TacticalMilitaryManager] Warning: Only found %d unoccupied walkable cells for %d new units near %s" % [actual_spawn_count, needed, base_spawn])
+
+		for i in range(actual_spawn_count):
+			var slot: Vector2i = spawn_slots[i]
 			var u_id := "tac_unit_%d" % next_unit_index
 			next_unit_index += 1
 			while units.has(u_id):
@@ -140,22 +174,48 @@ func sync_with_player_army() -> void:
 	elif current_count > target_count:
 		# Casualty / reduction: deterministically remove units
 		var to_remove := current_count - target_count
-		# Deterministic selection of units to remove:
-		# Prefer removing unselected, idle units first, then highest ID
+		var r_cell: Vector2i = player_army_mgr.get_rally_cell() if player_army_mgr else Vector2i(32, 33)
 		var remove_candidates: Array[String] = []
 		var all_ids: Array = units.keys()
 		all_ids.sort()
 
-		# Pass 1: unselected idle units (descending ID)
+		var is_preferred_loc = func(u: Node2D) -> bool:
+			var dist: int = IsoMath.grid_distance(u.current_cell, r_cell)
+			if prefer_field_casualties:
+				return dist > RALLY_PERIMETER_DISTANCE
+			else:
+				return dist <= RALLY_PERIMETER_DISTANCE
+
+		# Pass 1: Unselected idle units in preferred battle location (descending ID)
 		for i in range(all_ids.size() - 1, -1, -1):
 			var uid: String = all_ids[i]
 			var u = units[uid]
-			if not selected_unit_ids.has(uid) and u.order_state == TacticalUnitScript.OrderState.IDLE:
+			if not selected_unit_ids.has(uid) and u.order_state == TacticalUnitScript.OrderState.IDLE and is_preferred_loc.call(u):
 				remove_candidates.append(uid)
 				if remove_candidates.size() >= to_remove:
 					break
 
-		# Pass 2: any unselected units
+		# Pass 2: Any unselected units in preferred battle location
+		if remove_candidates.size() < to_remove:
+			for i in range(all_ids.size() - 1, -1, -1):
+				var uid: String = all_ids[i]
+				var u = units[uid]
+				if not selected_unit_ids.has(uid) and not remove_candidates.has(uid) and is_preferred_loc.call(u):
+					remove_candidates.append(uid)
+					if remove_candidates.size() >= to_remove:
+						break
+
+		# Pass 3: Any unselected idle units anywhere
+		if remove_candidates.size() < to_remove:
+			for i in range(all_ids.size() - 1, -1, -1):
+				var uid: String = all_ids[i]
+				var u = units[uid]
+				if not selected_unit_ids.has(uid) and not remove_candidates.has(uid) and u.order_state == TacticalUnitScript.OrderState.IDLE:
+					remove_candidates.append(uid)
+					if remove_candidates.size() >= to_remove:
+						break
+
+		# Pass 4: Any unselected units anywhere
 		if remove_candidates.size() < to_remove:
 			for i in range(all_ids.size() - 1, -1, -1):
 				var uid: String = all_ids[i]
@@ -164,7 +224,7 @@ func sync_with_player_army() -> void:
 					if remove_candidates.size() >= to_remove:
 						break
 
-		# Pass 3: remaining units in descending ID
+		# Pass 5: Remaining units in descending ID
 		if remove_candidates.size() < to_remove:
 			for i in range(all_ids.size() - 1, -1, -1):
 				var uid: String = all_ids[i]
@@ -177,6 +237,7 @@ func sync_with_player_army() -> void:
 			_remove_unit(uid)
 
 	prune_invalid_units()
+	tactical_state_updated.emit()
 
 func _create_unit_instance(u_id: String, spawn_cell: Vector2i) -> Node2D:
 	var unit: Node2D = null
@@ -195,11 +256,17 @@ func _create_unit_instance(u_id: String, spawn_cell: Vector2i) -> Node2D:
 	if _custom_time_mgr != null:
 		unit.set_custom_time_manager(_custom_time_mgr)
 
+	if unit.has_signal("unit_reached_destination") and not unit.unit_reached_destination.is_connected(_on_unit_reached_destination):
+		unit.unit_reached_destination.connect(_on_unit_reached_destination)
+
 	var container = _get_units_container()
 	if container != null and is_instance_valid(container):
 		container.add_child(unit)
 
 	return unit
+
+func _on_unit_reached_destination(_id: String, _cell: Vector2i) -> void:
+	tactical_state_updated.emit()
 
 func _remove_unit(uid: String) -> void:
 	if not units.has(uid):
@@ -227,6 +294,7 @@ func clear_all_units() -> void:
 	control_groups = {1: [], 2: [], 3: []}
 	selection_changed.emit(selected_unit_ids)
 	control_groups_changed.emit(control_groups)
+	tactical_state_updated.emit()
 
 func _get_units_container() -> Node:
 	if tactical_units_container != null and is_instance_valid(tactical_units_container):
@@ -336,7 +404,7 @@ func set_formation(formation_name: String) -> bool:
 func get_formation() -> String:
 	return current_formation
 
-func compute_formation_slots(target_cell: Vector2i, count: int, formation_name: String = "", nav: GridNavigation = null) -> Array[Vector2i]:
+func compute_formation_slots(target_cell: Vector2i, count: int, formation_name: String = "", nav: GridNavigation = null, excluded_cells: Array[Vector2i] = []) -> Array[Vector2i]:
 	if count <= 0:
 		return []
 
@@ -380,11 +448,11 @@ func compute_formation_slots(target_cell: Vector2i, count: int, formation_name: 
 	# Assign valid, in-bounds, walkable, non-overlapping destination cells
 	for i in range(count):
 		var base_cand: Vector2i = target_cell + raw_offsets[i]
-		if IsoMath.is_in_bounds(base_cand) and (nav == null or nav.is_cell_walkable(base_cand)) and not assigned_slots.has(base_cand):
+		if IsoMath.is_in_bounds(base_cand) and (nav == null or nav.is_cell_walkable(base_cand)) and not assigned_slots.has(base_cand) and not excluded_cells.has(base_cand):
 			assigned_slots.append(base_cand)
 		else:
 			# Search locally for nearest walkable, in-bounds, unassigned cell
-			var alt_slot := _find_nearest_unassigned_cell(base_cand, target_cell, assigned_slots, nav)
+			var alt_slot := _find_nearest_unassigned_cell(base_cand, target_cell, assigned_slots, nav, excluded_cells)
 			if alt_slot != Vector2i(-1, -1):
 				assigned_slots.append(alt_slot)
 			else:
@@ -393,39 +461,40 @@ func compute_formation_slots(target_cell: Vector2i, count: int, formation_name: 
 
 	return assigned_slots
 
-func _find_nearest_unassigned_cell(near_cell: Vector2i, center: Vector2i, assigned: Array[Vector2i], nav: GridNavigation) -> Vector2i:
-	for r in range(1, 11):
+func _find_nearest_unassigned_cell(near_cell: Vector2i, center: Vector2i, assigned: Array[Vector2i], nav: GridNavigation, excluded: Array[Vector2i] = []) -> Vector2i:
+	for r in range(1, 15):
 		for dy in range(-r, r + 1):
 			for dx in range(-r, r + 1):
 				if abs(dx) + abs(dy) == r:
 					var cand := near_cell + Vector2i(dx, dy)
-					if IsoMath.is_in_bounds(cand) and (nav == null or nav.is_cell_walkable(cand)) and not assigned.has(cand):
+					if IsoMath.is_in_bounds(cand) and (nav == null or nav.is_cell_walkable(cand)) and not assigned.has(cand) and not excluded.has(cand):
 						return cand
 
 	# Secondary fallback around center
-	for r in range(1, 11):
-		for dy in range(-r, r + 1):
-			for dx in range(-r, r + 1):
-				if abs(dx) + abs(dy) == r:
-					var cand := center + Vector2i(dx, dy)
-					if IsoMath.is_in_bounds(cand) and (nav == null or nav.is_cell_walkable(cand)) and not assigned.has(cand):
-						return cand
-
-	return Vector2i(-1, -1)
-
-func _find_distinct_walkable_cells(center: Vector2i, count: int, nav: GridNavigation) -> Array[Vector2i]:
-	var res: Array[Vector2i] = []
-	if IsoMath.is_in_bounds(center) and (nav == null or nav.is_cell_walkable(center)):
-		res.append(center)
-	if res.size() >= count:
-		return res
-
 	for r in range(1, 15):
 		for dy in range(-r, r + 1):
 			for dx in range(-r, r + 1):
 				if abs(dx) + abs(dy) == r:
 					var cand := center + Vector2i(dx, dy)
-					if IsoMath.is_in_bounds(cand) and (nav == null or nav.is_cell_walkable(cand)) and not res.has(cand):
+					if IsoMath.is_in_bounds(cand) and (nav == null or nav.is_cell_walkable(cand)) and not assigned.has(cand) and not excluded.has(cand):
+						return cand
+
+	return Vector2i(-1, -1)
+
+func _find_distinct_walkable_cells(center: Vector2i, count: int, nav: GridNavigation = null, occupied_cells: Array[Vector2i] = []) -> Array[Vector2i]:
+	var res: Array[Vector2i] = []
+	if IsoMath.is_in_bounds(center) and (nav == null or nav.is_cell_walkable(center)) and not occupied_cells.has(center):
+		res.append(center)
+	if res.size() >= count:
+		return res
+
+	var max_radius: int = IsoMath.MAP_SIZE
+	for r in range(1, max_radius):
+		for dy in range(-r, r + 1):
+			for dx in range(-r, r + 1):
+				if abs(dx) + abs(dy) == r:
+					var cand := center + Vector2i(dx, dy)
+					if IsoMath.is_in_bounds(cand) and (nav == null or nav.is_cell_walkable(cand)) and not res.has(cand) and not occupied_cells.has(cand):
 						res.append(cand)
 						if res.size() >= count:
 							return res
@@ -452,7 +521,8 @@ func issue_move_order(target_cell: Vector2i, nav: GridNavigation = null) -> Dict
 		return {"success": false, "reason": "Vị trí chỉ định bị cản trở hoặc không thể đi tới"}
 
 	var unit_count: int = selected_unit_ids.size()
-	var slots := compute_formation_slots(target_cell, unit_count, current_formation, nav)
+	var excluded_cells: Array[Vector2i] = get_occupied_cells(selected_unit_ids)
+	var slots := compute_formation_slots(target_cell, unit_count, current_formation, nav, excluded_cells)
 	if slots.size() < unit_count:
 		return {"success": false, "reason": "Không đủ vị trí trống hợp lệ cho toàn bộ đội hình tại điểm đến"}
 
@@ -465,7 +535,8 @@ func issue_move_order(target_cell: Vector2i, nav: GridNavigation = null) -> Dict
 			continue
 		var slot: Vector2i = slots[idx]
 		if u.current_cell == slot:
-			planned_paths[uid] = []
+			var empty_p: Array[Vector2i] = []
+			planned_paths[uid] = empty_p
 		else:
 			var path: Array[Vector2i] = nav.find_path(u.current_cell, slot)
 			if path.is_empty():
@@ -481,10 +552,14 @@ func issue_move_order(target_cell: Vector2i, nav: GridNavigation = null) -> Dict
 		if u == null:
 			continue
 		var slot: Vector2i = slots[idx]
-		var path: Array[Vector2i] = planned_paths[uid]
+		var path_arr: Array = planned_paths.get(uid, [])
+		var path: Array[Vector2i] = []
+		for p in path_arr:
+			path.append(Vector2i(p))
 		u.order_move(path, slot)
 
 	order_issued.emit("Move", unit_count, target_cell)
+	tactical_state_updated.emit()
 	return {
 		"success": true,
 		"reason": "Đã nhận lệnh di chuyển đội hình %s" % current_formation,
@@ -497,6 +572,69 @@ func halt_selected_units() -> void:
 	for uid in selected_unit_ids:
 		if units.has(uid):
 			units[uid].order_hold()
+	tactical_state_updated.emit()
+
+# -----------------------------------------------------------------------------
+# Garrison & Field Spatial Queries (Contract C)
+# -----------------------------------------------------------------------------
+
+func get_garrisoned_units(p_rally: Vector2i = Vector2i(-1, -1)) -> Array:
+	var r_cell: Vector2i = p_rally
+	if r_cell == Vector2i(-1, -1):
+		r_cell = player_army_mgr.get_rally_cell() if player_army_mgr else Vector2i(32, 33)
+	var res: Array = []
+	for uid in units.keys():
+		var u = units[uid]
+		if is_instance_valid(u):
+			var dist: int = IsoMath.grid_distance(u.current_cell, r_cell)
+			if dist <= RALLY_PERIMETER_DISTANCE and u.order_state != TacticalUnitScript.OrderState.MOVING:
+				res.append(u)
+	return res
+
+func get_garrisoned_unit_count(p_rally: Vector2i = Vector2i(-1, -1)) -> int:
+	return get_garrisoned_units(p_rally).size()
+
+func get_field_units(p_rally: Vector2i = Vector2i(-1, -1)) -> Array:
+	var r_cell: Vector2i = p_rally
+	if r_cell == Vector2i(-1, -1):
+		r_cell = player_army_mgr.get_rally_cell() if player_army_mgr else Vector2i(32, 33)
+	var res: Array = []
+	for uid in units.keys():
+		var u = units[uid]
+		if is_instance_valid(u):
+			var dist: int = IsoMath.grid_distance(u.current_cell, r_cell)
+			if dist > RALLY_PERIMETER_DISTANCE:
+				res.append(u)
+	return res
+
+func get_field_unit_count(p_rally: Vector2i = Vector2i(-1, -1)) -> int:
+	return get_field_units(p_rally).size()
+
+func order_move_all(target_cell: Vector2i, nav: GridNavigation = null) -> Dictionary:
+	if player_army_mgr != null and units.size() != player_army_mgr.get_army_count():
+		sync_with_player_army()
+	select_all()
+	return issue_move_order(target_cell, nav)
+
+func order_return_all_to_rally(p_rally: Vector2i = Vector2i(-1, -1), nav: GridNavigation = null) -> Dictionary:
+	if player_army_mgr != null and units.size() != player_army_mgr.get_army_count():
+		sync_with_player_army()
+	var r_cell: Vector2i = p_rally
+	if r_cell == Vector2i(-1, -1):
+		r_cell = player_army_mgr.get_rally_cell() if player_army_mgr else Vector2i(32, 33)
+	select_all()
+	return issue_move_order(r_cell, nav)
+
+func arrive_all_at_destination() -> void:
+	for uid in units.keys():
+		var u = units[uid]
+		if is_instance_valid(u):
+			if u.order_state == TacticalUnitScript.OrderState.MOVING:
+				u.current_cell = u.target_cell
+				u.current_path.clear()
+				u.order_state = TacticalUnitScript.OrderState.IDLE
+				u.position = IsoMath.map_to_local(u.current_cell)
+	tactical_state_updated.emit()
 
 # -----------------------------------------------------------------------------
 # Control Groups (1, 2, 3)
@@ -590,35 +728,42 @@ func deserialize(data: Dictionary) -> bool:
 	if data.is_empty():
 		return true
 
+	if not data.has("units") or not (data.get("units") is Array):
+		return false
+
+	var raw_units: Array = data.get("units")
+	var seen_ids: Dictionary = {}
+	for u_data in raw_units:
+		if not (u_data is Dictionary):
+			return false
+		var uid: String = String(u_data.get("unit_id", "")).strip_edges()
+		if uid.is_empty() or seen_ids.has(uid):
+			return false
+		seen_ids[uid] = true
+
+		var raw_cell = u_data.get("current_cell")
+		var cell := Vector2i(-1, -1)
+		if raw_cell is Array and raw_cell.size() >= 2:
+			cell = Vector2i(int(raw_cell[0]), int(raw_cell[1]))
+		elif raw_cell is Vector2i:
+			cell = raw_cell
+		if not IsoMath.is_in_bounds(cell):
+			return false
+
 	current_formation = String(data.get("current_formation", FORMATION_LINE))
 	if not VALID_FORMATIONS.has(current_formation):
 		current_formation = FORMATION_LINE
 
 	next_unit_index = maxi(1, int(data.get("next_unit_index", 1)))
 
-	var raw_units = data.get("units")
-	if raw_units is Array:
-		for u_data in raw_units:
-			if not (u_data is Dictionary):
-				continue
-			var uid: String = String(u_data.get("unit_id", ""))
-			if uid.is_empty() or units.has(uid):
-				continue
-
-			var raw_cell = u_data.get("current_cell", [32, 33])
-			var cell := Vector2i(32, 33)
-			if raw_cell is Array and raw_cell.size() >= 2:
-				cell = Vector2i(int(raw_cell[0]), int(raw_cell[1]))
-			elif raw_cell is Vector2i:
-				cell = raw_cell
-
-			if not IsoMath.is_in_bounds(cell):
-				cell = Vector2i(32, 33)
-
-			var unit: Node2D = _create_unit_instance(uid, cell)
-			unit.deserialize(u_data)
-			units[uid] = unit
-			unit_spawned.emit(uid, cell)
+	for u_data in raw_units:
+		var uid: String = String(u_data.get("unit_id", "")).strip_edges()
+		var raw_cell = u_data.get("current_cell")
+		var cell: Vector2i = Vector2i(int(raw_cell[0]), int(raw_cell[1])) if raw_cell is Array else raw_cell
+		var unit: Node2D = _create_unit_instance(uid, cell)
+		unit.deserialize(u_data)
+		units[uid] = unit
+		unit_spawned.emit(uid, cell)
 
 	var raw_cg = data.get("control_groups")
 	if raw_cg is Dictionary:
@@ -632,6 +777,7 @@ func deserialize(data: Dictionary) -> bool:
 	prune_invalid_units()
 	formation_changed.emit(current_formation)
 	control_groups_changed.emit(control_groups)
+	tactical_state_updated.emit()
 	return true
 
 func deserialize_legacy(soldier_count: int, rally_cell: Vector2i, nav: GridNavigation = null) -> bool:
@@ -642,9 +788,10 @@ func deserialize_legacy(soldier_count: int, rally_cell: Vector2i, nav: GridNavig
 	if nav == null:
 		nav = get_nav()
 
-	var slots := _find_distinct_walkable_cells(rally_cell, soldier_count, nav)
-	for i in range(soldier_count):
-		var slot: Vector2i = slots[i] if i < slots.size() else rally_cell
+	var slots := _find_distinct_walkable_cells(rally_cell, soldier_count, nav, [])
+	var actual_count := mini(soldier_count, slots.size())
+	for i in range(actual_count):
+		var slot: Vector2i = slots[i]
 		var u_id := "tac_unit_%d" % (i + 1)
 		var unit: Node2D = _create_unit_instance(u_id, slot)
 		units[u_id] = unit
@@ -655,4 +802,5 @@ func deserialize_legacy(soldier_count: int, rally_cell: Vector2i, nav: GridNavig
 	control_groups = {1: [], 2: [], 3: []}
 	formation_changed.emit(current_formation)
 	control_groups_changed.emit(control_groups)
+	tactical_state_updated.emit()
 	return true
