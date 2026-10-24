@@ -5558,6 +5558,72 @@ On branch `feature/package-1r-faction-strategic-decision-engine` starting from l
 - `docs/WORKLOG.md`
 
 ### Next Exact Step
-- Stage modified files on branch `fix/responsive-game-layout`.
-- Commit with message: `Fix responsive game window and HUD layout`.
-- Push branch to `origin/fix/responsive-game-layout`.
+- Fix package completed and committed on `fix/responsive-game-layout` (`59385232656ff6d4dd4aa5ed9fd433c2738c4f8d`).
+- Begin follow-up validation and reproducibility milestone on dedicated branch `fix/responsive-layout-validation`.
+
+---
+
+## 2026-10-25: Follow-up — Verify Embedded Game Sizing & Make Responsive Tests Reproducible
+
+### Branch & Working Tree Preflight
+- Base Branch: `fix/responsive-game-layout`
+- Base Commit: `59385232656ff6d4dd4aa5ed9fd433c2738c4f8d` ("Fix responsive game window and HUD layout")
+- Dedicated Branch: `fix/responsive-layout-validation`
+- Untracked user files preserved (`docs/visual_validation/`, `scripts/test/visual_*.gd`, `.uid` files).
+
+### 1. Embedded Game vs Standalone Game Sizing Architecture Analysis
+- **Root Cause of User Screenshot:**
+  - The user's screenshot displayed the Godot Editor Game toolbar above the viewport with a resolution indicator label showing `1152x648`.
+  - In Godot 4.3+, the Editor can run the game embedded in an editor dock (`SubViewportContainer`).
+  - When running in this mode, Godot sets the viewport mode according to the toolbar selection:
+    1. **Fixed Size (Default in some dock configurations):** Renders the SubViewport strictly at the project's base window resolution or fallback resolution (here `1152x648`), leaving large black/gray borders filling the remainder of the editor dock window.
+    2. **Keep Aspect Ratio:** Scales the SubViewport up or down to fit the dock while preserving aspect ratio (letterboxing/pillarboxing if the dock aspect ratio differs).
+    3. **Stretch to Fit:** Stretches the SubViewport to fill the entire dock area, allowing Godot's `canvas_items` + `expand` stretch mode to dynamically adapt the UI and expand the camera canvas.
+    4. **Separate Window / Pop-out:** Detaches the game view into a true standalone OS window.
+  - **Operating System Window Calls vs Embedded Dock:**
+    - `DisplayServer.window_set_min_size(Vector2i(1024, 576))` and `DisplayServer.window_set_mode()` (used by F11) operate on the host operating system's native window manager (Win32 HWND on Windows).
+    - When the game is embedded in the Godot Editor dock, `DisplayServer.window_set_min_size()` affects the editor's main OS window, NOT the internal dock panel or the embedded SubViewport.
+    - Runtime game code cannot, and should not, attempt to force Godot Editor GUI docks to resize.
+  - **Exact Editor Steps for Optimal Viewport Sizing:**
+    - **Option A (Stretch to Fit in Editor Dock):** On the Game tab toolbar at the top of the editor preview, click the sizing dropdown (which currently shows "Fixed Size" or "1152x648") and select **"Stretch to Fit"** (or **"Keep Aspect Ratio"**). The viewport and HUD will immediately scale and expand to use all available dock space.
+    - **Option B (Pop-out Game View to Separate Window):** Click the "Make Floating" / pop-out icon on the Game dock tab or press the detach button to run the game in its own OS window.
+    - **Option C (Disable Embedded Game Mode):** In Godot Editor menu, navigate to **Editor > Editor Settings > Run > Window Placement**, and change **Embed Game in Editor** to **Disabled**. When launching via F5/F6, Godot will spawn a standalone OS window where `DisplayServer.window_set_min_size(Vector2i(1024, 576))`, native maximize/restore buttons, and F11 fullscreen operate as intended.
+
+### 2. Creation of Reproducible Tracked Test Suite
+- Created `scripts/test/test_responsive_layout.gd`:
+  - Fully self-contained, reproducible test suite runnable headlessly (`--headless`) or in standalone GPU mode.
+  - Does NOT depend on untracked screenshot assets or visual capture files.
+  - Validates TC-RESP.1 through TC-RESP.6 (75 assertions):
+    - **TC-RESP.1:** ProjectSettings `viewport_width == 1280`, `viewport_height == 720`, `stretch/mode == "canvas_items"`, `stretch/aspect == "expand"`, and clean execution of `DisplayServer.window_set_min_size(1024, 576)`.
+    - **TC-RESP.2:** Verification that all 8 resource labels (`FoodLabel`, `WoodLabel`, `StoneLabel`, `OreLabel`, `MetalLabel`, `ToolsLabel`, `GoldLabel`, `PopLabel`), time/clock labels, speed controls, and all 5 BottomBar buttons remain at their exact legacy paths under `TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources/...` and `BottomBar/PanelContainer/MarginContainer/HBoxContainer/...`.
+    - **TC-RESP.3:** TopBar 2-row geometry: Row 1 (`TopRow`) combined minimum width is 591px (<= 650px). Row 2 (`Resources`) combined minimum width is 938px (<= 960px). Positive clearance at 1024x576 is 62px (> 40px), guaranteeing zero horizontal overflow.
+    - **TC-RESP.4:** BottomBar combined minimum width is 726px (<= 750px), providing 274px of clearance at 1024x576. `TileInfoLabel` overrun is `OVERRUN_TRIM_ELLIPSIS` (3). All 5 buttons (`BuildBtn`, `ResearchBtn`, `DiplomacyBtn`, `MilitaryBtn`, `AutomationBtn`) are strictly visible and bounded.
+    - **TC-RESP.5:** `BuildMenuPanel` bottom (-56px) does not penetrate BottomBar top (-48px) with 8px clearance. `ResearchMenuPanel` and `DiplomacyPanel` heights (440px) fit between TopBar (Y=68) and BottomBar (Y=528). `EventBanner` and `CrisisBanner` `offset_top` (76px) are positioned below TopBar. `AutomationEditor` has responsive `split_offset = 540`, `RightScroll` (ScrollContainer) min width 280px (<= 300px), and `GraphEdit` canvas `SIZE_EXPAND_FILL`.
+    - **TC-RESP.6:** Isometric coordinate mapping roundtrip invariance (`IsoMath.map_to_local` <-> `IsoMath.local_to_map`) verified across all standard and edge grid coordinates.
+
+### 3. Verification & Test Evidence
+- Tracked Responsive Layout Test Suite (`scripts/test/test_responsive_layout.gd`):
+  - Headless Run: **PASS (Exit Code 0 — 75/75 Checks Passed)**
+  - Standalone GPU Run: **PASS (Exit Code 0 — 75/75 Checks Passed)**
+- Automation Graph Test Suite (`scripts/test/test_automation_graph.gd`): **PASS (Exit Code 0 — 16/16 TC Passed, 69 Checks Passed)**
+- Save/Load Persistence Test Suite (`scripts/test/test_save_load.gd`): **PASS (Exit Code 0 — 107 Assertions Passed)**
+- Palisade & HUD Build Panel Test Suite (`scripts/test/test_palisade.gd`): **PASS (Exit Code 0 — All checks passed, no panel overlap)**
+- Mine & HUD Ore Row Test Suite (`scripts/test/test_mine.gd`): **PASS (Exit Code 0 — TC-M.1..TC-M.6 All Passed)**
+- Workshop & HUD Metal/Tools Row Test Suite (`scripts/test/test_workshop.gd`): **PASS (Exit Code 0 — TC-WS.1..TC-WS.7 All Passed)**
+- Research Hall Test Suite (`scripts/test/test_research_hall.gd`): **PASS (Exit Code 0 — TC-RH.1..TC-RH.7 All Passed)**
+- Logistics Test Suite (`scripts/test/test_logistics.gd`): **PASS (Exit Code 0 — All Passed)**
+- Headless Editor Parse Check (`--headless --editor --quit`): **PASS (Exit Code 0)**
+- `git diff --check`: **PASS (Exit Code 0 — No whitespace errors)**
+
+### Files Created
+- `scripts/test/test_responsive_layout.gd`
+
+### Files Modified
+- `docs/TEST_PLAN.md`
+- `docs/WORKLOG.md`
+
+### Next Exact Step
+- Stage `scripts/test/test_responsive_layout.gd`, `docs/TEST_PLAN.md`, `docs/WORKLOG.md`.
+- Commit to branch `fix/responsive-layout-validation` with message: `Add reproducible responsive layout test suite and document embedded game behavior`.
+- Push branch to `origin/fix/responsive-layout-validation`.
+- Await next instructions (do not merge to master, do not start Package 1W).
