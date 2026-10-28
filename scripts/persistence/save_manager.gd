@@ -1307,5 +1307,9 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 			# Reconstruct roster from authoritative player army
 			tac_mgr.call("deserialize_legacy", s_count, r_cell, nav_obj)
 
+		# Strict garrison transition audit: ensure player_army syncs from newly restored tactical roster
+		if army_mgr != null and army_mgr.has_method("sync_state_from_tactical"):
+			army_mgr.call("sync_state_from_tactical")
+
 	print("[SaveManager] Loaded world state restored successfully (%d citizens, %d buildings)" % [world_view.get("citizen_list").size(), world_data.buildings.size()])
 	return {"success": true}

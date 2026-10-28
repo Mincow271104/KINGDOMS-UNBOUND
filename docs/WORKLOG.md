@@ -6045,7 +6045,71 @@ Address the critical return-home command idempotency defects, premature `GARRISO
 - `scripts/test/test_tactical_military.gd`
 
 ### Next Exact Step
-- Stage modified files and commit to dedicated branch `fix/package-1w-return-home-final-fix`.
-- Push to remote `origin/fix/package-1w-return-home-final-fix`.
+- Complete Package 1W review blocker audit for strict garrison transition.
+
+---
+
+## [2026-10-29] Milestone 28: Package 1W Final Blocker — Strict Garrisoned Transition Audit (Completed)
+
+### Context & Objective
+Resolve the remaining Package 1W review blocker by strictly auditing and preventing `PlayerArmyManager` from entering `MovementState.GARRISONED` while any tactical unit is moving (`order_state == MOVING`) or outside `RALLY_PERIMETER_DISTANCE = 5`:
+1. **Fix A — `cancel_move()` Invariant Respect:** Prevent transitioning to `GARRISONED` merely because `current_cell == rally_cell`. If tactical units are in transit, preserve `MARCHING`. If tactical units are stopped outside the perimeter, transition to `IDLE_AT_FIELD`.
+2. **Fix B — Audit Every Other Garrison Transition:** Audit `advance_movement()` dynamic obstruction rerouting failure, `deserialize()` invalid route repair, `deserialize()` blocked cell fallback, `deserialize()` `IDLE_AT_FIELD` at rally cell, and `sync_state_from_tactical()`. Enforce the settlement invariant through shared helper `get_settled_state_for_cell()`. In `SaveManager`, ensure `sync_state_from_tactical()` runs following tactical restoration.
+3. **Fix C — Regression Coverage:** Add GTA-CASE.1, GTA-CASE.2, and GTA-CASE.3 to `scripts/test/test_tactical_military.gd`.
+4. **Full 11-Suite Validation:** Re-run all 11 headless test suites, headless editor quit, and `git diff --check`.
+
+### Completed Work
+1. **`scripts/military/player_army_manager.gd`:**
+   - Added `has_moving_tactical_units() -> bool`.
+   - Added `get_settled_state_for_cell(cell: Vector2i) -> int` as authoritative shared state predicate:
+     - Returns `IDLE_AT_FIELD` if `cell != rally_cell`.
+     - Returns `GARRISONED` if `soldier_count == 0` or `are_all_tactical_units_settled_at_base()`.
+     - Returns `MARCHING` if `has_moving_tactical_units()`.
+     - Returns `IDLE_AT_FIELD` if all units idle but outside perimeter.
+   - Updated `cancel_move()`: uses `get_settled_state_for_cell(current_cell)`.
+   - Updated `advance_movement()`: uses `get_settled_state_for_cell(current_cell)` upon rerouting failure.
+   - Updated `deserialize()`: uses `get_settled_state_for_cell(current_cell)` on blocked coordinate fallback, `IDLE_AT_FIELD` at rally, and route repair failure.
+   - Updated `sync_state_from_tactical()`: transitions `movement_state` from `GARRISONED` to `MARCHING` if any unit is moving (`any_moving == true`).
+   - Updated `can_recruit()`: resets empty army (`soldier_count == 0`) cleanly to `GARRISONED` at `rally_cell`.
+2. **`scripts/persistence/save_manager.gd`:**
+   - Added explicit `army_mgr.call("sync_state_from_tactical")` following tactical military deserialization in `apply_loaded_state_to_world()`.
+3. **`scripts/test/test_tactical_military.gd`:**
+   - Added `BlockedRouteNav`.
+   - Added Group 9 (`GTA-CASE.1` to `GTA-CASE.3`):
+     - `GTA-CASE.1`: `cancel_move()` while strategic center at rally and tactical unit in transit maintains `MARCHING`; final settlement to `GARRISONED` only after all units arrive; sub-check proves `IDLE_AT_FIELD` when unit is halted outside perimeter.
+     - `GTA-CASE.2`: `cancel_move()` when all units settled cleanly yields `GARRISONED` with zero displacement.
+     - `GTA-CASE.3`: Tests route obstruction failure in `advance_movement()` (cannot mark army `GARRISONED` while units move); tests integrated save restore with moving unit (corrected to `MARCHING`); tests integrated save restore with field unit (corrected to `IDLE_AT_FIELD`).
+4. **Documentation Updates:**
+   - Updated `docs/SCOPE_DECISIONS.md` (§1.23), `docs/TEST_PLAN.md` (GTA-CASE.1 to GTA-CASE.3), and `docs/BACKLOG.md` (`TASK-1W-PH.6`).
+
+### Validations Performed & Results
+- **Tactical Military Test Suite (`scripts/test/test_tactical_military.gd`):** **PASS (285/285 assertions, Exit Code 0, 0 Failures)**.
+- **Full 11-Suite Headless Regression Matrix:**
+  1. `scripts/test/test_tactical_military.gd`: **PASS (285 assertions, Exit Code 0)**
+  2. `scripts/test/test_player_army.gd`: **PASS (Exit Code 0)**
+  3. `scripts/test/test_army_movement.gd`: **PASS (Exit Code 0)**
+  4. `scripts/test/test_live_battle_loop.gd`: **PASS (Exit Code 0)**
+  5. `scripts/test/test_offensive_campaign.gd`: **PASS (Exit Code 0)**
+  6. `scripts/test/test_save_load.gd`: **PASS (107 assertions, Exit Code 0)**
+  7. `scripts/test/test_responsive_layout.gd`: **PASS (435 checks, Exit Code 0)**
+  8. `scripts/test/test_automation_graph.gd`: **PASS (69 checks, Exit Code 0)**
+  9. `scripts/test/test_logistics.gd`: **PASS (Exit Code 0)** *(explicitly captured as requested)*
+  10. `scripts/test/test_faction_relation_matrix.gd`: **PASS (160 checks, Exit Code 0)**
+  11. `scripts/test/test_factions_and_battles.gd`: **PASS (48 assertions, Exit Code 0)**
+- **Headless Editor Check (`--headless --editor --quit`):** **PASS (Exit Code 0, 0 Parse/Script Errors)**.
+- **Whitespace / Git Check (`git diff --check`):** **PASS (Exit Code 0, 0 Errors)**.
+
+### Files Created or Modified
+- `docs/BACKLOG.md`
+- `docs/SCOPE_DECISIONS.md`
+- `docs/TEST_PLAN.md`
+- `docs/WORKLOG.md`
+- `scripts/military/player_army_manager.gd`
+- `scripts/persistence/save_manager.gd`
+- `scripts/test/test_tactical_military.gd`
+
+### Next Exact Step
+- Stage modified files and commit to new dedicated branch `fix/package-1w-garrison-transition-audit`.
+- Push to remote `origin/fix/package-1w-garrison-transition-audit`.
 - Deliver comprehensive completion report to user with commit SHA and test logs.
 - Await next instructions (do not merge to master, do not start Package 1X).

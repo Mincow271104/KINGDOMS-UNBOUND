@@ -172,6 +172,12 @@ func can_recruit(count: int = 1) -> Dictionary:
 	if count <= 0:
 		return {"can_recruit": false, "reason": "Số lượng chiêu mộ phải lớn hơn 0"}
 
+	if soldier_count == 0:
+		movement_state = MovementState.GARRISONED
+		current_cell = rally_cell
+		destination_cell = rally_cell
+		current_path.clear()
+
 	if movement_state == MovementState.MARCHING:
 		return {"can_recruit": false, "reason": "Quân đội đang hành quân, chỉ có thể chiêu mộ khi đóng quân tại căn cứ"}
 	if movement_state == MovementState.IDLE_AT_FIELD or current_cell != rally_cell:
@@ -427,6 +433,24 @@ func are_all_tactical_units_settled_at_base() -> bool:
 			return false
 	return true
 
+func has_moving_tactical_units() -> bool:
+	if tactical_military_mgr == null:
+		return false
+	var all_units: Array = tactical_military_mgr.call("get_all_units")
+	for u in all_units:
+		if u.get("order_state") == 1: # OrderState.MOVING
+			return true
+	return false
+
+func get_settled_state_for_cell(cell: Vector2i) -> int:
+	if cell != rally_cell:
+		return MovementState.IDLE_AT_FIELD
+	if soldier_count == 0 or are_all_tactical_units_settled_at_base():
+		return MovementState.GARRISONED
+	if has_moving_tactical_units():
+		return MovementState.MARCHING
+	return MovementState.IDLE_AT_FIELD
+
 func order_move(target_cell: Vector2i) -> Dictionary:
 	if soldier_count <= 0:
 		return {"success": false, "reason": "Không có binh sĩ để điều động"}
@@ -489,10 +513,7 @@ func cancel_move() -> Dictionary:
 	current_path.clear()
 	step_accumulator = 0.0
 	destination_cell = current_cell
-	if current_cell == rally_cell:
-		movement_state = MovementState.GARRISONED
-	else:
-		movement_state = MovementState.IDLE_AT_FIELD
+	movement_state = get_settled_state_for_cell(current_cell)
 	movement_state_changed.emit(movement_state, current_cell, destination_cell)
 	return {"success": true, "reason": "Đã dừng hành quân tại vị trí hiện tại"}
 
@@ -606,7 +627,7 @@ func advance_movement(delta: float, speed_mult: float = 1.0) -> void:
 				current_path.clear()
 				step_accumulator = 0.0
 				destination_cell = current_cell
-				movement_state = MovementState.GARRISONED if current_cell == rally_cell else MovementState.IDLE_AT_FIELD
+				movement_state = get_settled_state_for_cell(current_cell)
 				movement_state_changed.emit(movement_state, current_cell, destination_cell)
 				return
 			else:
@@ -718,6 +739,10 @@ func sync_state_from_tactical() -> void:
 			break
 
 	if any_moving:
+		# Enforce strict garrison invariant: strategic army cannot be GARRISONED while any tactical unit is moving
+		if movement_state == MovementState.GARRISONED:
+			movement_state = MovementState.MARCHING
+			movement_state_changed.emit(movement_state, current_cell, destination_cell)
 		return
 
 	# If army is already IDLE_AT_FIELD at a valid field position and no units are moving:
@@ -841,7 +866,7 @@ func deserialize(data: Dictionary) -> void:
 		current_cell = safe_cell
 		current_path.clear()
 		destination_cell = current_cell
-		movement_state = MovementState.GARRISONED
+		movement_state = get_settled_state_for_cell(current_cell)
 
 	# Mutual consistency and route walkability enforcement:
 	if soldier_count == 0:
@@ -859,8 +884,7 @@ func deserialize(data: Dictionary) -> void:
 	elif movement_state == MovementState.IDLE_AT_FIELD:
 		current_path.clear()
 		destination_cell = current_cell
-		if current_cell == rally_cell:
-			movement_state = MovementState.GARRISONED
+		movement_state = get_settled_state_for_cell(current_cell)
 	elif movement_state == MovementState.MARCHING:
 		var route_valid := true
 		if current_path.is_empty() or destination_cell == current_cell:
@@ -897,7 +921,7 @@ func deserialize(data: Dictionary) -> void:
 			if not repaired:
 				current_path.clear()
 				destination_cell = current_cell
-				movement_state = MovementState.GARRISONED if current_cell == rally_cell else MovementState.IDLE_AT_FIELD
+				movement_state = get_settled_state_for_cell(current_cell)
 
 	step_accumulator = 0.0
 	army_changed.emit(soldier_count, get_army_capacity())

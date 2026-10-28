@@ -138,6 +138,23 @@ class TrappedTacticalUnitNav extends GridNavigation:
 			return [] # Trapped unit cannot move out
 		return base_nav.find_path(from, to) if base_nav != null else []
 
+class BlockedRouteNav extends GridNavigation:
+	var blocked_cell: Vector2i
+	var base_nav: GridNavigation
+
+	func _init(p_base_nav: GridNavigation, blocked: Vector2i) -> void:
+		super(null)
+		base_nav = p_base_nav
+		blocked_cell = blocked
+
+	func is_cell_walkable(cell: Vector2i) -> bool:
+		if cell == blocked_cell:
+			return false
+		return base_nav.is_cell_walkable(cell) if base_nav != null else true
+
+	func find_path(_from: Vector2i, _to: Vector2i) -> Array[Vector2i]:
+		return [] # Always fail rerouting to test obstruction fallback
+
 func _init() -> void:
 	print("\n========================================================")
 	print("  STARTING PACKAGE 1W TACTICAL MILITARY TEST SUITE")
@@ -1529,4 +1546,196 @@ func _run_all_tests() -> void:
 	fu_tac.tactical_state_updated.emit()
 	_assert(fu_army.movement_state == PlayerArmyManagerScript.MovementState.GARRISONED, "PH-CASE.9: State remains GARRISONED after tactical_state_updated emission")
 	_assert(fu_army.current_cell == fu_army.get_rally_cell(), "PH-CASE.9: Strategic center remains at rally_cell")
+
+	# =========================================================================
+	# GROUP 9: Strict Garrison Transition Audit (GTA-CASE.1 - GTA-CASE.3)
+	# =========================================================================
+	print("\n--- Group 9: Strict Garrison Transition Audit ---")
+
+	# -------------------------------------------------------------------------
+	# GTA-CASE.1: Cancel move after strategic center reaches rally first
+	# -------------------------------------------------------------------------
+	print("\n--- Running GTA-CASE.1: Cancel Move While Tactical Units In Transit ---")
+	fu_tac.clear_all_units()
+	fu_army.soldier_count = 0
+	fu_army.movement_state = PlayerArmyManagerScript.MovementState.GARRISONED
+	fu_army.current_cell = fu_army.get_rally_cell()
+	fu_army.destination_cell = fu_army.get_rally_cell()
+	var rec_gta1 = fu_army.recruit(2)
+	_assert(rec_gta1.get("success", false) and fu_tac.get_unit_count() == 2, "GTA-CASE.1: Successfully recruited 2 units")
+	var gta1_units = fu_tac.get_all_units()
+	_assert(gta1_units.size() == 2, "GTA-CASE.1: Roster has 2 soldiers")
+
+	# Strategic center at rally_cell (32, 33), MARCHING with empty path (pre-settlement arrival)
+	fu_army.current_cell = fu_army.get_rally_cell()
+	fu_army.destination_cell = fu_army.get_rally_cell()
+	fu_army.current_path.clear()
+	fu_army.movement_state = PlayerArmyManagerScript.MovementState.MARCHING
+
+	# Unit 0 is idle at rally (32, 33)
+	gta1_units[0].current_cell = Vector2i(32, 33)
+	gta1_units[0].target_cell = Vector2i(32, 33)
+	gta1_units[0].order_state = TacticalUnitScript.OrderState.IDLE
+	gta1_units[0].current_path.clear()
+
+	# Unit 1 is at (38, 33) (dist 6 > 5 from rally), MOVING towards (33, 33)
+	gta1_units[1].current_cell = Vector2i(38, 33)
+	gta1_units[1].target_cell = Vector2i(33, 33)
+	gta1_units[1].order_state = TacticalUnitScript.OrderState.MOVING
+	var u1_expected_path: Array[Vector2i] = [Vector2i(37, 33), Vector2i(36, 33), Vector2i(35, 33), Vector2i(34, 33), Vector2i(33, 33)]
+	gta1_units[1].current_path = u1_expected_path.duplicate()
+	gta1_units[1].step_accumulator = 0.0
+
+	_assert(gta1_units[1].order_state == TacticalUnitScript.OrderState.MOVING, "GTA-CASE.1: Unit 1 fixture is in MOVING state")
+	_assert(gta1_units[1].current_path == u1_expected_path, "GTA-CASE.1: Unit 1 path is captured correctly")
+
+	# Call cancel_move()
+	var ret_gta1 = fu_army.cancel_move()
+	_assert(ret_gta1.get("success", false), "GTA-CASE.1: cancel_move() executed successfully")
+	_assert(fu_army.movement_state != PlayerArmyManagerScript.MovementState.GARRISONED, "GTA-CASE.1: Army strictly does NOT become GARRISONED while Unit 1 in transit")
+	_assert(fu_army.movement_state == PlayerArmyManagerScript.MovementState.MARCHING, "GTA-CASE.1: Army strictly preserves MARCHING in-transit state")
+	_assert(gta1_units[1].order_state == TacticalUnitScript.OrderState.MOVING, "GTA-CASE.1: Unit 1 remains MOVING")
+	_assert(gta1_units[1].current_path == u1_expected_path, "GTA-CASE.1: Unit 1 path preserved")
+
+	# Advance simulation until units arrive
+	var gta1_safety := 0
+	while (gta1_units[1].order_state == TacticalUnitScript.OrderState.MOVING or fu_army.movement_state == PlayerArmyManagerScript.MovementState.MARCHING) and gta1_safety < 40:
+		gta1_safety += 1
+		fu_army.advance_movement(0.5, 1.0)
+
+	_assert(gta1_units[0].order_state == TacticalUnitScript.OrderState.IDLE, "GTA-CASE.1: Unit 0 is IDLE")
+	_assert(gta1_units[1].order_state == TacticalUnitScript.OrderState.IDLE, "GTA-CASE.1: Unit 1 is IDLE")
+	_assert(IsoMath.grid_distance(gta1_units[0].current_cell, fu_army.get_rally_cell()) <= TacticalMilitaryManagerScript.RALLY_PERIMETER_DISTANCE, "GTA-CASE.1: Unit 0 within garrison perimeter")
+	_assert(IsoMath.grid_distance(gta1_units[1].current_cell, fu_army.get_rally_cell()) <= TacticalMilitaryManagerScript.RALLY_PERIMETER_DISTANCE, "GTA-CASE.1: Unit 1 within garrison perimeter")
+	_assert(fu_army.movement_state == PlayerArmyManagerScript.MovementState.GARRISONED, "GTA-CASE.1: Final state transitions to GARRISONED only after all units settle")
+	_assert(fu_army.get_defending_soldier_count() == 2, "GTA-CASE.1: Defending soldier count equals 2")
+
+	# Sub-check: unit stops outside perimeter
+	fu_army.movement_state = PlayerArmyManagerScript.MovementState.MARCHING
+	fu_army.current_cell = fu_army.get_rally_cell()
+	fu_army.destination_cell = fu_army.get_rally_cell()
+	fu_army.current_path.clear()
+	gta1_units[1].current_cell = Vector2i(42, 42) # dist 19 > 5
+	gta1_units[1].target_cell = Vector2i(42, 42)
+	gta1_units[1].order_state = TacticalUnitScript.OrderState.IDLE
+	gta1_units[1].current_path.clear()
+
+	var ret_gta1_sub = fu_army.cancel_move()
+	_assert(ret_gta1_sub.get("success", false), "GTA-CASE.1 Sub: cancel_move() succeeded")
+	_assert(fu_army.movement_state == PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD, "GTA-CASE.1 Sub: State is IDLE_AT_FIELD when unit stopped outside perimeter")
+	_assert(fu_army.movement_state != PlayerArmyManagerScript.MovementState.GARRISONED, "GTA-CASE.1 Sub: State is NOT GARRISONED when unit stopped outside perimeter")
+
+	# -------------------------------------------------------------------------
+	# GTA-CASE.2: Cancellation when every tactical unit is already settled
+	# -------------------------------------------------------------------------
+	print("\n--- Running GTA-CASE.2: Cancel Move When Already Settled ---")
+	fu_army.current_cell = fu_army.get_rally_cell()
+	fu_army.destination_cell = fu_army.get_rally_cell()
+	gta1_units[0].current_cell = Vector2i(32, 33)
+	gta1_units[0].order_state = TacticalUnitScript.OrderState.IDLE
+	gta1_units[0].current_path.clear()
+	gta1_units[1].current_cell = Vector2i(33, 33)
+	gta1_units[1].order_state = TacticalUnitScript.OrderState.IDLE
+	gta1_units[1].current_path.clear()
+
+	var u0_cell_pre: Vector2i = gta1_units[0].current_cell
+	var u1_cell_pre: Vector2i = gta1_units[1].current_cell
+	var roster_pre: int = fu_tac.get_unit_count()
+
+	# Put army in valid applicable MARCHING state (e.g. march command issued but no steps taken yet)
+	fu_army.movement_state = PlayerArmyManagerScript.MovementState.MARCHING
+	var p_gta2: Array[Vector2i] = [Vector2i(32, 34)]
+	fu_army.current_path = p_gta2
+	fu_army.destination_cell = Vector2i(32, 34)
+
+	var ret_gta2 = fu_army.cancel_move()
+	_assert(ret_gta2.get("success", false), "GTA-CASE.2: cancel_move() succeeded when units already settled")
+	_assert(fu_army.movement_state == PlayerArmyManagerScript.MovementState.GARRISONED, "GTA-CASE.2: State transitions to GARRISONED cleanly")
+	_assert(gta1_units[0].current_cell == u0_cell_pre, "GTA-CASE.2: Unit 0 position was not displaced")
+	_assert(gta1_units[1].current_cell == u1_cell_pre, "GTA-CASE.2: Unit 1 position was not displaced")
+	_assert(fu_tac.get_unit_count() == roster_pre, "GTA-CASE.2: Roster size unchanged")
+	_assert(fu_army.get_defending_soldier_count() == 2, "GTA-CASE.2: Defending count remains 2")
+
+	# -------------------------------------------------------------------------
+	# GTA-CASE.3: Route-recovery transition & Integrated Restore
+	# -------------------------------------------------------------------------
+	print("\n--- Running GTA-CASE.3: Route-Recovery & Integrated Restore Transitions ---")
+
+	# Part A: Route obstruction recovery during advance_movement
+	fu_army.movement_state = PlayerArmyManagerScript.MovementState.MARCHING
+	fu_army.current_cell = fu_army.get_rally_cell()
+	fu_army.destination_cell = Vector2i(32, 34)
+	var p_gta3: Array[Vector2i] = [Vector2i(32, 34)]
+	fu_army.current_path = p_gta3
+	fu_army.step_accumulator = 0.0
+
+	# Keep Unit 1 moving
+	gta1_units[1].order_state = TacticalUnitScript.OrderState.MOVING
+	gta1_units[1].current_cell = Vector2i(38, 33)
+	gta1_units[1].target_cell = Vector2i(33, 33)
+	var p_u1_gta3: Array[Vector2i] = [Vector2i(37, 33), Vector2i(36, 33), Vector2i(35, 33), Vector2i(34, 33), Vector2i(33, 33)]
+	gta1_units[1].current_path = p_u1_gta3
+
+	# Use blocked nav where (32, 34) is unwalkable and find_path to destination fails
+	var blocked_nav = BlockedRouteNav.new(live_nav, Vector2i(32, 34))
+	fu_army.set_custom_nav(blocked_nav)
+	fu_army.advance_movement(0.5, 1.0)
+	fu_army.set_custom_nav(live_nav)
+
+	_assert(fu_army.current_cell == fu_army.get_rally_cell(), "GTA-CASE.3A: Strategic center halted at rally")
+	_assert(fu_army.movement_state != PlayerArmyManagerScript.MovementState.GARRISONED, "GTA-CASE.3A: Reroute failure does NOT mark army GARRISONED while units moving")
+	_assert(fu_army.movement_state == PlayerArmyManagerScript.MovementState.MARCHING, "GTA-CASE.3A: Army remains MARCHING while tactical units in transit")
+
+	# Part B: Integrated save restore with tactical unit moving
+	var save_moving: Dictionary = SaveManagerScript.serialize_world_state(world_instance).duplicate(true)
+	save_moving["player_army"] = {
+		"soldier_count": 2,
+		"is_supplied": true,
+		"last_upkeep_day": -1,
+		"current_cell": [32, 33],
+		"rally_cell": [32, 33],
+		"destination_cell": [32, 33],
+		"movement_state": "garrisoned",
+		"current_path": []
+	}
+	save_moving["tactical_military"] = {
+		"units": [
+			{"unit_id": "tac_unit_1", "current_cell": [32, 33], "target_cell": [32, 33], "order_state": "idle", "current_path": []},
+			{"unit_id": "tac_unit_2", "current_cell": [38, 33], "target_cell": [33, 33], "order_state": "moving", "current_path": [[37, 33], [36, 33], [35, 33], [34, 33], [33, 33]]}
+		],
+		"current_formation": "Line",
+		"control_groups": {"1": [], "2": [], "3": []},
+		"next_unit_index": 3
+	}
+	var res_moving = SaveManagerScript.apply_loaded_state_to_world(world_instance, save_moving)
+	_assert(res_moving.get("success", false), "GTA-CASE.3B: Save with moving tactical unit applied cleanly")
+	var restored_army = world_instance.get("player_army_mgr")
+	_assert(restored_army.movement_state != PlayerArmyManagerScript.MovementState.GARRISONED, "GTA-CASE.3B: Restored army strictly NOT GARRISONED when tactical unit is moving")
+	_assert(restored_army.movement_state == PlayerArmyManagerScript.MovementState.MARCHING, "GTA-CASE.3B: Restored army is MARCHING reflecting moving tactical unit")
+
+	# Part C: Integrated save restore with tactical unit idle in field
+	var save_field: Dictionary = SaveManagerScript.serialize_world_state(world_instance).duplicate(true)
+	save_field["player_army"] = {
+		"soldier_count": 2,
+		"is_supplied": true,
+		"last_upkeep_day": -1,
+		"current_cell": [32, 33],
+		"rally_cell": [32, 33],
+		"destination_cell": [32, 33],
+		"movement_state": "garrisoned",
+		"current_path": []
+	}
+	save_field["tactical_military"] = {
+		"units": [
+			{"unit_id": "tac_unit_1", "current_cell": [32, 33], "target_cell": [32, 33], "order_state": "idle", "current_path": []},
+			{"unit_id": "tac_unit_2", "current_cell": [42, 42], "target_cell": [42, 42], "order_state": "idle", "current_path": []}
+		],
+		"current_formation": "Line",
+		"control_groups": {"1": [], "2": [], "3": []},
+		"next_unit_index": 3
+	}
+	var res_field = SaveManagerScript.apply_loaded_state_to_world(world_instance, save_field)
+	_assert(res_field.get("success", false), "GTA-CASE.3C: Save with field tactical unit applied cleanly")
+	_assert(restored_army.movement_state != PlayerArmyManagerScript.MovementState.GARRISONED, "GTA-CASE.3C: Restored army strictly NOT GARRISONED when unit is in field")
+	_assert(restored_army.movement_state == PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD, "GTA-CASE.3C: Restored army is IDLE_AT_FIELD reflecting field tactical unit")
 

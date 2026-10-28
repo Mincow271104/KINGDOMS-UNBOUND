@@ -616,3 +616,16 @@ When Godot Editor is running with the MCP plugin:
     - **Fix D: Real Gameplay & Persistence Paths (Hardened FH-CASE.8b)**
       - **FH-CASE.8b:** Verifies `SaveManager.apply_loaded_state_to_world()` reports failure on corrupted tactical military data without destroying live world state.
   - *Status:* **PASSED** (2026-10-29, Exit Code 0: 252/252 assertions passed in `test_tactical_military.gd`).
+
+### Package 1W Garrison Transition Audit: Strict Invariant Enforcement & Integrated Restore
+- **GTA-CASE.1 to GTA-CASE.3: Strict Garrison Transition Audit Test Suite**
+  - *Tracked Test Suite:* `res://scripts/test/test_tactical_military.gd` (Group 9)
+  - *Command:* `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --path "e:\KINGDOMS UNBOUND\kingdoms-unbound" -s res://scripts/test/test_tactical_military.gd`
+  - *Acceptance Criteria by Case:*
+    - **GTA-CASE.1 (Cancel Move While Tactical Units In Transit & Field Settlement):** Strategic center at `rally_cell` in `MARCHING` state with empty path; at least one tactical unit in transit (`order_state == MOVING`, distance 6 > 5). `cancel_move()` executes without entering `GARRISONED`, strictly preserving `MARCHING` in-transit state and unit path. Advancing simulation transitions to `GARRISONED` only after all units are idle and within distance $\le 5$. Sub-check: when unit is stopped outside perimeter (dist > 5), `cancel_move()` cleanly yields `IDLE_AT_FIELD` and strictly avoids `GARRISONED`.
+    - **GTA-CASE.2 (Cancel Move When Already Settled at Base):** Strategic center at `rally_cell` with all tactical units idle within perimeter $\le 5$. `cancel_move()` transitions cleanly to `GARRISONED` with zero unit displacement, unchanged roster size, and valid defending count.
+    - **GTA-CASE.3 (Route-Recovery & Integrated Save Restore Invariant):**
+      - **GTA-CASE.3A (Dynamic Route Obstruction Reroute Failure):** Strategic army at `rally_cell` with tactical unit moving. Dynamic obstacle causes rerouting failure; recovery halts strategic center but strictly preserves `MARCHING` without prematurely marking non-empty army `GARRISONED`.
+      - **GTA-CASE.3B (Integrated Restore with Moving Tactical Unit):** Save data specifies `player_army.movement_state: "garrisoned"` while `tactical_military` contains a moving unit. Following integrated world restore via `SaveManager.apply_loaded_state_to_world()`, restored strategic state is strictly corrected to `MARCHING`, never retaining a false `GARRISONED` status.
+      - **GTA-CASE.3C (Integrated Restore with Field Tactical Unit):** Save data specifies `player_army.movement_state: "garrisoned"` while `tactical_military` contains an idle unit at `(42, 42)` (dist > 5). Restored strategic state is strictly corrected to `IDLE_AT_FIELD`.
+  - *Status:* **PASSED** (2026-10-29, Exit Code 0: 285/285 assertions passed in `test_tactical_military.gd`).
