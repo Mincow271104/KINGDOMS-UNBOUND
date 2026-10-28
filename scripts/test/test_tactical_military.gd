@@ -717,3 +717,193 @@ func _run_all_tests() -> void:
 	_assert(fu_army.get_army_count() == pre_cas_count - 1, "FU-CASE.22: Authoritative soldier count decremented by exactly 1")
 	_assert(fu_tac.get_unit_count() == fu_army.get_army_count(), "FU-CASE.22: Tactical unit count strictly matches soldier count after casualty (%d == %d)" % [fu_tac.get_unit_count(), fu_army.get_army_count()])
 
+	# =========================================================================
+	# Group 7: Final Hardening Verification (Fix A, Fix B, Fix C, Fix D)
+	# =========================================================================
+	print("\n--- Group 7: Final Hardening Verification ---")
+
+	# FH-CASE.1: Offensive campaign rejected when field unit count == 0 even if garrison > 0
+	fu_tac.clear_all_units()
+	fu_army.soldier_count = 0
+	fu_army.movement_state = PlayerArmyManagerScript.MovementState.GARRISONED
+	fu_army.current_cell = fu_army.get_rally_cell()
+	fu_army.destination_cell = fu_army.get_rally_cell()
+	fu_army.current_path.clear()
+	fu_army.sync_state_from_tactical()
+
+	var r_fh1 = fu_army.recruit(4)
+	_assert(r_fh1.get("success", false), "FH-CASE.1: Recruited 4 garrisoned soldiers")
+	_assert(fu_army.get_defending_soldier_count() == 4, "FH-CASE.1: 4 garrisoned defending soldiers at base")
+	_assert(fu_army.get_field_unit_count() == 0, "FH-CASE.1: 0 field units")
+
+	var fh_fm = FactionManagerScript.new()
+	var fh_fac = fh_fm.get_faction("rival_military")
+	if fh_fac != null:
+		fh_fac.is_at_war = true
+		fh_fac.military_power = 200.0
+
+	var fh_camp = BattleCampaignManagerScript.new(world_instance, fh_fm, 12345)
+	fh_camp.set_custom_army_manager(fu_army)
+	var can_atk_fh1 = fh_camp.can_launch_offensive_campaign("rival_military")
+	_assert(not can_atk_fh1.get("can_attack", true), "FH-CASE.1: Offensive campaign rejected when field unit count == 0: %s" % can_atk_fh1.get("reason", ""))
+	var launch_fh1 = fh_camp.launch_offensive_campaign("rival_military")
+	_assert(not launch_fh1.get("success", true), "FH-CASE.1: Launch offensive campaign fails closed with 0 field units")
+
+	# FH-CASE.2: Offensive campaign with split army: only field troops participate and take casualties
+	# Deploy 2 units to field outside RALLY_PERIMETER_DISTANCE (e.g. (10, 10))
+	var all_fh_units = fu_tac.get_all_units()
+	var field_pos1 := Vector2i(10, 10)
+	var field_pos2 := Vector2i(11, 10)
+	if not live_nav.is_cell_walkable(field_pos1):
+		var w_slots = fu_tac._find_distinct_walkable_cells(Vector2i(10, 10), 2, live_nav)
+		field_pos1 = w_slots[0]
+		field_pos2 = w_slots[1]
+
+	all_fh_units[0].current_cell = field_pos1
+	all_fh_units[0].target_cell = field_pos1
+	all_fh_units[0].order_state = TacticalUnitScript.OrderState.IDLE
+	all_fh_units[0].current_path.clear()
+
+	all_fh_units[1].current_cell = field_pos2
+	all_fh_units[1].target_cell = field_pos2
+	all_fh_units[1].order_state = TacticalUnitScript.OrderState.IDLE
+	all_fh_units[1].current_path.clear()
+
+	# Remaining 2 units remain at rally cell
+	all_fh_units[2].current_cell = fu_army.get_rally_cell()
+	all_fh_units[2].target_cell = fu_army.get_rally_cell()
+	all_fh_units[2].order_state = TacticalUnitScript.OrderState.IDLE
+	all_fh_units[2].current_path.clear()
+
+	all_fh_units[3].current_cell = fu_army.get_rally_cell()
+	all_fh_units[3].target_cell = fu_army.get_rally_cell()
+	all_fh_units[3].order_state = TacticalUnitScript.OrderState.IDLE
+	all_fh_units[3].current_path.clear()
+
+	fu_army.movement_state = PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD
+	fu_army.current_cell = field_pos1
+	fu_army.destination_cell = field_pos1
+	fu_tac.tactical_state_updated.emit()
+
+	_assert(fu_army.get_field_unit_count() == 2, "FH-CASE.2: Exactly 2 field units deployed")
+	_assert(fu_army.get_defending_soldier_count() == 2, "FH-CASE.2: Exactly 2 garrisoned units at base")
+
+	# Launch offensive campaign; should use atk_troops = 2 (not total 4)
+	var launch_fh2 = fh_camp.launch_offensive_campaign("rival_military", 555)
+	_assert(launch_fh2.get("success", false), "FH-CASE.2: Offensive campaign launched successfully with field force: %s" % launch_fh2.get("reason", ""))
+	_assert(launch_fh2.get("report") != null, "FH-CASE.2: BattleReport produced")
+
+	# Verify casualties came exclusively from field units
+	var post_field_count := fu_army.get_field_unit_count()
+	var post_garrison_count := fu_army.get_defending_soldier_count()
+	_assert(post_garrison_count == 2, "FH-CASE.2: Garrison units completely untouched after offensive campaign (%d == 2)" % post_garrison_count)
+	_assert(fu_army.get_army_count() == post_field_count + post_garrison_count, "FH-CASE.2: Authoritative soldier count equals field + garrison (%d == %d)" % [fu_army.get_army_count(), post_field_count + post_garrison_count])
+	_assert(fu_tac.get_unit_count() == fu_army.get_army_count(), "FH-CASE.2: Tactical roster size strictly matches soldier count (%d == %d)" % [fu_tac.get_unit_count(), fu_army.get_army_count()])
+
+	# FH-CASE.3: Defensive raid with split army: only garrisoned troops take casualties
+	var pre_raid_field := fu_army.get_field_unit_count()
+	var pre_raid_garrison := fu_army.get_defending_soldier_count()
+	var removed_def := fu_army.remove_casualties(1, false)
+	_assert(removed_def == 1, "FH-CASE.3: Defensive casualty removed 1 soldier")
+	_assert(fu_army.get_field_unit_count() == pre_raid_field, "FH-CASE.3: Field units completely untouched by defensive raid (%d == %d)" % [fu_army.get_field_unit_count(), pre_raid_field])
+	_assert(fu_army.get_defending_soldier_count() == pre_raid_garrison - 1, "FH-CASE.3: Garrisoned units reduced by 1 (%d == %d)" % [fu_army.get_defending_soldier_count(), pre_raid_garrison - 1])
+	_assert(fu_tac.get_unit_count() == fu_army.get_army_count(), "FH-CASE.3: Tactical roster matches soldier count after defensive casualty (%d == %d)" % [fu_tac.get_unit_count(), fu_army.get_army_count()])
+
+	# FH-CASE.4: Strict save validation rejects moving unit without current_path
+	var bad_moving_no_path: Dictionary = base_valid_save.duplicate(true)
+	bad_moving_no_path["player_army"]["soldier_count"] = 1
+	bad_moving_no_path["tactical_military"]["units"] = [
+		{"unit_id": "u1", "current_cell": [30, 30], "target_cell": [31, 30], "order_state": "moving"}
+	]
+	var val_moving_no_path = SaveManagerScript.validate_save_data(bad_moving_no_path)
+	_assert(not val_moving_no_path.get("valid", true), "FH-CASE.4: Moving unit without current_path rejected fail-closed")
+
+	# FH-CASE.5: Strict save validation rejects moving unit whose current_path does not end at target_cell
+	var bad_moving_wrong_dest: Dictionary = base_valid_save.duplicate(true)
+	bad_moving_wrong_dest["player_army"]["soldier_count"] = 1
+	bad_moving_wrong_dest["tactical_military"]["units"] = [
+		{"unit_id": "u1", "current_cell": [30, 30], "target_cell": [32, 30], "order_state": "moving", "current_path": [[31, 30]]}
+	]
+	var val_moving_wrong_dest = SaveManagerScript.validate_save_data(bad_moving_wrong_dest)
+	_assert(not val_moving_wrong_dest.get("valid", true), "FH-CASE.5: Moving unit with path ending at wrong destination rejected fail-closed")
+
+	# FH-CASE.6: Strict save validation rejects idle unit with non-empty current_path
+	var bad_idle_with_path: Dictionary = base_valid_save.duplicate(true)
+	bad_idle_with_path["player_army"]["soldier_count"] = 1
+	bad_idle_with_path["tactical_military"]["units"] = [
+		{"unit_id": "u1", "current_cell": [30, 30], "target_cell": [30, 30], "order_state": "idle", "current_path": [[31, 30]]}
+	]
+	var val_idle_with_path = SaveManagerScript.validate_save_data(bad_idle_with_path)
+	_assert(not val_idle_with_path.get("valid", true), "FH-CASE.6: Idle unit with non-empty current_path rejected fail-closed")
+
+	# FH-CASE.7: Strict save validation rejects soldier count mismatch even without movement_state (legacy army format)
+	var bad_legacy_mismatch: Dictionary = base_valid_save.duplicate(true)
+	bad_legacy_mismatch["player_army"] = {"soldier_count": 5} # lacks movement_state
+	bad_legacy_mismatch["tactical_military"]["units"] = [
+		{"unit_id": "u1", "current_cell": [30, 30], "target_cell": [30, 30], "order_state": "idle", "current_path": []},
+		{"unit_id": "u2", "current_cell": [31, 30], "target_cell": [31, 30], "order_state": "idle", "current_path": []}
+	]
+	var val_legacy_mismatch = SaveManagerScript.validate_save_data(bad_legacy_mismatch)
+	_assert(not val_legacy_mismatch.get("valid", true), "FH-CASE.7: Soldier count mismatch without movement_state rejected fail-closed")
+
+	# FH-CASE.8: Save restore fails closed on corrupted tactical_military without mutating live state
+	var pre_units_count = fu_tac.get_unit_count()
+	var corrupted_restore_dict: Dictionary = {
+		"units": [
+			{"unit_id": "bad_u", "current_cell": [999, 999], "target_cell": [999, 999], "order_state": "idle"}
+		]
+	}
+	var des_res = fu_tac.deserialize(corrupted_restore_dict)
+	_assert(not des_res, "FH-CASE.8: TacticalMilitaryManager.deserialize returns false for corrupted data")
+	_assert(fu_tac.get_unit_count() == pre_units_count, "FH-CASE.8: Live unit roster was NOT wiped or mutated by failed deserialize (%d == %d)" % [fu_tac.get_unit_count(), pre_units_count])
+
+	# FH-CASE.9: Army march advances tactical units step-by-step without snapping
+	fu_tac.clear_all_units()
+	fu_army.soldier_count = 0
+	fu_army.movement_state = PlayerArmyManagerScript.MovementState.GARRISONED
+	fu_army.current_cell = fu_army.get_rally_cell()
+	fu_army.destination_cell = fu_army.get_rally_cell()
+	fu_army.current_path.clear()
+	fu_army.sync_state_from_tactical()
+
+	fu_army.recruit(1)
+	var march_unit: Node2D = fu_tac.get_all_units()[0]
+	var rally_start: Vector2i = fu_army.get_rally_cell()
+	var dest_step := Vector2i(rally_start.x - 3, rally_start.y)
+	if not live_nav.is_cell_walkable(dest_step):
+		dest_step = fu_tac._find_distinct_walkable_cells(dest_step, 1, live_nav)[0]
+
+	var ord_march = fu_army.order_move(dest_step)
+	_assert(ord_march.get("success", false), "FH-CASE.9: Order move issued for physical stepping: %s" % ord_march.get("reason", ""))
+	_assert(march_unit.order_state == TacticalUnitScript.OrderState.MOVING, "FH-CASE.9: Tactical unit is in MOVING state")
+	var initial_path_size: int = march_unit.current_path.size()
+	_assert(initial_path_size >= 2, "FH-CASE.9: Path length is at least 2 steps: %d" % initial_path_size)
+
+	# Advance by exactly 1 step duration (0.5s)
+	fu_army.advance_movement(0.5, 1.0)
+	_assert(march_unit.current_cell != rally_start, "FH-CASE.9: Tactical unit advanced 1 cell from rally start")
+	_assert(march_unit.current_cell != dest_step, "FH-CASE.9: Tactical unit did NOT teleport directly to final destination")
+	_assert(march_unit.order_state == TacticalUnitScript.OrderState.MOVING, "FH-CASE.9: Tactical unit still in MOVING state mid-march")
+
+	# Advance remaining duration until arrival
+	var safety_counter: int = 0
+	while march_unit.order_state == TacticalUnitScript.OrderState.MOVING and safety_counter < 50:
+		safety_counter += 1
+		fu_army.advance_movement(0.5, 1.0)
+
+	_assert(march_unit.order_state == TacticalUnitScript.OrderState.IDLE, "FH-CASE.9: Tactical unit naturally transitioned to IDLE upon arrival")
+	_assert(march_unit.current_cell == dest_step, "FH-CASE.9: Tactical unit reached final destination: %s" % str(dest_step))
+
+	# FH-CASE.10: PlayerArmyManager.remove_casualties emits army_changed signal when tactical manager active
+	var signal_received: Array = []
+	var on_army_changed = func(count: int, capacity: int):
+		signal_received.append({"count": count, "capacity": capacity})
+	fu_army.army_changed.connect(on_army_changed)
+
+	var pre_sig_count = fu_army.get_army_count()
+	var removed_sig = fu_army.remove_casualties(1, false)
+	_assert(removed_sig == 1, "FH-CASE.10: Removed 1 garrisoned soldier")
+	_assert(signal_received.size() == 1, "FH-CASE.10: army_changed signal emitted on casualty removal with tactical military active")
+	_assert(signal_received[0]["count"] == pre_sig_count - 1, "FH-CASE.10: army_changed signal reported accurate post-casualty count: %d" % signal_received[0]["count"])
+	fu_army.army_changed.disconnect(on_army_changed)
+

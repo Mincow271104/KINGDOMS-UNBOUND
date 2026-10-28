@@ -513,6 +513,9 @@ func order_return_home() -> Dictionary:
 	return move_res
 
 func advance_movement(delta: float, speed_mult: float = 1.0) -> void:
+	if tactical_military_mgr != null and tactical_military_mgr.has_method("advance_movement"):
+		tactical_military_mgr.call("advance_movement", delta, speed_mult, get_nav())
+
 	if soldier_count <= 0:
 		if movement_state != MovementState.GARRISONED or not current_path.is_empty():
 			current_path.clear()
@@ -578,8 +581,6 @@ func _arrive_at_destination() -> void:
 		movement_state = MovementState.GARRISONED
 	else:
 		movement_state = MovementState.IDLE_AT_FIELD
-	if tactical_military_mgr != null and tactical_military_mgr.has_method("arrive_all_at_destination"):
-		tactical_military_mgr.call("arrive_all_at_destination")
 	movement_state_changed.emit(movement_state, current_cell, destination_cell)
 
 static func movement_state_to_string(state: int) -> String:
@@ -609,7 +610,17 @@ static func string_to_movement_state(s: String) -> int:
 func remove_casualties(count: int, from_field: bool = false) -> int:
 	if count <= 0:
 		return 0
-	var removed: int = mini(count, soldier_count)
+	var max_available: int = soldier_count
+	if tactical_military_mgr != null:
+		if from_field:
+			max_available = get_field_unit_count()
+		else:
+			max_available = get_defending_soldier_count()
+	elif from_field:
+		max_available = get_field_unit_count()
+	var removed: int = mini(count, max_available)
+	if removed <= 0:
+		return 0
 	soldier_count = maxi(0, soldier_count - removed)
 	if soldier_count == 0:
 		current_path.clear()
@@ -619,9 +630,8 @@ func remove_casualties(count: int, from_field: bool = false) -> int:
 		destination_cell = rally_cell
 		movement_state_changed.emit(movement_state, current_cell, destination_cell)
 	if tactical_military_mgr != null and tactical_military_mgr.has_method("sync_with_player_army"):
-		tactical_military_mgr.call("sync_with_player_army", from_field)
-	else:
-		army_changed.emit(soldier_count, get_army_capacity())
+		tactical_military_mgr.call("sync_with_player_army", from_field, true)
+	army_changed.emit(soldier_count, get_army_capacity())
 	return removed
 
 func sync_state_from_tactical() -> void:
@@ -636,6 +646,10 @@ func sync_state_from_tactical() -> void:
 			movement_state_changed.emit(movement_state, current_cell, destination_cell)
 		return
 
+	# If the strategic army is actively marching on a path, never abort or clear current_path
+	if movement_state == MovementState.MARCHING and not current_path.is_empty():
+		return
+
 	var all_units: Array = tactical_military_mgr.call("get_all_units")
 	if all_units.is_empty():
 		return
@@ -647,9 +661,6 @@ func sync_state_from_tactical() -> void:
 			break
 
 	if any_moving:
-		if movement_state != MovementState.MARCHING:
-			movement_state = MovementState.MARCHING
-			movement_state_changed.emit(movement_state, current_cell, destination_cell)
 		return
 
 	# If army is already IDLE_AT_FIELD at a valid field position and no units are moving:

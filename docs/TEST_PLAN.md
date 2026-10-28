@@ -570,3 +570,26 @@ When Godot Editor is running with the MCP plugin:
       - **FU-CASE.21:** Offensive campaigns strictly reject launching if the army is garrisoned at base.
       - **FU-CASE.22:** Casualties reduce authoritative soldier count once, and tactical roster stays synchronized without double deduction.
   - *Status:* **PASSED** (2026-10-25, Exit Code 0: 112/112 assertions passed in `test_tactical_military.gd`; all 10 project regression test suites passed with 0 failures).
+
+---
+
+### Package 1W Final Hardening: Field-Only Campaigns, Strict Save Validation & Movement Integrity
+- **FH-CASE.1 to FH-CASE.10: Final Hardening Test Suite**
+  - *Tracked Test Suite:* `res://scripts/test/test_tactical_military.gd` (Group 7)
+  - *Command:* `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --path "e:\KINGDOMS UNBOUND\kingdoms-unbound" -s res://scripts/test/test_tactical_military.gd`
+  - *Acceptance Criteria by Fix Category:*
+    - **Fix A: Field-Only Offensive Campaigns & Location-Restricted Casualties (FH-CASE.1 to FH-CASE.3)**
+      - **FH-CASE.1:** Offensive campaigns strictly reject launching when field troops == 0, even when garrisoned soldier count > 0.
+      - **FH-CASE.2:** Split army offensive campaigns use only eligible field units as attacking troop force (`atk_troops = get_field_unit_count()`); casualties deduct strictly from field units (`from_field = true`) and never touch garrisoned base defenders.
+      - **FH-CASE.3:** Split army defensive settlement raids deduct casualties strictly from garrisoned defenders (`from_field = false`) and never touch deployed field units.
+    - **Fix B: Fail-Closed Persistence & Path Validation (FH-CASE.4 to FH-CASE.8)**
+      - **FH-CASE.4:** Strict save validation rejects moving tactical units without a `current_path`.
+      - **FH-CASE.5:** Strict save validation rejects moving units whose `current_path` final waypoint does not match `target_cell`.
+      - **FH-CASE.6:** Strict save validation rejects idle/holding units with a non-empty `current_path`.
+      - **FH-CASE.7:** Strict save validation rejects soldier count mismatches against `player_army.soldier_count` even when `player_army` lacks `movement_state` (removing `is_legacy_army` validation bypass).
+      - **FH-CASE.8:** Save restoration fails closed (`apply_loaded_state_to_world` returns `{"success": false}`) on corrupted tactical military data without destroying or mutating live world state (validation-before-mutation).
+    - **Fix C: Safe Strategic/Tactical Movement Advancement (FH-CASE.9)**
+      - **FH-CASE.9:** Marching units advance cell-by-cell via `advance_movement(delta, speed_mult)` without forced snapping or teleportation (`arrive_all_at_destination()`). Units naturally transition to IDLE upon reaching target cell.
+    - **Fix D: Army Count UI Signals (FH-CASE.10)**
+      - **FH-CASE.10:** `PlayerArmyManager.remove_casualties()` unconditionally emits `army_changed` signal with accurate post-casualty count when tactical manager is active.
+  - *Status:* **PASSED** (2026-10-28, Exit Code 0: 145/145 assertions passed in `test_tactical_military.gd`; all 10 project test suites passed with 0 failures).

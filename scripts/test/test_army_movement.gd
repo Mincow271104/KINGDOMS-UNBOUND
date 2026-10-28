@@ -914,6 +914,7 @@ func _test_group_persistence_and_recovery() -> void:
 	# TC-MOVE.21: Legacy Save Compatibility
 	print("--- Running TC-MOVE.21: Legacy Save Compatibility ---")
 	var legacy_dict := save_dict.duplicate(true)
+	legacy_dict.erase("tactical_military")
 	legacy_dict["player_army"] = {
 		"soldier_count": 3,
 		"is_supplied": true,

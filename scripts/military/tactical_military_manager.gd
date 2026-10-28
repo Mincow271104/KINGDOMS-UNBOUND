@@ -132,7 +132,7 @@ func can_allocate_spawns(count: int, rally_cell: Vector2i = Vector2i(-1, -1), na
 	var slots := _find_distinct_walkable_cells(rally_cell, count, nav, occupied)
 	return slots.size() >= count
 
-func sync_with_player_army(prefer_field_casualties: bool = false) -> void:
+func sync_with_player_army(prefer_field_casualties: bool = false, location_restricted: bool = false) -> void:
 	if player_army_mgr == null:
 		return
 
@@ -205,33 +205,44 @@ func sync_with_player_army(prefer_field_casualties: bool = false) -> void:
 					if remove_candidates.size() >= to_remove:
 						break
 
-		# Pass 3: Any unselected idle units anywhere
+		# Pass 2b: Any units in preferred battle location (even if selected)
 		if remove_candidates.size() < to_remove:
 			for i in range(all_ids.size() - 1, -1, -1):
 				var uid: String = all_ids[i]
 				var u = units[uid]
-				if not selected_unit_ids.has(uid) and not remove_candidates.has(uid) and u.order_state == TacticalUnitScript.OrderState.IDLE:
+				if not remove_candidates.has(uid) and is_preferred_loc.call(u):
 					remove_candidates.append(uid)
 					if remove_candidates.size() >= to_remove:
 						break
 
-		# Pass 4: Any unselected units anywhere
-		if remove_candidates.size() < to_remove:
-			for i in range(all_ids.size() - 1, -1, -1):
-				var uid: String = all_ids[i]
-				if not selected_unit_ids.has(uid) and not remove_candidates.has(uid):
-					remove_candidates.append(uid)
-					if remove_candidates.size() >= to_remove:
-						break
+		if not location_restricted:
+			# Pass 3: Any unselected idle units anywhere
+			if remove_candidates.size() < to_remove:
+				for i in range(all_ids.size() - 1, -1, -1):
+					var uid: String = all_ids[i]
+					var u = units[uid]
+					if not selected_unit_ids.has(uid) and not remove_candidates.has(uid) and u.order_state == TacticalUnitScript.OrderState.IDLE:
+						remove_candidates.append(uid)
+						if remove_candidates.size() >= to_remove:
+							break
 
-		# Pass 5: Remaining units in descending ID
-		if remove_candidates.size() < to_remove:
-			for i in range(all_ids.size() - 1, -1, -1):
-				var uid: String = all_ids[i]
-				if not remove_candidates.has(uid):
-					remove_candidates.append(uid)
-					if remove_candidates.size() >= to_remove:
-						break
+			# Pass 4: Any unselected units anywhere
+			if remove_candidates.size() < to_remove:
+				for i in range(all_ids.size() - 1, -1, -1):
+					var uid: String = all_ids[i]
+					if not selected_unit_ids.has(uid) and not remove_candidates.has(uid):
+						remove_candidates.append(uid)
+						if remove_candidates.size() >= to_remove:
+							break
+
+			# Pass 5: Remaining units in descending ID
+			if remove_candidates.size() < to_remove:
+				for i in range(all_ids.size() - 1, -1, -1):
+					var uid: String = all_ids[i]
+					if not remove_candidates.has(uid):
+						remove_candidates.append(uid)
+						if remove_candidates.size() >= to_remove:
+							break
 
 		for uid in remove_candidates:
 			_remove_unit(uid)
@@ -626,14 +637,7 @@ func order_return_all_to_rally(p_rally: Vector2i = Vector2i(-1, -1), nav: GridNa
 	return issue_move_order(r_cell, nav)
 
 func arrive_all_at_destination() -> void:
-	for uid in units.keys():
-		var u = units[uid]
-		if is_instance_valid(u):
-			if u.order_state == TacticalUnitScript.OrderState.MOVING:
-				u.current_cell = u.target_cell
-				u.current_path.clear()
-				u.order_state = TacticalUnitScript.OrderState.IDLE
-				u.position = IsoMath.map_to_local(u.current_cell)
+	# Snapping/teleportation removed: units advance physically via advance_movement().
 	tactical_state_updated.emit()
 
 # -----------------------------------------------------------------------------
@@ -724,8 +728,8 @@ func serialize() -> Dictionary:
 	}
 
 func deserialize(data: Dictionary) -> bool:
-	clear_all_units()
 	if data.is_empty():
+		clear_all_units()
 		return true
 
 	if not data.has("units") or not (data.get("units") is Array):
@@ -750,6 +754,55 @@ func deserialize(data: Dictionary) -> bool:
 		if not IsoMath.is_in_bounds(cell):
 			return false
 
+		var o_state_str: String = String(u_data.get("order_state", "idle")).to_lower()
+		if not (o_state_str in ["idle", "moving", "holding"]):
+			return false
+
+		var tgt_c := cell
+		if u_data.has("target_cell"):
+			var raw_tgt = u_data.get("target_cell")
+			if raw_tgt is Array and raw_tgt.size() >= 2:
+				tgt_c = Vector2i(int(raw_tgt[0]), int(raw_tgt[1]))
+			elif raw_tgt is Vector2i:
+				tgt_c = raw_tgt
+			else:
+				return false
+			if not IsoMath.is_in_bounds(tgt_c):
+				return false
+		elif o_state_str == "moving":
+			return false
+
+		var u_path = u_data.get("current_path")
+		if o_state_str == "moving":
+			if not (u_path is Array) or u_path.is_empty():
+				return false
+			for step in u_path:
+				var s_pt := Vector2i(-1, -1)
+				if step is Array and step.size() >= 2:
+					s_pt = Vector2i(int(step[0]), int(step[1]))
+				elif step is Vector2i:
+					s_pt = step
+				if not IsoMath.is_in_bounds(s_pt):
+					return false
+			var last_pt_raw = u_path[-1]
+			var last_pt := Vector2i(-1, -1)
+			if last_pt_raw is Array and last_pt_raw.size() >= 2:
+				last_pt = Vector2i(int(last_pt_raw[0]), int(last_pt_raw[1]))
+			elif last_pt_raw is Vector2i:
+				last_pt = last_pt_raw
+			if last_pt != tgt_c:
+				return false
+		elif o_state_str in ["idle", "holding"]:
+			if u_path != null and (not (u_path is Array) or not u_path.is_empty()):
+				return false
+
+	var raw_cg = data.get("control_groups")
+	if raw_cg != null and not (raw_cg is Dictionary):
+		return false
+
+	# All validation passed! Safe to mutate state
+	clear_all_units()
+
 	current_formation = String(data.get("current_formation", FORMATION_LINE))
 	if not VALID_FORMATIONS.has(current_formation):
 		current_formation = FORMATION_LINE
@@ -765,7 +818,6 @@ func deserialize(data: Dictionary) -> bool:
 		units[uid] = unit
 		unit_spawned.emit(uid, cell)
 
-	var raw_cg = data.get("control_groups")
 	if raw_cg is Dictionary:
 		for g in [1, 2, 3]:
 			var key := str(g)

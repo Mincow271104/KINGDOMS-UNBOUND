@@ -5806,3 +5806,79 @@ Package 1W is complete, validated, committed, and pushed. Await user authorizati
 - Push to remote `origin/fix/package-1w-tactical-integration`.
 - Deliver comprehensive completion report to user.
 - Await next instructions (do not merge to master, do not start Package 1X).
+---
+
+## [2026-10-28] Package 1W Final Hardening: Field-Only Campaigns, Strict Save Validation & Movement Integrity
+
+### Context & Objective
+Address the critical gaps identified in independent architectural review of Package 1W on dedicated branch `fix/package-1w-final-hardening` based on commit `b2efa8af5d5831eaca366c3fd97ee1a6cf57015f`:
+1. **Fix A:** Use correct participants for offensive campaigns: query and use eligible field units (`get_field_unit_count()`) for attacking force `atk_troops`; clamp attacker casualties to `atk_troops`; strictly location-restrict casualty deductions in `PlayerArmyManager.remove_casualties()` (`from_field = true` never consumes garrisoned units, `from_field = false` never consumes deployed field units); strictly preserve 1:1 parity between `soldier_count` and tactical roster size.
+2. **Fix B:** Close fail-closed save-validation gaps: validate moving units have a valid `target_cell` and non-empty `current_path` ending at `target_cell`; validate idle/holding units have empty paths; remove `is_legacy_army` validation bypass so `units.size() == soldier_count` is checked even for legacy army dictionaries; in `apply_loaded_state_to_world()`, fail closed on failed tactical deserialization; enforce validation-before-mutation in `TacticalMilitaryManager.deserialize()` and `TacticalUnit.deserialize()` returning `bool` before calling `clear_all_units()`; clean `legacy_dict` of `tactical_military` key in `test_army_movement.gd` line 916.
+3. **Fix C:** Safe strategic/tactical movement transitions: delegate tactical movement advancement in `PlayerArmyManager.advance_movement()` to `TacticalMilitaryManager.advance_movement()`; prevent double-stepping in `world_view.gd`; remove forced teleportation snapping (`arrive_all_at_destination()`); prevent `sync_state_from_tactical()` from clearing `current_path` or aborting active marches; document the 4-part deterministic movement contract in `docs/SCOPE_DECISIONS.md`.
+4. **Fix D:** Keep army count UI signals consistent: unconditionally emit `army_changed.emit(soldier_count, get_army_capacity())` in `PlayerArmyManager.remove_casualties()` regardless of tactical manager attachment.
+5. **Verification & Regression:** Add Group 7 final hardening tests covering FH-CASE.1 to FH-CASE.10 in `test_tactical_military.gd`; verify all 10 project test suites pass with Exit Code 0, headless editor import exits 0, and `git diff --check` exits 0.
+
+### Completed Work
+1. **Fix A — Field-Only Campaigns & Strict Location-Restricted Casualties:**
+   - In `scripts/combat/battle_campaign_manager.gd`: updated `can_launch_offensive_campaign()` to require `field_unit_count > 0` (`get_field_unit_count()`); updated `launch_offensive_campaign()` to derive `atk_troops` strictly from `get_field_unit_count()`, never total soldier count; clamped `player_lost` to `atk_troops` (`clampi(report.attacker_casualties, 0, atk_troops)`).
+   - In `scripts/military/player_army_manager.gd`: updated `remove_casualties(count, from_field)` to bound `removed = mini(count, max_available)` where `max_available` is `get_field_unit_count()` if `from_field` else `get_defending_soldier_count()`; passed `location_restricted = true` to `tactical_military_mgr.sync_with_player_army(from_field, true)`.
+   - In `scripts/military/tactical_military_manager.gd`: added `location_restricted` boolean to `sync_with_player_army(prefer_field_casualties, location_restricted)`. When `location_restricted == true`, only candidate units in the preferred location are removed; passes 3, 4, and 5 (units in opposite location) are strictly skipped.
+2. **Fix B — Strict Save Validation & Validation-Before-Mutation:**
+   - In `scripts/persistence/save_manager.gd`:
+     - In `validate_save_data()`: removed `if not is_legacy_army:` bypass, checking `units_val.size() == int(p_army.get("soldier_count"))` whenever `player_army.soldier_count` is present; validated that moving units have valid `target_cell` and non-empty `current_path` ending at `target_cell`; validated that idle/holding units have empty paths.
+     - In `apply_loaded_state_to_world()`: checked return value of `tac_mgr.deserialize(tac_data)`; if false, load fails closed immediately returning `{"success": false, "error": "Khôi phục trạng thái quân sự chiến thuật (tactical_military) thất bại."}`. Legacy reconstruction (`deserialize_legacy`) is only allowed when `tactical_military` key is completely absent.
+   - In `scripts/military/tactical_unit.gd`: implemented validation-before-mutation in `deserialize(data: Dictionary) -> bool`. Validates `unit_id`, `current_cell`, `order_state`, `target_cell`, and `current_path` fail-closed; mutates state and returns `true` only if all validation passes.
+   - In `scripts/military/tactical_military_manager.gd`: implemented validation-before-mutation in `deserialize(data: Dictionary) -> bool`. Validates all unit records, coordinate bounds, order states, paths, and control groups BEFORE calling `clear_all_units()`.
+   - In `scripts/test/test_army_movement.gd`: in TC-MOVE.21, added `legacy_dict.erase("tactical_military")` so legacy save testing does not retain a tactical dictionary with conflicting unit counts.
+3. **Fix C — Safe Strategic/Tactical Movement Advancement:**
+   - In `scripts/military/player_army_manager.gd`:
+     - In `advance_movement()`: delegated stepping to `tactical_military_mgr.call("advance_movement", delta, speed_mult, get_nav())`.
+     - In `_arrive_at_destination()`: removed `arrive_all_at_destination()` snapping call.
+     - In `sync_state_from_tactical()`: guarded `if movement_state == MovementState.MARCHING and not current_path.is_empty(): return`. Also removed corrupting state mutation when units are moving without an army path.
+   - In `scripts/military/tactical_military_manager.gd`: in `arrive_all_at_destination()`, removed forced snapping/teleportation.
+   - In `scripts/world/world_view.gd`: updated `_process(delta)` to advance `player_army_mgr.advance_movement(delta, speed_mult)` and only directly advance `tactical_military_mgr` when `player_army_mgr == null`.
+   - In `docs/SCOPE_DECISIONS.md`: updated §1.23 documenting the 4-part deterministic contract for full march, subset tactical moves, mid-march return home, and arrival timing.
+4. **Fix D — Army Count UI Signals:**
+   - In `scripts/military/player_army_manager.gd`: in `remove_casualties()`, removed `else` branch, unconditionally emitting `army_changed.emit(soldier_count, get_army_capacity())` after casualty removal.
+5. **Automated Test Suite Expansion:**
+   - In `scripts/test/test_tactical_military.gd`: added Group 7 Final Hardening (FH-CASE.1 through FH-CASE.10) covering split army offensive campaign, 0 field troops attack rejection, split army defensive raid, strict save validation for moving/idle paths and legacy soldier count mismatch, fail-closed restore preserving live state, tile-by-tile marching without snapping, and `army_changed` signal emission.
+
+### Verification & Test Evidence
+- **Tactical Military Test Suite (`scripts/test/test_tactical_military.gd`):**
+  - Group 1 to 5 (TC-TAC.1 to TC-TAC.30): 74 assertions passed.
+  - Group 6 Follow-Up (FU-CASE.1 to FU-CASE.22): 38 assertions passed.
+  - Group 7 Final Hardening (FH-CASE.1 to FH-CASE.10): 33 assertions passed.
+  - Total: **145/145 Assertions PASSED (Exit Code 0, 0 Failures, 0 Script Errors)**.
+- **Full Project Regression Test Suites (All 10 Headless Suites Executed with Exit Code 0):**
+  1. `test_tactical_military.gd`: **PASS (145 assertions, Exit Code 0)**
+  2. `test_player_army.gd`: **PASS (Exit Code 0)**
+  3. `test_army_movement.gd`: **PASS (Exit Code 0)**
+  4. `test_offensive_campaign.gd`: **PASS (Exit Code 0)**
+  5. `test_live_battle_loop.gd`: **PASS (Exit Code 0)**
+  6. `test_save_load.gd`: **PASS (107 assertions, Exit Code 0)**
+  7. `test_responsive_layout.gd`: **PASS (435 checks, Exit Code 0)**
+  8. `test_automation_graph.gd`: **PASS (69 checks, Exit Code 0)**
+  9. `test_factions_and_battles.gd`: **PASS (48 assertions, Exit Code 0)**
+  10. `test_faction_relation_matrix.gd`: **PASS (160 checks, Exit Code 0)**
+- **Headless Editor Import Check (`--headless --editor --quit`):** **PASS (Exit Code 0, 0 Parse/Script Errors)**
+- **Whitespace / Git Check (`git diff --check`):** **PASS (Exit Code 0, 0 Whitespace Errors)**
+
+### Files Created or Modified
+- `docs/SCOPE_DECISIONS.md`
+- `docs/TEST_PLAN.md`
+- `docs/BACKLOG.md`
+- `docs/WORKLOG.md`
+- `scripts/combat/battle_campaign_manager.gd`
+- `scripts/military/player_army_manager.gd`
+- `scripts/military/tactical_military_manager.gd`
+- `scripts/military/tactical_unit.gd`
+- `scripts/persistence/save_manager.gd`
+- `scripts/world/world_view.gd`
+- `scripts/test/test_army_movement.gd`
+- `scripts/test/test_tactical_military.gd`
+
+### Next Exact Step
+- Stage modified files and commit to dedicated branch `fix/package-1w-final-hardening`.
+- Push commit to remote `origin/fix/package-1w-final-hardening`.
+- Deliver comprehensive completion report to user.
+- Await next instructions (do not merge to master, do not start Package 1X).

@@ -812,8 +812,7 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 		# Authoritative consistency check: if player_army.soldier_count exists, units size must match
 		if json_dict.has("player_army") and json_dict.get("player_army") is Dictionary:
 			var p_army = json_dict.get("player_army")
-			var is_legacy_army: bool = not p_army.has("movement_state")
-			if not is_legacy_army and p_army.has("soldier_count"):
+			if p_army.has("soldier_count"):
 				var expected_soldiers: int = int(p_army.get("soldier_count"))
 				if units_val.size() != expected_soldiers:
 					return {"valid": false, "error": "Số lượng đơn vị trong tactical_military (%d) không khớp với soldier_count của player_army (%d)." % [units_val.size(), expected_soldiers]}
@@ -833,9 +832,18 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 			if u.has("target_cell") and not _is_valid_coord_arr(u.get("target_cell")):
 				return {"valid": false, "error": "Tọa độ target_cell của đơn vị %s trong tactical_military không hợp lệ." % String(u_id)}
 
-			var o_state: String = String(u.get("order_state", "idle"))
+			var o_state: String = String(u.get("order_state", "idle")).to_lower()
 			if not (o_state in ["idle", "moving", "holding"]):
 				return {"valid": false, "error": "order_state của đơn vị %s trong tactical_military không hợp lệ: %s." % [String(u_id), str(o_state)]}
+
+			if o_state == "moving":
+				if not u.has("target_cell") or not _is_valid_coord_arr(u.get("target_cell")):
+					return {"valid": false, "error": "Đơn vị %s đang di chuyển (moving) nhưng thiếu tọa độ target_cell hợp lệ." % String(u_id)}
+				if not u.has("current_path") or not (u.get("current_path") is Array):
+					return {"valid": false, "error": "Đơn vị %s đang di chuyển (moving) nhưng thiếu current_path dạng Array." % String(u_id)}
+			else:
+				if u.has("target_cell") and not _is_valid_coord_arr(u.get("target_cell")):
+					return {"valid": false, "error": "Tọa độ target_cell của đơn vị %s trong tactical_military không hợp lệ." % String(u_id)}
 
 			if u.has("formation"):
 				var u_form = u.get("formation")
@@ -1287,12 +1295,15 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 		var s_count: int = army_mgr.call("get_army_count") if army_mgr else 0
 		var r_cell: Vector2i = army_mgr.call("get_rally_cell") if army_mgr else Vector2i(32, 33)
 		var nav_obj = world_view.get("nav")
-		var is_legacy_army: bool = loaded_data.has("player_army") and (loaded_data["player_army"] is Dictionary) and not loaded_data["player_army"].has("movement_state")
-		if loaded_data.has("tactical_military") and not is_legacy_army:
+		if loaded_data.has("tactical_military"):
 			var tac_data = loaded_data.get("tactical_military")
-			tac_mgr.call("deserialize", tac_data)
+			if not (tac_data is Dictionary):
+				return {"success": false, "error": "Dữ liệu tactical_military không hợp lệ (không phải Dictionary)."}
+			var ok: bool = bool(tac_mgr.call("deserialize", tac_data))
+			if not ok:
+				return {"success": false, "error": "Khôi phục trạng thái quân sự chiến thuật (tactical_military) thất bại."}
 		else:
-			# Pure legacy save without tactical_military field (or legacy player_army without movement_state):
+			# Pure legacy save without tactical_military field:
 			# Reconstruct roster from authoritative player army
 			tac_mgr.call("deserialize_legacy", s_count, r_cell, nav_obj)
 

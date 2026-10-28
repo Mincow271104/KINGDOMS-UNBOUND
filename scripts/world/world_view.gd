@@ -553,17 +553,18 @@ func _find_tactical_unit_at_cell(cell: Vector2i) -> Node2D:
 
 func _process(delta: float) -> void:
 	_update_tile_hover()
+	var speed_mult: float = 1.0
+	var tm = get_node_or_null("/root/TimeManager")
+	if tm != null:
+		if tm.has_method("is_paused") and tm.is_paused():
+			speed_mult = 0.0
+		elif tm.get("current_speed") != null:
+			speed_mult = float(tm.get("current_speed"))
+
 	if player_army_mgr != null and player_army_mgr.has_method("advance_movement"):
-		var speed_mult: float = 1.0
-		var tm = get_node_or_null("/root/TimeManager")
-		if tm != null:
-			if tm.has_method("is_paused") and tm.is_paused():
-				speed_mult = 0.0
-			elif tm.get("current_speed") != null:
-				speed_mult = float(tm.get("current_speed"))
 		player_army_mgr.advance_movement(delta, speed_mult)
-		if tactical_military_mgr != null and tactical_military_mgr.has_method("advance_movement"):
-			tactical_military_mgr.advance_movement(delta, speed_mult, nav)
+	elif tactical_military_mgr != null and tactical_military_mgr.has_method("advance_movement"):
+		tactical_military_mgr.advance_movement(delta, speed_mult, nav)
 
 func _update_tile_hover() -> void:
 	var mouse_local := terrain_layer.get_local_mouse_position()

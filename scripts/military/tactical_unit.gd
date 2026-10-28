@@ -229,37 +229,78 @@ func serialize() -> Dictionary:
 		"current_path": path_arr
 	}
 
-func deserialize(data: Dictionary) -> void:
-	unit_id = String(data.get("unit_id", ""))
+func deserialize(data: Dictionary) -> bool:
+	if data.is_empty():
+		return false
+
+	var raw_id = data.get("unit_id")
+	if not (raw_id is String) or String(raw_id).strip_edges().is_empty():
+		return false
+
+	var raw_cur = data.get("current_cell")
+	var cur_c := Vector2i(-1, -1)
+	if raw_cur is Array and raw_cur.size() >= 2:
+		cur_c = Vector2i(int(raw_cur[0]), int(raw_cur[1]))
+	elif raw_cur is Vector2i:
+		cur_c = raw_cur
+	if not IsoMath.is_in_bounds(cur_c):
+		return false
+
+	var o_state_str = String(data.get("order_state", "idle")).to_lower()
+	if not (o_state_str in ["idle", "moving", "holding"]):
+		return false
+	var o_state_val = string_to_order_state(o_state_str)
+
+	var tgt_c := cur_c
+	if data.has("target_cell"):
+		var raw_tgt = data.get("target_cell")
+		if raw_tgt is Array and raw_tgt.size() >= 2:
+			tgt_c = Vector2i(int(raw_tgt[0]), int(raw_tgt[1]))
+		elif raw_tgt is Vector2i:
+			tgt_c = raw_tgt
+		else:
+			return false
+	elif o_state_val == OrderState.MOVING:
+		return false
+
+	if not IsoMath.is_in_bounds(tgt_c):
+		return false
+
+	var parsed_path: Array[Vector2i] = []
+	if data.has("current_path"):
+		var raw_p = data.get("current_path")
+		if not (raw_p is Array):
+			return false
+		for item in raw_p:
+			if item is Array and item.size() >= 2:
+				var pt := Vector2i(int(item[0]), int(item[1]))
+				if not IsoMath.is_in_bounds(pt):
+					return false
+				parsed_path.append(pt)
+			elif item is Vector2i:
+				if not IsoMath.is_in_bounds(item):
+					return false
+				parsed_path.append(item)
+			else:
+				return false
+
+	if o_state_val == OrderState.MOVING:
+		if parsed_path.is_empty() or parsed_path[-1] != tgt_c:
+			return false
+	else:
+		if not parsed_path.is_empty():
+			return false
+
+	# All validation passed! Mutate state
+	unit_id = String(raw_id).strip_edges()
 	unit_name = String(data.get("unit_name", unit_id))
 	unit_type = String(data.get("unit_type", "swordsman"))
 	formation = String(data.get("formation", "Line"))
 	control_group_id = int(data.get("control_group_id", 0))
-
-	var raw_cur = data.get("current_cell")
-	if raw_cur is Array and raw_cur.size() >= 2:
-		current_cell = Vector2i(int(raw_cur[0]), int(raw_cur[1]))
-	elif raw_cur is Vector2i:
-		current_cell = raw_cur
-
-	var raw_tgt = data.get("target_cell")
-	if raw_tgt is Array and raw_tgt.size() >= 2:
-		target_cell = Vector2i(int(raw_tgt[0]), int(raw_tgt[1]))
-	elif raw_tgt is Vector2i:
-		target_cell = raw_tgt
-	else:
-		target_cell = current_cell
-
-	order_state = string_to_order_state(String(data.get("order_state", "idle")))
-
-	current_path.clear()
-	var raw_path = data.get("current_path")
-	if raw_path is Array:
-		for item in raw_path:
-			if item is Array and item.size() >= 2:
-				var pt := Vector2i(int(item[0]), int(item[1]))
-				if IsoMath.is_in_bounds(pt):
-					current_path.append(pt)
-
+	current_cell = cur_c
+	target_cell = tgt_c
+	order_state = o_state_val
+	current_path = parsed_path
 	step_accumulator = 0.0
 	position = IsoMath.map_to_local(current_cell)
+	return true

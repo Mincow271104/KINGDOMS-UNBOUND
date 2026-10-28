@@ -584,7 +584,8 @@ func can_launch_offensive_campaign(target_faction_id: String) -> Dictionary:
 	if cur_cell == rally_cell:
 		return {"can_attack": false, "reason": "Quân đội đang ở tại vị trí căn cứ, không thể mở chiến dịch tấn công từ căn cứ."}
 
-	if army_mgr.has_method("get_field_unit_count") and army_mgr.call("get_field_unit_count") == 0:
+	var field_unit_count: int = int(army_mgr.call("get_field_unit_count")) if army_mgr.has_method("get_field_unit_count") else (soldier_count if m_state == 2 else 0)
+	if field_unit_count <= 0:
 		return {"can_attack": false, "reason": "Quân đội chưa có lực lượng tập kết dã chiến ngoài thành để tấn công."}
 
 	return {"can_attack": true, "reason": "Quân đội sẵn sàng mở chiến dịch tấn công."}
@@ -604,8 +605,8 @@ func launch_offensive_campaign(target_faction_id: String, custom_seed: int = -1)
 	var fac: FactionData = fm.get_faction(target_faction_id) if fm != null else null
 	var army_mgr = get_player_army_manager()
 
-	# 1. Attacker Force (Player Army)
-	var atk_troops: int = int(army_mgr.call("get_army_count")) if army_mgr.has_method("get_army_count") else int(army_mgr.get("soldier_count"))
+	# 1. Attacker Force (Player Army - Field Units only)
+	var atk_troops: int = int(army_mgr.call("get_field_unit_count")) if army_mgr.has_method("get_field_unit_count") else (int(army_mgr.call("get_army_count")) if army_mgr.has_method("get_army_count") else int(army_mgr.get("soldier_count")))
 	var atk_morale: float = float(army_mgr.call("get_combat_morale")) if army_mgr.has_method("get_combat_morale") else 70.0
 	var atk_force: Dictionary = {
 		"troops": atk_troops,

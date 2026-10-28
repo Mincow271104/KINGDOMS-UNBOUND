@@ -252,6 +252,15 @@
 
 ---
 
+## Package 1W Final Hardening: Field-Only Campaigns, Strict Save Validation & Movement Integrity (Completed)
+- [x] **TASK-1W-FH.1:** Fix A — Field-Only Offensive Campaigns & Location-Restricted Casualties: `BattleCampaignManager.can_launch_offensive_campaign()` and `launch_offensive_campaign()` query and use eligible field units (`get_field_unit_count()`); battle casualties are clamped to eligible attacking force; casualty deduction in `PlayerArmyManager.remove_casualties()` is strictly location-restricted (`from_field = true` never consumes garrisoned units, `from_field = false` never consumes deployed field units); 1:1 parity between `soldier_count` and tactical roster size strictly maintained.
+- [x] **TASK-1W-FH.2:** Fix B — Fail-Closed Persistence & Validation-Before-Mutation: `SaveManager.validate_save_data()` enforces moving units have valid `target_cell` and non-empty `current_path` ending at `target_cell`, idle/holding units have empty paths, and tactical unit count matches `player_army.soldier_count` even when `player_army` lacks `movement_state` (removing `is_legacy_army` bypass); `apply_loaded_state_to_world()` fails closed on failed tactical deserialize; `TacticalMilitaryManager.deserialize()` and `TacticalUnit.deserialize()` enforce validation-before-mutation returning `bool` before calling `clear_all_units()`; `test_army_movement.gd` line 916 cleans `legacy_dict` of `tactical_military` key for true legacy save restoration testing.
+- [x] **TASK-1W-FH.3:** Fix C — Safe Strategic/Tactical Movement Advancement: `PlayerArmyManager.advance_movement()` delegates stepping to `TacticalMilitaryManager.advance_movement()`, ensuring identical physical movement across runtime and headless test environments; `world_view.gd` prevents double-stepping; forced snapping/teleportation (`arrive_all_at_destination()`) removed; `sync_state_from_tactical()` never clears `current_path` or aborts a march while `movement_state == MARCHING and not current_path.is_empty()`; deterministic 4-part movement contract documented in `docs/SCOPE_DECISIONS.md`.
+- [x] **TASK-1W-FH.4:** Fix D — Army Count UI Signals: `PlayerArmyManager.remove_casualties()` unconditionally emits `army_changed.emit(soldier_count, get_army_capacity())` after casualty removal regardless of tactical manager presence, ensuring immediate UI and marker updates without duplicate casualty deductions.
+- [x] **TASK-1W-FH.5:** Automated hardening test suite in `scripts/test/test_tactical_military.gd` covering FH-CASE.1 through FH-CASE.10 (PASS, Exit Code 0: 145/145 assertions passed; all 10 project regression test suites passed with 0 failures).
+
+---
+
 ## Package 1X: Tactical Combat & Enemy Military Entities (Upcoming)
 - [ ] **TASK-1X.1:** Real-time tactical combat engagements between player tactical units and hostile forces.
 - [ ] **TASK-1X.2:** Enemy military tactical units on the world map with tactical AI behaviors.
