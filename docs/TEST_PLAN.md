@@ -618,7 +618,7 @@ When Godot Editor is running with the MCP plugin:
   - *Status:* **PASSED** (2026-10-29, Exit Code 0: 252/252 assertions passed in `test_tactical_military.gd`).
 
 ### Package 1W Garrison Transition Audit: Strict Invariant Enforcement & Integrated Restore
-- **GTA-CASE.1 to GTA-CASE.3: Strict Garrison Transition Audit Test Suite**
+- **GTA-CASE.1 to GTA-CASE.7: Strict Garrison Transition Audit Test Suite**
   - *Tracked Test Suite:* `res://scripts/test/test_tactical_military.gd` (Group 9)
   - *Command:* `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --path "e:\KINGDOMS UNBOUND\kingdoms-unbound" -s res://scripts/test/test_tactical_military.gd`
   - *Acceptance Criteria by Case:*
@@ -628,4 +628,15 @@ When Godot Editor is running with the MCP plugin:
       - **GTA-CASE.3A (Dynamic Route Obstruction Reroute Failure):** Strategic army at `rally_cell` with tactical unit moving. Dynamic obstacle causes rerouting failure; recovery halts strategic center but strictly preserves `MARCHING` without prematurely marking non-empty army `GARRISONED`.
       - **GTA-CASE.3B (Integrated Restore with Moving Tactical Unit):** Save data specifies `player_army.movement_state: "garrisoned"` while `tactical_military` contains a moving unit. Following integrated world restore via `SaveManager.apply_loaded_state_to_world()`, restored strategic state is strictly corrected to `MARCHING`, never retaining a false `GARRISONED` status.
       - **GTA-CASE.3C (Integrated Restore with Field Tactical Unit):** Save data specifies `player_army.movement_state: "garrisoned"` while `tactical_military` contains an idle unit at `(42, 42)` (dist > 5). Restored strategic state is strictly corrected to `IDLE_AT_FIELD`.
-  - *Status:* **PASSED** (2026-10-29, Exit Code 0: 285/285 assertions passed in `test_tactical_military.gd`).
+    - **GTA-CASE.4 (Direct deserialize() with Moving Tactical Unit):** Direct `PlayerArmyManager.deserialize()` with `movement_state: "garrisoned"` while attached `TacticalMilitaryManager` has a moving unit. Strictly does NOT publish `GARRISONED`; immediately sets and emits `MARCHING` reflecting the in-transit unit.
+    - **GTA-CASE.5 (Direct deserialize() with Idle Unit Outside Perimeter):** Direct `deserialize()` with `movement_state: "garrisoned"` while attached tactical roster has an idle unit at distance 19 > 5. Strictly does NOT publish `GARRISONED`; immediately sets and emits `IDLE_AT_FIELD`.
+    - **GTA-CASE.6 (Empty Tactical Roster Fail-Closed Invariant):**
+      - **Part A:** `are_all_tactical_units_settled_at_base()` strictly returns `false` when roster is empty for `soldier_count > 0`.
+      - **Part B:** Direct `deserialize()` with empty roster strictly refuses `GARRISONED` and sets tentative `IDLE_AT_FIELD`.
+      - **Part C:** `sync_state_from_tactical()` immediately clears any existing `GARRISONED` state and transitions to `IDLE_AT_FIELD` when `soldier_count > 0` and roster is empty.
+      - **Part D:** `SaveManager.validate_save_data()` strictly fails closed (`valid: false`) on saves with empty tactical units when `soldier_count > 0`.
+    - **GTA-CASE.7 (Genuine Zero-Soldier Army Normalization):**
+      - **Part A:** `are_all_tactical_units_settled_at_base()` returns `true` for 0 soldiers with 0 units.
+      - **Part B:** Direct `deserialize()` normalizes genuine 0-soldier army to `GARRISONED` at `rally_cell`.
+      - **Part C:** Integrated save validation and application restores 0-soldier army as `GARRISONED` cleanly.
+  - *Status:* **PASSED** (2026-10-29, Exit Code 0: 308/308 assertions passed in `test_tactical_military.gd`).

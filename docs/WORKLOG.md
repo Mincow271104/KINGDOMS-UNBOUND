@@ -6113,3 +6113,79 @@ Resolve the remaining Package 1W review blocker by strictly auditing and prevent
 - Push to remote `origin/fix/package-1w-garrison-transition-audit`.
 - Deliver comprehensive completion report to user with commit SHA and test logs.
 - Await next instructions (do not merge to master, do not start Package 1X).
+
+---
+
+## [2026-10-29] Milestone 36: Package 1W Final Invariant Audit — Deserialization Garrison Gating & Empty Tactical Roster Fail-Closed ✅ VERIFIED
+
+### Context & Objective
+Address the final Package 1W source-review gaps on dedicated branch `fix/package-1w-garrison-transition-final-audit` (base commit `ea12f6b54c89bbb8cac3c3b3e1efdd073fcac316`):
+1. **Blocker A — `PlayerArmyManager.deserialize()` with saved GARRISONED state:**
+   - Respect save-load ordering: `PlayerArmyManager.deserialize()` runs in Step 13, before `TacticalMilitaryManager.deserialize()` in Step 17.
+   - Prevent publishing an intermediate or unjustified `GARRISONED` state when `soldier_count > 0` before the tactical roster is restored.
+   - When `tactical_military_mgr != null` and tactical units are not yet loaded (`get_unit_count() != soldier_count`), set tentative `IDLE_AT_FIELD`.
+   - When `tactical_military_mgr` already has matching units (`get_unit_count() == soldier_count`), reconcile state immediately via `get_settled_state_for_cell(current_cell)` without requiring SaveManager.
+   - Prevent `TacticalMilitaryManager._on_army_changed` from auto-spawning dummy garrison units during deserialization via `PlayerArmyManager.is_deserializing` flag.
+2. **Blocker B — Empty tactical roster must not imply a settled non-empty army:**
+   - In `are_all_tactical_units_settled_at_base()`: an empty tactical roster when `soldier_count > 0` strictly returns `false`.
+   - In `sync_state_from_tactical()`: when `soldier_count > 0` and `all_units.is_empty()`, do not preserve `GARRISONED`; immediately transition to `IDLE_AT_FIELD`.
+   - In `SaveManager.validate_save_data()`: enforce fail-closed rejection if `player_army.soldier_count > 0` and `tactical_military.units` is empty or mismatched.
+   - Preserve genuine zero-soldier army (`soldier_count == 0`) normalization to `GARRISONED` at `rally_cell`.
+   - Preserve legacy saves lacking `tactical_military` key via `deserialize_legacy()`.
+
+### Completed Work & Architecture Changes
+1. **`scripts/military/player_army_manager.gd`:**
+   - Added `var is_deserializing: bool = false` flag set during `deserialize()`.
+   - Updated `are_all_tactical_units_settled_at_base()`: strictly returns `false` if `soldier_count > 0` and `all_units.is_empty() or all_units.size() != soldier_count`. Returns `true` if `soldier_count <= 0 and all_units.is_empty()`.
+   - Updated `get_settled_state_for_cell(cell)`: returns `IDLE_AT_FIELD` when `tactical_military_mgr != null and tactical_military_mgr.get_unit_count() != soldier_count`.
+   - Updated `deserialize(data)`:
+     - When `soldier_count == 0`: sets `GARRISONED` at `rally_cell`.
+     - When `movement_state == GARRISONED` and `current_cell == rally_cell`:
+       - If `tactical_military_mgr == null`: keeps `GARRISONED`.
+       - If `tactical_military_mgr.get_unit_count() == soldier_count`: directly reconciles via `get_settled_state_for_cell(current_cell)`.
+       - If `tactical_military_mgr.get_unit_count() != soldier_count`: defers garrison status and sets tentative `IDLE_AT_FIELD`.
+   - Updated `sync_state_from_tactical()`:
+     - When `all_units.is_empty()` and `soldier_count > 0`: transitions from `GARRISONED` to `IDLE_AT_FIELD`.
+     - When `any_moving` is true: transitions `movement_state` to `MARCHING` if at `rally_cell`.
+     - Spatial settlement check: `all_at_base` requires `all_units.size() == soldier_count`.
+2. **`scripts/military/tactical_military_manager.gd`:**
+   - In `_on_army_changed(_count, _cap)`: checks `if player_army_mgr != null and player_army_mgr.get("is_deserializing") == true: return` to isolate deserialization from auto-syncing dummy units.
+3. **`scripts/test/test_tactical_military.gd`:**
+   - Added `GTA-CASE.4` (direct deserialize with moving tactical unit yields `MARCHING`).
+   - Added `GTA-CASE.5` (direct deserialize with idle unit outside perimeter yields `IDLE_AT_FIELD`).
+   - Added `GTA-CASE.6` (empty tactical roster fail-closed: `are_all_tactical_units_settled_at_base()` returns false, direct deserialize sets `IDLE_AT_FIELD`, `sync_state_from_tactical()` forces `IDLE_AT_FIELD`, and `SaveManager.validate_save_data()` rejects fail-closed).
+   - Added `GTA-CASE.7` (genuine zero-soldier army normalizes to `GARRISONED` at `rally_cell` in unit deserialize and full SaveManager restore).
+4. **Documentation Updates:**
+   - Updated `docs/SCOPE_DECISIONS.md` (§1.23), `docs/TEST_PLAN.md` (GTA-CASE.1 to GTA-CASE.7), and `docs/BACKLOG.md` (`TASK-1W-PH.7`).
+
+### Validations Performed & Results
+- **Tactical Military Test Suite (`scripts/test/test_tactical_military.gd`):** **PASS (308/308 assertions, Exit Code 0, 0 Failures)**.
+- **Full 11-Suite Headless Regression Matrix:**
+  1. `scripts/test/test_tactical_military.gd`: **PASS (308 assertions, Exit Code 0)**
+  2. `scripts/test/test_player_army.gd`: **PASS (Exit Code 0)**
+  3. `scripts/test/test_army_movement.gd`: **PASS (Exit Code 0)**
+  4. `scripts/test/test_live_battle_loop.gd`: **PASS (Exit Code 0)**
+  5. `scripts/test/test_offensive_campaign.gd`: **PASS (Exit Code 0)**
+  6. `scripts/test/test_save_load.gd`: **PASS (107 assertions, Exit Code 0)**
+  7. `scripts/test/test_responsive_layout.gd`: **PASS (435 checks, Exit Code 0)**
+  8. `scripts/test/test_automation_graph.gd`: **PASS (69 checks, Exit Code 0)**
+  9. `scripts/test/test_logistics.gd`: **PASS (Exit Code 0)**
+  10. `scripts/test/test_faction_relation_matrix.gd`: **PASS (160 checks, Exit Code 0)**
+  11. `scripts/test/test_factions_and_battles.gd`: **PASS (48 assertions, Exit Code 0)**
+- **Headless Editor Check (`--headless --editor --quit`):** **PASS (Exit Code 0, 0 Parse/Script Errors)**.
+- **Whitespace / Git Check (`git diff --check`):** **PASS (Exit Code 0, 0 Errors)**.
+
+### Files Created or Modified
+- `docs/BACKLOG.md`
+- `docs/SCOPE_DECISIONS.md`
+- `docs/TEST_PLAN.md`
+- `docs/WORKLOG.md`
+- `scripts/military/player_army_manager.gd`
+- `scripts/military/tactical_military_manager.gd`
+- `scripts/test/test_tactical_military.gd`
+
+### Next Exact Step
+- Stage modified files and commit to branch `fix/package-1w-garrison-transition-final-audit`.
+- Push to remote `origin/fix/package-1w-garrison-transition-final-audit`.
+- Deliver comprehensive completion report with commit SHA and test logs.
+- Await next instructions (do not merge to master, do not start Package 1X).

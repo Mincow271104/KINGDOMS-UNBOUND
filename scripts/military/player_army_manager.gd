@@ -39,6 +39,7 @@ var destination_cell: Vector2i = Vector2i(32, 33)
 var current_path: Array[Vector2i] = []
 var movement_state: int = MovementState.GARRISONED
 var step_accumulator: float = 0.0
+var is_deserializing: bool = false
 
 # Dependency injection hooks for headless/unit testing
 var _custom_resource_mgr: Object = null
@@ -423,8 +424,10 @@ func are_all_tactical_units_settled_at_base() -> bool:
 	if tactical_military_mgr == null:
 		return true
 	var all_units: Array = tactical_military_mgr.call("get_all_units")
-	if all_units.is_empty():
-		return true
+	if soldier_count <= 0:
+		return all_units.is_empty()
+	if all_units.is_empty() or all_units.size() != soldier_count:
+		return false
 	for u in all_units:
 		if u.get("order_state") == 1: # OrderState.MOVING
 			return false
@@ -445,7 +448,11 @@ func has_moving_tactical_units() -> bool:
 func get_settled_state_for_cell(cell: Vector2i) -> int:
 	if cell != rally_cell:
 		return MovementState.IDLE_AT_FIELD
-	if soldier_count == 0 or are_all_tactical_units_settled_at_base():
+	if soldier_count == 0:
+		return MovementState.GARRISONED
+	if tactical_military_mgr != null and tactical_military_mgr.get_unit_count() != soldier_count:
+		return MovementState.IDLE_AT_FIELD
+	if are_all_tactical_units_settled_at_base():
 		return MovementState.GARRISONED
 	if has_moving_tactical_units():
 		return MovementState.MARCHING
@@ -730,6 +737,9 @@ func sync_state_from_tactical() -> void:
 
 	var all_units: Array = tactical_military_mgr.call("get_all_units")
 	if all_units.is_empty():
+		if soldier_count > 0 and movement_state == MovementState.GARRISONED:
+			movement_state = MovementState.IDLE_AT_FIELD
+			movement_state_changed.emit(movement_state, current_cell, destination_cell)
 		return
 
 	var any_moving: bool = false
@@ -740,7 +750,7 @@ func sync_state_from_tactical() -> void:
 
 	if any_moving:
 		# Enforce strict garrison invariant: strategic army cannot be GARRISONED while any tactical unit is moving
-		if movement_state == MovementState.GARRISONED:
+		if movement_state == MovementState.GARRISONED or (movement_state == MovementState.IDLE_AT_FIELD and current_cell == rally_cell):
 			movement_state = MovementState.MARCHING
 			movement_state_changed.emit(movement_state, current_cell, destination_cell)
 		return
@@ -750,7 +760,7 @@ func sync_state_from_tactical() -> void:
 		return
 
 	# All units are idle: evaluate spatial distribution vs rally_cell
-	var all_at_base: bool = true
+	var all_at_base: bool = (all_units.size() == soldier_count)
 	var first_field_cell := Vector2i(-1, -1)
 
 	for u in all_units:
@@ -799,6 +809,7 @@ func serialize() -> Dictionary:
 	}
 
 func deserialize(data: Dictionary) -> void:
+	is_deserializing = true
 	if data.is_empty():
 		soldier_count = 0
 		is_supplied = true
@@ -811,6 +822,7 @@ func deserialize(data: Dictionary) -> void:
 		step_accumulator = 0.0
 		army_changed.emit(soldier_count, get_army_capacity())
 		movement_state_changed.emit(movement_state, current_cell, destination_cell)
+		is_deserializing = false
 		return
 
 	soldier_count = clampi(int(data.get("soldier_count", 0)), 0, 1000)
@@ -877,7 +889,18 @@ func deserialize(data: Dictionary) -> void:
 	elif movement_state == MovementState.GARRISONED:
 		current_path.clear()
 		if current_cell == rally_cell:
-			destination_cell = rally_cell
+			if soldier_count == 0 or tactical_military_mgr == null:
+				destination_cell = rally_cell
+			elif tactical_military_mgr.get_unit_count() == soldier_count:
+				movement_state = get_settled_state_for_cell(current_cell)
+				if movement_state == MovementState.GARRISONED:
+					destination_cell = rally_cell
+				else:
+					destination_cell = current_cell
+			else:
+				# Defer GARRISONED status until tactical roster is ready and reconciled
+				movement_state = MovementState.IDLE_AT_FIELD
+				destination_cell = current_cell
 		else:
 			movement_state = MovementState.IDLE_AT_FIELD
 			destination_cell = current_cell
@@ -927,6 +950,7 @@ func deserialize(data: Dictionary) -> void:
 	army_changed.emit(soldier_count, get_army_capacity())
 	supply_status_changed.emit(is_supplied)
 	movement_state_changed.emit(movement_state, current_cell, destination_cell)
+	is_deserializing = false
 
 static func _is_cardinal_adjacent(a: Vector2i, b: Vector2i) -> bool:
 	return abs(a.x - b.x) + abs(a.y - b.y) == 1

@@ -67,6 +67,8 @@ func _bind_army_manager(mgr: PlayerArmyManager) -> void:
 		tactical_state_updated.connect(mgr.sync_state_from_tactical)
 
 func _on_army_changed(_count: int, _cap: int) -> void:
+	if player_army_mgr != null and player_army_mgr.get("is_deserializing") == true:
+		return
 	sync_with_player_army()
 
 func set_custom_nav(p_nav: GridNavigation) -> void:

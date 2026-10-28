@@ -1548,7 +1548,7 @@ func _run_all_tests() -> void:
 	_assert(fu_army.current_cell == fu_army.get_rally_cell(), "PH-CASE.9: Strategic center remains at rally_cell")
 
 	# =========================================================================
-	# GROUP 9: Strict Garrison Transition Audit (GTA-CASE.1 - GTA-CASE.3)
+	# GROUP 9: Strict Garrison Transition Audit (GTA-CASE.1 - GTA-CASE.7)
 	# =========================================================================
 	print("\n--- Group 9: Strict Garrison Transition Audit ---")
 
@@ -1738,4 +1738,165 @@ func _run_all_tests() -> void:
 	_assert(res_field.get("success", false), "GTA-CASE.3C: Save with field tactical unit applied cleanly")
 	_assert(restored_army.movement_state != PlayerArmyManagerScript.MovementState.GARRISONED, "GTA-CASE.3C: Restored army strictly NOT GARRISONED when unit is in field")
 	_assert(restored_army.movement_state == PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD, "GTA-CASE.3C: Restored army is IDLE_AT_FIELD reflecting field tactical unit")
+
+	# -------------------------------------------------------------------------
+	# GTA-CASE.4: Direct PlayerArmyManager.deserialize() with moving tactical unit
+	# -------------------------------------------------------------------------
+	print("\n--- Running GTA-CASE.4: Direct deserialize() with Moving Tactical Unit ---")
+	fu_tac.clear_all_units()
+	fu_army.soldier_count = 0
+	fu_army.movement_state = PlayerArmyManagerScript.MovementState.GARRISONED
+	fu_army.current_cell = fu_army.get_rally_cell()
+	fu_army.destination_cell = fu_army.get_rally_cell()
+	var rec_gta4 = fu_army.recruit(2)
+	_assert(rec_gta4.get("success", false) and fu_tac.get_unit_count() == 2, "GTA-CASE.4: Successfully recruited 2 units")
+	var gta4_units = fu_tac.get_all_units()
+
+	# Unit 0 is idle at rally (32, 33)
+	gta4_units[0].current_cell = Vector2i(32, 33)
+	gta4_units[0].target_cell = Vector2i(32, 33)
+	gta4_units[0].order_state = TacticalUnitScript.OrderState.IDLE
+	gta4_units[0].current_path.clear()
+
+	# Unit 1 is at (38, 33), MOVING towards (33, 33)
+	gta4_units[1].current_cell = Vector2i(38, 33)
+	gta4_units[1].target_cell = Vector2i(33, 33)
+	gta4_units[1].order_state = TacticalUnitScript.OrderState.MOVING
+	var u_path_gta4: Array[Vector2i] = [Vector2i(37, 33), Vector2i(36, 33), Vector2i(35, 33), Vector2i(34, 33), Vector2i(33, 33)]
+	gta4_units[1].current_path = u_path_gta4
+
+	var direct_garrison_save := {
+		"soldier_count": 2,
+		"is_supplied": true,
+		"last_upkeep_day": -1,
+		"current_cell": [32, 33],
+		"rally_cell": [32, 33],
+		"destination_cell": [32, 33],
+		"movement_state": "garrisoned",
+		"current_path": []
+	}
+	fu_army.deserialize(direct_garrison_save)
+	_assert(fu_army.movement_state != PlayerArmyManagerScript.MovementState.GARRISONED, "GTA-CASE.4: Direct deserialize strictly does NOT publish GARRISONED when tactical unit is moving")
+	_assert(fu_army.movement_state == PlayerArmyManagerScript.MovementState.MARCHING, "GTA-CASE.4: Direct deserialize sets MARCHING reflecting moving tactical unit")
+	_assert(fu_army.current_cell == fu_army.get_rally_cell(), "GTA-CASE.4: Strategic center remains at rally cell")
+
+	# -------------------------------------------------------------------------
+	# GTA-CASE.5: Direct PlayerArmyManager.deserialize() with idle unit in field
+	# -------------------------------------------------------------------------
+	print("\n--- Running GTA-CASE.5: Direct deserialize() with Idle Field Tactical Unit ---")
+	fu_tac.clear_all_units()
+	fu_army.soldier_count = 0
+	fu_army.movement_state = PlayerArmyManagerScript.MovementState.GARRISONED
+	fu_army.current_cell = fu_army.get_rally_cell()
+	fu_army.destination_cell = fu_army.get_rally_cell()
+	var rec_gta5 = fu_army.recruit(2)
+	_assert(rec_gta5.get("success", false) and fu_tac.get_unit_count() == 2, "GTA-CASE.5: Successfully recruited 2 units")
+	var gta5_units = fu_tac.get_all_units()
+
+	# Unit 0 is idle at rally (32, 33)
+	gta5_units[0].current_cell = Vector2i(32, 33)
+	gta5_units[0].target_cell = Vector2i(32, 33)
+	gta5_units[0].order_state = TacticalUnitScript.OrderState.IDLE
+	gta5_units[0].current_path.clear()
+
+	# Unit 1 is idle at (42, 42) (grid distance to (32, 33) is 19 > 5)
+	gta5_units[1].current_cell = Vector2i(42, 42)
+	gta5_units[1].target_cell = Vector2i(42, 42)
+	gta5_units[1].order_state = TacticalUnitScript.OrderState.IDLE
+	gta5_units[1].current_path.clear()
+
+	fu_army.deserialize(direct_garrison_save)
+	_assert(fu_army.movement_state != PlayerArmyManagerScript.MovementState.GARRISONED, "GTA-CASE.5: Direct deserialize strictly does NOT publish GARRISONED when unit is outside perimeter")
+	_assert(fu_army.movement_state == PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD, "GTA-CASE.5: Direct deserialize sets IDLE_AT_FIELD reflecting tactical unit in field")
+	_assert(fu_army.current_cell == fu_army.get_rally_cell(), "GTA-CASE.5: Strategic center remains at rally cell")
+
+	# -------------------------------------------------------------------------
+	# GTA-CASE.6: Positive soldier count with empty tactical roster fail-closed
+	# -------------------------------------------------------------------------
+	print("\n--- Running GTA-CASE.6: Positive Soldier Count with Empty Tactical Roster ---")
+	fu_tac.clear_all_units()
+	fu_army.soldier_count = 2
+	fu_army.movement_state = PlayerArmyManagerScript.MovementState.GARRISONED
+
+	# Part A: are_all_tactical_units_settled_at_base() returns false when roster is empty but soldier_count > 0
+	_assert(not fu_army.are_all_tactical_units_settled_at_base(), "GTA-CASE.6A: are_all_tactical_units_settled_at_base() is false when tactical roster is empty for soldier_count > 0")
+
+	# Part B: Direct deserialize() with empty tactical roster refuses GARRISONED
+	fu_army.deserialize(direct_garrison_save)
+	_assert(fu_army.movement_state != PlayerArmyManagerScript.MovementState.GARRISONED, "GTA-CASE.6B: Direct deserialize strictly refuses GARRISONED when tactical roster is empty")
+	_assert(fu_army.movement_state == PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD, "GTA-CASE.6B: Direct deserialize defaults to IDLE_AT_FIELD when roster empty")
+
+	# Part C: sync_state_from_tactical() forces IDLE_AT_FIELD if army is GARRISONED with empty roster
+	fu_army.movement_state = PlayerArmyManagerScript.MovementState.GARRISONED
+	fu_army.sync_state_from_tactical()
+	_assert(fu_army.movement_state != PlayerArmyManagerScript.MovementState.GARRISONED, "GTA-CASE.6C: sync_state_from_tactical() clears GARRISONED state when tactical roster is empty")
+	_assert(fu_army.movement_state == PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD, "GTA-CASE.6C: sync_state_from_tactical() sets IDLE_AT_FIELD for non-empty army with empty roster")
+
+	# Part D: SaveManager.validate_save_data() fails closed on empty tactical roster for non-empty army
+	var bad_empty_save: Dictionary = SaveManagerScript.serialize_world_state(world_instance).duplicate(true)
+	bad_empty_save["player_army"] = {
+		"soldier_count": 2,
+		"is_supplied": true,
+		"last_upkeep_day": -1,
+		"current_cell": [32, 33],
+		"rally_cell": [32, 33],
+		"destination_cell": [32, 33],
+		"movement_state": "garrisoned",
+		"current_path": []
+	}
+	bad_empty_save["tactical_military"] = {
+		"units": [],
+		"current_formation": "Line",
+		"control_groups": {"1": [], "2": [], "3": []},
+		"next_unit_index": 1
+	}
+	var val_bad_empty = SaveManagerScript.validate_save_data(bad_empty_save)
+	_assert(not val_bad_empty.get("valid", true), "GTA-CASE.6D: SaveManager.validate_save_data() strictly fails closed on empty tactical units with positive soldier_count")
+
+	# -------------------------------------------------------------------------
+	# GTA-CASE.7: Genuine zero-soldier army normalizes to GARRISONED at rally
+	# -------------------------------------------------------------------------
+	print("\n--- Running GTA-CASE.7: Genuine Zero-Soldier Army Normalization ---")
+	fu_tac.clear_all_units()
+	fu_army.soldier_count = 0
+	fu_army.movement_state = PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD
+	fu_army.current_cell = Vector2i(40, 40)
+	fu_army.destination_cell = Vector2i(40, 40)
+
+	# Part A: are_all_tactical_units_settled_at_base() is true for 0 soldiers with 0 units
+	_assert(fu_army.are_all_tactical_units_settled_at_base(), "GTA-CASE.7A: are_all_tactical_units_settled_at_base() is true for 0 soldiers with empty roster")
+
+	# Part B: Direct deserialize() normalizes 0-soldier army to GARRISONED at rally_cell
+	var zero_save := {
+		"soldier_count": 0,
+		"is_supplied": true,
+		"last_upkeep_day": -1,
+		"current_cell": [40, 40],
+		"rally_cell": [32, 33],
+		"destination_cell": [40, 40],
+		"movement_state": "idle_at_field",
+		"current_path": []
+	}
+	fu_army.deserialize(zero_save)
+	_assert(fu_army.movement_state == PlayerArmyManagerScript.MovementState.GARRISONED, "GTA-CASE.7B: Direct deserialize normalizes 0-soldier army to GARRISONED")
+	_assert(fu_army.current_cell == fu_army.get_rally_cell(), "GTA-CASE.7B: 0-soldier army current_cell normalized to rally_cell")
+	_assert(fu_army.destination_cell == fu_army.get_rally_cell(), "GTA-CASE.7B: 0-soldier army destination_cell normalized to rally_cell")
+
+	# Part C: Integrated save validation and application for 0-soldier army
+	var zero_world_save: Dictionary = SaveManagerScript.serialize_world_state(world_instance).duplicate(true)
+	zero_world_save["player_army"] = zero_save
+	zero_world_save["tactical_military"] = {
+		"units": [],
+		"current_formation": "Line",
+		"control_groups": {"1": [], "2": [], "3": []},
+		"next_unit_index": 1
+	}
+	var val_zero = SaveManagerScript.validate_save_data(zero_world_save)
+	_assert(val_zero.get("valid", false), "GTA-CASE.7C: SaveManager.validate_save_data() validates genuine 0-soldier save cleanly")
+	var res_zero = SaveManagerScript.apply_loaded_state_to_world(world_instance, zero_world_save)
+	_assert(res_zero.get("success", false), "GTA-CASE.7C: SaveManager.apply_loaded_state_to_world() applies 0-soldier save cleanly")
+	var zero_restored_army = world_instance.get("player_army_mgr")
+	_assert(zero_restored_army.soldier_count == 0, "GTA-CASE.7C: Restored army has 0 soldiers")
+	_assert(zero_restored_army.movement_state == PlayerArmyManagerScript.MovementState.GARRISONED, "GTA-CASE.7C: Restored 0-soldier army is GARRISONED at rally")
+	_assert(zero_restored_army.current_cell == zero_restored_army.get_rally_cell(), "GTA-CASE.7C: Restored 0-soldier army current_cell is rally_cell")
 
