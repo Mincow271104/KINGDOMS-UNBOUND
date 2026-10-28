@@ -457,13 +457,15 @@ func _run_all_tests() -> void:
 
 	# TC-TAC.26: Serialize / deserialize roundtrip preserves state
 	standalone_tac.set_formation("Scatter")
+	var original_count: int = standalone_tac.get_unit_count()
 	var serialized = standalone_tac.serialize()
 	_assert(serialized.has("units") and serialized.has("current_formation"), "TC-TAC.26: Serialized data contains units and formation")
 	_assert(serialized["current_formation"] == "Scatter", "TC-TAC.26: Serialized formation matches 'Scatter'")
 	var restored_tac = TacticalMilitaryManagerScript.new(null, standalone_army)
 	restored_tac.deserialize(serialized)
 	_assert(restored_tac.get_formation() == "Scatter", "TC-TAC.26: Deserialized formation restored to 'Scatter'")
-	_assert(restored_tac.get_unit_count() == standalone_tac.get_unit_count(), "TC-TAC.26: Deserialized unit count matches original")
+	_assert(restored_tac.get_unit_count() == original_count, "TC-TAC.26: Deserialized unit count matches original")
+	_assert(standalone_tac.get_unit_count() == 0, "TC-TAC.26: Replaced manager units were cleaned on detachment")
 
 	# TC-TAC.27: Full SaveManager world-state roundtrip restores tactical military
 	SaveManagerScript.ensure_save_directory()
@@ -2153,18 +2155,37 @@ func _run_all_tests() -> void:
 		gta14_signals.append({"state": new_state, "cur": cur, "dest": dest})
 	fu_army.movement_state_changed.connect(on_state_changed_gta14)
 
-	# Detach tactical manager
+	# Detach tactical manager symmetrically
 	fu_army.set_tactical_military_manager(null)
 	_assert(fu_army.tactical_military_mgr == null, "GTA-CASE.14B: Tactical manager detached to null")
+	_assert(fu_tac.player_army_mgr == null, "GTA-CASE.14B: Detached manager back-reference to army cleared")
+	_assert(fu_tac.get_unit_count() == 0, "GTA-CASE.14B: Detached manager roster cleaned (0 ghost units)")
 	_assert(fu_army.movement_state != PlayerArmyManagerScript.MovementState.GARRISONED, "GTA-CASE.14B: Non-empty army cannot remain GARRISONED upon manager detachment")
 	_assert(fu_army.movement_state == PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD, "GTA-CASE.14B: Non-empty army safely transitioned to IDLE_AT_FIELD upon detachment")
 	_assert(gta14_signals.size() >= 1, "GTA-CASE.14B: movement_state_changed signal emitted on detachment")
 
+	# Trigger army change through recruitment while detached
+	var rec_detached = fu_army.recruit(1)
+	_assert(rec_detached.get("success", false), "GTA-CASE.14C: Recruitment succeeded while manager detached")
+	_assert(fu_army.soldier_count == 3, "GTA-CASE.14C: Strategic soldier count incremented to 3")
+	_assert(fu_tac.get_unit_count() == 0, "GTA-CASE.14C: Detached manager did not synchronize or create rogue units (0 units)")
+	_assert(fu_army.movement_state != PlayerArmyManagerScript.MovementState.GARRISONED, "GTA-CASE.14C: Army does not falsely become GARRISONED")
+	_assert(fu_army.movement_state == PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD, "GTA-CASE.14C: Army safely remains IDLE_AT_FIELD without manager")
+
 	# Re-attach tactical manager
 	fu_army.set_tactical_military_manager(fu_tac)
-	_assert(fu_army.tactical_military_mgr == fu_tac, "GTA-CASE.14C: Tactical manager re-attached")
-	_assert(fu_army.movement_state == PlayerArmyManagerScript.MovementState.GARRISONED, "GTA-CASE.14C: Army cleanly restored to GARRISONED upon manager re-attachment")
+	_assert(fu_army.tactical_military_mgr == fu_tac, "GTA-CASE.14D: Tactical manager re-attached")
+	_assert(fu_tac.player_army_mgr == fu_army, "GTA-CASE.14D: Attached manager back-reference restored")
+	_assert(fu_tac.get_unit_count() == 3, "GTA-CASE.14D: Authoritative roster reconstructed to 3 units")
+	_assert(fu_army.movement_state == PlayerArmyManagerScript.MovementState.GARRISONED, "GTA-CASE.14D: Army cleanly restored to GARRISONED upon manager re-attachment")
 	fu_army.movement_state_changed.disconnect(on_state_changed_gta14)
+
+	# Reverse detachment test: detaching from the tactical manager side
+	fu_tac.set_player_army_manager(null)
+	_assert(fu_tac.player_army_mgr == null, "GTA-CASE.14E: Reverse detachment cleared player_army_mgr")
+	_assert(fu_tac.get_unit_count() == 0, "GTA-CASE.14E: Reverse detachment cleaned roster")
+	_assert(fu_army.tactical_military_mgr == null, "GTA-CASE.14E: Reverse detachment cleared tactical_military_mgr in army")
+	_assert(fu_army.movement_state == PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD, "GTA-CASE.14E: Army transitioned to IDLE_AT_FIELD upon reverse detachment")
 
 	# -------------------------------------------------------------------------
 	# GTA-CASE.15: Zero-Soldier Shortcut Does Not Mask Stale Tactical Roster

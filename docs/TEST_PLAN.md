@@ -663,9 +663,12 @@ When Godot Editor is running with the MCP plugin:
       - **Part C:** `recruit()` atomic resource deduction operates cleanly; upon recruitment with missing tactical manager, army state normalizes to `IDLE_AT_FIELD` at `rally_cell` (never `GARRISONED`), strictly preventing false garrison status without a roster.
     - **GTA-CASE.13 (Direct deserialize({}) and Active Ghost Unit Cleanup):**
       - Direct `PlayerArmyManager.deserialize({})` calls `tactical_military_mgr.clear_all_units()`, cleanly destroying active moving tactical units and resetting state to 0 soldiers/0 units `GARRISONED` at `rally_cell` without orphaned ghost actors.
-    - **GTA-CASE.14 (Tactical Manager Detachment and Re-attachment Lifecycle):**
-      - Runtime manager detachment (`set_tactical_military_manager(null)`) immediately synchronizes a non-empty garrisoned army to `IDLE_AT_FIELD`.
-      - Manager re-attachment (`set_tactical_military_manager(mgr)`) cleanly transitions the army back to `GARRISONED` once all units are verified settled at base.
+    - **GTA-CASE.14 (Symmetric Detachment, Ghost Unit Cleanup & Re-attachment Lifecycle):**
+      - **Part A:** Recruited 2 soldiers with attached tactical manager (`fu_tac.get_unit_count() == 2`, `GARRISONED`).
+      - **Part B:** Detaching manager (`fu_army.set_tactical_military_manager(null)`) symmetrically clears back-reference (`fu_tac.player_army_mgr == null`), unbinds signals, cleans roster (0 ghost units), and transitions army to `IDLE_AT_FIELD`.
+      - **Part C:** Recruitment while detached succeeds (`soldier_count == 3`), detached manager produces zero rogue units (`fu_tac.get_unit_count() == 0`), and army remains `IDLE_AT_FIELD`.
+      - **Part D:** Re-attaching manager (`fu_army.set_tactical_military_manager(fu_tac)`) restores back-reference, reconstructs authoritative roster (`fu_tac.get_unit_count() == 3`), and cleanly restores `GARRISONED`.
+      - **Part E:** Reverse detachment from manager side (`fu_tac.set_player_army_manager(null)`) symmetrically clears `player_army_mgr`, cleans roster, unbinds signals, and transitions army to `IDLE_AT_FIELD`.
     - **GTA-CASE.15 (Zero-Soldier Shortcut Emptiness Verification):**
       - Zero-soldier shortcut in `get_settled_state_for_cell()` and `sync_state_from_tactical()` refuses `GARRISONED` and returns `IDLE_AT_FIELD` when stale units remain in the tactical manager.
-  - *Status:* **PASSED** (2026-10-29, Exit Code 0: 371/371 assertions passed in `test_tactical_military.gd`).
+  - *Status:* **PASSED** (2026-10-29, Exit Code 0: 385/385 assertions passed in `test_tactical_military.gd`).

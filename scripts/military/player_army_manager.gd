@@ -66,14 +66,55 @@ func _init(wv: Node = null) -> void:
 		destination_cell = rally_cell
 
 func set_tactical_military_manager(mgr: Object) -> void:
-	if tactical_military_mgr != null and is_instance_valid(tactical_military_mgr) and tactical_military_mgr.has_signal("tactical_state_updated"):
-		if tactical_military_mgr.tactical_state_updated.is_connected(sync_state_from_tactical):
-			tactical_military_mgr.tactical_state_updated.disconnect(sync_state_from_tactical)
+	if tactical_military_mgr == mgr:
+		sync_state_from_tactical()
+		return
+
+	var old_mgr: Object = tactical_military_mgr
+	tactical_military_mgr = null
+
+	if old_mgr != null and is_instance_valid(old_mgr):
+		_unbind_tactical_military_manager(old_mgr)
+		if old_mgr.get("player_army_mgr") == self:
+			if old_mgr.has_method("set_player_army_manager"):
+				old_mgr.call("set_player_army_manager", null)
+			else:
+				old_mgr.set("player_army_mgr", null)
+		if old_mgr.has_method("clear_all_units"):
+			old_mgr.call("clear_all_units")
+
 	tactical_military_mgr = mgr
-	if tactical_military_mgr != null and is_instance_valid(tactical_military_mgr) and tactical_military_mgr.has_signal("tactical_state_updated"):
-		if not tactical_military_mgr.tactical_state_updated.is_connected(sync_state_from_tactical):
-			tactical_military_mgr.tactical_state_updated.connect(sync_state_from_tactical)
+	if tactical_military_mgr != null and is_instance_valid(tactical_military_mgr):
+		_bind_tactical_military_manager(tactical_military_mgr)
+		if tactical_military_mgr.get("player_army_mgr") != self:
+			if tactical_military_mgr.has_method("set_player_army_manager"):
+				tactical_military_mgr.call("set_player_army_manager", self)
+			else:
+				tactical_military_mgr.set("player_army_mgr", self)
+		if tactical_military_mgr.has_method("sync_with_player_army"):
+			tactical_military_mgr.call("sync_with_player_army")
+
 	sync_state_from_tactical()
+
+func _bind_tactical_military_manager(mgr: Object) -> void:
+	if mgr == null or not is_instance_valid(mgr):
+		return
+	if mgr.has_signal("tactical_state_updated"):
+		if not mgr.tactical_state_updated.is_connected(sync_state_from_tactical):
+			mgr.tactical_state_updated.connect(sync_state_from_tactical)
+	if mgr.has_method("_on_army_changed"):
+		if not army_changed.is_connected(mgr._on_army_changed):
+			army_changed.connect(mgr._on_army_changed)
+
+func _unbind_tactical_military_manager(mgr: Object) -> void:
+	if mgr == null or not is_instance_valid(mgr):
+		return
+	if mgr.has_signal("tactical_state_updated"):
+		if mgr.tactical_state_updated.is_connected(sync_state_from_tactical):
+			mgr.tactical_state_updated.disconnect(sync_state_from_tactical)
+	if mgr.has_method("_on_army_changed"):
+		if army_changed.is_connected(mgr._on_army_changed):
+			army_changed.disconnect(mgr._on_army_changed)
 
 # -----------------------------------------------------------------------------
 # Dependency Accessors

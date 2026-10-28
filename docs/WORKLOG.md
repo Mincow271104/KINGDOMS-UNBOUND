@@ -6338,3 +6338,66 @@ Specific problems addressed:
 - Stage modified files and commit to branch `fix/package-1w-final-consolidated-audit`.
 - Push to remote `origin/fix/package-1w-final-consolidated-audit`.
 - Deliver comprehensive completion report with commit SHA, parent SHA, and full test evidence. Package 1W is closed. Do not merge into master, do not start Package 1X.
+
+---
+
+## [2026-10-29] Milestone 40: Package 1W — Final Detachment Symmetry Fix (Completed)
+
+### Context & Objective
+Resolve the remaining lifecycle defect regarding manager detachment asymmetry on branch `fix/package-1w-final-consolidated-audit` from baseline commit `6d40492cba0fde8a8f735a5b0748da728558a21f`:
+- In `PlayerArmyManager.set_tactical_military_manager(null)`, detachment must be symmetric: disconnect the old manager's signal subscriptions, clear its back-reference to the army, and clean its roster (`clear_all_units()`).
+- In `TacticalMilitaryManager.set_player_army_manager(null)`, detachment must likewise clear the army reference, unbind signals, and clean the roster.
+- In `TacticalMilitaryManager._on_army_changed()` and `sync_with_player_army()`, guard against executing synchronization unless `player_army_mgr.get("tactical_military_mgr") == self`, preventing detached managers from recreating units in response to army changes.
+- In `scripts/test/test_tactical_military.gd`, expand `GTA-CASE.14` to cover:
+  1. Positive army recruitment with manager attached (`fu_tac.get_unit_count() == 2`, `GARRISONED`).
+  2. Symmetric manager detachment: back-reference cleared, roster cleaned to 0 units.
+  3. Recruitment while detached: army successfully increments (`soldier_count == 3`), detached manager produces zero units (`fu_tac.get_unit_count() == 0`), and army remains safely `IDLE_AT_FIELD`.
+  4. Manager re-attachment: authoritative roster reconstructed (`fu_tac.get_unit_count() == 3`) and army returns to `GARRISONED`.
+  5. Reverse detachment from manager side: clears army reference and roster.
+- Update `TC-TAC.26` in `test_tactical_military.gd` to record `original_count` before replacing the manager.
+
+### Completed Work & Architecture Changes
+1. **`scripts/military/player_army_manager.gd`:**
+   - Updated `set_tactical_military_manager(mgr)`: symmetrically unbinds old manager (`_unbind_tactical_military_manager`), clears old manager's back-reference (`old_mgr.set_player_army_manager(null)`), and cleans its roster (`clear_all_units()`). Added `_bind_tactical_military_manager` and `_unbind_tactical_military_manager` helpers with duplicate connection guards.
+2. **`scripts/military/tactical_military_manager.gd`:**
+   - Updated `set_player_army_manager(mgr)`: symmetrically unbinds old army (`_unbind_army_manager`), clears old army's manager reference, cleans its roster (`clear_all_units()`), and binds new army. Added `_unbind_army_manager` helper.
+   - Updated `_on_army_changed(_count, _cap)`: guards with `if player_army_mgr == null or player_army_mgr.get("tactical_military_mgr") != self: return`.
+   - Updated `sync_with_player_army()`: guards with `if player_army_mgr == null or player_army_mgr.get("tactical_military_mgr") != self: return`.
+3. **`scripts/test/test_tactical_military.gd`:**
+   - Updated `TC-TAC.26` to record `original_count` prior to replacing manager, and verified detached manager's units are cleaned.
+   - Expanded `GTA-CASE.14` to comprehensively test symmetric detachment, zero rogue units on recruitment while detached, authoritative reconstruction on re-attachment, and reverse detachment.
+4. **Documentation Updates:**
+   - Updated `docs/SCOPE_DECISIONS.md` (§1.25 Symmetric Detachment & Roster Cleanup).
+   - Updated `docs/TEST_PLAN.md` with acceptance criteria for `GTA-CASE.14` expansion (385 assertions total).
+   - Updated `docs/BACKLOG.md` recording `TASK-1W-PH.10` as completed.
+
+### Validations Performed & Results
+- **Tactical Military Test Suite (`scripts/test/test_tactical_military.gd`):** **PASS (385/385 assertions, Exit Code 0, 0 Failures)**.
+- **Full 11-Suite Headless Regression Matrix:**
+  1. `scripts/test/test_tactical_military.gd`: **PASS (385 assertions, Exit Code 0)**
+  2. `scripts/test/test_player_army.gd`: **PASS (32 test cases, Exit Code 0)**
+  3. `scripts/test/test_army_movement.gd`: **PASS (32 test cases, Exit Code 0)**
+  4. `scripts/test/test_live_battle_loop.gd`: **PASS (19 test cases, Exit Code 0)**
+  5. `scripts/test/test_offensive_campaign.gd`: **PASS (14 test cases, Exit Code 0)**
+  6. `scripts/test/test_save_load.gd`: **PASS (107 assertions, Exit Code 0)**
+  7. `scripts/test/test_responsive_layout.gd`: **PASS (435 checks, Exit Code 0)**
+  8. `scripts/test/test_automation_graph.gd`: **PASS (69 checks, Exit Code 0)**
+  9. `scripts/test/test_logistics.gd`: **PASS (TC-4.1, 4.2, 4.3 all passed, Exit Code 0)**
+  10. `scripts/test/test_faction_relation_matrix.gd`: **PASS (160 checks, Exit Code 0)**
+  11. `scripts/test/test_factions_and_battles.gd`: **PASS (48 assertions, Exit Code 0)**
+- **Headless Editor Check (`--headless --editor --quit`):** **PASS (Exit Code 0, 0 Parse/Script Errors)**.
+- **Whitespace / Git Check (`git diff --check`):** **PASS (Exit Code 0, 0 Errors)**.
+
+### Files Created or Modified
+- `docs/BACKLOG.md`
+- `docs/SCOPE_DECISIONS.md`
+- `docs/TEST_PLAN.md`
+- `docs/WORKLOG.md`
+- `scripts/military/player_army_manager.gd`
+- `scripts/military/tactical_military_manager.gd`
+- `scripts/test/test_tactical_military.gd`
+
+### Next Exact Step
+- Stage modified files and commit to branch `fix/package-1w-final-consolidated-audit`.
+- Push to remote `origin/fix/package-1w-final-consolidated-audit`.
+- Deliver comprehensive completion report with commit SHA, parent SHA, and full test evidence. Package 1W is closed. Do not merge into master, do not start Package 1X.

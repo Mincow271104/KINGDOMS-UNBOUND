@@ -54,21 +54,54 @@ func set_tactical_units_container(container: Node) -> void:
 	tactical_units_container = container
 
 func set_player_army_manager(mgr: PlayerArmyManager) -> void:
+	if player_army_mgr == mgr:
+		return
+
+	var old_army: PlayerArmyManager = player_army_mgr
+	player_army_mgr = null
+
+	if old_army != null and is_instance_valid(old_army):
+		_unbind_army_manager(old_army)
+		if old_army.get("tactical_military_mgr") == self:
+			if old_army.has_method("set_tactical_military_manager"):
+				old_army.call("set_tactical_military_manager", null)
+			else:
+				old_army.set("tactical_military_mgr", null)
+
+	clear_all_units()
+
 	player_army_mgr = mgr
-	if player_army_mgr != null:
-		if player_army_mgr.has_method("set_tactical_military_manager") and player_army_mgr.get("tactical_military_mgr") != self:
-			player_army_mgr.call("set_tactical_military_manager", self)
+	if player_army_mgr != null and is_instance_valid(player_army_mgr):
 		_bind_army_manager(player_army_mgr)
+		if player_army_mgr.get("tactical_military_mgr") != self:
+			if player_army_mgr.has_method("set_tactical_military_manager"):
+				player_army_mgr.call("set_tactical_military_manager", self)
+			else:
+				player_army_mgr.set("tactical_military_mgr", self)
 		sync_with_player_army()
 
 func _bind_army_manager(mgr: PlayerArmyManager) -> void:
+	if mgr == null or not is_instance_valid(mgr):
+		return
 	if mgr.has_signal("army_changed") and not mgr.army_changed.is_connected(_on_army_changed):
 		mgr.army_changed.connect(_on_army_changed)
 	if mgr.has_method("sync_state_from_tactical") and not tactical_state_updated.is_connected(mgr.sync_state_from_tactical):
 		tactical_state_updated.connect(mgr.sync_state_from_tactical)
 
+func _unbind_army_manager(mgr: PlayerArmyManager) -> void:
+	if mgr == null or not is_instance_valid(mgr):
+		return
+	if mgr.has_signal("army_changed") and mgr.army_changed.is_connected(_on_army_changed):
+		mgr.army_changed.disconnect(_on_army_changed)
+	if mgr.has_method("sync_state_from_tactical") and tactical_state_updated.is_connected(mgr.sync_state_from_tactical):
+		tactical_state_updated.disconnect(mgr.sync_state_from_tactical)
+
 func _on_army_changed(_count: int, _cap: int) -> void:
-	if player_army_mgr != null and player_army_mgr.get("is_deserializing") == true:
+	if player_army_mgr == null or not is_instance_valid(player_army_mgr):
+		return
+	if player_army_mgr.get("tactical_military_mgr") != self:
+		return
+	if player_army_mgr.get("is_deserializing") == true:
 		return
 	sync_with_player_army()
 
@@ -136,7 +169,9 @@ func can_allocate_spawns(count: int, rally_cell: Vector2i = Vector2i(-1, -1), na
 	return slots.size() >= count
 
 func sync_with_player_army(prefer_field_casualties: bool = false, location_restricted: bool = false) -> void:
-	if player_army_mgr == null:
+	if player_army_mgr == null or not is_instance_valid(player_army_mgr):
+		return
+	if player_army_mgr.get("tactical_military_mgr") != self:
 		return
 
 	var target_count: int = player_army_mgr.get_army_count()
