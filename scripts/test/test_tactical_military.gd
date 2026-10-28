@@ -2048,3 +2048,152 @@ func _run_all_tests() -> void:
 	_assert(fu_army.current_cell == fu_army.get_rally_cell(), "GTA-CASE.11B: Current cell normalized to rally cell")
 	_assert(fu_tac.get_unit_count() == 0, "GTA-CASE.11B: Tactical roster reduced to 0 units")
 
+	# =========================================================================
+	# Group 10: Final Roster Lifecycle & Manager Attachment Verification
+	# =========================================================================
+	print("\n--- Group 10: Final Roster Lifecycle & Manager Attachment Verification ---")
+
+	# -------------------------------------------------------------------------
+	# GTA-CASE.12: Recruitment Without Tactical Manager Lifecycle
+	# -------------------------------------------------------------------------
+	print("\n--- Running GTA-CASE.12: Recruitment Without Tactical Manager Lifecycle ---")
+	var gta12_rm := MockResourceManager.new()
+	gta12_rm.stock[EconomyConfigScript.RES_GOLD] = 200
+	gta12_rm.stock[EconomyConfigScript.RES_METAL] = 50
+	gta12_rm.stock[EconomyConfigScript.RES_FOOD] = 200
+
+	var gta12_wd = WorldGenerator.WorldData.new()
+	gta12_wd.buildings.append({
+		"id": "bld_barracks_gta12",
+		"type": "barracks",
+		"cell": Vector2i(30, 25),
+		"size": Vector2i(3, 3),
+		"state": "active",
+		"construction_progress": 18.0,
+		"construction_hours": 18.0
+	})
+	var gta12_nav := GridNavigation.new(gta12_wd)
+
+	var gta12_army := PlayerArmyManagerScript.new()
+	gta12_army.set_custom_resource_manager(gta12_rm)
+	gta12_army.set_custom_world_data(gta12_wd)
+	gta12_army.set_custom_nav(gta12_nav)
+	gta12_army.set_tactical_military_manager(null)
+
+	_assert(gta12_army.soldier_count == 0, "GTA-CASE.12A: Initial soldier count is 0")
+	_assert(gta12_army.movement_state == PlayerArmyManagerScript.MovementState.GARRISONED, "GTA-CASE.12A: 0-soldier army begins GARRISONED")
+
+	# can_recruit must NOT mutate state
+	var check_gta12 = gta12_army.can_recruit(2)
+	_assert(check_gta12.get("can_recruit", false), "GTA-CASE.12B: can_recruit(2) succeeds with resources and active barracks")
+	_assert(gta12_army.soldier_count == 0, "GTA-CASE.12B: can_recruit did not mutate soldier_count")
+	_assert(gta12_army.movement_state == PlayerArmyManagerScript.MovementState.GARRISONED, "GTA-CASE.12B: can_recruit did not mutate movement_state")
+
+	# Over-capacity recruitment fails and does not mutate state or deduct resources
+	var pre_gold = gta12_rm.stock[EconomyConfigScript.RES_GOLD]
+	var check_over = gta12_army.can_recruit(100)
+	_assert(not check_over.get("can_recruit", true), "GTA-CASE.12C: Over-capacity can_recruit rejected")
+	var rec_over = gta12_army.recruit(100)
+	_assert(not rec_over.get("success", true), "GTA-CASE.12C: Over-capacity recruit rejected")
+	_assert(gta12_rm.stock[EconomyConfigScript.RES_GOLD] == pre_gold, "GTA-CASE.12C: Zero resources deducted on rejected recruitment")
+	_assert(gta12_army.soldier_count == 0, "GTA-CASE.12C: Soldier count untouched after rejected recruitment")
+
+	# Successful recruitment without tactical manager
+	var rec_no_mgr = gta12_army.recruit(2)
+	_assert(rec_no_mgr.get("success", false), "GTA-CASE.12D: recruit(2) succeeds atomically without tactical manager")
+	_assert(gta12_army.soldier_count == 2, "GTA-CASE.12D: soldier_count incremented to 2")
+	_assert(gta12_rm.stock[EconomyConfigScript.RES_GOLD] == pre_gold - 40, "GTA-CASE.12D: Gold deducted atomically (-40)")
+	# Under Invariant A, positive soldier count without manager strictly MUST NOT be GARRISONED!
+	_assert(gta12_army.movement_state != PlayerArmyManagerScript.MovementState.GARRISONED, "GTA-CASE.12D: Army with soldiers but no tactical manager is NOT GARRISONED")
+	_assert(gta12_army.movement_state == PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD, "GTA-CASE.12D: Army with soldiers but no tactical manager safely defaults to IDLE_AT_FIELD")
+
+	# -------------------------------------------------------------------------
+	# GTA-CASE.13: Direct deserialize({}) with Active & Moving Tactical Units
+	# -------------------------------------------------------------------------
+	print("\n--- Running GTA-CASE.13: Direct deserialize({}) with Active & Moving Tactical Units ---")
+	fu_tac.clear_all_units()
+	fu_army.soldier_count = 0
+	fu_army.set_tactical_military_manager(fu_tac)
+	var rec_gta13 = fu_army.recruit(3)
+	_assert(rec_gta13.get("success", false) and fu_tac.get_unit_count() == 3, "GTA-CASE.13A: Recruited 3 units with tactical manager")
+
+	# Put unit 0 into active MOVING state with a path
+	var all_gta13_units = fu_tac.get_all_units()
+	var dest_move := fu_army.get_rally_cell() + Vector2i(2, 2)
+	var move_path: Array[Vector2i] = [fu_army.get_rally_cell() + Vector2i(1, 1), dest_move]
+	all_gta13_units[0].order_move(move_path, dest_move)
+	_assert(all_gta13_units[0].order_state == TacticalUnitScript.OrderState.MOVING, "GTA-CASE.13A: Unit 0 is in MOVING order state")
+
+	# Unit 2 placed in the field
+	all_gta13_units[2].current_cell = fu_army.get_rally_cell() + Vector2i(10, 10)
+	all_gta13_units[2].target_cell = fu_army.get_rally_cell() + Vector2i(10, 10)
+
+	# Direct deserialize({}) on PlayerArmyManager
+	fu_army.deserialize({})
+	_assert(fu_army.soldier_count == 0, "GTA-CASE.13B: Direct deserialize({}) set soldier_count to 0")
+	_assert(fu_tac.get_unit_count() == 0, "GTA-CASE.13B: Direct deserialize({}) cleared all tactical units (0 ghost units)")
+	_assert(fu_army.movement_state == PlayerArmyManagerScript.MovementState.GARRISONED, "GTA-CASE.13B: Clean 0-soldier army is GARRISONED")
+	_assert(fu_army.current_cell == fu_army.get_rally_cell(), "GTA-CASE.13B: Current cell reset to rally_cell")
+	_assert(fu_army.current_path.is_empty(), "GTA-CASE.13B: Current path is empty")
+
+	# -------------------------------------------------------------------------
+	# GTA-CASE.14: Tactical Manager Detachment & Re-attachment at Runtime
+	# -------------------------------------------------------------------------
+	print("\n--- Running GTA-CASE.14: Tactical Manager Detachment & Re-attachment at Runtime ---")
+	fu_tac.clear_all_units()
+	fu_army.soldier_count = 0
+	fu_army.set_tactical_military_manager(fu_tac)
+	var rec_gta14 = fu_army.recruit(2)
+	_assert(rec_gta14.get("success", false) and fu_tac.get_unit_count() == 2, "GTA-CASE.14A: Recruited 2 soldiers with manager")
+	_assert(fu_army.movement_state == PlayerArmyManagerScript.MovementState.GARRISONED, "GTA-CASE.14A: Army is GARRISONED at base with roster")
+
+	# Track state change signal
+	var gta14_signals: Array = []
+	var on_state_changed_gta14 = func(new_state: int, cur: Vector2i, dest: Vector2i):
+		gta14_signals.append({"state": new_state, "cur": cur, "dest": dest})
+	fu_army.movement_state_changed.connect(on_state_changed_gta14)
+
+	# Detach tactical manager
+	fu_army.set_tactical_military_manager(null)
+	_assert(fu_army.tactical_military_mgr == null, "GTA-CASE.14B: Tactical manager detached to null")
+	_assert(fu_army.movement_state != PlayerArmyManagerScript.MovementState.GARRISONED, "GTA-CASE.14B: Non-empty army cannot remain GARRISONED upon manager detachment")
+	_assert(fu_army.movement_state == PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD, "GTA-CASE.14B: Non-empty army safely transitioned to IDLE_AT_FIELD upon detachment")
+	_assert(gta14_signals.size() >= 1, "GTA-CASE.14B: movement_state_changed signal emitted on detachment")
+
+	# Re-attach tactical manager
+	fu_army.set_tactical_military_manager(fu_tac)
+	_assert(fu_army.tactical_military_mgr == fu_tac, "GTA-CASE.14C: Tactical manager re-attached")
+	_assert(fu_army.movement_state == PlayerArmyManagerScript.MovementState.GARRISONED, "GTA-CASE.14C: Army cleanly restored to GARRISONED upon manager re-attachment")
+	fu_army.movement_state_changed.disconnect(on_state_changed_gta14)
+
+	# -------------------------------------------------------------------------
+	# GTA-CASE.15: Zero-Soldier Shortcut Does Not Mask Stale Tactical Roster
+	# -------------------------------------------------------------------------
+	print("\n--- Running GTA-CASE.15: Zero-Soldier Shortcut Does Not Mask Stale Tactical Roster ---")
+	fu_tac.clear_all_units()
+	fu_army.soldier_count = 0
+	fu_army.set_tactical_military_manager(fu_tac)
+
+	# Artificially create a stale unit in fu_tac while soldier_count == 0
+	var stale_unit = fu_tac._create_unit_instance("tac_unit_stale", fu_army.get_rally_cell())
+	fu_tac.units["tac_unit_stale"] = stale_unit
+	_assert(fu_tac.get_unit_count() == 1, "GTA-CASE.15A: Tactical manager has 1 stale unit")
+	_assert(fu_army.soldier_count == 0, "GTA-CASE.15A: Strategic soldier count is 0")
+
+	# get_settled_state_for_cell must refuse GARRISONED while stale roster is present
+	var settled_with_stale = fu_army.get_settled_state_for_cell(fu_army.get_rally_cell())
+	_assert(settled_with_stale != PlayerArmyManagerScript.MovementState.GARRISONED, "GTA-CASE.15B: get_settled_state_for_cell refuses GARRISONED when stale tactical roster present")
+	_assert(settled_with_stale == PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD, "GTA-CASE.15B: get_settled_state_for_cell yields IDLE_AT_FIELD for stale roster")
+
+	# sync_state_from_tactical also refuses GARRISONED when stale roster is present
+	fu_army.movement_state = PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD
+	fu_army.sync_state_from_tactical()
+	_assert(fu_army.movement_state != PlayerArmyManagerScript.MovementState.GARRISONED, "GTA-CASE.15C: sync_state_from_tactical refuses GARRISONED when stale roster present")
+
+	# Cleaning units restores genuine GARRISONED
+	fu_tac.clear_all_units()
+	_assert(fu_tac.get_unit_count() == 0, "GTA-CASE.15D: Tactical units cleared")
+	_assert(fu_army.get_settled_state_for_cell(fu_army.get_rally_cell()) == PlayerArmyManagerScript.MovementState.GARRISONED, "GTA-CASE.15D: Genuine empty roster allows GARRISONED")
+	fu_army.sync_state_from_tactical()
+	_assert(fu_army.movement_state == PlayerArmyManagerScript.MovementState.GARRISONED, "GTA-CASE.15D: sync_state_from_tactical normalizes clean 0-soldier army to GARRISONED")
+

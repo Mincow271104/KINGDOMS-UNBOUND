@@ -6271,3 +6271,70 @@ Mandatory Invariants enforced across all state transitions (`order_return_home()
 - Push to remote `origin/fix/package-1w-final-consolidated-audit`.
 - Deliver comprehensive completion report with full transition audit matrix, commit SHA, and test evidence.
 - Await user review and authorization before merging or proceeding to Package 1X.
+
+---
+
+## [2026-10-29] Milestone 39: Package 1W — Final Roster Lifecycle Patch & Closure (Completed)
+
+### Context & Objective
+Execute the narrowly scoped final roster lifecycle patch and complete the closure of Package 1W on branch `fix/package-1w-final-consolidated-audit` from baseline commit `f5af0b167eb5ebe24b77d76e447fd3ed8803b964`.
+
+Specific problems addressed:
+1. **Recruitment Without Tactical Manager:**
+   - In `scripts/military/player_army_manager.gd`: audit `can_recruit()` and `recruit()`.
+   - `can_recruit()` must be strictly read-only and side-effect free (removing mutations that set `movement_state = GARRISONED` on 0 soldiers).
+   - In `can_recruit()`, guard `movement_state` checks with `if soldier_count > 0:`. Guard the field check with `if current_cell != rally_cell:` rather than `movement_state == IDLE_AT_FIELD` because an army at base without a tactical manager settles to `IDLE_AT_FIELD` at `rally_cell` under Invariant A.
+   - In `recruit()`, preserve atomic resource deductions. On recruitment success when `tactical_military_mgr == null`, safely normalize state via `get_settled_state_for_cell(current_cell)` (which yields `IDLE_AT_FIELD` at `rally_cell`), strictly preventing false `GARRISONED` publication without an authoritative tactical roster.
+   - In `set_tactical_military_manager(mgr)`, detaching the manager (`mgr == null`) immediately synchronizes a non-empty army from `GARRISONED` to `IDLE_AT_FIELD` via `sync_state_from_tactical()`.
+2. **Direct `deserialize({})` and Ghost Unit Cleanup:**
+   - Calling `deserialize({})` on `PlayerArmyManager` directly calls `tactical_military_mgr.clear_all_units()`, cleanly destroying any active/moving tactical units and eliminating ghost units.
+   - In `get_settled_state_for_cell()` and `sync_state_from_tactical()`, verify that `tactical_military_mgr.get_all_units().is_empty()` before allowing a zero-soldier army to claim `GARRISONED`.
+
+### Completed Work & Architecture Changes
+1. **`scripts/military/player_army_manager.gd`:**
+   - `set_tactical_military_manager(mgr)`: properly unhooks previous signal, assigns manager reference, connects signal, and immediately invokes `sync_state_from_tactical()` to re-evaluate state.
+   - `can_recruit()`: removed state mutations; guarded movement checks with `if soldier_count > 0: if current_cell != rally_cell: return {"can_recruit": false, "reason": "Quân đội đang dã chiến ngoài thành..."}`.
+   - `recruit()`: sets settled state via `get_settled_state_for_cell(current_cell)`, properly transitioning to `IDLE_AT_FIELD` when manager is null and `GARRISONED` when manager is present and synced.
+   - `get_settled_state_for_cell()`: zero-soldier branch ensures `tactical_military_mgr` roster is empty before allowing `GARRISONED`.
+   - `sync_state_from_tactical()`: refuses `GARRISONED` when `soldier_count <= 0` if tactical units still exist.
+   - `deserialize()`: in both `data.is_empty()` and `soldier_count == 0` paths, calls `tactical_military_mgr.clear_all_units()` directly.
+2. **`scripts/test/test_tactical_military.gd`:**
+   - Added Group 10 (`GTA-CASE.12` through `GTA-CASE.15`):
+     - `GTA-CASE.12`: Recruitment without tactical manager lifecycle, atomic deduction, zero mutation on `can_recruit()`, and safe `IDLE_AT_FIELD` normalization.
+     - `GTA-CASE.13`: Direct `deserialize({})` with active moving units destroying ghost units and cleanly resetting to 0 soldiers/0 units `GARRISONED`.
+     - `GTA-CASE.14`: Tactical manager detachment and re-attachment at runtime cleanly transitioning `GARRISONED` <-> `IDLE_AT_FIELD`.
+     - `GTA-CASE.15`: Zero-soldier shortcut refusing `GARRISONED` when stale roster is present.
+3. **Documentation Updates:**
+   - Updated `docs/SCOPE_DECISIONS.md` (§1.24 Final Roster Lifecycle Patch).
+   - Updated `docs/TEST_PLAN.md` with acceptance criteria for `GTA-CASE.12` through `GTA-CASE.15` (371 assertions total).
+   - Updated `docs/BACKLOG.md` recording `TASK-1W-PH.9` as completed.
+
+### Validations Performed & Results
+- **Tactical Military Test Suite (`scripts/test/test_tactical_military.gd`):** **PASS (371/371 assertions, Exit Code 0, 0 Failures)**.
+- **Full 11-Suite Headless Regression Matrix:**
+  1. `scripts/test/test_tactical_military.gd`: **PASS (371 assertions, Exit Code 0)**
+  2. `scripts/test/test_player_army.gd`: **PASS (32 test cases, Exit Code 0)**
+  3. `scripts/test/test_army_movement.gd`: **PASS (32 test cases, Exit Code 0)**
+  4. `scripts/test/test_live_battle_loop.gd`: **PASS (19 test cases, Exit Code 0)**
+  5. `scripts/test/test_offensive_campaign.gd`: **PASS (14 test cases, Exit Code 0)**
+  6. `scripts/test/test_save_load.gd`: **PASS (107 assertions, Exit Code 0)**
+  7. `scripts/test/test_responsive_layout.gd`: **PASS (435 checks, Exit Code 0)**
+  8. `scripts/test/test_automation_graph.gd`: **PASS (69 checks, Exit Code 0)**
+  9. `scripts/test/test_logistics.gd`: **PASS (TC-4.1, 4.2, 4.3 all passed, Exit Code 0)**
+  10. `scripts/test/test_faction_relation_matrix.gd`: **PASS (160 checks, Exit Code 0)**
+  11. `scripts/test/test_factions_and_battles.gd`: **PASS (48 assertions, Exit Code 0)**
+- **Headless Editor Check (`--headless --editor --quit`):** **PASS (Exit Code 0, 0 Parse/Script Errors)**.
+- **Whitespace / Git Check (`git diff --check`):** **PASS (Exit Code 0, 0 Errors)**.
+
+### Files Created or Modified
+- `docs/BACKLOG.md`
+- `docs/SCOPE_DECISIONS.md`
+- `docs/TEST_PLAN.md`
+- `docs/WORKLOG.md`
+- `scripts/military/player_army_manager.gd`
+- `scripts/test/test_tactical_military.gd`
+
+### Next Exact Step
+- Stage modified files and commit to branch `fix/package-1w-final-consolidated-audit`.
+- Push to remote `origin/fix/package-1w-final-consolidated-audit`.
+- Deliver comprehensive completion report with commit SHA, parent SHA, and full test evidence. Package 1W is closed. Do not merge into master, do not start Package 1X.

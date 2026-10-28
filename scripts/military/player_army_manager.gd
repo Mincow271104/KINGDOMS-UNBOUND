@@ -66,10 +66,14 @@ func _init(wv: Node = null) -> void:
 		destination_cell = rally_cell
 
 func set_tactical_military_manager(mgr: Object) -> void:
+	if tactical_military_mgr != null and is_instance_valid(tactical_military_mgr) and tactical_military_mgr.has_signal("tactical_state_updated"):
+		if tactical_military_mgr.tactical_state_updated.is_connected(sync_state_from_tactical):
+			tactical_military_mgr.tactical_state_updated.disconnect(sync_state_from_tactical)
 	tactical_military_mgr = mgr
-	if tactical_military_mgr != null and tactical_military_mgr.has_signal("tactical_state_updated"):
+	if tactical_military_mgr != null and is_instance_valid(tactical_military_mgr) and tactical_military_mgr.has_signal("tactical_state_updated"):
 		if not tactical_military_mgr.tactical_state_updated.is_connected(sync_state_from_tactical):
 			tactical_military_mgr.tactical_state_updated.connect(sync_state_from_tactical)
+	sync_state_from_tactical()
 
 # -----------------------------------------------------------------------------
 # Dependency Accessors
@@ -173,18 +177,11 @@ func can_recruit(count: int = 1) -> Dictionary:
 	if count <= 0:
 		return {"can_recruit": false, "reason": "Số lượng chiêu mộ phải lớn hơn 0"}
 
-	if soldier_count == 0:
-		movement_state = MovementState.GARRISONED
-		current_cell = rally_cell
-		destination_cell = rally_cell
-		current_path.clear()
-
-	if movement_state == MovementState.MARCHING:
-		return {"can_recruit": false, "reason": "Quân đội đang hành quân, chỉ có thể chiêu mộ khi đóng quân tại căn cứ"}
-	if movement_state == MovementState.IDLE_AT_FIELD or current_cell != rally_cell:
-		return {"can_recruit": false, "reason": "Quân đội đang dã chiến ngoài thành, chỉ có thể chiêu mộ khi đóng quân tại căn cứ"}
-	if not current_path.is_empty():
-		return {"can_recruit": false, "reason": "Quân đội đang di chuyển, chỉ có thể chiêu mộ khi đóng quân tại căn cứ"}
+	if soldier_count > 0:
+		if movement_state == MovementState.MARCHING or not current_path.is_empty():
+			return {"can_recruit": false, "reason": "Quân đội đang hành quân, chỉ có thể chiêu mộ khi đóng quân tại căn cứ"}
+		if current_cell != rally_cell:
+			return {"can_recruit": false, "reason": "Quân đội đang dã chiến ngoài thành, chỉ có thể chiêu mộ khi đóng quân tại căn cứ"}
 
 	var cap: int = get_army_capacity()
 	if cap <= 0:
@@ -235,8 +232,29 @@ func recruit(count: int = 1) -> Dictionary:
 		}
 
 	rm.call("commit_cost", cost)
+
+	if soldier_count == 0:
+		current_cell = rally_cell
+		destination_cell = rally_cell
+		current_path.clear()
+		step_accumulator = 0.0
+
 	soldier_count += count
+
+	var prev_state := movement_state
+	movement_state = get_settled_state_for_cell(current_cell)
+	if movement_state != prev_state:
+		movement_state_changed.emit(movement_state, current_cell, destination_cell)
+
 	army_changed.emit(soldier_count, get_army_capacity())
+
+	if tactical_military_mgr != null and tactical_military_mgr.has_method("sync_with_player_army"):
+		tactical_military_mgr.call("sync_with_player_army")
+		var post_sync_state: int = get_settled_state_for_cell(current_cell)
+		if post_sync_state != movement_state:
+			movement_state = post_sync_state
+			movement_state_changed.emit(movement_state, current_cell, destination_cell)
+
 	recruitment_completed.emit(count, cost)
 
 	return {
@@ -454,6 +472,10 @@ func get_settled_state_for_cell(cell: Vector2i) -> int:
 	if cell != rally_cell:
 		return MovementState.IDLE_AT_FIELD
 	if soldier_count == 0:
+		if tactical_military_mgr != null:
+			var all_units: Array = tactical_military_mgr.call("get_all_units") if tactical_military_mgr.has_method("get_all_units") else []
+			if not all_units.is_empty():
+				return MovementState.IDLE_AT_FIELD
 		return MovementState.GARRISONED
 	if tactical_military_mgr == null:
 		return MovementState.IDLE_AT_FIELD
@@ -745,6 +767,12 @@ func sync_state_from_tactical() -> void:
 			movement_state_changed.emit(movement_state, current_cell, destination_cell)
 		return
 	if soldier_count <= 0:
+		var all_tac: Array = tactical_military_mgr.call("get_all_units") if tactical_military_mgr.has_method("get_all_units") else []
+		if not all_tac.is_empty():
+			if movement_state != MovementState.IDLE_AT_FIELD:
+				movement_state = MovementState.IDLE_AT_FIELD
+				movement_state_changed.emit(movement_state, current_cell, destination_cell)
+			return
 		if movement_state != MovementState.GARRISONED or current_cell != rally_cell:
 			movement_state = MovementState.GARRISONED
 			current_cell = rally_cell
@@ -839,9 +867,11 @@ func deserialize(data: Dictionary) -> void:
 		rally_cell = get_default_rally_cell()
 		current_cell = rally_cell
 		destination_cell = rally_cell
-		movement_state = MovementState.GARRISONED
 		current_path.clear()
 		step_accumulator = 0.0
+		if tactical_military_mgr != null and tactical_military_mgr.has_method("clear_all_units"):
+			tactical_military_mgr.call("clear_all_units")
+		movement_state = get_settled_state_for_cell(current_cell)
 		army_changed.emit(soldier_count, get_army_capacity())
 		movement_state_changed.emit(movement_state, current_cell, destination_cell)
 		is_deserializing = false
@@ -904,10 +934,13 @@ func deserialize(data: Dictionary) -> void:
 
 	# Mutual consistency and route walkability enforcement:
 	if soldier_count == 0:
-		movement_state = MovementState.GARRISONED
+		if tactical_military_mgr != null and tactical_military_mgr.has_method("clear_all_units"):
+			tactical_military_mgr.call("clear_all_units")
 		current_cell = rally_cell
 		destination_cell = rally_cell
 		current_path.clear()
+		step_accumulator = 0.0
+		movement_state = get_settled_state_for_cell(current_cell)
 	elif movement_state == MovementState.GARRISONED:
 		current_path.clear()
 		if current_cell == rally_cell:
