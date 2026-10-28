@@ -93,6 +93,51 @@ class BlockedPathNav extends GridNavigation:
 	func find_path(_from: Vector2i, _to: Vector2i) -> Array[Vector2i]:
 		return []
 
+class RestrictedGarrisonNav extends GridNavigation:
+	var base_rally: Vector2i
+	var base_nav: GridNavigation
+
+	func _init(p_base_nav: GridNavigation, r_cell: Vector2i) -> void:
+		super(null)
+		base_nav = p_base_nav
+		base_rally = r_cell
+
+	func is_cell_walkable(cell: Vector2i) -> bool:
+		if not IsoMath.is_in_bounds(cell):
+			return false
+		var dist := IsoMath.grid_distance(cell, base_rally)
+		# Only base_rally itself is walkable within the garrison perimeter; all other perimeter cells are blocked
+		if dist <= TacticalMilitaryManagerScript.RALLY_PERIMETER_DISTANCE and cell != base_rally:
+			return false
+		return base_nav.is_cell_walkable(cell) if base_nav != null else true
+
+	func find_path(from: Vector2i, to: Vector2i) -> Array[Vector2i]:
+		if not is_cell_walkable(to):
+			return []
+		return base_nav.find_path(from, to) if base_nav != null else []
+
+class TrappedTacticalUnitNav extends GridNavigation:
+	var trapped_cell: Vector2i
+	var base_nav: GridNavigation
+
+	func _init(p_base_nav: GridNavigation, trapped: Vector2i) -> void:
+		super(null)
+		base_nav = p_base_nav
+		trapped_cell = trapped
+
+	func is_cell_walkable(cell: Vector2i) -> bool:
+		if not IsoMath.is_in_bounds(cell):
+			return false
+		# The trapped cell itself is walkable, but all neighboring cells are blocked
+		if abs(cell.x - trapped_cell.x) <= 1 and abs(cell.y - trapped_cell.y) <= 1 and cell != trapped_cell:
+			return false
+		return base_nav.is_cell_walkable(cell) if base_nav != null else true
+
+	func find_path(from: Vector2i, to: Vector2i) -> Array[Vector2i]:
+		if from == trapped_cell:
+			return [] # Trapped unit cannot move out
+		return base_nav.find_path(from, to) if base_nav != null else []
+
 func _init() -> void:
 	print("\n========================================================")
 	print("  STARTING PACKAGE 1W TACTICAL MILITARY TEST SUITE")
@@ -810,21 +855,75 @@ func _run_all_tests() -> void:
 	_assert(fu_army.get_army_count() == post_field_count + post_garrison_count, "FH-CASE.2: Authoritative soldier count equals field + garrison (%d == %d)" % [fu_army.get_army_count(), post_field_count + post_garrison_count])
 	_assert(fu_tac.get_unit_count() == fu_army.get_army_count(), "FH-CASE.2: Tactical roster size strictly matches soldier count (%d == %d)" % [fu_tac.get_unit_count(), fu_army.get_army_count()])
 
-	# FH-CASE.3: Defensive raid with split army: only garrisoned troops take casualties via real raid resolution
-	var cur_fh_day := fh_camp.get_current_day()
-	fh_camp.schedule_raid("rival_military", cur_fh_day, 1, true)
+	# FH-CASE.3: Dedicated split-army defensive raid fixture: only garrisoned troops take casualties via real raid resolution
+	fu_tac.clear_all_units()
+	fu_army.soldier_count = 0
+	fu_army.movement_state = PlayerArmyManagerScript.MovementState.GARRISONED
+	fu_army.current_cell = fu_army.get_rally_cell()
+	fu_army.destination_cell = fu_army.get_rally_cell()
+	fu_army.current_path.clear()
+
+	# Replenish stock and capacity for clean recruitment of 5 units
+	fu_rm.stock[EconomyConfigScript.RES_FOOD] = 5000
+	fu_rm.stock[EconomyConfigScript.RES_GOLD] = 5000
+	fu_rm.stock[EconomyConfigScript.RES_METAL] = 5000
+	var rec_fh3 = fu_army.recruit(5)
+	_assert(rec_fh3.get("success", false) and fu_tac.get_unit_count() == 5, "FH-CASE.3: Recruited 5 units for dedicated split-army raid fixture")
+	var fh3_units = fu_tac.get_all_units()
+
+	# Unit 0 and Unit 1: stationary garrison units at base (dist <= 5, IDLE)
+	fh3_units[0].current_cell = fu_army.get_rally_cell()
+	fh3_units[0].target_cell = fu_army.get_rally_cell()
+	fh3_units[0].order_state = TacticalUnitScript.OrderState.IDLE
+	fh3_units[0].current_path.clear()
+
+	fh3_units[1].current_cell = fu_army.get_rally_cell() + Vector2i(1, 0)
+	fh3_units[1].target_cell = fu_army.get_rally_cell() + Vector2i(1, 0)
+	fh3_units[1].order_state = TacticalUnitScript.OrderState.IDLE
+	fh3_units[1].current_path.clear()
+
+	# Unit 2 and Unit 3: stationary field units in the field (dist > 5, IDLE)
+	fh3_units[2].current_cell = Vector2i(18, 18)
+	fh3_units[2].target_cell = Vector2i(18, 18)
+	fh3_units[2].order_state = TacticalUnitScript.OrderState.IDLE
+	fh3_units[2].current_path.clear()
+
+	fh3_units[3].current_cell = Vector2i(18, 19)
+	fh3_units[3].target_cell = Vector2i(18, 19)
+	fh3_units[3].order_state = TacticalUnitScript.OrderState.IDLE
+	fh3_units[3].current_path.clear()
+
+	# Unit 4: moving garrison unit at base (dist <= 5, MOVING)
+	fh3_units[4].current_cell = fu_army.get_rally_cell() + Vector2i(0, 1)
+	fh3_units[4].target_cell = fu_army.get_rally_cell() + Vector2i(0, 2)
+	fh3_units[4].order_state = TacticalUnitScript.OrderState.MOVING
+	var p_move_garrison: Array[Vector2i] = [fu_army.get_rally_cell() + Vector2i(0, 2)]
+	fh3_units[4].current_path = p_move_garrison
+
+	# Pre-raid assertions: explicitly prove both categories are > 0
 	var pre_raid_field := fu_army.get_field_unit_count()
 	var pre_raid_garrison := fu_army.get_defending_soldier_count()
+	_assert(pre_raid_field == 2, "FH-CASE.3: Dedicated pre-raid eligible field count is strictly positive (%d == 2 > 0)" % pre_raid_field)
+	_assert(pre_raid_garrison == 2, "FH-CASE.3: Dedicated pre-raid eligible garrison count is strictly positive (%d == 2 > 0)" % pre_raid_garrison)
+	_assert(fu_tac.get_unit_count() == 5, "FH-CASE.3: Total tactical roster has 5 units (2 garrison, 2 field, 1 moving)")
+
+	# Schedule and resolve raid via real resolve_and_apply_raid()
+	var cur_fh_day := fh_camp.get_current_day()
+	fh_camp.schedule_raid("rival_military", cur_fh_day, 1, true)
 	var raid_res := fh_camp.resolve_and_apply_raid("rival_military", cur_fh_day)
 	_assert(raid_res.get("success", false), "FH-CASE.3: Defensive raid resolved successfully via resolve_and_apply_raid: %s" % raid_res.get("reason", ""))
 	var raid_report = raid_res.get("report")
 	_assert(raid_report != null, "FH-CASE.3: BattleReport produced by defensive raid resolution")
 	var def_casualties: int = raid_report.defender_casualties
 	_assert(def_casualties >= 1, "FH-CASE.3: Defensive raid produced at least 1 defender casualty (%d >= 1)" % def_casualties)
+
 	var expected_garrison_loss := mini(def_casualties, pre_raid_garrison)
-	_assert(fu_army.get_field_unit_count() == pre_raid_field, "FH-CASE.3: Field units completely untouched by defensive raid (%d == %d)" % [fu_army.get_field_unit_count(), pre_raid_field])
+	# Post-raid assertions:
+	_assert(fu_army.get_field_unit_count() == pre_raid_field, "FH-CASE.3: Field units completely untouched by defensive raid (%d == %d > 0)" % [fu_army.get_field_unit_count(), pre_raid_field])
 	_assert(fu_army.get_defending_soldier_count() == pre_raid_garrison - expected_garrison_loss, "FH-CASE.3: Garrisoned units reduced by exactly %d (%d == %d)" % [expected_garrison_loss, fu_army.get_defending_soldier_count(), pre_raid_garrison - expected_garrison_loss])
+	_assert(fh3_units[4].order_state == TacticalUnitScript.OrderState.MOVING, "FH-CASE.3: Moving garrison unit was NOT removed as casualty")
 	_assert(fu_tac.get_unit_count() == fu_army.get_army_count(), "FH-CASE.3: Tactical roster matches soldier count after defensive casualty (%d == %d)" % [fu_tac.get_unit_count(), fu_army.get_army_count()])
+	_assert(fu_army.get_army_count() == 5 - expected_garrison_loss, "FH-CASE.3: Total army count matches 5 - casualties (%d == %d)" % [fu_army.get_army_count(), 5 - expected_garrison_loss])
 
 	# FH-CASE.4: Strict save validation rejects moving unit without current_path
 	var bad_moving_no_path: Dictionary = base_valid_save.duplicate(true)
@@ -1090,41 +1189,127 @@ func _run_all_tests() -> void:
 	_assert(fu_army.movement_state == PlayerArmyManagerScript.MovementState.GARRISONED, "PH-CASE.2: Req 6: State remains GARRISONED after subsequent tactical_state_updated")
 	_assert(fu_army.current_cell == fu_army.get_rally_cell(), "PH-CASE.2: Req 6: Strategic marker remains at rally_cell")
 
-	# PH-CASE.3: Insufficient return slots rejection (fail-closed atomic)
-	var full_excl: Array[Vector2i] = []
-	for r in range(0, TacticalMilitaryManagerScript.RALLY_PERIMETER_DISTANCE + 1):
-		for dy in range(-r, r + 1):
-			for dx in range(-r, r + 1):
-				if abs(dx) + abs(dy) == r:
-					full_excl.append(fu_army.get_rally_cell() + Vector2i(dx, dy))
-	full_excl.pop_back()
-	full_excl.pop_back() # Only 2 free slots remain
-	var slots_fail = fu_tac.compute_garrison_return_slots(fu_army.get_rally_cell(), 5, live_nav, full_excl)
-	_assert(slots_fail.is_empty(), "PH-CASE.3: compute_garrison_return_slots returns empty array when available slots (2) < requested count (5)")
-
-	# PH-CASE.4: Return command failure propagation
+	# PH-CASE.3: Insufficient return slots rejection (fail-closed atomic dispatcher test)
 	fu_tac.clear_all_units()
 	fu_army.soldier_count = 0
-	fu_army.recruit(1)
-	fu_army.movement_state = PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD
-	fu_army.current_cell = Vector2i(20, 20)
-	fu_army.destination_cell = Vector2i(20, 20)
-	var u_ph4 = fu_tac.get_all_units()[0]
-	u_ph4.current_cell = Vector2i(20, 20)
-	u_ph4.target_cell = Vector2i(20, 20)
-	u_ph4.order_state = TacticalUnitScript.OrderState.IDLE
-	u_ph4.current_path.clear()
+	fu_rm.stock[EconomyConfigScript.RES_FOOD] = 5000
+	fu_rm.stock[EconomyConfigScript.RES_GOLD] = 5000
+	fu_rm.stock[EconomyConfigScript.RES_METAL] = 5000
+	var rec_ph3 = fu_army.recruit(3)
+	_assert(rec_ph3.get("success", false) and fu_tac.get_unit_count() == 3, "PH-CASE.3: Recruited 3 units for slot-exhaustion test")
+	var ph3_units = fu_tac.get_all_units()
+	ph3_units[0].current_cell = Vector2i(20, 20)
+	ph3_units[0].target_cell = Vector2i(20, 20)
+	ph3_units[0].order_state = TacticalUnitScript.OrderState.IDLE
+	ph3_units[0].current_path.clear()
+	ph3_units[0].step_accumulator = 0.0
 
-	# Create impassable nav to force return pathfinding failure
-	var blocked_nav = BlockedPathNav.new()
-	fu_army.set_custom_nav(blocked_nav)
-	fu_tac.set_custom_nav(blocked_nav)
+	ph3_units[1].current_cell = Vector2i(20, 21)
+	ph3_units[1].target_cell = Vector2i(20, 21)
+	ph3_units[1].order_state = TacticalUnitScript.OrderState.IDLE
+	ph3_units[1].current_path.clear()
+	ph3_units[1].step_accumulator = 0.0
+
+	ph3_units[2].current_cell = Vector2i(20, 22)
+	ph3_units[2].target_cell = Vector2i(20, 22)
+	ph3_units[2].order_state = TacticalUnitScript.OrderState.IDLE
+	ph3_units[2].current_path.clear()
+	ph3_units[2].step_accumulator = 0.0
+
+	# Set partial selection to verify selection is NOT mutated to select_all on failure
+	fu_tac.clear_selection()
+	fu_tac.select_unit(ph3_units[0].unit_id)
+	_assert(fu_tac.get_selected_count() == 1, "PH-CASE.3: Exactly 1 unit selected before failure call")
+
+	# RestrictedGarrisonNav only permits base_rally (1 slot available < 3 units requested)
+	var restr_nav = RestrictedGarrisonNav.new(live_nav, fu_army.get_rally_cell())
+	var ret_fail_res = fu_tac.order_return_all_to_rally(fu_army.get_rally_cell(), restr_nav)
+	_assert(not ret_fail_res.get("success", true), "PH-CASE.3: order_return_all_to_rally fails closed when available slots < requested count")
+	_assert(ret_fail_res.get("reason", "") == "Không đủ vị trí trống trong khu vực căn cứ để đóng quân", "PH-CASE.3: Reason reports insufficient slots")
+
+	# Prove all existing units' current cells, target cells, order states, paths and step accumulators remain unchanged
+	var ph3_units_unmodified := true
+	for idx in range(3):
+		var u = ph3_units[idx]
+		var exp_cell := Vector2i(20, 20 + idx)
+		if u.current_cell != exp_cell or u.target_cell != exp_cell or u.order_state != TacticalUnitScript.OrderState.IDLE or not u.current_path.is_empty() or u.step_accumulator != 0.0:
+			ph3_units_unmodified = false
+	_assert(ph3_units_unmodified, "PH-CASE.3: All 3 units remain completely unmodified in position, state, path, and accumulator")
+	_assert(fu_tac.get_selected_count() == 1 and fu_tac.get_selected_unit_ids().has(ph3_units[0].unit_id), "PH-CASE.3: Failure handling does not leave all units selected unintentionally")
+
+	# PH-CASE.4: Strategic wrapper test with valid strategic path but trapped tactical unit
+	fu_tac.clear_all_units()
+	fu_army.soldier_count = 0
+	fu_army.recruit(2)
+	fu_army.movement_state = PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD
+	fu_army.current_cell = Vector2i(25, 25)
+	fu_army.destination_cell = Vector2i(25, 25)
+	fu_army.current_path.clear()
+	fu_army.step_accumulator = 0.0
+
+	var ph4_units = fu_tac.get_all_units()
+	# Unit 0 is at (25, 25) with a clear path
+	ph4_units[0].current_cell = Vector2i(25, 25)
+	ph4_units[0].target_cell = Vector2i(25, 25)
+	ph4_units[0].order_state = TacticalUnitScript.OrderState.IDLE
+	ph4_units[0].current_path.clear()
+	ph4_units[0].step_accumulator = 0.0
+
+	# Unit 1 is at trapped cell (45, 45)
+	ph4_units[1].current_cell = Vector2i(45, 45)
+	ph4_units[1].target_cell = Vector2i(45, 45)
+	ph4_units[1].order_state = TacticalUnitScript.OrderState.IDLE
+	ph4_units[1].current_path.clear()
+	ph4_units[1].step_accumulator = 0.0
+
+	fu_tac.clear_selection()
+
+	var trapped_nav = TrappedTacticalUnitNav.new(live_nav, Vector2i(45, 45))
+	# Confirm strategic route is valid
+	var strat_path = trapped_nav.find_path(Vector2i(25, 25), fu_army.get_rally_cell())
+	_assert(not strat_path.is_empty(), "PH-CASE.4: Strategic route to rally_cell is strictly valid and walkable")
+
+	fu_army.set_custom_nav(trapped_nav)
+	fu_tac.set_custom_nav(trapped_nav)
 	var fail_ret_res = fu_army.order_return_home()
-	_assert(not fail_ret_res.get("success", true), "PH-CASE.4: order_return_home reports failure when route is blocked")
+	_assert(not fail_ret_res.get("success", true), "PH-CASE.4: order_return_home propagates tactical route failure fail-closed")
+	_assert(fail_ret_res.get("reason", "") == "Không tìm thấy đường đi tới căn cứ cho một hoặc nhiều đơn vị", "PH-CASE.4: Reason indicates tactical route failure")
 	_assert(fu_army.movement_state == PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD, "PH-CASE.4: Strategic army state remains IDLE_AT_FIELD after failed return")
-	_assert(fu_army.current_cell == Vector2i(20, 20), "PH-CASE.4: Strategic army position remains at field cell")
+	_assert(fu_army.current_cell == Vector2i(25, 25), "PH-CASE.4: Strategic army position remains at field cell")
+	_assert(fu_army.current_path.is_empty(), "PH-CASE.4: Strategic army path remains empty")
+
+	# Verify neither strategic nor tactical layers issued a partial order
+	_assert(ph4_units[0].order_state == TacticalUnitScript.OrderState.IDLE, "PH-CASE.4: Unit 0 was NOT partially ordered to move (remains IDLE)")
+	_assert(ph4_units[0].current_path.is_empty(), "PH-CASE.4: Unit 0 path remains empty")
+	_assert(ph4_units[1].order_state == TacticalUnitScript.OrderState.IDLE, "PH-CASE.4: Trapped Unit 1 remains IDLE")
+	_assert(ph4_units[1].current_path.is_empty(), "PH-CASE.4: Trapped Unit 1 path remains empty")
+	_assert(fu_tac.get_selected_count() == 0, "PH-CASE.4: Selection was not unintentionally modified to select_all on failure")
+
 	fu_army.set_custom_nav(live_nav)
 	fu_tac.set_custom_nav(live_nav)
+
+	# Verify an already-valid return route remains unchanged when the same command is issued again
+	ph4_units[0].current_cell = Vector2i(25, 25)
+	ph4_units[0].target_cell = Vector2i(25, 25)
+	ph4_units[0].order_state = TacticalUnitScript.OrderState.IDLE
+	ph4_units[0].current_path.clear()
+	ph4_units[1].current_cell = Vector2i(25, 26)
+	ph4_units[1].target_cell = Vector2i(25, 26)
+	ph4_units[1].order_state = TacticalUnitScript.OrderState.IDLE
+	ph4_units[1].current_path.clear()
+
+	var valid_ret_1 = fu_army.order_return_home()
+	_assert(valid_ret_1.get("success", false), "PH-CASE.4: First valid order_return_home succeeds")
+	var u0_path_1: Array[Vector2i] = ph4_units[0].current_path.duplicate()
+	var u1_path_1: Array[Vector2i] = ph4_units[1].current_path.duplicate()
+	var strat_path_1: Array[Vector2i] = fu_army.current_path.duplicate()
+
+	# Reissue the same return command
+	var valid_ret_2 = fu_army.order_return_home()
+	_assert(valid_ret_2.get("success", false), "PH-CASE.4: Reissued order_return_home succeeds idempotently")
+	_assert(fu_army.current_path == strat_path_1, "PH-CASE.4: Strategic army path remains identical upon reissued return command")
+	_assert(ph4_units[0].current_path == u0_path_1, "PH-CASE.4: Unit 0 path remains identical upon reissued return command")
+	_assert(ph4_units[1].current_path == u1_path_1, "PH-CASE.4: Unit 1 path remains identical upon reissued return command")
 
 	# PH-CASE.5: Ready field force consistency with moving field subset
 	fu_tac.clear_all_units()
@@ -1256,4 +1441,92 @@ func _run_all_tests() -> void:
 	_assert(fu_tac.get_unit(u_inv_stat.unit_id) == null, "PH-CASE.8: Stationary field unit %s was removed as eligible field casualty" % u_inv_stat.unit_id)
 	_assert(fu_army.get_army_count() == 2, "PH-CASE.8: Authoritative soldier count is 2")
 	_assert(fu_tac.get_unit_count() == 2, "PH-CASE.8: Tactical roster size matches soldier count (2 == 2)")
+
+	# PH-CASE.9: Repeated-command return-home regression (strategic center arrives before tactical units)
+	fu_tac.clear_all_units()
+	fu_army.soldier_count = 0
+	fu_rm.stock[EconomyConfigScript.RES_FOOD] = 5000
+	fu_rm.stock[EconomyConfigScript.RES_GOLD] = 5000
+	fu_rm.stock[EconomyConfigScript.RES_METAL] = 5000
+	var rec_ph9 = fu_army.recruit(2)
+	_assert(rec_ph9.get("success", false) and fu_tac.get_unit_count() == 2, "PH-CASE.9: Recruited 2 units for repeated-command regression test")
+	var ph9_units = fu_tac.get_all_units()
+
+	# 1. Strategic center starts at (34, 33) which is distance 2 from rally (32, 33)
+	fu_army.movement_state = PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD
+	fu_army.current_cell = Vector2i(34, 33)
+	fu_army.destination_cell = Vector2i(34, 33)
+	fu_army.current_path.clear()
+	fu_army.step_accumulator = 0.0
+
+	# Unit 0 is at (34, 33) - distance 2 from rally (32, 33)
+	ph9_units[0].current_cell = Vector2i(34, 33)
+	ph9_units[0].target_cell = Vector2i(34, 33)
+	ph9_units[0].order_state = TacticalUnitScript.OrderState.IDLE
+	ph9_units[0].current_path.clear()
+	ph9_units[0].step_accumulator = 0.0
+
+	# Unit 1 is placed further back at (38, 33) - distance 6 from rally (32, 33)
+	ph9_units[1].current_cell = Vector2i(38, 33)
+	ph9_units[1].target_cell = Vector2i(38, 33)
+	ph9_units[1].order_state = TacticalUnitScript.OrderState.IDLE
+	ph9_units[1].current_path.clear()
+	ph9_units[1].step_accumulator = 0.0
+
+	# 2. Start full return-home command
+	var ret_ph9 = fu_army.order_return_home()
+	_assert(ret_ph9.get("success", false), "PH-CASE.9: Full return-home command issued successfully")
+	_assert(fu_army.movement_state == PlayerArmyManagerScript.MovementState.MARCHING, "PH-CASE.9: Army state is MARCHING")
+
+	# Strategic marker has 2 steps to rally_cell (32, 33). Advance 1.0s (2 steps * 0.5s)
+	fu_army.advance_movement(0.5, 1.0)
+	fu_army.advance_movement(0.5, 1.0)
+
+	# 3. Strategic center has reached rally_cell, but Unit 1 is still moving
+	_assert(fu_army.current_cell == fu_army.get_rally_cell(), "PH-CASE.9: Strategic center reached rally_cell (32, 33)")
+	_assert(ph9_units[1].order_state == TacticalUnitScript.OrderState.MOVING, "PH-CASE.9: Unit 1 remains in MOVING state")
+	_assert(fu_army.movement_state != PlayerArmyManagerScript.MovementState.GARRISONED, "PH-CASE.9: Strategic army is NOT yet GARRISONED")
+	_assert(fu_army.movement_state == PlayerArmyManagerScript.MovementState.MARCHING, "PH-CASE.9: Strategic army maintains MARCHING while tactical units in transit")
+
+	# Advance Unit 1 by a partial step (0.25s) so step_accumulator > 0
+	fu_army.advance_movement(0.25, 1.0)
+	_assert(ph9_units[1].order_state == TacticalUnitScript.OrderState.MOVING, "PH-CASE.9: Unit 1 still moving during partial step")
+	_assert(ph9_units[1].step_accumulator > 0.0, "PH-CASE.9: Unit 1 has non-zero step_accumulator: %f" % ph9_units[1].step_accumulator)
+
+	# Capture moving unit's exact state before reissuing command
+	var u1_pre_cell: Vector2i = ph9_units[1].current_cell
+	var u1_pre_target: Vector2i = ph9_units[1].target_cell
+	var u1_pre_path: Array[Vector2i] = ph9_units[1].current_path.duplicate()
+	var u1_pre_accum: float = ph9_units[1].step_accumulator
+
+	# 4. Issue order_return_home() again
+	var ret_ph9_repeat = fu_army.order_return_home()
+	_assert(ret_ph9_repeat.get("success", false), "PH-CASE.9: Reissued order_return_home() succeeded")
+
+	# 5. Assert that state remains in transit and unit progress was NOT wiped/stalled
+	_assert(fu_army.movement_state == PlayerArmyManagerScript.MovementState.MARCHING, "PH-CASE.9: Strategic state strictly remains MARCHING (not GARRISONED)")
+	_assert(ph9_units[1].current_cell == u1_pre_cell, "PH-CASE.9: Unit 1 current_cell unchanged by reissued command")
+	_assert(ph9_units[1].target_cell == u1_pre_target, "PH-CASE.9: Unit 1 target_cell unchanged by reissued command")
+	_assert(ph9_units[1].current_path == u1_pre_path, "PH-CASE.9: Unit 1 current_path unchanged by reissued command")
+	_assert(is_equal_approx(ph9_units[1].step_accumulator, u1_pre_accum), "PH-CASE.9: Unit 1 step_accumulator (%f) was NOT reset to 0.0" % ph9_units[1].step_accumulator)
+
+	# 6. Advance simulation until all units arrive
+	var ph9_safety := 0
+	while (ph9_units[0].order_state == TacticalUnitScript.OrderState.MOVING or ph9_units[1].order_state == TacticalUnitScript.OrderState.MOVING or fu_army.movement_state == PlayerArmyManagerScript.MovementState.MARCHING) and ph9_safety < 40:
+		ph9_safety += 1
+		fu_army.advance_movement(0.5, 1.0)
+
+	# 7. Assert all completion requirements
+	_assert(ph9_units[0].order_state == TacticalUnitScript.OrderState.IDLE, "PH-CASE.9: Unit 0 finished and is IDLE")
+	_assert(ph9_units[1].order_state == TacticalUnitScript.OrderState.IDLE, "PH-CASE.9: Unit 1 finished and is IDLE")
+	_assert(ph9_units[0].current_cell != ph9_units[1].current_cell, "PH-CASE.9: Unit cells are pairwise distinct (%s vs %s)" % [ph9_units[0].current_cell, ph9_units[1].current_cell])
+	_assert(IsoMath.grid_distance(ph9_units[0].current_cell, fu_army.get_rally_cell()) <= TacticalMilitaryManagerScript.RALLY_PERIMETER_DISTANCE, "PH-CASE.9: Unit 0 lies within garrison perimeter (dist <= 5)")
+	_assert(IsoMath.grid_distance(ph9_units[1].current_cell, fu_army.get_rally_cell()) <= TacticalMilitaryManagerScript.RALLY_PERIMETER_DISTANCE, "PH-CASE.9: Unit 1 lies within garrison perimeter (dist <= 5)")
+	_assert(fu_army.get_defending_soldier_count() == 2, "PH-CASE.9: Defending count equals garrison-eligible roster (2)")
+	_assert(fu_army.movement_state == PlayerArmyManagerScript.MovementState.GARRISONED, "PH-CASE.9: Strategic state finalized to GARRISONED only upon arrival")
+
+	# 8. Emit tactical_state_updated again and verify state remains consistent
+	fu_tac.tactical_state_updated.emit()
+	_assert(fu_army.movement_state == PlayerArmyManagerScript.MovementState.GARRISONED, "PH-CASE.9: State remains GARRISONED after tactical_state_updated emission")
+	_assert(fu_army.current_cell == fu_army.get_rally_cell(), "PH-CASE.9: Strategic center remains at rally_cell")
 

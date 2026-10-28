@@ -694,9 +694,9 @@ func order_return_all_to_rally(p_rally: Vector2i = Vector2i(-1, -1), nav: GridNa
 	if nav == null:
 		return {"success": false, "reason": "Hệ thống dẫn đường không khả dụng"}
 
-	select_all()
-
-	var excluded_cells: Array[Vector2i] = get_occupied_cells(selected_unit_ids)
+	# Validate slots without prematurely modifying selection or issuing partial orders
+	var all_unit_ids: Array = units.keys()
+	var excluded_cells: Array[Vector2i] = get_occupied_cells(all_unit_ids)
 	var slots := compute_garrison_return_slots(r_cell, unit_count, nav, excluded_cells)
 	if slots.size() < unit_count:
 		return {"success": false, "reason": "Không đủ vị trí trống trong khu vực căn cứ để đóng quân"}
@@ -722,6 +722,9 @@ func order_return_all_to_rally(p_rally: Vector2i = Vector2i(-1, -1), nav: GridNa
 			if path.size() > 0 and path[0] == u.current_cell:
 				path.remove_at(0)
 			planned_paths[uid] = path
+
+	# Validation completely succeeded; now update selection and dispatch orders atomically
+	select_all()
 
 	# Dispatch orders
 	for idx in range(unit_count):

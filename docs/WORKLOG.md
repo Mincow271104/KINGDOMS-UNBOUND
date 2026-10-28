@@ -5971,3 +5971,81 @@ Address the architectural, defensive, and tactical-movement edge cases identifie
 - Push to remote `origin/fix/package-1w-post-hardening-safety` and `origin/fix/package-1w-post-hardening`.
 - Deliver comprehensive completion report to user with commit SHA and test logs.
 - Await next instructions (do not merge to master, do not start Package 1X).
+---
+
+## [2026-10-29] Package 1W Final Review: Idempotent Return-Home Commands & Non-Vacuous Integration Tests (Completed)
+
+### Context & Objective
+Address the critical return-home command idempotency defects, premature `GARRISONED` state transitions, and integration test coverage quality issues identified in the Final Review of Package 1W on dedicated branch `fix/package-1w-return-home-final-fix` based on commit `2ccadebd5cc1f5eff8eccd772f4d99538bb675e8`:
+1. **Fix A — Returning Home Must Be Idempotent & Wait For Real Arrival:**
+   - Eliminate premature `GARRISONED` transition in `PlayerArmyManager.order_return_home()`: when strategic marker reaches `rally_cell` but tactical units are still in transit, `movement_state` strictly remains `MARCHING` in transit; only transitions to `GARRISONED` when all units are confirmed idle and inside `RALLY_PERIMETER_DISTANCE = 5` (`are_all_tactical_units_settled_at_base()`).
+   - Idempotent command reissue: `TacticalUnit.order_move()` preserves `step_accumulator` and path when receiving an identical move order, preventing progress reset or unit stalling.
+   - Atomic return dispatch without selection side-effects: `TacticalMilitaryManager.order_return_all_to_rally()` pre-validates garrison slots and routes for all units before calling `select_all()` or dispatching movement orders; failures fail closed without mutating selection or issuing partial orders.
+2. **Fix B — Repeated-Command Return-Home Regression Test (PH-CASE.9):**
+   - Create a tactical force whose strategic center reaches `rally_cell` earlier than at least one of its individual units.
+   - Advance simulation until strategic center reaches `rally_cell` while a tactical unit is still moving; assert strategic army is NOT `GARRISONED`.
+   - Advance a partial step so `step_accumulator > 0.0`; reissue `order_return_home()`.
+   - Assert strategic state remains `MARCHING`, and moving unit's cell, target cell, path, and non-zero `step_accumulator` are strictly preserved without resetting.
+   - Advance simulation to completion; assert all units are idle, cells pairwise distinct within distance $\le 5$, defending count equals 2, strategic state transitions to `GARRISONED` only upon arrival, and subsequent `tactical_state_updated` signals maintain stability.
+3. **Fix C — Exercise Real Dispatcher & Failure Paths (PH-CASE.3, PH-CASE.4):**
+   - PH-CASE.3: tests `TacticalMilitaryManager.order_return_all_to_rally()` directly with `RestrictedGarrisonNav` (insufficient slots), proving atomic fail-closed rejection, positions/states/paths/accumulators unmodified, and unit selection preserved without unintentional `select_all`.
+   - PH-CASE.4: tests strategic wrapper `PlayerArmyManager.order_return_home()` with a valid strategic path but trapped tactical unit (`TrappedTacticalUnitNav`). Proves tactical failure propagates fail-closed, strategic state remains `IDLE_AT_FIELD` without clearing route, and zero partial orders are issued.
+   - Reissued command route invariance: asserts that reissuing `order_return_home()` on an already-valid route preserves identical paths on both strategic and tactical layers.
+4. **Fix D — Non-Vacuous Dedicated Split-Army Defensive Raid Fixture (FH-CASE.3):**
+   - Provide FH-CASE.3 with a dedicated split-army fixture of 5 units (2 stationary garrison, 2 stationary field, 1 moving at base), explicitly asserting pre-raid counts $> 0$ (`pre_raid_field == 2`, `pre_raid_garrison == 2`).
+   - Exercise real `BattleCampaignManager.resolve_and_apply_raid()` resolution path producing $\ge 1$ defender casualty.
+   - Assert field units remain completely untouched (`post_field_count == pre_raid_field`), garrison loses exactly expected casualties, moving base unit is untouched, and `soldier_count == tactical_roster.size()`.
+5. **Full Regression & Quality Gate:**
+   - Execute all 11 headless test suites, headless editor import, and `git diff --check`.
+
+### Completed Work
+1. **`scripts/military/tactical_unit.gd`:**
+   - Updated `order_move(path, dest)` with idempotency guards for already-moving units (`order_state == OrderState.MOVING and target_cell == dest and current_path == new_path: return`) and idle units (`order_state == OrderState.IDLE and target_cell == dest and current_cell == dest and current_path.is_empty() and new_path.is_empty(): return`), preserving `step_accumulator` and preventing stutter.
+2. **`scripts/military/tactical_military_manager.gd`:**
+   - In `order_return_all_to_rally()`: moved `select_all()` to execute only after both `compute_garrison_return_slots` and all unit path verifications succeed; excluded units' current cells from blocking garrison slot search; atomic fail-closed guarantees zero partial orders.
+3. **`scripts/military/player_army_manager.gd`:**
+   - Implemented `are_all_tactical_units_settled_at_base() -> bool`.
+   - In `order_move()`: added idempotency guard preventing route replacement or accumulator reset when already marching to `target_cell` with identical path.
+   - In `order_return_home()`: when `current_cell == rally_cell`, checks `are_all_tactical_units_settled_at_base()`; if false, maintains `MARCHING` in-transit state (`action: "marching_home"`) and never transitions to `GARRISONED`. When `current_cell != rally_cell` and already marching to rally, preserves path and accumulator without destructive re-dispatch.
+   - In `_arrive_at_destination()`: uses `are_all_tactical_units_settled_at_base()`.
+4. **`scripts/test/test_tactical_military.gd`:**
+   - Added `RestrictedGarrisonNav` and `TrappedTacticalUnitNav` delegating to base navigation.
+   - Upgraded `FH-CASE.3` to dedicated split-army fixture with 5 units, asserting `pre_raid_field == 2` and `pre_raid_garrison == 2`, verifying raid casualties drawn strictly from garrison defenders while field and moving units remain untouched.
+   - Hardened `PH-CASE.3` calling real `order_return_all_to_rally()` with insufficient slots, verifying zero unit mutation and selection preservation.
+   - Hardened `PH-CASE.4` calling `order_return_home()` with valid strategic path and trapped tactical unit, verifying tactical failure propagation, zero partial orders, and reissued command route invariance.
+   - Implemented `PH-CASE.9` covering the repeated return-home command regression with strategic center arriving earlier than tactical units, non-zero accumulator preservation, in-transit state maintenance, and clean final settlement to `GARRISONED`.
+5. **Documentation Updates:**
+   - Updated `docs/SCOPE_DECISIONS.md` (§1.23), `docs/TEST_PLAN.md` (PH-CASE.1 to PH-CASE.9), and `docs/BACKLOG.md` (`TASK-1W-PH.5`).
+
+### Validations Performed & Results
+- **Tactical Military Test Suite (`scripts/test/test_tactical_military.gd`):** **PASS (252/252 assertions, Exit Code 0, 0 Failures)**.
+- **Full 11-Suite Headless Regression Matrix:**
+  1. `scripts/test/test_tactical_military.gd`: **PASS (252 assertions, Exit Code 0)**
+  2. `scripts/test/test_player_army.gd`: **PASS (Exit Code 0)**
+  3. `scripts/test/test_army_movement.gd`: **PASS (Exit Code 0)**
+  4. `scripts/test/test_live_battle_loop.gd`: **PASS (Exit Code 0)**
+  5. `scripts/test/test_offensive_campaign.gd`: **PASS (Exit Code 0)**
+  6. `scripts/test/test_save_load.gd`: **PASS (107 assertions, Exit Code 0)**
+  7. `scripts/test/test_responsive_layout.gd`: **PASS (435 checks, Exit Code 0)**
+  8. `scripts/test/test_automation_graph.gd`: **PASS (69 checks, Exit Code 0)**
+  9. `scripts/test/test_logistics.gd`: **PASS (Exit Code 0)** *(explicitly captured as requested)*
+  10. `scripts/test/test_faction_relation_matrix.gd`: **PASS (160 checks, Exit Code 0)**
+  11. `scripts/test/test_factions_and_battles.gd`: **PASS (48 assertions, Exit Code 0)**
+- **Headless Editor Check (`--headless --editor --quit`):** **PASS (Exit Code 0, 0 Parse/Script Errors)**.
+- **Whitespace / Git Check (`git diff --check`):** **PASS (Exit Code 0, 0 Errors)**.
+
+### Files Created or Modified
+- `docs/BACKLOG.md`
+- `docs/SCOPE_DECISIONS.md`
+- `docs/TEST_PLAN.md`
+- `docs/WORKLOG.md`
+- `scripts/military/player_army_manager.gd`
+- `scripts/military/tactical_military_manager.gd`
+- `scripts/military/tactical_unit.gd`
+- `scripts/test/test_tactical_military.gd`
+
+### Next Exact Step
+- Stage modified files and commit to dedicated branch `fix/package-1w-return-home-final-fix`.
+- Push to remote `origin/fix/package-1w-return-home-final-fix`.
+- Deliver comprehensive completion report to user with commit SHA and test logs.
+- Await next instructions (do not merge to master, do not start Package 1X).

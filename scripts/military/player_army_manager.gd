@@ -413,6 +413,20 @@ func refresh_rally_cell() -> void:
 		current_cell = rally_cell
 		destination_cell = rally_cell
 
+func are_all_tactical_units_settled_at_base() -> bool:
+	if tactical_military_mgr == null:
+		return true
+	var all_units: Array = tactical_military_mgr.call("get_all_units")
+	if all_units.is_empty():
+		return true
+	for u in all_units:
+		if u.get("order_state") == 1: # OrderState.MOVING
+			return false
+		var u_cell: Vector2i = u.get("current_cell")
+		if IsoMath.grid_distance(u_cell, rally_cell) > RALLY_PERIMETER_DISTANCE:
+			return false
+	return true
+
 func order_move(target_cell: Vector2i) -> Dictionary:
 	if soldier_count <= 0:
 		return {"success": false, "reason": "Không có binh sĩ để điều động"}
@@ -440,6 +454,18 @@ func order_move(target_cell: Vector2i) -> Dictionary:
 
 	if path.is_empty():
 		return {"success": false, "reason": "Không tìm thấy đường đi tới vị trí chỉ định"}
+
+	# Idempotent re-issue check: if already marching to target_cell with identical route
+	if movement_state == MovementState.MARCHING and destination_cell == target_cell and current_path == path:
+		if tactical_military_mgr != null:
+			var tac_res: Dictionary = {}
+			if target_cell == rally_cell and tactical_military_mgr.has_method("order_return_all_to_rally"):
+				tac_res = tactical_military_mgr.call("order_return_all_to_rally", rally_cell, nav)
+			elif tactical_military_mgr.has_method("order_move_all"):
+				tac_res = tactical_military_mgr.call("order_move_all", target_cell, nav)
+			if not tac_res.get("success", false):
+				return tac_res
+		return {"success": true, "reason": "Đã nhận lệnh hành quân", "steps": path.size(), "path_length": path.size()}
 
 	if tactical_military_mgr != null:
 		var tac_res: Dictionary = {}
@@ -474,47 +500,64 @@ func order_return_home() -> Dictionary:
 	if soldier_count <= 0:
 		return {"success": false, "reason": "Không có binh sĩ để điều động"}
 
+	var nav: GridNavigation = get_nav()
 	if current_cell == rally_cell:
-		if movement_state == MovementState.MARCHING:
-			if tactical_military_mgr != null and tactical_military_mgr.has_method("order_return_all_to_rally"):
-				var tac_res: Dictionary = tactical_military_mgr.call("order_return_all_to_rally", rally_cell, get_nav())
-				if not tac_res.get("success", false):
-					return tac_res
+		if tactical_military_mgr != null and tactical_military_mgr.has_method("order_return_all_to_rally"):
+			var tac_res: Dictionary = tactical_military_mgr.call("order_return_all_to_rally", rally_cell, nav)
+			if not tac_res.get("success", false):
+				return tac_res
+
+		var settled := are_all_tactical_units_settled_at_base()
+		if settled:
 			current_path.clear()
 			step_accumulator = 0.0
 			destination_cell = rally_cell
+			var prev_state := movement_state
 			movement_state = MovementState.GARRISONED
 			movement_state_changed.emit(movement_state, current_cell, destination_cell)
-			return {
-				"success": true,
-				"reason": "Đã hủy hành quân, quân đội tiếp tục đóng quân tại căn cứ",
-				"action": "canceled_at_rally"
-			}
-		elif movement_state == MovementState.IDLE_AT_FIELD:
-			if tactical_military_mgr != null and tactical_military_mgr.has_method("order_return_all_to_rally"):
-				var tac_res: Dictionary = tactical_military_mgr.call("order_return_all_to_rally", rally_cell, get_nav())
-				if not tac_res.get("success", false):
-					return tac_res
-			current_path.clear()
-			step_accumulator = 0.0
-			destination_cell = rally_cell
-			movement_state = MovementState.GARRISONED
-			movement_state_changed.emit(movement_state, current_cell, destination_cell)
-			return {
-				"success": true,
-				"reason": "Quân đội đã trở về đóng quân tại căn cứ",
-				"action": "returned_to_garrison"
-			}
+			if prev_state == MovementState.MARCHING:
+				return {
+					"success": true,
+					"reason": "Đã hủy hành quân, quân đội tiếp tục đóng quân tại căn cứ",
+					"action": "canceled_at_rally"
+				}
+			elif prev_state == MovementState.IDLE_AT_FIELD:
+				return {
+					"success": true,
+					"reason": "Quân đội đã trở về đóng quân tại căn cứ",
+					"action": "returned_to_garrison"
+				}
+			else:
+				return {
+					"success": true,
+					"reason": "Quân đội đã ở căn cứ",
+					"action": "already_garrisoned"
+				}
 		else:
-			if tactical_military_mgr != null and tactical_military_mgr.has_method("order_return_all_to_rally"):
-				var tac_res: Dictionary = tactical_military_mgr.call("order_return_all_to_rally", rally_cell, get_nav())
-				if not tac_res.get("success", false):
-					return tac_res
+			# Tactical roster is still in transit towards garrison slots: maintain MARCHING in-transit state
+			current_path.clear()
+			step_accumulator = 0.0
+			destination_cell = rally_cell
+			movement_state = MovementState.MARCHING
+			movement_state_changed.emit(movement_state, current_cell, destination_cell)
 			return {
 				"success": true,
-				"reason": "Quân đội đã ở căn cứ",
-				"action": "already_garrisoned"
+				"reason": "Quân đội đang hành quân trở về căn cứ",
+				"action": "marching_home"
 			}
+
+	# current_cell != rally_cell
+	# If already marching to rally_cell with identical route, don't reset step_accumulator or re-dispatch destructively
+	if movement_state == MovementState.MARCHING and destination_cell == rally_cell:
+		if tactical_military_mgr != null and tactical_military_mgr.has_method("order_return_all_to_rally"):
+			var tac_res: Dictionary = tactical_military_mgr.call("order_return_all_to_rally", rally_cell, nav)
+			if not tac_res.get("success", false):
+				return tac_res
+		return {
+			"success": true,
+			"reason": "Quân đội đang hành quân trở về căn cứ",
+			"action": "marching_home"
+		}
 
 	var move_res: Dictionary = order_move(rally_cell)
 	if move_res.get("success", false):
@@ -588,19 +631,7 @@ func _arrive_at_destination() -> void:
 	step_accumulator = 0.0
 	destination_cell = current_cell
 	if current_cell == rally_cell:
-		var all_settled_at_base: bool = true
-		if tactical_military_mgr != null:
-			var all_units: Array = tactical_military_mgr.call("get_all_units")
-			if not all_units.is_empty():
-				for u in all_units:
-					if u.get("order_state") == 1: # MOVING
-						all_settled_at_base = false
-						break
-					var u_cell: Vector2i = u.get("current_cell")
-					if IsoMath.grid_distance(u_cell, rally_cell) > RALLY_PERIMETER_DISTANCE:
-						all_settled_at_base = false
-						break
-		if all_settled_at_base:
+		if are_all_tactical_units_settled_at_base():
 			movement_state = MovementState.GARRISONED
 		else:
 			# Tactical roster is still settling into the garrison perimeter; maintain MARCHING

@@ -93,12 +93,21 @@ func _draw() -> void:
 		draw_polyline(points, Color(0.3, 0.95, 1.0, 0.95), 1.5, true)
 
 func order_move(path: Array, dest: Vector2i) -> void:
-	current_path.clear()
+	var new_path: Array[Vector2i] = []
 	for p in path:
 		if p is Vector2i:
-			current_path.append(p)
-	if not current_path.is_empty() and current_path[0] == current_cell:
-		current_path.remove_at(0)
+			new_path.append(p)
+	if not new_path.is_empty() and new_path[0] == current_cell:
+		new_path.remove_at(0)
+
+	# Idempotent re-issue check:
+	# If already MOVING towards dest with the identical remaining path, do not reset step_accumulator or replace path
+	if order_state == OrderState.MOVING and target_cell == dest and current_path == new_path:
+		return
+	if order_state == OrderState.IDLE and target_cell == dest and current_cell == dest and current_path.is_empty() and new_path.is_empty():
+		return
+
+	current_path = new_path
 	target_cell = dest
 	step_accumulator = 0.0
 	if current_path.is_empty():
