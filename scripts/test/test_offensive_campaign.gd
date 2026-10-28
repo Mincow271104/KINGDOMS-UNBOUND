@@ -546,22 +546,22 @@ func _test_tc_offense_12_persistence_and_schema_validation() -> void:
 	var live_nav: GridNavigation = world_instance.get("nav")
 
 	# Part A: Live World Setup & Offensive Resolution
-	# Ensure active barracks exists for sufficient army capacity
-	var has_barracks := false
+	# Ensure active barracks exists for sufficient army capacity (4 barracks * 5 = 20 capacity)
+	var active_barracks_count := 0
 	for b in live_world_data.buildings:
 		if b.get("type") == "barracks" and b.get("state") == "active":
-			has_barracks = true
-			break
-	if not has_barracks:
+			active_barracks_count += 1
+	while active_barracks_count < 4:
 		live_world_data.buildings.append({
-			"id": "bld_barracks_offense_persist",
+			"id": "bld_barracks_offense_persist_%d" % active_barracks_count,
 			"type": "barracks",
-			"cell": Vector2i(26, 26),
+			"cell": Vector2i(20 + active_barracks_count * 3, 20),
 			"size": Vector2i(3, 3),
 			"state": "active",
 			"construction_progress": 18.0,
 			"construction_hours": 18.0
 		})
+		active_barracks_count += 1
 	live_army_mgr.notify_capacity_changed()
 
 	# Deploy army with positive troops and establish IDLE_AT_FIELD away from rally
@@ -569,12 +569,16 @@ func _test_tc_offense_12_persistence_and_schema_validation() -> void:
 	live_army_mgr.is_supplied = true
 	live_army_mgr.refresh_rally_cell()
 	var live_rally: Vector2i = live_army_mgr.get_rally_cell()
+	var live_tac_mgr = world_instance.get("tactical_military_mgr")
+	if live_tac_mgr != null and live_tac_mgr.has_method("sync_with_player_army"):
+		live_tac_mgr.call("sync_with_player_army")
 
-	var field_target := Vector2i(live_rally.x + 4, live_rally.y)
+	# Target must be outside garrison perimeter (dist > 5) so troops form a ready field force
+	var field_target := Vector2i(live_rally.x + 8, live_rally.y)
 	if not IsoMath.is_in_bounds(field_target) or not live_nav.is_cell_walkable(field_target):
-		field_target = Vector2i(live_rally.x, live_rally.y + 4)
+		field_target = Vector2i(live_rally.x, live_rally.y + 8)
 	if not IsoMath.is_in_bounds(field_target) or not live_nav.is_cell_walkable(field_target):
-		for r in range(2, 8):
+		for r in range(6, 12):
 			for dx in range(-r, r + 1):
 				var dy = r - abs(dx)
 				var cand := live_rally + Vector2i(dx, dy)
@@ -587,10 +591,16 @@ func _test_tc_offense_12_persistence_and_schema_validation() -> void:
 	var move_order_res: Dictionary = live_army_mgr.order_move(field_target)
 	_assert_true(move_order_res.get("success", false), "TC-OFFENSE.12", "Army ordered to field destination away from rally")
 
-	for _step in range(60):
-		if live_army_mgr.get_movement_state() == PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD:
+	for _step in range(120):
+		var all_arrived := true
+		if live_tac_mgr != null:
+			for u in live_tac_mgr.call("get_all_units"):
+				if u.get("order_state") == 1: # MOVING
+					all_arrived = false
+					break
+		if live_army_mgr.get_movement_state() == PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD and all_arrived:
 			break
-		live_army_mgr.advance_movement(0.5)
+		live_army_mgr.advance_movement(0.5, 2.0)
 
 	_assert_eq(live_army_mgr.get_movement_state(), PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD, "TC-OFFENSE.12", "Army is IDLE_AT_FIELD away from rally")
 	_assert_eq(live_army_mgr.get_current_cell(), field_target, "TC-OFFENSE.12", "Army current cell matches destination")

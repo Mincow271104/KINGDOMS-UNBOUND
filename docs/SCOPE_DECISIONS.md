@@ -264,9 +264,28 @@
   - **Visual Editor UI (`AutomationEditor`):** Implemented in `scenes/ui/automation_editor.tscn` and `scripts/ui/automation_editor.gd`, embedded in `HUD` (`hud.tscn`, shortcut `G`, BottomBar button `AutomationBtn`). Features `GraphEdit`/`GraphNode` canvas, interactive wiring, parameter inspector, validation status badge, and dry-run simulation log viewer.
   - **Persistence & Compatibility:** Persisted in `SaveManager` under `data["automation"]` (`SAVE_SCHEMA_VERSION = 1`), with fail-closed validation on malformed graphs and seamless legacy save compatibility without schema bump.
   - **Preset Rules Non-Regression:** Existing preset rules in `AutomationManager` (`food_emergency_threshold`, `buffer_congestion_ratio`, `winter_prep_food_threshold`) remain fully operational alongside visual graph programs.
-- **1.23 Tactical Military Units & Command MVP (GDD §11.1, §11.2, Stage 11 HTML Reference — Package 1W & Final Hardening):**
+- **1.23 Tactical Military Units & Command MVP (GDD §11.1, §11.2, Stage 11 HTML Reference — Package 1W & Final Hardening & Post-Hardening Review):**
   - **Single Authoritative Source of Truth:** `PlayerArmyManager` remains the authoritative source of truth for soldier capacity, recruitment costs/transactions, daily food upkeep, combat morale, and settlement campaign casualties. `TacticalMilitaryManager` strictly maintains 1:1 synchronization ($|\text{tactical\_units}| == \text{soldier\_count}$). Abstract army casualties do not trigger civilian death events.
   - **Occupancy-Safe Spawn & Destination Allocation:** Multiple sequential recruitments strictly disallow coordinate overlap with existing tactical units. The spawn allocator searches outward from `rally_cell` excluding cells occupied or reserved by active units. Formation slot computation (`compute_formation_slots`) enforces pairwise distinct destinations and excludes cells occupied by unselected units; if insufficient non-overlapping walkable slots exist, the entire order is rejected atomically with zero partial movement.
+  - **Dedicated Return-Home Garrison Allocation & State Consistency (Post-Hardening Fix A):**
+    - Returning to base (`order_return_home()` / `order_return_all_to_rally()`) uses a dedicated, deterministic slot allocator (`compute_garrison_return_slots()`) rather than the wide lateral formation allocator, guaranteeing all assigned slots are strictly within `RALLY_PERIMETER_DISTANCE = 5` Manhattan distance of `rally_cell`.
+    - Fail-closed atomic guarantee: if fewer than `count` distinct, walkable, unoccupied cells exist within perimeter, the return command is rejected atomically (`{"success": false}`) without partial movement or state alteration.
+    - Route failure propagation: failed return commands propagate their failure to `PlayerArmyManager.order_return_home()` without clearing `current_path` or altering strategic state.
+    - Strategic Garrison Transition: the strategic army does NOT prematurely transition to `GARRISONED` merely because the strategic center reached `rally_cell`. While tactical units are still in transit, `movement_state` remains `MARCHING`. Only when all tactical units are verified idle and within perimeter does `sync_state_from_tactical()` finalize the state to `GARRISONED`.
+    - Stability: subsequent `tactical_state_updated` signals maintain `GARRISONED` without reverting to `IDLE_AT_FIELD`.
+  - **Consistent Definition of Ready Field Troops & Offensive Gate (Post-Hardening Fix B):**
+    - Formal taxonomy:
+      1. *Physically outside unit:* Any unit with `grid_distance(cell, rally_cell) > 5`.
+      2. *Moving unit:* Any unit with `order_state == OrderState.MOVING`.
+      3. *Ready / eligible field troop:* A unit with `grid_distance(cell, rally_cell) > 5 AND order_state != OrderState.MOVING`.
+    - Both `BattleCampaignManager.can_launch_offensive_campaign()` and `launch_offensive_campaign()` query ready field troops via `PlayerArmyManager.get_field_unit_count()`.
+    - Moving units are never counted as assembled offensive participants; campaigns cannot launch if ready field troop count is 0.
+    - Attacking force size `atk_troops` strictly equals the ready stationary field force, never total soldier count or moving units.
+  - **Defensive & Offensive Casualty Predicate Consistency (Post-Hardening Fix C):**
+    - Moving units (`order_state == MOVING`) are strictly ineligible to be taken as casualties in either settlement defense or field campaigns (`if u.order_state == MOVING: return false`).
+    - Defensive raid casualties strictly target stationary garrison-eligible units (`dist <= 5 and order_state != MOVING`); field campaign casualties strictly target stationary field-eligible units (`dist > 5 and order_state != MOVING`).
+    - Clamping: `PlayerArmyManager.remove_casualties()` clamps casualties to the eligible stationary pool (`get_defending_soldier_count()` or `get_field_unit_count()`), strictly preserving `soldier_count == tactical_roster.size()`.
+    - Unconditional `army_changed.emit(soldier_count, capacity)` ensures immediate UI synchronization.
   - **Fail-Closed Tactical Persistence & Validation-Before-Mutation (Fix B):**
     - Legacy reconstruction is strictly restricted to legacy saves that **completely omit** the `tactical_military` key. If `tactical_military` is present, it must be a valid Dictionary with an `Array` of `units` whose size matches `soldier_count` exactly, even if `player_army` lacks `movement_state` (removing the `is_legacy_army` bypass).
     - Moving units (`order_state == "moving"`) must specify a valid `target_cell` and a non-empty `current_path` whose final waypoint strictly equals `target_cell`. Idle/holding units must have an empty `current_path`.

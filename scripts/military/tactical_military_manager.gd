@@ -180,6 +180,8 @@ func sync_with_player_army(prefer_field_casualties: bool = false, location_restr
 		all_ids.sort()
 
 		var is_preferred_loc = func(u: Node2D) -> bool:
+			if u.order_state == TacticalUnitScript.OrderState.MOVING:
+				return false
 			var dist: int = IsoMath.grid_distance(u.current_cell, r_cell)
 			if prefer_field_casualties:
 				return dist > RALLY_PERIMETER_DISTANCE
@@ -472,6 +474,37 @@ func compute_formation_slots(target_cell: Vector2i, count: int, formation_name: 
 
 	return assigned_slots
 
+## Computes dedicated deterministic return-home garrison slots strictly within RALLY_PERIMETER_DISTANCE.
+## Fail-closed: returns an empty Array if fewer than count valid, walkable, unoccupied cells exist within perimeter.
+func compute_garrison_return_slots(rally_cell: Vector2i, count: int, nav: GridNavigation = null, excluded_cells: Array[Vector2i] = []) -> Array[Vector2i]:
+	if count <= 0:
+		return []
+
+	if nav == null:
+		nav = get_nav()
+
+	var slots: Array[Vector2i] = []
+
+	# Radius 0: check rally_cell itself
+	if IsoMath.is_in_bounds(rally_cell) and (nav == null or nav.is_cell_walkable(rally_cell)) and not excluded_cells.has(rally_cell):
+		slots.append(rally_cell)
+		if slots.size() >= count:
+			return slots
+
+	# Search strictly within RALLY_PERIMETER_DISTANCE (Manhattan distance 1..5)
+	for r in range(1, RALLY_PERIMETER_DISTANCE + 1):
+		for dy in range(-r, r + 1):
+			for dx in range(-r, r + 1):
+				if abs(dx) + abs(dy) == r:
+					var cand := rally_cell + Vector2i(dx, dy)
+					if IsoMath.is_in_bounds(cand) and (nav == null or nav.is_cell_walkable(cand)) and not slots.has(cand) and not excluded_cells.has(cand):
+						slots.append(cand)
+						if slots.size() >= count:
+							return slots
+
+	# Atomic all-or-nothing guarantee: return empty array if insufficient slots
+	return []
+
 func _find_nearest_unassigned_cell(near_cell: Vector2i, center: Vector2i, assigned: Array[Vector2i], nav: GridNavigation, excluded: Array[Vector2i] = []) -> Vector2i:
 	for r in range(1, 15):
 		for dy in range(-r, r + 1):
@@ -605,7 +638,26 @@ func get_garrisoned_units(p_rally: Vector2i = Vector2i(-1, -1)) -> Array:
 func get_garrisoned_unit_count(p_rally: Vector2i = Vector2i(-1, -1)) -> int:
 	return get_garrisoned_units(p_rally).size()
 
+## Returns all ready/eligible field units. A tactical unit is an eligible field troop if and only if
+## it is physically outside the garrison perimeter (dist > RALLY_PERIMETER_DISTANCE) AND stationary (order_state != MOVING).
 func get_field_units(p_rally: Vector2i = Vector2i(-1, -1)) -> Array:
+	var r_cell: Vector2i = p_rally
+	if r_cell == Vector2i(-1, -1):
+		r_cell = player_army_mgr.get_rally_cell() if player_army_mgr else Vector2i(32, 33)
+	var res: Array = []
+	for uid in units.keys():
+		var u = units[uid]
+		if is_instance_valid(u):
+			var dist: int = IsoMath.grid_distance(u.current_cell, r_cell)
+			if dist > RALLY_PERIMETER_DISTANCE and u.order_state != TacticalUnitScript.OrderState.MOVING:
+				res.append(u)
+	return res
+
+func get_field_unit_count(p_rally: Vector2i = Vector2i(-1, -1)) -> int:
+	return get_field_units(p_rally).size()
+
+## Returns all units physically located outside RALLY_PERIMETER_DISTANCE regardless of movement state.
+func get_all_field_units(p_rally: Vector2i = Vector2i(-1, -1)) -> Array:
 	var r_cell: Vector2i = p_rally
 	if r_cell == Vector2i(-1, -1):
 		r_cell = player_army_mgr.get_rally_cell() if player_army_mgr else Vector2i(32, 33)
@@ -618,23 +670,80 @@ func get_field_units(p_rally: Vector2i = Vector2i(-1, -1)) -> Array:
 				res.append(u)
 	return res
 
-func get_field_unit_count(p_rally: Vector2i = Vector2i(-1, -1)) -> int:
-	return get_field_units(p_rally).size()
-
 func order_move_all(target_cell: Vector2i, nav: GridNavigation = null) -> Dictionary:
 	if player_army_mgr != null and units.size() != player_army_mgr.get_army_count():
 		sync_with_player_army()
 	select_all()
 	return issue_move_order(target_cell, nav)
 
+## Issues deterministic return-to-rally orders for all units strictly using garrison perimeter allocation.
+## Fails closed atomically if insufficient slots or valid paths cannot be found.
 func order_return_all_to_rally(p_rally: Vector2i = Vector2i(-1, -1), nav: GridNavigation = null) -> Dictionary:
 	if player_army_mgr != null and units.size() != player_army_mgr.get_army_count():
 		sync_with_player_army()
 	var r_cell: Vector2i = p_rally
 	if r_cell == Vector2i(-1, -1):
 		r_cell = player_army_mgr.get_rally_cell() if player_army_mgr else Vector2i(32, 33)
+
+	var unit_count: int = units.size()
+	if unit_count <= 0:
+		return {"success": false, "reason": "Không có binh sĩ để điều động"}
+
+	if nav == null:
+		nav = get_nav()
+	if nav == null:
+		return {"success": false, "reason": "Hệ thống dẫn đường không khả dụng"}
+
 	select_all()
-	return issue_move_order(r_cell, nav)
+
+	var excluded_cells: Array[Vector2i] = get_occupied_cells(selected_unit_ids)
+	var slots := compute_garrison_return_slots(r_cell, unit_count, nav, excluded_cells)
+	if slots.size() < unit_count:
+		return {"success": false, "reason": "Không đủ vị trí trống trong khu vực căn cứ để đóng quân"}
+
+	# Pre-validate paths for all units to assigned slots (fail-safe all-or-nothing dispatch)
+	var sorted_uids: Array = units.keys()
+	sorted_uids.sort()
+	var planned_paths: Dictionary = {}
+
+	for idx in range(unit_count):
+		var uid: String = sorted_uids[idx]
+		var u = units.get(uid)
+		if u == null:
+			continue
+		var slot: Vector2i = slots[idx]
+		if u.current_cell == slot:
+			var empty_p: Array[Vector2i] = []
+			planned_paths[uid] = empty_p
+		else:
+			var path: Array[Vector2i] = nav.find_path(u.current_cell, slot)
+			if path.is_empty():
+				return {"success": false, "reason": "Không tìm thấy đường đi tới căn cứ cho một hoặc nhiều đơn vị"}
+			if path.size() > 0 and path[0] == u.current_cell:
+				path.remove_at(0)
+			planned_paths[uid] = path
+
+	# Dispatch orders
+	for idx in range(unit_count):
+		var uid: String = sorted_uids[idx]
+		var u = units.get(uid)
+		if u == null:
+			continue
+		var slot: Vector2i = slots[idx]
+		var path_arr: Array = planned_paths.get(uid, [])
+		var path: Array[Vector2i] = []
+		for p in path_arr:
+			path.append(Vector2i(p))
+		u.order_move(path, slot)
+
+	order_issued.emit("ReturnHome", unit_count, r_cell)
+	tactical_state_updated.emit()
+	return {
+		"success": true,
+		"reason": "Đã nhận lệnh trở về căn cứ",
+		"count": unit_count,
+		"target_cell": r_cell
+	}
 
 func arrive_all_at_destination() -> void:
 	# Snapping/teleportation removed: units advance physically via advance_movement().

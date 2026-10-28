@@ -5882,3 +5882,92 @@ Address the critical gaps identified in independent architectural review of Pack
 - Push commit to remote `origin/fix/package-1w-final-hardening`.
 - Deliver comprehensive completion report to user.
 - Await next instructions (do not merge to master, do not start Package 1X).
+---
+
+## [2026-10-29] Package 1W Post-Hardening Review: Garrison Return, Ready Field Force & Casualty Eligibility (Completed)
+
+### Context & Objective
+Address the architectural, defensive, and tactical-movement edge cases identified in the Post-Hardening Review of Package 1W on dedicated branch `fix/package-1w-post-hardening-safety` based on commit `673e59f9d9c83f85ca4fcde9e72462ca981b866d`:
+1. **Fix A — Returning to the Rally Point Must Result in a Real Garrison:**
+   - Dedicated garrison perimeter return-home allocation (`compute_garrison_return_slots`): allocates distinct slots within Manhattan radius $r \le 5$ (`RALLY_PERIMETER_DISTANCE`) around `rally_cell`. Line formation cannot sprawl units outside the garrison perimeter.
+   - Respect unit occupancy: only allocate unoccupied walkable cells.
+   - Fail-closed atomic rejection: if available perimeter cells $< count$, returns `[]` without dispatching orders or partial movement.
+   - Strategic state transitions: `PlayerArmyManager._arrive_at_destination()` transitions to `GARRISONED` only when all tactical units are settled within the perimeter and stationary; maintains `MARCHING` while any unit is moving or outside perimeter.
+   - Return-home command propagation: `order_return_home()` propagates tactical failure fail-closed (`return tac_res`).
+   - Multi-unit return-home tests: added 12- and 20-soldier Line formation return tests verifying all 6 assertions (all units stop moving, distinct cells, all within perimeter $dist \le 5$, strategic state `GARRISONED`, defending count equals roster, state preserved across updates).
+2. **Fix B — Consistent Definition of Ready Field Troops:**
+   - Explicit taxonomy: distinguished physically outside perimeter (`dist > 5`), moving (`order_state == MOVING`), and ready stationary field force (`dist > 5 and order_state != MOVING`).
+   - Campaign gate alignment: `can_launch_offensive_campaign()` and `atk_troops` in `launch_offensive_campaign()` strictly require ready stationary field force (`get_field_unit_count() > 0`). Moving units cannot participate in offensive campaigns.
+   - Casualties restricted to participants: offensive campaign casualties are deducted strictly from stationary field units.
+   - 0 ready troops rejected: attempting to launch an offensive campaign while field troops are in transit fails closed with an informative Vietnamese explanation.
+3. **Fix C — Defensive Casualty Selection Matches Defense Eligibility:**
+   - Moving units never selected as casualties: `sync_with_player_army` ignores units in `MOVING` state (`if u.order_state == MOVING: return false`).
+   - Raid defensive casualties: strictly stationary garrison units (`dist <= 5 and order_state != MOVING`).
+   - Field battle casualties: strictly stationary field units (`dist > 5 and order_state != MOVING`).
+   - Clamping preserves parity: `soldier_count` deduction strictly matches the actual number of eligible tactical units removed (`soldier_count == tactical_roster.size()`).
+4. **Fix D — Test Real Gameplay and Persistence Paths:**
+   - FH-CASE.2: hardened to guarantee $\ge 1$ player casualties using deterministic seed.
+   - FH-CASE.3: exercises real `BattleCampaignManager.resolve_and_apply_raid()` resolution path and verifies moving unit immunity.
+   - FH-CASE.8b: validates `SaveManager.apply_loaded_state_to_world()` rejects corrupted tactical military payload fail-closed without mutating live state.
+   - PH-CASE.1 to PH-CASE.8: comprehensive new test group in `test_tactical_military.gd` testing 12-soldier Line return, 20-soldier Line return, slot exhaustion fail-closed, blocked route rejection, ready field campaign gating, 0 stationary troops rejection, moving defender immunity, and stationary field casualty removal.
+   - TC-OFFENSE.12: updated live WorldView save/load persistence test in `test_offensive_campaign.gd` with 4 barracks, synchronized tactical roster, and destination well outside garrison perimeter.
+5. **Regression & Delivery:**
+   - All 11 project test suites executed and verified passing with Exit Code 0 (explicitly including `test_logistics.gd`).
+   - Headless editor check executed cleanly with Exit Code 0.
+   - `git diff --check` executed with 0 whitespace errors.
+
+### Completed Work
+1. **`scripts/military/tactical_military_manager.gd`:**
+   - Implemented `compute_garrison_return_slots(rally_cell, count, nav, excluded_cells) -> Array[Vector2i]` expanding outward from $r = 0$ to $r = 5$, strictly returning `[]` if available $< count$.
+   - Implemented `order_return_all_to_rally(rally_cell, nav)` ordering all units to garrison return slots with deterministic ID sorting and route validation.
+   - Updated `get_field_units()` and `get_field_unit_count()` to require `dist > RALLY_PERIMETER_DISTANCE and u.order_state != TacticalUnitScript.OrderState.MOVING`.
+   - Added `get_all_field_units()` for raw spatial queries without movement filters.
+   - Updated `sync_with_player_army()` `is_preferred_loc` predicate with `if u.order_state == TacticalUnitScript.OrderState.MOVING: return false`.
+2. **`scripts/military/player_army_manager.gd`:**
+   - Updated `order_move()`: if `target_cell == rally_cell`, delegates to `order_return_all_to_rally()`.
+   - Updated `order_return_home()`: propagates tactical manager return failure fail-closed; preserves `"canceled_at_rally"`, `"returned_to_garrison"`, and `"already_garrisoned"` action banners when `current_cell == rally_cell`.
+   - Updated `_arrive_at_destination()`: checks if tactical units are settled at base; if any unit is moving or outside perimeter, preserves `MARCHING` state until `sync_state_from_tactical()` finalizes.
+3. **`scripts/test/test_tactical_military.gd`:**
+   - Hardened FH-CASE.2 with deterministic seed verifying player casualties.
+   - Hardened FH-CASE.3 exercising live `resolve_and_apply_raid()`.
+   - Hardened FH-CASE.8b testing `apply_loaded_state_to_world()` fail-closed rejection.
+   - Implemented Group 8 (PH-CASE.1 through PH-CASE.8) verifying 12- and 20-soldier Line formation returns, perimeter constraint, slot exhaustion, blocked routes, ready field campaign gating, 0 stationary troops rejection, and defensive/field casualty immunity for moving units.
+4. **`scripts/test/test_offensive_campaign.gd`:**
+   - Updated TC-OFFENSE.12 to ensure 4 barracks, synchronized tactical roster, and destination outside garrison perimeter ($dist > 5$) matching Package 1W contract.
+5. **Documentation Updates:**
+   - `docs/SCOPE_DECISIONS.md`: updated §1.23 with dedicated garrison return allocator, ready field force taxonomy, campaign gate alignment, and casualty predicate consistency.
+   - `docs/TEST_PLAN.md`: added PH-CASE.1 through PH-CASE.8 test specifications and hardened test cases.
+   - `docs/BACKLOG.md`: added and checked off `TASK-1W-PH.1` through `TASK-1W-PH.4`.
+
+### Validations Performed & Results
+- **Tactical Military Test Suite (`scripts/test/test_tactical_military.gd`):** **PASS (204/204 assertions, Exit Code 0, 0 Failures)**.
+- **Full 11-Suite Headless Regression Matrix:**
+  1. `scripts/test/test_tactical_military.gd`: **PASS (204 assertions, Exit Code 0)**
+  2. `scripts/test/test_player_army.gd`: **PASS (Exit Code 0)**
+  3. `scripts/test/test_army_movement.gd`: **PASS (Exit Code 0)**
+  4. `scripts/test/test_live_battle_loop.gd`: **PASS (Exit Code 0)**
+  5. `scripts/test/test_offensive_campaign.gd`: **PASS (Exit Code 0)**
+  6. `scripts/test/test_save_load.gd`: **PASS (107 assertions, Exit Code 0)**
+  7. `scripts/test/test_responsive_layout.gd`: **PASS (435 checks, Exit Code 0)**
+  8. `scripts/test/test_automation_graph.gd`: **PASS (69 checks, Exit Code 0)**
+  9. `scripts/test/test_logistics.gd`: **PASS (Exit Code 0)** *(explicitly captured as requested)*
+  10. `scripts/test/test_faction_relation_matrix.gd`: **PASS (160 checks, Exit Code 0)**
+  11. `scripts/test/test_factions_and_battles.gd`: **PASS (48 assertions, Exit Code 0)**
+- **Headless Editor Check (`--headless --editor --quit`):** **PASS (Exit Code 0, 0 Parse/Script Errors)**.
+- **Whitespace / Git Check (`git diff --check`):** **PASS (Exit Code 0, 0 Errors)**.
+
+### Files Created or Modified
+- `docs/BACKLOG.md`
+- `docs/SCOPE_DECISIONS.md`
+- `docs/TEST_PLAN.md`
+- `docs/WORKLOG.md`
+- `scripts/military/player_army_manager.gd`
+- `scripts/military/tactical_military_manager.gd`
+- `scripts/test/test_offensive_campaign.gd`
+- `scripts/test/test_tactical_military.gd`
+
+### Next Exact Step
+- Stage modified files and commit to dedicated branch `fix/package-1w-post-hardening-safety`.
+- Push to remote `origin/fix/package-1w-post-hardening-safety` and `origin/fix/package-1w-post-hardening`.
+- Deliver comprehensive completion report to user with commit SHA and test logs.
+- Await next instructions (do not merge to master, do not start Package 1X).

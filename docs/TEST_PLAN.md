@@ -593,3 +593,25 @@ When Godot Editor is running with the MCP plugin:
     - **Fix D: Army Count UI Signals (FH-CASE.10)**
       - **FH-CASE.10:** `PlayerArmyManager.remove_casualties()` unconditionally emits `army_changed` signal with accurate post-casualty count when tactical manager is active.
   - *Status:* **PASSED** (2026-10-28, Exit Code 0: 145/145 assertions passed in `test_tactical_military.gd`; all 10 project test suites passed with 0 failures).
+
+### Package 1W Post-Hardening Review: Garrison Return, Ready Field Force & Casualty Eligibility
+- **PH-CASE.1 to PH-CASE.8 & Hardened FH-CASE: Post-Hardening Review Test Suite**
+  - *Tracked Test Suite:* `res://scripts/test/test_tactical_military.gd` (Group 7 & Group 8)
+  - *Command:* `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --path "e:\KINGDOMS UNBOUND\kingdoms-unbound" -s res://scripts/test/test_tactical_military.gd`
+  - *Acceptance Criteria by Problem Group:*
+    - **Fix A: Garrison Return Allocation & Perimeter Containment (PH-CASE.1 to PH-CASE.4)**
+      - **PH-CASE.1 (12 Soldiers Return-Home in Line Formation):** 12 soldiers in default Line formation return home through complete process. All 12 units stop moving, occupy pairwise distinct cells, remain strictly within `RALLY_PERIMETER_DISTANCE = 5`, strategic state is `GARRISONED`, defending count equals 12, and subsequent `tactical_state_updated` signals maintain `GARRISONED` with zero drift to `IDLE_AT_FIELD`.
+      - **PH-CASE.2 (20 Soldiers Return-Home in Line Formation):** 20 soldiers in default Line formation execute full return-home. All 20 units stop moving on pairwise distinct cells strictly within distance $\le 5$, strategic state remains `GARRISONED`, defending count equals 20, and state does not revert.
+      - **PH-CASE.3 (Atomic Rejection on Insufficient Return Slots):** `compute_garrison_return_slots()` returns empty array when available perimeter slots < requested count, enforcing fail-closed atomic rejection.
+      - **PH-CASE.4 (Return Command Failure Propagation):** When route is blocked, `order_return_home()` reports failure, preserving strategic state `IDLE_AT_FIELD` and position without clearing route or falsely declaring garrisoned.
+    - **Fix B: Ready Field Troops & Offensive Gate Consistency (PH-CASE.5 & PH-CASE.6, Hardened FH-CASE.2)**
+      - **FH-CASE.2 Hardened:** Verifies battle report produced $\ge 1$ player casualties (`attacker_casualties >= 1`), proving non-vacuous casualty deduction strictly from the field cohort while garrison units are untouched.
+      - **PH-CASE.5 (Moving Field Subset Excluded from Attacking Cohort):** When a field subset is moving, only stationary field units outside perimeter count as ready field troops (`get_field_unit_count() == 2`). `can_launch_offensive_campaign()` and `launch_offensive_campaign()` strictly use ready stationary troops (`atk_troops == 2`); moving field units and base garrison units take zero casualties.
+      - **PH-CASE.6 (Zero Ready Field Troops Blocks Offensive Campaign):** When all field units are moving mid-march, `get_field_unit_count() == 0` and offensive campaign is rejected fail-closed.
+    - **Fix C: Defensive vs. Offensive Casualty Predicate Consistency (PH-CASE.7 & PH-CASE.8, Hardened FH-CASE.3)**
+      - **FH-CASE.3 Hardened:** Defensive raid exercises live `BattleCampaignManager.resolve_and_apply_raid()`, verifying $\ge 1$ defender casualties deducted strictly from base defenders while field units remain untouched.
+      - **PH-CASE.7 (Defensive Casualty Predicate Matches Defense Eligibility):** A moving unit inside base perimeter is never removed as a defensive casualty; the stationary defender is removed. Roster size strictly matches soldier count.
+      - **PH-CASE.8 (Field Casualty Predicate Matches Field Eligibility):** A moving field unit is never removed as a field casualty; base garrison units are untouched; the stationary field unit is removed.
+    - **Fix D: Real Gameplay & Persistence Paths (Hardened FH-CASE.8b)**
+      - **FH-CASE.8b:** Verifies `SaveManager.apply_loaded_state_to_world()` reports failure on corrupted tactical military data without destroying live world state.
+  - *Status:* **PASSED** (2026-10-29, Exit Code 0: 204/204 assertions passed in `test_tactical_military.gd`).
