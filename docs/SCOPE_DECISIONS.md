@@ -332,7 +332,14 @@
   - **Tactical Selection & Command Input:** Supports single selection (left-click), additive selection (Shift+left-click), and viewport drag-box selection via unprojected canvas transform. Right-click dispatches A* grid move orders to walkable in-bounds cells. Multi-unit orders compute non-overlapping target cells. ESC deselects.
   - **Spatial Formations & Control Groups:** Supports `Line`, `Column`, and `Scatter` formations computing deterministic, distinct, walkable destination slots without overlaps. Supports control groups 1..3 via `Ctrl+1/2/3` (assign) and `Shift+1/2/3` (recall) with dead unit pruning. Plain keys `1/2/3` remain reserved exclusively for simulation speed.
   - **Strategic Rally Point Banner (`ArmyMarker`):** `ArmyMarker` serves as the Strategic Rally Point Banner (`🚩 Điểm tập kết`) at `rally_cell`. Hides duplicate individual soldier body sprites when in tactical mode while preserving `visible` toggling on `soldier_count > 0` for 100% test contract compliance (TC-MOVE.24).
-  - **Deferred Combat Extensions:** Field melee/ranged combat, enemy tactical units on map, tactical AI, and direct siege operations remain deferred to Package 1X. Existing `BattleResolver` and `BattleCampaignManager` remain authoritative for offensive campaigns and raids.
+  - **Package 1X: Tactical Combat, Enemy Military AI & Field Siege Operations:**
+    - *Real-Time Tactical Combat Mechanics:* Tactical units possess data-driven combat stats: `health` (100.0), `max_health` (100.0), `attack_damage` (25.0), `attack_range` (1 for melee), `attack_cooldown` (1.2s), `is_alive`, and `faction_id`. Melee range uses Manhattan distance checking. Combat progress steps discretely via `advance_combat(delta, speed_mult, nav)` during `TacticalMilitaryManager.advance_movement()`, respecting `TimeManager` pause and speeds. Units draw visual health bars and 0.15s damage flash overlays. When target dies or becomes invalid, units cleanly disengage to `OrderState.IDLE`.
+    - *Strict 1:1 Casualty Parity:* When a player tactical unit is defeated in tactical combat (`unit_defeated`), `PlayerArmyManager.on_tactical_unit_killed()` decrements `soldier_count` authoritatively and emits `army_changed`. If `soldier_count` reaches 0, the army normalizes to `GARRISONED` at `rally_cell`.
+    - *Enemy Tactical Units & Crimson Modulate:* Hostile units extend `TacticalUnit` (`EnemyTacticalUnit`) and are visually distinguished by crimson sprite modulate `Color(0.95, 0.3, 0.3, 1.0)`.
+    - *Deterministic Enemy AI State Machine:* Follows `HOLD`, `PATROL`, `ACQUIRE_TARGET`, `PURSUE`, `ATTACK`, and `RECOVER_RETREAT`. Targets the nearest living player unit using Manhattan distance with alphabetical ID tie-breaking. Upon signing a peace treaty, hostilities immediately cease and units transition to `RECOVER_RETREAT`.
+    - *Enemy Military Management:* `EnemyMilitaryManager` maintains an authoritative roster of hostile entities, iterates over units in sorted alphabetical ID order for determinism, and handles distinct-cell spawn allocation via outward spiral search.
+    - *Field Siege Operations & Objectives:* `SiegeObjectiveActor` represents capturable outposts with 300.0 durability, isometric health bars, and defender garrisons. `FieldSiegeManager` gates siege operations on active hostile factions at war with assembled field forces outside garrison perimeter (`dist > 5`). Launching a siege mobilizes defenders around the objective. Capturing the objective reduces faction military power (-20) and awards plunder (+60 Gold, +40 Food, +20 Iron). Coexists seamlessly alongside abstract `BattleCampaignManager`.
+    - *Persistence & Schema Validation:* Save data integrates `"enemy_military"` and `"field_siege"` under schema version 1. Malformed or invalid data fails closed before applying world state; legacy saves without these sections load cleanly with safe defaults.
 
 ---
 
@@ -341,7 +348,7 @@
 |---|---|---|---|
 | Automation Graph Delay & Repeat Nodes | Phần VII | Deferred | Bounded MVP node set; timer queues deferred to future package |
 | Complex family trees & genetics | Phần IV | Deferred | Replaced by deterministic immigration system |
-| Real-time physical tactical combat | Phần VII | Simplified | Abstract BattleResolver with deterministic factors |
+| Real-time physical tactical combat | Phần VII | Implemented | Tactical combat, enemy AI & field siege delivered in Package 1X |
 | Cosmetic Legacy store | Phần IX | Post-MVP | Preserves focus on core simulation and save/load |
 | Steam integration / Cloud save | Phần XVIII | Excluded | Offline-first PC requirement |
 | Multiplayer / Co-op | Phần I | Excluded | Single-player offline specification |

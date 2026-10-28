@@ -9,6 +9,8 @@ const BattleCampaignManagerScript = preload("res://scripts/combat/battle_campaig
 const PlayerArmyManagerScript = preload("res://scripts/military/player_army_manager.gd")
 const TacticalMilitaryManagerScript = preload("res://scripts/military/tactical_military_manager.gd")
 const ArmyMarkerScript = preload("res://scripts/military/army_marker.gd")
+const EnemyMilitaryManagerScript = preload("res://scripts/military/enemy_military_manager.gd")
+const FieldSiegeManagerScript = preload("res://scripts/combat/field_siege_manager.gd")
 
 @export var world_seed: int = 12345
 
@@ -38,6 +40,8 @@ var victory_mgr: VictoryManager
 var battle_campaign_mgr: RefCounted = null
 var player_army_mgr: RefCounted = null
 var tactical_military_mgr: RefCounted = null
+var enemy_military_mgr: RefCounted = null
+var field_siege_mgr: RefCounted = null
 var army_marker: Node2D = null
 var autosave_enabled: bool = true
 var autosave_interval_days: int = 1
@@ -177,6 +181,18 @@ func _generate_and_build_world() -> void:
 	player_army_mgr = PlayerArmyManagerScript.new(self)
 	tactical_military_mgr = TacticalMilitaryManagerScript.new(self, player_army_mgr)
 	player_army_mgr.set_tactical_military_manager(tactical_military_mgr)
+	enemy_military_mgr = EnemyMilitaryManagerScript.new(self, faction_mgr)
+	field_siege_mgr = FieldSiegeManagerScript.new(self, faction_mgr, player_army_mgr, enemy_military_mgr)
+	var rm_node = get_node_or_null("/root/ResourceManager")
+	if rm_node != null:
+		field_siege_mgr.set_resource_manager(rm_node)
+	field_siege_mgr.field_siege_resolved.connect(func(_sid: String, outcome: String, _details: Dictionary):
+		if hud != null:
+			if outcome == "VICTORY":
+				hud.show_event_banner("Chiến Thắng Công Thành!", "Đã chiếm thành công tiền đồn địch! Thu được chiến lợi phẩm phong phú.", true, 5.0)
+			elif outcome == "DEFEAT":
+				hud.show_event_banner("Thất Bại Công Thành!", "Toàn bộ lực lượng công thành đã bị đẩy lui.", false, 5.0)
+	)
 	_setup_selection_box_overlay()
 
 	job_mgr.set_barracks_checker(func(b_id: String = ""): return BuildingSystem.is_barracks_active(world_data, b_id))
@@ -511,6 +527,12 @@ func get_army_marker() -> Node2D:
 func get_tactical_military_manager() -> RefCounted:
 	return tactical_military_mgr
 
+func get_enemy_military_manager() -> RefCounted:
+	return enemy_military_mgr
+
+func get_field_siege_manager() -> RefCounted:
+	return field_siege_mgr
+
 func _setup_selection_box_overlay() -> void:
 	if _selection_box_layer == null:
 		_selection_box_layer = CanvasLayer.new()
@@ -551,6 +573,34 @@ func _find_tactical_unit_at_cell(cell: Vector2i) -> Node2D:
 			best_unit = u
 	return best_unit
 
+func _find_enemy_unit_at_cell(cell: Vector2i) -> Node2D:
+	if enemy_military_mgr == null:
+		return null
+	var best_unit: Node2D = null
+	var best_dist := 2 # Current cell or adjacent 1 tile
+	for e in enemy_military_mgr.call("get_all_enemies"):
+		if e == null or not is_instance_valid(e) or not e.is_alive:
+			continue
+		var d: int = IsoMath.grid_distance(cell, e.current_cell)
+		if d < best_dist:
+			best_dist = d
+			best_unit = e
+	return best_unit
+
+func _find_siege_objective_at_cell(cell: Vector2i) -> Node2D:
+	if field_siege_mgr == null:
+		return null
+	var best_obj: Node2D = null
+	var best_dist := 2 # Current cell or adjacent 1 tile
+	for o in field_siege_mgr.call("get_all_objectives"):
+		if o == null or not is_instance_valid(o) or not o.is_alive:
+			continue
+		var d: int = IsoMath.grid_distance(cell, o.current_cell)
+		if d < best_dist:
+			best_dist = d
+			best_obj = o
+	return best_obj
+
 func _process(delta: float) -> void:
 	_update_tile_hover()
 	var speed_mult: float = 1.0
@@ -565,6 +615,15 @@ func _process(delta: float) -> void:
 		player_army_mgr.advance_movement(delta, speed_mult)
 	elif tactical_military_mgr != null and tactical_military_mgr.has_method("advance_movement"):
 		tactical_military_mgr.advance_movement(delta, speed_mult, nav)
+
+	if enemy_military_mgr != null and enemy_military_mgr.has_method("advance_simulation"):
+		var p_units: Array = tactical_military_mgr.call("get_all_units") if (tactical_military_mgr != null and tactical_military_mgr.has_method("get_all_units")) else []
+		enemy_military_mgr.call("advance_simulation", delta, speed_mult, nav, p_units)
+
+	if field_siege_mgr != null and field_siege_mgr.get("active_sieges") != null:
+		var s_ids = field_siege_mgr.active_sieges.keys()
+		for s_id in s_ids:
+			field_siege_mgr.evaluate_siege_status(s_id)
 
 func _update_tile_hover() -> void:
 	var mouse_local := terrain_layer.get_local_mouse_position()
@@ -681,9 +740,21 @@ func _unhandled_input(event: InputEvent) -> void:
 							_check_citizen_click(cell)
 			elif mb.button_index == MOUSE_BUTTON_RIGHT and mb.pressed:
 				if tactical_military_mgr != null and tactical_military_mgr.call("get_selected_count") > 0:
-					var res: Dictionary = tactical_military_mgr.call("issue_move_order", cell, nav)
-					if not res.get("success", false) and hud != null:
-						hud.show_event_banner("Lệnh Thất Bại", res.get("reason", "Vị trí không thể đi tới"), false, 3.0)
+					var enemy_target = _find_enemy_unit_at_cell(cell)
+					if enemy_target != null:
+						var res: Dictionary = tactical_military_mgr.call("issue_attack_order", enemy_target, nav)
+						if not res.get("success", false) and hud != null:
+							hud.show_event_banner("Lệnh Tấn Công Thất Bại", res.get("reason", "Không thể tấn công"), false, 3.0)
+					else:
+						var obj_target = _find_siege_objective_at_cell(cell)
+						if obj_target != null:
+							var res: Dictionary = tactical_military_mgr.call("issue_attack_order", obj_target, nav)
+							if not res.get("success", false) and hud != null:
+								hud.show_event_banner("Lệnh Tấn Công Thất Bại", res.get("reason", "Không thể tấn công"), false, 3.0)
+						else:
+							var res: Dictionary = tactical_military_mgr.call("issue_move_order", cell, nav)
+							if not res.get("success", false) and hud != null:
+								hud.show_event_banner("Lệnh Thất Bại", res.get("reason", "Vị trí không thể đi tới"), false, 3.0)
 
 func _check_citizen_click(cell: Vector2i) -> void:
 	# Find closest citizen to the clicked cell

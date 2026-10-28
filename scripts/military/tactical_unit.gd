@@ -8,7 +8,8 @@ extends Node2D
 enum OrderState {
 	IDLE = 0,
 	MOVING = 1,
-	HOLDING = 2
+	HOLDING = 2,
+	ATTACKING = 3
 }
 
 const CELL_STEP_DURATION: float = 0.5 # Seconds per grid cell at 1x simulation speed
@@ -22,6 +23,20 @@ const CELL_STEP_DURATION: float = 0.5 # Seconds per grid cell at 1x simulation s
 @export var formation: String = "Line"
 @export var control_group_id: int = 0 # 0 = None, 1..3
 
+# Combat Model (Package 1X)
+@export var health: float = 100.0
+@export var max_health: float = 100.0
+@export var attack_damage: float = 25.0
+@export var attack_range: int = 1 # Manhattan distance on discrete grid
+@export var attack_cooldown: float = 1.2 # Seconds between attacks at 1x
+@export var attack_cooldown_remaining: float = 0.0
+@export var is_alive: bool = true
+@export var faction_id: String = "player"
+@export var target_actor_id: String = ""
+
+var target_actor: Node = null
+var damage_flash_timer: float = 0.0
+
 var is_selected: bool = false
 var current_path: Array[Vector2i] = []
 var step_accumulator: float = 0.0
@@ -33,6 +48,9 @@ var _custom_time_mgr: Object = null
 
 signal unit_reached_destination(unit_id: String, final_cell: Vector2i)
 signal unit_cell_changed(unit_id: String, new_cell: Vector2i)
+signal unit_attacked(attacker_id: String, target_id: String, damage: float)
+signal unit_took_damage(unit_id: String, amount: float, current_hp: float, max_hp: float)
+signal unit_defeated(unit_id: String, killer_id: String)
 
 func _ready() -> void:
 	y_sort_enabled = true
@@ -92,7 +110,31 @@ func _draw() -> void:
 		# Crisp inner outline
 		draw_polyline(points, Color(0.3, 0.95, 1.0, 0.95), 1.5, true)
 
+	# Health bar: render above head when selected, injured, attacking, or taking damage
+	if is_alive and (is_selected or health < max_health or damage_flash_timer > 0.0 or order_state == OrderState.ATTACKING):
+		var bar_w := 24.0
+		var bar_h := 3.5
+		var bar_pos := Vector2(-bar_w / 2.0, -38.0)
+		var hp_ratio := clampf(health / max_health, 0.0, 1.0)
+		# Dark background
+		draw_rect(Rect2(bar_pos, Vector2(bar_w, bar_h)), Color(0.1, 0.1, 0.1, 0.85), true)
+		# Fill: green for player, red/crimson for non-player
+		var fill_color := Color(0.2, 0.85, 0.25, 0.95) if faction_id == "player" else Color(0.95, 0.25, 0.25, 0.95)
+		draw_rect(Rect2(bar_pos, Vector2(bar_w * hp_ratio, bar_h)), fill_color, true)
+		# Border outline
+		draw_rect(Rect2(bar_pos, Vector2(bar_w, bar_h)), Color(0.0, 0.0, 0.0, 0.8), false, 1.0)
+
+	# Combat flash visual indicator
+	if damage_flash_timer > 0.0:
+		var flash_pts := PackedVector2Array([
+			Vector2(-6.0, -22.0),
+			Vector2(6.0, -14.0)
+		])
+		draw_polyline(flash_pts, Color(1.0, 0.2, 0.2, 0.85), 2.5, false)
+
 func order_move(path: Array, dest: Vector2i) -> void:
+	target_actor = null
+	target_actor_id = ""
 	var new_path: Array[Vector2i] = []
 	for p in path:
 		if p is Vector2i:
@@ -117,12 +159,16 @@ func order_move(path: Array, dest: Vector2i) -> void:
 		order_state = OrderState.MOVING
 
 func order_hold() -> void:
+	target_actor = null
+	target_actor_id = ""
 	current_path.clear()
 	target_cell = current_cell
 	step_accumulator = 0.0
 	order_state = OrderState.HOLDING
 
 func order_stop() -> void:
+	target_actor = null
+	target_actor_id = ""
 	current_path.clear()
 	target_cell = current_cell
 	step_accumulator = 0.0
@@ -183,6 +229,160 @@ func advance_movement(delta: float, speed_mult: float = 1.0, nav: GridNavigation
 			unit_reached_destination.emit(unit_id, current_cell)
 			break
 
+# -----------------------------------------------------------------------------
+# Combat Model & Time-Sliced Resolution (Package 1X)
+# -----------------------------------------------------------------------------
+
+func take_damage(amount: float, attacker_id: String = "") -> void:
+	if not is_alive or amount <= 0.0:
+		return
+	health = clampf(health - amount, 0.0, max_health)
+	damage_flash_timer = 0.25
+	unit_took_damage.emit(unit_id, amount, health, max_health)
+	if health <= 0.0:
+		is_alive = false
+		order_state = OrderState.IDLE
+		target_actor = null
+		target_actor_id = ""
+		current_path.clear()
+		step_accumulator = 0.0
+		unit_defeated.emit(unit_id, attacker_id)
+	queue_redraw()
+
+func can_attack_target(target: Node) -> bool:
+	if not is_alive or target == null or not is_instance_valid(target):
+		return false
+	var alive_val = target.get("is_alive")
+	if alive_val != null and not bool(alive_val):
+		return false
+	var hp_val = target.get("health")
+	if hp_val != null and float(hp_val) <= 0.0:
+		return false
+	var fac_val = target.get("faction_id")
+	if fac_val == null:
+		fac_val = target.get("owning_faction_id")
+	var tgt_faction: String = str(fac_val) if fac_val != null else ""
+	if tgt_faction == faction_id and not faction_id.is_empty():
+		return false # Friendly fire strictly blocked
+	return true
+
+func order_attack(target: Node) -> void:
+	if not is_alive or target == null or not is_instance_valid(target):
+		return
+	target_actor = target
+	var id_val = target.get("unit_id")
+	if id_val == null:
+		id_val = target.get("objective_id")
+	target_actor_id = str(id_val) if id_val != null else ""
+	order_state = OrderState.ATTACKING
+	current_path.clear()
+	step_accumulator = 0.0
+	queue_redraw()
+
+func advance_combat(delta: float, speed_mult: float = 1.0, nav: GridNavigation = null) -> void:
+	if not is_alive:
+		return
+	if damage_flash_timer > 0.0:
+		damage_flash_timer = maxf(0.0, damage_flash_timer - delta * speed_mult)
+		if damage_flash_timer == 0.0:
+			queue_redraw()
+
+	var tm = get_time_manager()
+	if tm != null and tm.has_method("is_paused") and tm.is_paused():
+		return
+	if speed_mult <= 0.0:
+		return
+
+	if attack_cooldown_remaining > 0.0:
+		attack_cooldown_remaining = maxf(0.0, attack_cooldown_remaining - delta * speed_mult)
+
+	if order_state != OrderState.ATTACKING:
+		return
+
+	# Target soft-reference validation
+	if target_actor == null or not is_instance_valid(target_actor):
+		target_actor = null
+		target_actor_id = ""
+		order_state = OrderState.IDLE
+		queue_redraw()
+		return
+
+	var tgt_alive_val = target_actor.get("is_alive")
+	var tgt_alive: bool = bool(tgt_alive_val) if tgt_alive_val != null else true
+	var tgt_hp_val = target_actor.get("health")
+	var tgt_hp: float = float(tgt_hp_val) if tgt_hp_val != null else 1.0
+	if not tgt_alive or tgt_hp <= 0.0:
+		target_actor = null
+		target_actor_id = ""
+		order_state = OrderState.IDLE
+		queue_redraw()
+		return
+
+	var raw_tgt_cell = target_actor.get("current_cell")
+	var tgt_cell: Vector2i = raw_tgt_cell if (raw_tgt_cell is Vector2i) else Vector2i(-1, -1)
+	if not IsoMath.is_in_bounds(tgt_cell):
+		target_actor = null
+		target_actor_id = ""
+		order_state = OrderState.IDLE
+		queue_redraw()
+		return
+
+	var dist: int = IsoMath.grid_distance(current_cell, tgt_cell)
+	if dist <= attack_range:
+		# In range: halt movement path and strike when cooldown expires
+		if not current_path.is_empty():
+			current_path.clear()
+			step_accumulator = 0.0
+		if attack_cooldown_remaining <= 0.0:
+			attack_cooldown_remaining = attack_cooldown
+			if target_actor.has_method("take_damage"):
+				target_actor.take_damage(attack_damage, unit_id)
+			unit_attacked.emit(unit_id, target_actor_id, attack_damage)
+			queue_redraw()
+	else:
+		# Out of range: step towards target cell
+		_advance_pursuit(tgt_cell, delta, speed_mult, nav)
+
+func _advance_pursuit(tgt_cell: Vector2i, delta: float, speed_mult: float, nav: GridNavigation) -> void:
+	if nav == null:
+		return
+	# Recompute route if empty or target moved away from path destination
+	if current_path.is_empty() or IsoMath.grid_distance(current_path[-1], tgt_cell) > attack_range:
+		var p: Array[Vector2i] = nav.find_path(current_cell, tgt_cell)
+		if p.size() > 1:
+			if p[0] == current_cell:
+				p.remove_at(0)
+			# Do not step onto the occupied target cell itself if attack_range >= 1
+			if not p.is_empty() and p[-1] == tgt_cell and attack_range > 0:
+				p.remove_at(p.size() - 1)
+			current_path = p
+			if not current_path.is_empty():
+				target_cell = current_path[-1]
+		elif p.size() == 1 and p[0] != current_cell:
+			current_path = p
+			target_cell = p[0]
+		else:
+			return # No reachable route
+
+	if current_path.is_empty():
+		return
+
+	step_accumulator += delta * speed_mult
+	while step_accumulator >= CELL_STEP_DURATION and not current_path.is_empty():
+		step_accumulator -= CELL_STEP_DURATION
+		var next_c: Vector2i = current_path[0]
+		if not nav.is_cell_walkable(next_c):
+			current_path.clear()
+			step_accumulator = 0.0
+			break
+		current_cell = next_c
+		current_path.remove_at(0)
+		unit_cell_changed.emit(unit_id, current_cell)
+		if IsoMath.grid_distance(current_cell, tgt_cell) <= attack_range:
+			current_path.clear()
+			step_accumulator = 0.0
+			break
+
 func _process(delta: float) -> void:
 	# Continuous visual interpolation towards authoritative current_cell local position
 	var tm = get_time_manager()
@@ -209,6 +409,8 @@ static func order_state_to_string(state: int) -> String:
 			return "moving"
 		OrderState.HOLDING:
 			return "holding"
+		OrderState.ATTACKING:
+			return "attacking"
 		OrderState.IDLE, _:
 			return "idle"
 
@@ -218,6 +420,8 @@ static func string_to_order_state(s: String) -> int:
 			return OrderState.MOVING
 		"holding":
 			return OrderState.HOLDING
+		"attacking":
+			return OrderState.ATTACKING
 		"idle", _:
 			return OrderState.IDLE
 
@@ -235,7 +439,16 @@ func serialize() -> Dictionary:
 		"order_state": order_state_to_string(order_state),
 		"formation": formation,
 		"control_group_id": control_group_id,
-		"current_path": path_arr
+		"current_path": path_arr,
+		"health": health,
+		"max_health": max_health,
+		"attack_damage": attack_damage,
+		"attack_range": attack_range,
+		"attack_cooldown": attack_cooldown,
+		"attack_cooldown_remaining": attack_cooldown_remaining,
+		"is_alive": is_alive,
+		"faction_id": faction_id,
+		"target_actor_id": target_actor_id
 	}
 
 func deserialize(data: Dictionary) -> bool:
@@ -256,7 +469,7 @@ func deserialize(data: Dictionary) -> bool:
 		return false
 
 	var o_state_str = String(data.get("order_state", "idle")).to_lower()
-	if not (o_state_str in ["idle", "moving", "holding"]):
+	if not (o_state_str in ["idle", "moving", "holding", "attacking"]):
 		return false
 	var o_state_val = string_to_order_state(o_state_str)
 
@@ -296,7 +509,7 @@ func deserialize(data: Dictionary) -> bool:
 	if o_state_val == OrderState.MOVING:
 		if parsed_path.is_empty() or parsed_path[-1] != tgt_c:
 			return false
-	else:
+	elif o_state_val == OrderState.HOLDING or o_state_val == OrderState.IDLE:
 		if not parsed_path.is_empty():
 			return false
 
@@ -312,4 +525,17 @@ func deserialize(data: Dictionary) -> bool:
 	current_path = parsed_path
 	step_accumulator = 0.0
 	position = IsoMath.map_to_local(current_cell)
+
+	# Combat properties restoration (Package 1X)
+	health = clampf(float(data.get("health", 100.0)), 0.0, float(data.get("max_health", 100.0)))
+	max_health = maxf(1.0, float(data.get("max_health", 100.0)))
+	attack_damage = maxf(0.0, float(data.get("attack_damage", 25.0)))
+	attack_range = maxi(1, int(data.get("attack_range", 1)))
+	attack_cooldown = maxf(0.1, float(data.get("attack_cooldown", 1.2)))
+	attack_cooldown_remaining = maxf(0.0, float(data.get("attack_cooldown_remaining", 0.0)))
+	is_alive = bool(data.get("is_alive", health > 0.0))
+	faction_id = String(data.get("faction_id", "player"))
+	target_actor_id = String(data.get("target_actor_id", ""))
+	target_actor = null
+	damage_flash_timer = 0.0
 	return true

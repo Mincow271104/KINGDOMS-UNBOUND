@@ -6401,3 +6401,116 @@ Resolve the remaining lifecycle defect regarding manager detachment asymmetry on
 - Stage modified files and commit to branch `fix/package-1w-final-consolidated-audit`.
 - Push to remote `origin/fix/package-1w-final-consolidated-audit`.
 - Deliver comprehensive completion report with commit SHA, parent SHA, and full test evidence. Package 1W is closed. Do not merge into master, do not start Package 1X.
+
+---
+
+## [2026-10-29] Milestone 41: Package 1X — Tactical Combat, Enemy Military AI & Field Siege (Completed)
+
+### Context & Objective
+Implement all requirements of Package 1X as defined in `MASTER_PROMPT.md` and user specification:
+- **TASK-1X.1:** Real-Time Tactical Combat engagements between tactical units and hostile entities with health bars, visual feedback, deterministic simulation stepping, friendly fire prevention, and strict 1:1 casualty parity.
+- **TASK-1X.2:** Enemy Military Entities (`EnemyTacticalUnit`) with crimson modulate, deterministic AI state machine (`HOLD`, `PATROL`, `ACQUIRE_TARGET`, `PURSUE`, `ATTACK`, `RECOVER_RETREAT`), sorted-ID iteration in `EnemyMilitaryManager`, procedural distinct-cell spawning, and peace treaty retreat.
+- **TASK-1X.3:** Field Siege Operations (`SiegeObjectiveActor`, `FieldSiegeManager`) with eligibility gating, defender mobilization, victory/defeat/withdrawal conditions, plunder awards, faction power impact, and clean coexistence with `BattleCampaignManager`.
+- **Persistence & Integration:** Integration into `SaveManager` (`"enemy_military"` and `"field_siege"`), fail-closed schema validation, backward compatibility, and double-load idempotency.
+
+### Completed Work & Architecture Changes
+1. **`scripts/military/tactical_unit.gd`:**
+   - Added combat state `OrderState.ATTACKING = 3`.
+   - Added data-driven combat properties: `health` (100.0), `max_health` (100.0), `attack_damage` (25.0), `attack_range` (1), `attack_cooldown` (1.2), `attack_cooldown_remaining`, `is_alive`, `faction_id`, `target_actor_id`, and `target_actor`.
+   - Added `take_damage(amount, attacker_id)` with visual flash timer, clamping to 0.0, and `unit_defeated` signal.
+   - Added `order_attack(target)` with friendly-fire rejection (`faction_id == target.faction_id`).
+   - Added `advance_combat(delta, speed_mult, nav)`: Manhattan distance checking (`IsoMath.grid_distance`), cooldown reduction, discrete route pursuit stepping, and disengagement when target is dead.
+   - Enhanced `_draw()` to render 24x4px health bars with 1px border and white damage flash circle.
+   - Updated `serialize()` and `deserialize()` with fail-closed validation for combat stats.
+2. **`scripts/military/player_army_manager.gd`:**
+   - Added `on_tactical_unit_killed(_unit_id)` to maintain strict 1:1 casualty parity: decrements `soldier_count` authoritatively on tactical death, normalizes to `GARRISONED` at `rally_cell` if `soldier_count == 0`, and emits `army_changed`.
+3. **`scripts/military/tactical_military_manager.gd`:**
+   - Connected `unit_defeated` signal to `_on_unit_defeated`, removing the unit and calling `player_army_mgr.on_tactical_unit_killed()`.
+   - Added `issue_attack_order(target, nav)` with hostility and war state verification.
+   - Updated `advance_movement(delta, speed_mult)` to call `u.advance_combat(...)` on units in `ATTACKING` order state.
+4. **`scripts/military/enemy_tactical_unit.gd` (New):**
+   - Subclasses `TacticalUnit` with crimson modulate `Color(0.95, 0.3, 0.3, 1.0)`.
+   - Implemented 6-state AI state machine (`AIState.HOLD`, `PATROL`, `ACQUIRE_TARGET`, `PURSUE`, `ATTACK`, `RECOVER_RETREAT`).
+   - Deterministic targeting: searches living player units in detection radius (8 tiles), breaking equal Manhattan distance ties by lexicographical unit ID.
+   - Peace treaty handling: connects to `FactionManager.peace_signed` or faction state, transitioning immediately to `RECOVER_RETREAT`.
+5. **`scripts/military/enemy_military_manager.gd` (New):**
+   - Authoritative registry for active enemy units.
+   - `spawn_enemy_unit()` and `spawn_enemy_force()`: procedural spawn allocation on distinct walkable cells via deterministic spiral search.
+   - `advance_simulation(delta)`: processes units in strictly sorted key order for determinism.
+   - Casualty handling: unbinds signals and cleans up defeated enemies.
+   - Save/load serialization and deserialization.
+6. **`scripts/combat/siege_objective_actor.gd` (New):**
+   - Subclasses `Node2D` with dimetric isometric rendering of hostile outposts (300.0 HP, 4 garrison defenders).
+   - Draws health bar and status banner; handles damage absorption, destruction (`objective_destroyed`), and capture (`objective_captured`).
+7. **`scripts/combat/field_siege_manager.gd` (New):**
+   - Authoritative manager for field siege operations.
+   - Eligibility gate: active hostile faction at war, assembled field army outside garrison perimeter (`dist > 5`), proximity to objective (`dist <= 15`).
+   - `launch_field_siege()`: emits `field_siege_started`, mobilizes garrison defenders around objective.
+   - `evaluate_siege_status()`: evaluates `VICTORY` (objective captured), `DEFEAT` (all attackers eliminated), or `WITHDRAWAL` (army retreated to base).
+   - Victory resolution: awards plunder (+60 Gold, +40 Food, +20 Iron) and reduces faction military power (-20).
+   - Coexists independently alongside `BattleCampaignManager`.
+8. **`scripts/world/world_view.gd`:**
+   - Instantiated and registered `enemy_military_mgr` and `field_siege_mgr`.
+   - Wired right-click input routing: detects clicks on enemy units or siege objectives to dispatch attack orders to selected player tactical units.
+   - Updated `_process(delta)` to advance enemy military simulation in sync with simulation speed and pause.
+9. **`scripts/persistence/save_manager.gd`:**
+   - Extended save schema skeleton to include `"enemy_military"` and `"field_siege"`.
+   - Added fail-closed schema validation for enemy units and siege objectives.
+   - Restored state in `apply_loaded_state_to_world()` with full backward compatibility for legacy saves.
+10. **`scripts/test/test_battle_diplomacy_consequences.gd`:**
+    - Updated `TC-DIPLO.9` army deployment fixture to use canonical field deployment outside garrison perimeter (`live_rally.x + 8`) and step both strategic and tactical managers, resolving regression.
+11. **Authoring Test Suites & Verification:**
+    - Authored `scripts/test/test_tactical_combat.gd` (TC-COMBAT.1 - TC-COMBAT.11: 58 assertions, PASS).
+    - Authored `scripts/test/test_enemy_military_ai.gd` (TC-ENEMY.1 - TC-ENEMY.9: 44 assertions, PASS).
+    - Authored `scripts/test/test_field_siege.gd` (TC-SIEGE.1 - TC-SIEGE.9: 45 assertions, PASS).
+
+### Validations Performed & Results
+- **Package 1X Dedicated Suites:**
+  - `scripts/test/test_tactical_combat.gd`: **PASS (Exit Code 0: 58/58 assertions)**
+  - `scripts/test/test_enemy_military_ai.gd`: **PASS (Exit Code 0: 44/44 assertions)**
+  - `scripts/test/test_field_siege.gd`: **PASS (Exit Code 0: 45/45 assertions)**
+- **Full 14-Suite Regression Matrix:**
+  1. `scripts/test/test_tactical_combat.gd`: **PASS (Exit Code 0: 58/58 assertions)**
+  2. `scripts/test/test_enemy_military_ai.gd`: **PASS (Exit Code 0: 44/44 assertions)**
+  3. `scripts/test/test_field_siege.gd`: **PASS (Exit Code 0: 45/45 assertions)**
+  4. `scripts/test/test_tactical_military.gd`: **PASS (Exit Code 0: 385/385 assertions)**
+  5. `scripts/test/test_army_movement.gd`: **PASS (Exit Code 0: 33/33 tests)**
+  6. `scripts/test/test_player_army.gd`: **PASS (Exit Code 0: 48/48 tests)**
+  7. `scripts/test/test_barracks.gd`: **PASS (Exit Code 0: 7/7 tests)**
+  8. `scripts/test/test_palisade.gd`: **PASS (Exit Code 0: 7/7 tests)**
+  9. `scripts/test/test_watchtower.gd`: **PASS (Exit Code 0: 10/10 tests)**
+  10. `scripts/test/test_live_battle_loop.gd`: **PASS (Exit Code 0: 19/19 tests)**
+  11. `scripts/test/test_offensive_campaign.gd`: **PASS (Exit Code 0: 14/14 tests)**
+  12. `scripts/test/test_battle_diplomacy_consequences.gd`: **PASS (Exit Code 0: 11/11 tests)**
+  13. `scripts/test/test_battle_fortification.gd`: **PASS (Exit Code 0: 12/12 tests)**
+  14. `scripts/test/test_world_events.gd`: **PASS (Exit Code 0: 72/72 tests)**
+- **Headless Project & Editor Check:**
+  - `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --editor --quit`: **PASS (Exit Code 0, all classes registered cleanly)**
+- **Whitespace / Git Check:**
+  - `git diff --check`: **PASS (Exit Code 0, 0 whitespace errors)**
+
+### Files Created or Modified
+- `scripts/military/tactical_unit.gd` (Modified)
+- `scripts/military/player_army_manager.gd` (Modified)
+- `scripts/military/tactical_military_manager.gd` (Modified)
+- `scripts/military/enemy_tactical_unit.gd` (New)
+- `scripts/military/enemy_military_manager.gd` (New)
+- `scripts/combat/siege_objective_actor.gd` (New)
+- `scripts/combat/field_siege_manager.gd` (New)
+- `scripts/world/world_view.gd` (Modified)
+- `scripts/persistence/save_manager.gd` (Modified)
+- `scripts/test/test_battle_diplomacy_consequences.gd` (Modified)
+- `scripts/test/test_tactical_combat.gd` (New)
+- `scripts/test/test_enemy_military_ai.gd` (New)
+- `scripts/test/test_field_siege.gd` (New)
+- `docs/BACKLOG.md` (Modified)
+- `docs/SCOPE_DECISIONS.md` (Modified)
+- `docs/TEST_PLAN.md` (Modified)
+- `docs/WORKLOG.md` (Modified)
+
+### Next Exact Step
+- Verify git status to ensure untracked protected files are preserved.
+- Stage only tracked and intended Package 1X files.
+- Commit to branch `feat/package-1x-tactical-combat-enemy-ai`.
+- Push to remote `origin/feat/package-1x-tactical-combat-enemy-ai`.
+- Deliver comprehensive completion report.

@@ -32,7 +32,9 @@ static func serialize_world_state(world_view: Node) -> Dictionary:
 		"victory": {},
 		"fog_of_war": [],
 		"automation": {},
-		"tactical_military": {}
+		"tactical_military": {},
+		"enemy_military": {},
+		"field_siege": {}
 	}
 	
 	if world_view == null:
@@ -253,6 +255,16 @@ static func serialize_world_state(world_view: Node) -> Dictionary:
 		tac_mgr.call("sync_with_player_army")
 	if tac_mgr != null and tac_mgr.has_method("serialize"):
 		data["tactical_military"] = tac_mgr.call("serialize")
+
+	# 18. Enemy Military (Package 1X)
+	var enemy_mgr = world_view.get("enemy_military_mgr")
+	if enemy_mgr != null and enemy_mgr.has_method("serialize"):
+		data["enemy_military"] = enemy_mgr.call("serialize")
+
+	# 19. Field Siege Operations (Package 1X)
+	var siege_mgr = world_view.get("field_siege_mgr")
+	if siege_mgr != null and siege_mgr.has_method("serialize"):
+		data["field_siege"] = siege_mgr.call("serialize")
 
 	return data
 
@@ -833,7 +845,7 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 				return {"valid": false, "error": "Tọa độ target_cell của đơn vị %s trong tactical_military không hợp lệ." % String(u_id)}
 
 			var o_state: String = String(u.get("order_state", "idle")).to_lower()
-			if not (o_state in ["idle", "moving", "holding"]):
+			if not (o_state in ["idle", "moving", "holding", "attacking"]):
 				return {"valid": false, "error": "order_state của đơn vị %s trong tactical_military không hợp lệ: %s." % [String(u_id), str(o_state)]}
 
 			if o_state == "moving":
@@ -898,6 +910,46 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 					for mem_id in members:
 						if not (mem_id is String) or not seen_tac_ids.has(String(mem_id)):
 							return {"valid": false, "error": "Nhóm điều khiển %s chứa unit_id không tồn tại trong units: %s." % [k_str, str(mem_id)]}
+
+	# Validate optional enemy_military section (Package 1X)
+	if json_dict.has("enemy_military"):
+		var enemy_val = json_dict.get("enemy_military")
+		if not (enemy_val is Dictionary):
+			return {"valid": false, "error": "Dữ liệu quân sự địch 'enemy_military' phải là Dictionary."}
+		if enemy_val.has("enemies"):
+			var e_list = enemy_val.get("enemies")
+			if not (e_list is Array):
+				return {"valid": false, "error": "enemies trong enemy_military phải là Array."}
+			var seen_e_ids: Dictionary = {}
+			for e in e_list:
+				if not (e is Dictionary):
+					return {"valid": false, "error": "Mỗi đơn vị trong enemy_military phải là Dictionary."}
+				var eid = e.get("unit_id")
+				if not (eid is String) or String(eid).strip_edges().is_empty():
+					return {"valid": false, "error": "unit_id của đơn vị địch không hợp lệ."}
+				if seen_e_ids.has(String(eid)):
+					return {"valid": false, "error": "Phát hiện unit_id trùng lặp trong enemy_military: %s." % String(eid)}
+				seen_e_ids[String(eid)] = true
+				if not _is_valid_coord_arr(e.get("current_cell")):
+					return {"valid": false, "error": "Tọa độ current_cell của đơn vị địch %s không hợp lệ." % String(eid)}
+
+	# Validate optional field_siege section (Package 1X)
+	if json_dict.has("field_siege"):
+		var siege_val = json_dict.get("field_siege")
+		if not (siege_val is Dictionary):
+			return {"valid": false, "error": "Dữ liệu công thành 'field_siege' phải là Dictionary."}
+		if siege_val.has("objectives"):
+			var obj_list = siege_val.get("objectives")
+			if not (obj_list is Array):
+				return {"valid": false, "error": "objectives trong field_siege phải là Array."}
+			for o in obj_list:
+				if not (o is Dictionary):
+					return {"valid": false, "error": "Mỗi mục tiêu trong field_siege phải là Dictionary."}
+				var oid = o.get("objective_id")
+				if not (oid is String) or String(oid).strip_edges().is_empty():
+					return {"valid": false, "error": "objective_id trong field_siege không hợp lệ."}
+				if not _is_valid_coord_arr(o.get("current_cell")):
+					return {"valid": false, "error": "Tọa độ current_cell của mục tiêu %s trong field_siege không hợp lệ." % String(oid)}
 
 	return {"valid": true, "error": ""}
 
@@ -1310,6 +1362,24 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 		# Strict garrison transition audit: ensure player_army syncs from newly restored tactical roster
 		if army_mgr != null and army_mgr.has_method("sync_state_from_tactical"):
 			army_mgr.call("sync_state_from_tactical")
+
+	# 18. Restore Enemy Military (Package 1X)
+	var enemy_mgr = world_view.get("enemy_military_mgr")
+	if enemy_mgr != null and enemy_mgr.has_method("deserialize"):
+		var enemy_data = loaded_data.get("enemy_military", {})
+		if enemy_data is Dictionary:
+			enemy_mgr.call("deserialize", enemy_data)
+		else:
+			enemy_mgr.call("deserialize", {})
+
+	# 19. Restore Field Siege Operations (Package 1X)
+	var siege_mgr = world_view.get("field_siege_mgr")
+	if siege_mgr != null and siege_mgr.has_method("deserialize"):
+		var siege_data = loaded_data.get("field_siege", {})
+		if siege_data is Dictionary:
+			siege_mgr.call("deserialize", siege_data)
+		else:
+			siege_mgr.call("deserialize", {})
 
 	print("[SaveManager] Loaded world state restored successfully (%d citizens, %d buildings)" % [world_view.get("citizen_list").size(), world_data.buildings.size()])
 	return {"success": true}

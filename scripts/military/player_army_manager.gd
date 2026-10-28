@@ -795,6 +795,19 @@ func remove_casualties(count: int, from_field: bool = false) -> int:
 	army_changed.emit(soldier_count, get_army_capacity())
 	return removed
 
+func on_tactical_unit_killed(_unit_id: String = "") -> void:
+	if soldier_count <= 0:
+		return
+	soldier_count -= 1
+	if soldier_count == 0:
+		current_path.clear()
+		step_accumulator = 0.0
+		movement_state = MovementState.GARRISONED
+		current_cell = rally_cell
+		destination_cell = rally_cell
+		movement_state_changed.emit(movement_state, current_cell, destination_cell)
+	army_changed.emit(soldier_count, get_army_capacity())
+
 func sync_state_from_tactical() -> void:
 	if tactical_military_mgr == null:
 		if soldier_count > 0 and movement_state == MovementState.GARRISONED:

@@ -309,6 +309,8 @@ func _create_unit_instance(u_id: String, spawn_cell: Vector2i) -> Node2D:
 
 	if unit.has_signal("unit_reached_destination") and not unit.unit_reached_destination.is_connected(_on_unit_reached_destination):
 		unit.unit_reached_destination.connect(_on_unit_reached_destination)
+	if unit.has_signal("unit_defeated") and not unit.unit_defeated.is_connected(_on_unit_defeated):
+		unit.unit_defeated.connect(_on_unit_defeated)
 
 	var container = _get_units_container()
 	if container != null and is_instance_valid(container):
@@ -317,6 +319,16 @@ func _create_unit_instance(u_id: String, spawn_cell: Vector2i) -> Node2D:
 	return unit
 
 func _on_unit_reached_destination(_id: String, _cell: Vector2i) -> void:
+	tactical_state_updated.emit()
+
+func _on_unit_defeated(u_id: String, _killer_id: String) -> void:
+	_remove_unit(u_id)
+	if player_army_mgr != null and is_instance_valid(player_army_mgr):
+		if player_army_mgr.has_method("on_tactical_unit_killed"):
+			player_army_mgr.call("on_tactical_unit_killed", u_id)
+		else:
+			player_army_mgr.soldier_count = maxi(0, player_army_mgr.soldier_count - 1)
+			player_army_mgr.army_changed.emit(player_army_mgr.soldier_count, player_army_mgr.get_army_capacity())
 	tactical_state_updated.emit()
 
 func _remove_unit(uid: String) -> void:
@@ -650,6 +662,62 @@ func issue_move_order(target_cell: Vector2i, nav: GridNavigation = null) -> Dict
 		"formation": current_formation
 	}
 
+func issue_attack_order(target: Node, nav: GridNavigation = null) -> Dictionary:
+	if selected_unit_ids.is_empty():
+		return {"success": false, "reason": "Không có đơn vị nào được chọn để tấn công"}
+
+	if target == null or not is_instance_valid(target):
+		return {"success": false, "reason": "Mục tiêu không hợp lệ"}
+
+	var alive_val = target.get("is_alive")
+	if alive_val != null and not bool(alive_val):
+		return {"success": false, "reason": "Mục tiêu đã bị tiêu diệt"}
+
+	var hp_val = target.get("health")
+	if hp_val != null and float(hp_val) <= 0.0:
+		return {"success": false, "reason": "Mục tiêu đã bị tiêu diệt"}
+
+	# Faction hostility check
+	var tgt_fac = target.get("faction_id")
+	if tgt_fac == null:
+		tgt_fac = target.get("owning_faction_id")
+	var tgt_faction_str := str(tgt_fac) if tgt_fac != null else ""
+	if tgt_faction_str == "player":
+		return {"success": false, "reason": "Không thể tấn công đơn vị phe mình"}
+
+	var fm = null
+	if is_instance_valid(world_view) and world_view.get("faction_manager") != null:
+		fm = world_view.get("faction_manager")
+	if fm != null and not tgt_faction_str.is_empty():
+		var at_war: bool = false
+		if fm.has_method("get_faction"):
+			var f = fm.get_faction(tgt_faction_str)
+			if f != null:
+				at_war = bool(f.is_at_war)
+		elif fm.has_method("are_factions_at_war"):
+			at_war = fm.are_factions_at_war(tgt_faction_str, "player")
+		if not at_war:
+			return {"success": false, "reason": "Chưa ở trạng thái chiến tranh với thế lực này, không thể tấn công"}
+
+	if nav == null:
+		nav = get_nav()
+
+	var count: int = 0
+	for uid in selected_unit_ids:
+		var u = units.get(uid, null)
+		if u != null and is_instance_valid(u) and u.is_alive:
+			u.order_attack(target)
+			count += 1
+
+	if count == 0:
+		return {"success": false, "reason": "Không có đơn vị sẵn sàng tấn công"}
+
+	var raw_tgt_c = target.get("current_cell")
+	var tgt_cell: Vector2i = raw_tgt_c if (raw_tgt_c is Vector2i) else Vector2i(-1, -1)
+	order_issued.emit("Attack", count, tgt_cell)
+	tactical_state_updated.emit()
+	return {"success": true, "reason": "Đã ra lệnh tấn công mục tiêu", "count": count}
+
 func halt_selected_units() -> void:
 	for uid in selected_unit_ids:
 		if units.has(uid):
@@ -850,7 +918,20 @@ func advance_movement(delta: float, speed_mult: float = 1.0, nav: GridNavigation
 		nav = get_nav()
 	for uid in units.keys():
 		var u = units[uid]
-		u.advance_movement(delta, speed_mult, nav)
+		if is_instance_valid(u):
+			u.advance_movement(delta, speed_mult, nav)
+			u.advance_combat(delta, speed_mult, nav)
+
+func advance_combat(delta: float, speed_mult: float = 1.0, nav: GridNavigation = null) -> void:
+	if nav == null:
+		nav = get_nav()
+	for uid in units.keys():
+		var u = units[uid]
+		if is_instance_valid(u):
+			u.advance_combat(delta, speed_mult, nav)
+
+func advance_simulation(delta: float, speed_mult: float = 1.0, nav: GridNavigation = null) -> void:
+	advance_movement(delta, speed_mult, nav)
 
 # -----------------------------------------------------------------------------
 # Serialization & Persistence

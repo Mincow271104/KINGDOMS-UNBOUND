@@ -672,3 +672,53 @@ When Godot Editor is running with the MCP plugin:
     - **GTA-CASE.15 (Zero-Soldier Shortcut Emptiness Verification):**
       - Zero-soldier shortcut in `get_settled_state_for_cell()` and `sync_state_from_tactical()` refuses `GARRISONED` and returns `IDLE_AT_FIELD` when stale units remain in the tactical manager.
   - *Status:* **PASSED** (2026-10-29, Exit Code 0: 385/385 assertions passed in `test_tactical_military.gd`).
+
+---
+
+### Package 1X: Tactical Combat, Enemy Military AI & Field Siege
+- **TC-COMBAT.1 to TC-COMBAT.11: Real-Time Tactical Combat Test Suite**
+  - *Tracked Test Suite:* `res://scripts/test/test_tactical_combat.gd`
+  - *Command:* `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --path "e:\KINGDOMS UNBOUND\kingdoms-unbound" -s res://scripts/test/test_tactical_combat.gd`
+  - *Acceptance Criteria:*
+    - **TC-COMBAT.1 (Combat Stat Initialization):** Tactical units initialize with `health = 100.0`, `max_health = 100.0`, `attack_damage = 25.0`, `attack_range = 1`, `attack_cooldown = 1.2`, `attack_cooldown_remaining = 0.0`, `is_alive = true`, and `faction_id = 'player'`.
+    - **TC-COMBAT.2 (Take Damage & Damage Indicator):** `take_damage(amount, attacker_id)` reduces health, emits `unit_took_damage(unit_id, amount, attacker_id)`, triggers visual damage flash timer, and preserves life when `health > 0`.
+    - **TC-COMBAT.3 (Lethal Damage & Defeat Signal):** Overkill damage clamps health to 0.0, sets `is_alive = false`, emits `unit_defeated(unit_id, killer_id)`, returns unit to `OrderState.IDLE`, and dead units ignore further damage.
+    - **TC-COMBAT.4 (Friendly Fire Rejection):** Tactical units cannot attack units of the same faction (`faction_id == 'player'`); cross-faction attacks are accepted.
+    - **TC-COMBAT.5 (Order Attack & Target Assignment):** Right-click or `order_attack(target)` transitions unit to `OrderState.ATTACKING` and sets `target_actor` and `target_actor_id`.
+    - **TC-COMBAT.6 (Range Checking & Strike Resolution):** Manhattan distance check (`grid_distance <= attack_range`) allows melee attacks without displacement; dealing damage applies to target and triggers attack cooldown.
+    - **TC-COMBAT.7 (Cooldown Enforcement):** Zero damage is dealt while `attack_cooldown_remaining > 0.0`; cooldown decrements each frame and allows next strike only upon reaching 0.0.
+    - **TC-COMBAT.8 (TimeManager Pause & Speed Scaling):** Combat cooldown and strike progress freeze strictly when paused; 2x/3x speed scales strike progression proportionally.
+    - **TC-COMBAT.9 (Dead Target Auto-Disengage):** Defeating or losing the target node automatically resets `order_state` to `OrderState.IDLE`, clearing `target_actor` and `target_actor_id`.
+    - **TC-COMBAT.10 (Strict Casualty Parity with PlayerArmyManager):** Defeating player tactical units decrements `PlayerArmyManager.soldier_count` 1:1, cleans defeated units from the roster, and normalizes a depleted army (0 soldiers) to `GARRISONED` at `rally_cell`.
+    - **TC-COMBAT.11 (Combat Serialization Roundtrip):** Serializes and deserializes all combat properties (`health`, `max_health`, `attack_damage`, `attack_range`, `attack_cooldown`, `is_alive`, `faction_id`, `target_actor_id`) faithfully.
+  - *Status:* **PASSED** (2026-10-29, Exit Code 0: 58/58 assertions passed).
+
+- **TC-ENEMY.1 to TC-ENEMY.9: Enemy Military Entities & Tactical AI Test Suite**
+  - *Tracked Test Suite:* `res://scripts/test/test_enemy_military_ai.gd`
+  - *Command:* `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --path "e:\KINGDOMS UNBOUND\kingdoms-unbound" -s res://scripts/test/test_enemy_military_ai.gd`
+  - *Acceptance Criteria:*
+    - **TC-ENEMY.1 (Visuals & Modulate):** `EnemyTacticalUnit` inherits from `TacticalUnit` and displays crimson modulate `Color(0.95, 0.3, 0.3, 1.0)`, detection range 8 tiles, and starts in `ACQUIRE_TARGET`.
+    - **TC-ENEMY.2 (Spawning API & Identification):** `EnemyMilitaryManager.spawn_enemy_unit()` generates stable IDs (`enemy_unit_1`), sets owning faction, places at cell, emits `enemy_spawned`, and updates roster count.
+    - **TC-ENEMY.3 (Force Spawning on Distinct Slots):** `spawn_enemy_force()` allocates distinct, non-overlapping walkable cells around the spawn center without tile stacking.
+    - **TC-ENEMY.4 (Targeting & Deterministic Tie-Breaking):** Selects closest player unit; equal Manhattan distance ties broken by lexicographical ascending unit ID order.
+    - **TC-ENEMY.5 (AI State Machine Transitions):** Unit transitions between `ACQUIRE_TARGET` -> `PURSUE` (when distance > attack_range) -> `ATTACK` (when distance <= attack_range) -> `PURSUE` dynamically.
+    - **TC-ENEMY.6 (Deterministic Iteration Order):** `EnemyMilitaryManager.advance_simulation()` processes units strictly in ascending sorted key order.
+    - **TC-ENEMY.7 (Peace Treaty Cessation):** Signing a peace treaty immediately halts attack orders, transitions AI to `RECOVER_RETREAT`, and paths units back to retreat coordinates.
+    - **TC-ENEMY.8 (Defeat Cleanup):** Defeated enemy emits `enemy_defeated` on manager and is immediately removed from the active enemy roster.
+    - **TC-ENEMY.9 (Serialization Roundtrip):** Serializes and deserializes enemy units, stats, coordinates, and owning factions accurately.
+  - *Status:* **PASSED** (2026-10-29, Exit Code 0: 44/44 assertions passed).
+
+- **TC-SIEGE.1 to TC-SIEGE.9: Field Siege Operations & Victory Conditions Test Suite**
+  - *Tracked Test Suite:* `res://scripts/test/test_field_siege.gd`
+  - *Command:* `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --path "e:\KINGDOMS UNBOUND\kingdoms-unbound" -s res://scripts/test/test_field_siege.gd`
+  - *Acceptance Criteria:*
+    - **TC-SIEGE.1 (Objective Actor Lifecycle):** `SiegeObjectiveActor` initializes with ID, owning faction, 300.0 durability, `is_alive = true`, `is_captured = false`, and garrison defender count.
+    - **TC-SIEGE.2 (Outpost Durability & Capture):** Health reductions emit `objective_damaged`; reaching 0.0 HP sets `is_alive = false`, `is_captured = true`, and emits `objective_destroyed` and `objective_captured`.
+    - **TC-SIEGE.3 (Eligibility Gating):** Rejects when player has 0 field troops, when not at war, when faction is inactive, or when player army is too far from the objective; accepts when assembled field troops are in proximity.
+    - **TC-SIEGE.4 (Launch & Defender Mobilization):** `launch_field_siege()` emits `field_siege_started` and mobilizes garrison defenders on distinct walkable cells around the outpost.
+    - **TC-SIEGE.5 (Victory Resolution & Plunder Awards):** Capturing the objective resolves siege as `VICTORY`, emits `field_siege_resolved`, reduces faction military power (-20), and awards plunder (+60 Gold, +40 Food, +20 Iron).
+    - **TC-SIEGE.6 (Defeat Resolution):** Total wipeout of attacking field forces resolves siege as `DEFEAT`.
+    - **TC-SIEGE.7 (Withdrawal Resolution):** Retreating field troops back to base perimeter resolves siege as `WITHDRAWAL`.
+    - **TC-SIEGE.8 (Coexistence with Battle Campaigns):** `FieldSiegeManager` operations and objectives coexist cleanly with `BattleCampaignManager` without mutating offensive sequence counters.
+    - **TC-SIEGE.9 (Siege Serialization Roundtrip):** Serializes and deserializes active siege objectives and operational status with fail-closed schema validation.
+  - *Status:* **PASSED** (2026-10-29, Exit Code 0: 45/45 assertions passed).

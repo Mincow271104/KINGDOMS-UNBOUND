@@ -586,16 +586,39 @@ func _test_tc_diplo_9_save_load_persistence_and_idempotency() -> void:
 	live_army_mgr.is_supplied = true
 	live_army_mgr.refresh_rally_cell()
 	var live_rally: Vector2i = live_army_mgr.get_rally_cell()
-	var field_target := Vector2i(live_rally.x + 4, live_rally.y)
+	var live_tac_mgr = world_instance.get("tactical_military_mgr")
+	if live_tac_mgr != null and live_tac_mgr.has_method("sync_with_player_army"):
+		live_tac_mgr.call("sync_with_player_army")
+
+	# Target must be outside garrison perimeter (dist > 5) so troops form a ready field force
+	var field_target := Vector2i(live_rally.x + 8, live_rally.y)
 	if not IsoMath.is_in_bounds(field_target) or not live_nav.is_cell_walkable(field_target):
-		field_target = Vector2i(live_rally.x, live_rally.y + 4)
+		field_target = Vector2i(live_rally.x, live_rally.y + 8)
+	if not IsoMath.is_in_bounds(field_target) or not live_nav.is_cell_walkable(field_target):
+		for r in range(6, 12):
+			for dx in range(-r, r + 1):
+				var dy = r - abs(dx)
+				var cand := live_rally + Vector2i(dx, dy)
+				if IsoMath.is_in_bounds(cand) and live_nav.is_cell_walkable(cand):
+					field_target = cand
+					break
+			if field_target != live_rally and live_nav.is_cell_walkable(field_target):
+				break
 
 	var move_res = live_army_mgr.order_move(field_target)
 	_assert_true(move_res.get("success", false), "TC-DIPLO.9", "Army ordered to field")
-	for _i in range(50):
-		if live_army_mgr.get_movement_state() == PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD:
+	for _i in range(120):
+		var all_arrived := true
+		if live_tac_mgr != null:
+			for u in live_tac_mgr.call("get_all_units"):
+				if u.get("order_state") == 1: # MOVING
+					all_arrived = false
+					break
+		if live_army_mgr.get_movement_state() == PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD and all_arrived:
 			break
-		live_army_mgr.advance_movement(0.5)
+		live_army_mgr.advance_movement(0.5, 2.0)
+		if live_tac_mgr != null and live_tac_mgr.has_method("advance_movement"):
+			live_tac_mgr.advance_movement(0.5, 2.0)
 
 	# Setup target faction
 	var target_fac: FactionData = live_fac_mgr.get_faction("rival_military")
