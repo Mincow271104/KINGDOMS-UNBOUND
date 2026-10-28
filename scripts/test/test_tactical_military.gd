@@ -439,9 +439,10 @@ func _run_all_tests() -> void:
 	_assert(speed_after_ctrl_1 == initial_speed, "TC-TAC.23: Ctrl+1 did not change TimeManager simulation speed")
 
 	# TC-TAC.24: Control groups prune eliminated units automatically
+	unit_a.order_stop()
 	standalone_tac.assign_control_group(2)
 	_assert(standalone_tac.get_control_group(2).size() == 1, "TC-TAC.24: Control group 2 contains Unit A")
-	standalone_army.remove_casualties(1)
+	standalone_army.remove_casualties(1, true)
 	_assert(standalone_tac.get_unit_count() == 1, "TC-TAC.24: Roster reduced to 1 unit after casualty")
 	_assert(standalone_tac.get_control_group(2).size() <= 1, "TC-TAC.24: Control group 2 pruned dead unit safely")
 
@@ -1548,7 +1549,7 @@ func _run_all_tests() -> void:
 	_assert(fu_army.current_cell == fu_army.get_rally_cell(), "PH-CASE.9: Strategic center remains at rally_cell")
 
 	# =========================================================================
-	# GROUP 9: Strict Garrison Transition Audit (GTA-CASE.1 - GTA-CASE.7)
+	# GROUP 9: Strict Garrison Transition Audit (GTA-CASE.1 - GTA-CASE.11)
 	# =========================================================================
 	print("\n--- Group 9: Strict Garrison Transition Audit ---")
 
@@ -1899,4 +1900,151 @@ func _run_all_tests() -> void:
 	_assert(zero_restored_army.soldier_count == 0, "GTA-CASE.7C: Restored army has 0 soldiers")
 	_assert(zero_restored_army.movement_state == PlayerArmyManagerScript.MovementState.GARRISONED, "GTA-CASE.7C: Restored 0-soldier army is GARRISONED at rally")
 	_assert(zero_restored_army.current_cell == zero_restored_army.get_rally_cell(), "GTA-CASE.7C: Restored 0-soldier army current_cell is rally_cell")
+
+	# -------------------------------------------------------------------------
+	# GTA-CASE.8: Non-empty Army with Missing Tactical Manager (tactical_military_mgr == null)
+	# -------------------------------------------------------------------------
+	print("\n--- Running GTA-CASE.8: Missing Tactical Manager with Positive Soldier Count ---")
+	var iso_army := PlayerArmyManagerScript.new()
+	iso_army.soldier_count = 3
+	iso_army.set_tactical_military_manager(null)
+	iso_army.current_cell = iso_army.get_rally_cell()
+	iso_army.destination_cell = iso_army.get_rally_cell()
+	iso_army.movement_state = PlayerArmyManagerScript.MovementState.GARRISONED
+
+	# Part A: are_all_tactical_units_settled_at_base() must NOT return true when manager is null for non-empty army
+	_assert(not iso_army.are_all_tactical_units_settled_at_base(), "GTA-CASE.8A: are_all_tactical_units_settled_at_base() is false when manager is null and soldier_count > 0")
+
+	# Part B: get_settled_state_for_cell() must not derive GARRISONED when manager is null
+	var settled_iso_state: int = iso_army.get_settled_state_for_cell(iso_army.get_rally_cell())
+	_assert(settled_iso_state != PlayerArmyManagerScript.MovementState.GARRISONED, "GTA-CASE.8B: get_settled_state_for_cell() strictly refuses GARRISONED when manager is null")
+	_assert(settled_iso_state == PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD, "GTA-CASE.8B: get_settled_state_for_cell() defaults to safe IDLE_AT_FIELD when manager is null")
+
+	# Part C: sync_state_from_tactical() must not preserve false GARRISONED when manager is absent
+	iso_army.movement_state = PlayerArmyManagerScript.MovementState.GARRISONED
+	iso_army.sync_state_from_tactical()
+	_assert(iso_army.movement_state != PlayerArmyManagerScript.MovementState.GARRISONED, "GTA-CASE.8C: sync_state_from_tactical() clears GARRISONED when manager is null")
+	_assert(iso_army.movement_state == PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD, "GTA-CASE.8C: sync_state_from_tactical() sets IDLE_AT_FIELD when manager is null")
+
+	# Part D: Direct deserialize() without tactical manager refuses GARRISONED for non-empty army
+	var iso_garrison_save := {
+		"soldier_count": 3,
+		"is_supplied": true,
+		"last_upkeep_day": -1,
+		"current_cell": [32, 33],
+		"rally_cell": [32, 33],
+		"destination_cell": [32, 33],
+		"movement_state": "garrisoned",
+		"current_path": []
+	}
+	iso_army.deserialize(iso_garrison_save)
+	_assert(iso_army.movement_state != PlayerArmyManagerScript.MovementState.GARRISONED, "GTA-CASE.8D: Direct deserialize strictly refuses GARRISONED when manager is null")
+	_assert(iso_army.movement_state == PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD, "GTA-CASE.8D: Direct deserialize sets IDLE_AT_FIELD when manager is null")
+
+	# Part E: _arrive_at_destination() sets IDLE_AT_FIELD without manager
+	iso_army.movement_state = PlayerArmyManagerScript.MovementState.MARCHING
+	iso_army.current_cell = iso_army.get_rally_cell()
+	iso_army._arrive_at_destination()
+	_assert(iso_army.movement_state == PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD, "GTA-CASE.8E: _arrive_at_destination() sets IDLE_AT_FIELD at rally when manager is null")
+
+	# -------------------------------------------------------------------------
+	# GTA-CASE.9: Tactical Roster Count Mismatch (units.size() != soldier_count)
+	# -------------------------------------------------------------------------
+	print("\n--- Running GTA-CASE.9: Tactical Roster Count Mismatch Fail-Closed ---")
+	fu_tac.clear_all_units()
+	fu_army.soldier_count = 3
+	fu_army.movement_state = PlayerArmyManagerScript.MovementState.GARRISONED
+	fu_army.current_cell = fu_army.get_rally_cell()
+
+	# Manually spawn only 2 units into fu_tac (count 2 != soldier_count 3)
+	var u_m1: Node2D = fu_tac._create_unit_instance("tac_mismatch_1", fu_army.get_rally_cell())
+	var u_m2: Node2D = fu_tac._create_unit_instance("tac_mismatch_2", fu_army.get_rally_cell() + Vector2i(1, 0))
+	fu_tac.units["tac_mismatch_1"] = u_m1
+	fu_tac.units["tac_mismatch_2"] = u_m2
+	_assert(fu_tac.get_unit_count() == 2 and fu_army.soldier_count == 3, "GTA-CASE.9: Fixture has roster mismatch (2 units vs 3 soldiers)")
+
+	# Part A: are_all_tactical_units_settled_at_base() is false on count mismatch
+	_assert(not fu_army.are_all_tactical_units_settled_at_base(), "GTA-CASE.9A: are_all_tactical_units_settled_at_base() is false when roster count differs from soldier_count")
+
+	# Part B: get_settled_state_for_cell() refuses GARRISONED on count mismatch
+	var settled_mismatch_state: int = fu_army.get_settled_state_for_cell(fu_army.get_rally_cell())
+	_assert(settled_mismatch_state == PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD, "GTA-CASE.9B: get_settled_state_for_cell() returns IDLE_AT_FIELD on count mismatch")
+
+	# Part C: sync_state_from_tactical() forces IDLE_AT_FIELD on count mismatch
+	fu_army.movement_state = PlayerArmyManagerScript.MovementState.GARRISONED
+	fu_army.sync_state_from_tactical()
+	_assert(fu_army.movement_state != PlayerArmyManagerScript.MovementState.GARRISONED, "GTA-CASE.9C: sync_state_from_tactical() clears GARRISONED on count mismatch")
+	_assert(fu_army.movement_state == PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD, "GTA-CASE.9C: sync_state_from_tactical() sets IDLE_AT_FIELD on count mismatch")
+
+	# Part D: SaveManager.validate_save_data() strictly fails closed on count mismatch
+	var mismatch_save: Dictionary = SaveManagerScript.serialize_world_state(world_instance).duplicate(true)
+	mismatch_save["player_army"] = {
+		"soldier_count": 3,
+		"is_supplied": true,
+		"last_upkeep_day": -1,
+		"current_cell": [32, 33],
+		"rally_cell": [32, 33],
+		"destination_cell": [32, 33],
+		"movement_state": "garrisoned",
+		"current_path": []
+	}
+	mismatch_save["tactical_military"] = {
+		"units": [
+			{"unit_id": "tac_unit_1", "current_cell": [32, 33], "target_cell": [32, 33], "order_state": "idle", "current_path": []},
+			{"unit_id": "tac_unit_2", "current_cell": [33, 33], "target_cell": [33, 33], "order_state": "idle", "current_path": []}
+		],
+		"current_formation": "Line",
+		"control_groups": {"1": [], "2": [], "3": []},
+		"next_unit_index": 3
+	}
+	var val_mismatch = SaveManagerScript.validate_save_data(mismatch_save)
+	_assert(not val_mismatch.get("valid", true), "GTA-CASE.9D: SaveManager.validate_save_data() strictly rejects count mismatch fail-closed")
+
+	# -------------------------------------------------------------------------
+	# GTA-CASE.10: Zero-Soldier Exception with Missing Manager
+	# -------------------------------------------------------------------------
+	print("\n--- Running GTA-CASE.10: Zero-Soldier Exception with Missing Manager ---")
+	var iso_zero_army := PlayerArmyManagerScript.new()
+	iso_zero_army.soldier_count = 0
+	iso_zero_army.set_tactical_military_manager(null)
+	iso_zero_army.movement_state = PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD
+	iso_zero_army.current_cell = Vector2i(45, 45)
+
+	# Part A: are_all_tactical_units_settled_at_base() is true for 0 soldiers even with null manager
+	_assert(iso_zero_army.are_all_tactical_units_settled_at_base(), "GTA-CASE.10A: are_all_tactical_units_settled_at_base() is true for genuine 0-soldier army without manager")
+
+	# Part B: get_settled_state_for_cell() returns GARRISONED at rally for 0 soldiers
+	_assert(iso_zero_army.get_settled_state_for_cell(iso_zero_army.get_rally_cell()) == PlayerArmyManagerScript.MovementState.GARRISONED, "GTA-CASE.10B: get_settled_state_for_cell() yields GARRISONED at rally for 0 soldiers")
+
+	# Part C: sync_state_from_tactical() normalizes 0-soldier army to GARRISONED at rally
+	iso_zero_army.sync_state_from_tactical()
+	_assert(iso_zero_army.movement_state == PlayerArmyManagerScript.MovementState.GARRISONED, "GTA-CASE.10C: sync_state_from_tactical() normalizes 0-soldier army to GARRISONED")
+	_assert(iso_zero_army.current_cell == iso_zero_army.get_rally_cell(), "GTA-CASE.10C: sync_state_from_tactical() normalizes current_cell to rally")
+
+	# -------------------------------------------------------------------------
+	# GTA-CASE.11: State Transitions & Return-Home Command Audit
+	# -------------------------------------------------------------------------
+	print("\n--- Running GTA-CASE.11: State Transitions & Return-Home Command Audit ---")
+	# Part A: order_return_home() at rally without manager does not invent MARCHING
+	var iso_ret_army := PlayerArmyManagerScript.new()
+	iso_ret_army.soldier_count = 2
+	iso_ret_army.set_tactical_military_manager(null)
+	iso_ret_army.current_cell = iso_ret_army.get_rally_cell()
+	iso_ret_army.destination_cell = iso_ret_army.get_rally_cell()
+	iso_ret_army.movement_state = PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD
+	var ret_no_mgr = iso_ret_army.order_return_home()
+	_assert(ret_no_mgr.get("success", false), "GTA-CASE.11A: order_return_home() returns clean status without manager")
+	_assert(iso_ret_army.movement_state != PlayerArmyManagerScript.MovementState.GARRISONED, "GTA-CASE.11A: Army strictly not GARRISONED without manager")
+	_assert(iso_ret_army.movement_state == PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD, "GTA-CASE.11A: Army remains safe IDLE_AT_FIELD (not inventing MARCHING)")
+
+	# Part B: remove_casualties reducing army to 0 immediately normalizes to GARRISONED
+	fu_tac.clear_all_units()
+	fu_army.soldier_count = 0
+	var rec_gta11 = fu_army.recruit(2)
+	_assert(rec_gta11.get("success", false) and fu_tac.get_unit_count() == 2, "GTA-CASE.11B: Recruited 2 soldiers")
+	var rem_res = fu_army.remove_casualties(2)
+	_assert(rem_res == 2 and fu_army.soldier_count == 0, "GTA-CASE.11B: Removed all 2 soldiers")
+	_assert(fu_army.movement_state == PlayerArmyManagerScript.MovementState.GARRISONED, "GTA-CASE.11B: Army immediately normalized to GARRISONED on reduction to 0")
+	_assert(fu_army.current_cell == fu_army.get_rally_cell(), "GTA-CASE.11B: Current cell normalized to rally cell")
+	_assert(fu_tac.get_unit_count() == 0, "GTA-CASE.11B: Tactical roster reduced to 0 units")
 

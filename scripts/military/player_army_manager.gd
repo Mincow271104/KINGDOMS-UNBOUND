@@ -343,16 +343,16 @@ func is_defense_eligible() -> bool:
 	if tactical_military_mgr != null and tactical_military_mgr.has_method("get_garrisoned_unit_count"):
 		var garrisoned: int = int(tactical_military_mgr.call("get_garrisoned_unit_count", rally_cell))
 		return garrisoned > 0
-	return movement_state == MovementState.GARRISONED and current_cell == rally_cell and current_path.is_empty()
+	if movement_state != MovementState.GARRISONED:
+		return false
+	return current_cell == rally_cell and current_path.is_empty()
 
 func get_defending_soldier_count() -> int:
-	if soldier_count <= 0:
+	if not is_defense_eligible():
 		return 0
 	if tactical_military_mgr != null and tactical_military_mgr.has_method("get_garrisoned_unit_count"):
 		return maxi(0, int(tactical_military_mgr.call("get_garrisoned_unit_count", rally_cell)))
-	if is_defense_eligible():
-		return soldier_count
-	return 0
+	return soldier_count
 
 func get_field_unit_count() -> int:
 	if soldier_count <= 0:
@@ -421,11 +421,16 @@ func refresh_rally_cell() -> void:
 		destination_cell = rally_cell
 
 func are_all_tactical_units_settled_at_base() -> bool:
-	if tactical_military_mgr == null:
-		return true
-	var all_units: Array = tactical_military_mgr.call("get_all_units")
 	if soldier_count <= 0:
+		if tactical_military_mgr == null:
+			return true
+		var all_units: Array = tactical_military_mgr.call("get_all_units")
 		return all_units.is_empty()
+
+	if tactical_military_mgr == null:
+		return false
+
+	var all_units: Array = tactical_military_mgr.call("get_all_units")
 	if all_units.is_empty() or all_units.size() != soldier_count:
 		return false
 	for u in all_units:
@@ -450,7 +455,9 @@ func get_settled_state_for_cell(cell: Vector2i) -> int:
 		return MovementState.IDLE_AT_FIELD
 	if soldier_count == 0:
 		return MovementState.GARRISONED
-	if tactical_military_mgr != null and tactical_military_mgr.get_unit_count() != soldier_count:
+	if tactical_military_mgr == null:
+		return MovementState.IDLE_AT_FIELD
+	if tactical_military_mgr.get_unit_count() != soldier_count:
 		return MovementState.IDLE_AT_FIELD
 	if are_all_tactical_units_settled_at_base():
 		return MovementState.GARRISONED
@@ -561,7 +568,7 @@ func order_return_home() -> Dictionary:
 					"reason": "Quân đội đã ở căn cứ",
 					"action": "already_garrisoned"
 				}
-		else:
+		elif has_moving_tactical_units():
 			# Tactical roster is still in transit towards garrison slots: maintain MARCHING in-transit state
 			current_path.clear()
 			step_accumulator = 0.0
@@ -572,6 +579,19 @@ func order_return_home() -> Dictionary:
 				"success": true,
 				"reason": "Quân đội đang hành quân trở về căn cứ",
 				"action": "marching_home"
+			}
+		else:
+			# Tactical units are not moving, but outside perimeter, or manager is missing/mismatched:
+			# State remains or becomes IDLE_AT_FIELD at rally_cell
+			current_path.clear()
+			step_accumulator = 0.0
+			destination_cell = current_cell
+			movement_state = get_settled_state_for_cell(current_cell)
+			movement_state_changed.emit(movement_state, current_cell, destination_cell)
+			return {
+				"success": true,
+				"reason": "Quân đội dừng tại điểm tập kết",
+				"action": "idle_at_rally"
 			}
 
 	# current_cell != rally_cell
@@ -658,14 +678,7 @@ func _arrive_at_destination() -> void:
 	current_path.clear()
 	step_accumulator = 0.0
 	destination_cell = current_cell
-	if current_cell == rally_cell:
-		if are_all_tactical_units_settled_at_base():
-			movement_state = MovementState.GARRISONED
-		else:
-			# Tactical roster is still settling into the garrison perimeter; maintain MARCHING
-			movement_state = MovementState.MARCHING
-	else:
-		movement_state = MovementState.IDLE_AT_FIELD
+	movement_state = get_settled_state_for_cell(current_cell)
 	movement_state_changed.emit(movement_state, current_cell, destination_cell)
 
 static func movement_state_to_string(state: int) -> String:
@@ -721,6 +734,15 @@ func remove_casualties(count: int, from_field: bool = false) -> int:
 
 func sync_state_from_tactical() -> void:
 	if tactical_military_mgr == null:
+		if soldier_count > 0 and movement_state == MovementState.GARRISONED:
+			movement_state = MovementState.IDLE_AT_FIELD
+			movement_state_changed.emit(movement_state, current_cell, destination_cell)
+		elif soldier_count <= 0 and (movement_state != MovementState.GARRISONED or current_cell != rally_cell):
+			movement_state = MovementState.GARRISONED
+			current_cell = rally_cell
+			destination_cell = rally_cell
+			current_path.clear()
+			movement_state_changed.emit(movement_state, current_cell, destination_cell)
 		return
 	if soldier_count <= 0:
 		if movement_state != MovementState.GARRISONED or current_cell != rally_cell:
@@ -889,8 +911,12 @@ func deserialize(data: Dictionary) -> void:
 	elif movement_state == MovementState.GARRISONED:
 		current_path.clear()
 		if current_cell == rally_cell:
-			if soldier_count == 0 or tactical_military_mgr == null:
+			if soldier_count == 0:
 				destination_cell = rally_cell
+			elif tactical_military_mgr == null:
+				# Without tactical military manager, non-empty army cannot be GARRISONED; set safe IDLE_AT_FIELD
+				movement_state = MovementState.IDLE_AT_FIELD
+				destination_cell = current_cell
 			elif tactical_military_mgr.get_unit_count() == soldier_count:
 				movement_state = get_settled_state_for_cell(current_cell)
 				if movement_state == MovementState.GARRISONED:

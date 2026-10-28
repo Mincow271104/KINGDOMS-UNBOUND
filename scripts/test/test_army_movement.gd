@@ -137,11 +137,15 @@ func _test_group_state_and_navigation() -> void:
 	var nav := GridNavigation.new(world_data)
 
 	var army_mgr := PlayerArmyManagerScript.new()
+	var tac_mgr = preload("res://scripts/military/tactical_military_manager.gd").new(null, army_mgr)
+	army_mgr.set_tactical_military_manager(tac_mgr)
 	army_mgr.set_custom_resource_manager(mock_rm)
 	army_mgr.set_custom_world_data(world_data)
 	army_mgr.set_custom_event_manager(mock_em)
 	army_mgr.set_custom_nav(nav)
 	army_mgr.set_custom_time_manager(mock_tm)
+	tac_mgr.set_custom_nav(nav)
+	tac_mgr.set_custom_time_manager(mock_tm)
 
 	# TC-MOVE.1: Initial State & Rally Cell
 	print("--- Running TC-MOVE.1: Initial State & Rally Cell ---")
@@ -193,10 +197,10 @@ func _test_group_state_and_navigation() -> void:
 
 	# TC-MOVE.3: Valid Route Execution (A* Pathing)
 	print("--- Running TC-MOVE.3: Valid Route Execution ---")
-	# Find a clear walkable target 4 tiles away
-	var target_walkable := Vector2i(rally.x + 3, rally.y)
+	# Find a clear walkable target tiles away
+	var target_walkable := Vector2i(rally.x + 8, rally.y)
 	if not nav.is_cell_walkable(target_walkable):
-		target_walkable = Vector2i(rally.x, rally.y + 3)
+		target_walkable = Vector2i(rally.x, rally.y + 8)
 
 	var move_res: Dictionary = army_mgr.order_move(target_walkable)
 	if not move_res.get("success", false):
@@ -268,7 +272,7 @@ func _test_group_state_and_navigation() -> void:
 
 	# TC-MOVE.6: Arrival and State Transition to IDLE_AT_FIELD
 	print("--- Running TC-MOVE.6: Arrival Transition to IDLE_AT_FIELD ---")
-	while not army_mgr.get_current_path().is_empty():
+	while not army_mgr.get_current_path().is_empty() or army_mgr.has_moving_tactical_units():
 		army_mgr.advance_movement(0.5, 1.0)
 
 	if army_mgr.get_current_cell() != target_walkable:
@@ -293,7 +297,7 @@ func _test_group_state_and_navigation() -> void:
 		printerr("  [FAIL] TC-MOVE.7: Return destination is not rally cell!")
 		failures += 1
 
-	while not army_mgr.get_current_path().is_empty():
+	while not army_mgr.get_current_path().is_empty() or army_mgr.has_moving_tactical_units():
 		army_mgr.advance_movement(0.5, 1.0)
 
 	if army_mgr.get_current_cell() != rally:
@@ -459,9 +463,12 @@ func _test_group_interruption_and_clock() -> void:
 	var b_world_data := WorldGeneratorScript.generate(54321)
 	var b_nav := GridNavigation.new(b_world_data)
 	var b_mgr := PlayerArmyManagerScript.new()
+	var b_tac = preload("res://scripts/military/tactical_military_manager.gd").new(null, b_mgr)
+	b_mgr.set_tactical_military_manager(b_tac)
 	b_mgr.set_custom_resource_manager(b_rm)
 	b_mgr.set_custom_world_data(b_world_data)
 	b_mgr.set_custom_nav(b_nav)
+	b_tac.set_custom_nav(b_nav)
 	b_world_data.buildings.append({
 		"id": "bld_barracks_tc29",
 		"type": "barracks",
@@ -543,10 +550,13 @@ func _test_group_defense_and_recruitment() -> void:
 	var fac_mgr := FactionManagerScript.new()
 
 	var army_mgr := PlayerArmyManagerScript.new()
+	var tac_mgr = preload("res://scripts/military/tactical_military_manager.gd").new(null, army_mgr)
+	army_mgr.set_tactical_military_manager(tac_mgr)
 	army_mgr.set_custom_resource_manager(mock_rm)
 	army_mgr.set_custom_world_data(world_data)
 	army_mgr.set_custom_event_manager(mock_em)
 	army_mgr.set_custom_nav(nav)
+	tac_mgr.set_custom_nav(nav)
 
 	world_data.buildings.append({
 		"id": "bld_barracks_test",
@@ -562,7 +572,7 @@ func _test_group_defense_and_recruitment() -> void:
 
 	# TC-MOVE.14: Recruitment Blocked while Marching or in Field
 	print("--- Running TC-MOVE.14: Recruitment Blocked while Deployed ---")
-	var target_field := Vector2i(rally.x + 3, rally.y)
+	var target_field := Vector2i(rally.x + 8, rally.y)
 	army_mgr.order_move(target_field)
 
 	var check_marching: Dictionary = army_mgr.can_recruit(1)
@@ -573,7 +583,7 @@ func _test_group_defense_and_recruitment() -> void:
 		printerr("  [FAIL] TC-MOVE.14: Reason does not mention marching: %s" % check_marching.get("reason", ""))
 		failures += 1
 
-	while not army_mgr.get_current_path().is_empty():
+	while not army_mgr.get_current_path().is_empty() or army_mgr.has_moving_tactical_units():
 		army_mgr.advance_movement(0.5, 1.0)
 
 	var check_field: Dictionary = army_mgr.can_recruit(1)
@@ -629,7 +639,7 @@ func _test_group_defense_and_recruitment() -> void:
 	# TC-MOVE.17: Settlement Defense Participation when Garrisoned
 	print("--- Running TC-MOVE.17: Defense Participation when Garrisoned ---")
 	army_mgr.order_return_home()
-	while not army_mgr.get_current_path().is_empty():
+	while not army_mgr.get_current_path().is_empty() or army_mgr.has_moving_tactical_units():
 		army_mgr.advance_movement(0.5, 1.0)
 
 	var def_force_home: Dictionary = campaign_mgr.construct_defending_force()
@@ -643,7 +653,7 @@ func _test_group_defense_and_recruitment() -> void:
 	print("--- Running TC-MOVE.18: Total Wipeout Auto-Recovery to Garrison ---")
 	# Move into field first
 	army_mgr.order_move(target_field)
-	while not army_mgr.get_current_path().is_empty():
+	while not army_mgr.get_current_path().is_empty() or army_mgr.has_moving_tactical_units():
 		army_mgr.advance_movement(0.5, 1.0)
 
 	if army_mgr.get_movement_state() != PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD:
@@ -651,7 +661,7 @@ func _test_group_defense_and_recruitment() -> void:
 		failures += 1
 
 	# Wipe out army casualties
-	army_mgr.remove_casualties(4)
+	army_mgr.remove_casualties(4, true)
 	if army_mgr.get_army_count() != 0:
 		printerr("  [FAIL] TC-MOVE.18: Army count not 0 after wipeout!")
 		failures += 1
@@ -678,10 +688,13 @@ func _test_group_persistence_and_recovery() -> void:
 	var nav := GridNavigation.new(world_data)
 
 	var army_mgr := PlayerArmyManagerScript.new()
+	var tac_mgr = preload("res://scripts/military/tactical_military_manager.gd").new(null, army_mgr)
+	army_mgr.set_tactical_military_manager(tac_mgr)
 	army_mgr.set_custom_resource_manager(mock_rm)
 	army_mgr.set_custom_world_data(world_data)
 	army_mgr.set_custom_event_manager(mock_em)
 	army_mgr.set_custom_nav(nav)
+	tac_mgr.set_custom_nav(nav)
 
 	world_data.buildings.append({
 		"id": "bld_barracks_test",
@@ -987,8 +1000,12 @@ func _test_group_persistence_and_recovery() -> void:
 		"current_path": []
 	}
 	var recovery_mgr := PlayerArmyManagerScript.new()
+	var recovery_tac = preload("res://scripts/military/tactical_military_manager.gd").new(null, recovery_mgr)
+	recovery_mgr.set_tactical_military_manager(recovery_tac)
 	recovery_mgr.set_custom_world_data(world_data)
 	recovery_mgr.set_custom_nav(nav)
+	recovery_tac.set_custom_nav(nav)
+	recovery_tac.deserialize_legacy(3, rally, nav)
 	recovery_mgr.deserialize(blocked_load_data)
 
 	if recovery_mgr.get_current_cell() == Vector2i(31, 31):

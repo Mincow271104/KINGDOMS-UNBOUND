@@ -175,16 +175,21 @@ func _create_test_campaign_setup() -> Dictionary:
 	var nav := GridNavigation.new(world_data)
 
 	var army_mgr := PlayerArmyManagerScript.new()
+	var tac_mgr = preload("res://scripts/military/tactical_military_manager.gd").new(null, army_mgr)
+	army_mgr.set_tactical_military_manager(tac_mgr)
 	army_mgr.set_custom_resource_manager(mock_rm)
 	army_mgr.set_custom_event_manager(mock_em)
 	army_mgr.set_custom_time_manager(mock_tm)
 	army_mgr.set_custom_nav(nav)
+	tac_mgr.set_custom_nav(nav)
+	tac_mgr.set_custom_time_manager(mock_tm)
 	army_mgr.soldier_count = 10
 	army_mgr.rally_cell = Vector2i(2, 2)
 	# Deploy army to field cell away from rally
 	army_mgr.movement_state = PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD
 	army_mgr.current_cell = Vector2i(8, 8)
 	army_mgr.destination_cell = Vector2i(8, 8)
+	tac_mgr.deserialize_legacy(10, Vector2i(8, 8), nav)
 
 	var fac_mgr := FactionManagerScript.new()
 	var hostile_fac := FactionDataScript.new("rival_clan", "Bộ Tộc Đối Địch", "rival_military")

@@ -6182,6 +6182,8 @@ Address the final Package 1W source-review gaps on dedicated branch `fix/package
 - `docs/WORKLOG.md`
 - `scripts/military/player_army_manager.gd`
 - `scripts/military/tactical_military_manager.gd`
+- `scripts/test/test_army_movement.gd`
+- `scripts/test/test_offensive_campaign.gd`
 - `scripts/test/test_tactical_military.gd`
 
 ### Next Exact Step
@@ -6189,3 +6191,83 @@ Address the final Package 1W source-review gaps on dedicated branch `fix/package
 - Push to remote `origin/fix/package-1w-garrison-transition-final-audit`.
 - Deliver comprehensive completion report with commit SHA and test logs.
 - Await next instructions (do not merge to master, do not start Package 1X).
+
+---
+
+## [2026-10-29] Milestone 37: Package 1W Consolidated Final Audit, Invariant Fix & Closure (Completed)
+
+### Context & Objective
+Execute the consolidated final audit, invariant verification, and formal closure of Package 1W on branch `fix/package-1w-final-consolidated-audit` based on baseline `018c7ba2f733dd11c37c532103303b0fbcae8a0d`.
+Perform an end-to-end audit across all interconnected subsystems:
+1. `scripts/military/player_army_manager.gd`
+2. `scripts/military/tactical_military_manager.gd`
+3. `scripts/military/tactical_unit.gd`
+4. `scripts/combat/battle_campaign_manager.gd`
+5. `scripts/persistence/save_manager.gd`
+
+Mandatory Invariants enforced across all state transitions (`order_return_home()`, `cancel_move()`, `_arrive_at_destination()`, `advance_movement()`, `sync_state_from_tactical()`, `deserialize()`, `remove_casualties()`, `can_recruit()`):
+- **Invariant A (Truthful Garrison State):** An army with `soldier_count > 0` may be `GARRISONED` if and only if: (1) tactical manager is present, (2) tactical roster matches soldier count, (3) no tactical units are moving, and (4) all tactical units are within distance $\le 5$ of `rally_cell`.
+  - Missing manager (`tactical_military_mgr == null`) strictly defaults to safe `IDLE_AT_FIELD` for `soldier_count > 0`.
+  - Empty or mismatched tactical roster strictly refuses `GARRISONED` and fails closed on save validation.
+  - Moving tactical units strictly prevent `GARRISONED`.
+  - Zero-soldier army legitimately normalizes to `GARRISONED` at `rally_cell`.
+- **Invariant B (Every State Transition Audited):** Unified settlement calculation via `get_settled_state_for_cell()`.
+- **Invariant C (Save/Load Integrity):** Save restoration sequence protected by `is_deserializing` flag; validation-before-mutation strictly fails closed on corrupt saves.
+- **Invariant D (Return-Home Commands):** Idempotent route preservation, atomic perimeter-bounded slot calculation, and route failure propagation.
+- **Invariant E (Battle Cohorts & Casualties):** Stationary field units for offensive campaigns; stationary garrison units for defensive raids; moving units untouched; clamping preserves 1:1 roster parity.
+
+### Completed Work & Architecture Changes
+1. **`scripts/military/player_army_manager.gd`:**
+   - Updated `are_all_tactical_units_settled_at_base()`: strictly returns `false` if `soldier_count > 0` and `tactical_military_mgr == null`.
+   - Updated `get_settled_state_for_cell(cell)`: strictly returns `IDLE_AT_FIELD` when `soldier_count > 0` and `tactical_military_mgr == null`.
+   - Updated `order_return_home()`: when tactical units are stationary outside perimeter (or manager is missing/mismatched), transitions via `get_settled_state_for_cell(current_cell)` to safe `IDLE_AT_FIELD` with action `idle_at_rally`, eliminating false `MARCHING` state fabrication.
+   - Updated `_arrive_at_destination()`: delegates settlement directly to `get_settled_state_for_cell(current_cell)` for unified state resolution.
+   - Updated `sync_state_from_tactical()`: when `tactical_military_mgr == null`, immediately clears any false `GARRISONED` state for `soldier_count > 0` and sets `IDLE_AT_FIELD`.
+   - Updated `deserialize(data)`: when `soldier_count > 0` and `tactical_military_mgr == null`, safely assigns `IDLE_AT_FIELD` at `current_cell`.
+2. **`scripts/military/tactical_military_manager.gd`:**
+   - In `_init(wv, army_mgr)` and `set_player_army_manager(mgr)`: establishes bi-directional binding with `PlayerArmyManager` (`player_army_mgr.set_tactical_military_manager(self)`), ensuring both managers remain synchronized and preventing orphaned signal handlers.
+3. **`scripts/test/test_tactical_military.gd`:**
+   - In Group 4, TC-TAC.24 updated with `unit_a.order_stop()` and `remove_casualties(1, true)` respecting stationary field casualty contract.
+   - Added Group 9 test cases `GTA-CASE.8` through `GTA-CASE.11`:
+     - `GTA-CASE.8`: Missing tactical manager with positive soldier count refuses `GARRISONED` and yields `IDLE_AT_FIELD` across `are_all_tactical_units_settled_at_base()`, `get_settled_state_for_cell()`, `sync_state_from_tactical()`, `deserialize()`, and `_arrive_at_destination()`.
+     - `GTA-CASE.9`: Tactical roster count mismatch fail-closed across queries and `SaveManager.validate_save_data()`.
+     - `GTA-CASE.10`: Zero-soldier army exception with missing manager cleanly normalizes to `GARRISONED` at `rally_cell`.
+     - `GTA-CASE.11`: State transitions and return-home command audit verifying `order_return_home()` without manager and immediate normalization to `GARRISONED` on total casualty deduction.
+4. **Documentation Updates:**
+   - Updated `docs/SCOPE_DECISIONS.md` (§1.23 Consolidated Final Audit & Invariant Closure).
+   - Updated `docs/TEST_PLAN.md` with acceptance criteria for `GTA-CASE.8` through `GTA-CASE.11` (334 assertions total).
+   - Updated `docs/BACKLOG.md` recording `TASK-1W-PH.8` as completed.
+
+### Validations Performed & Results
+- **Tactical Military Test Suite (`scripts/test/test_tactical_military.gd`):** **PASS (334/334 assertions, Exit Code 0, 0 Failures)**.
+- **Full 11-Suite Headless Regression Matrix:**
+  1. `scripts/test/test_tactical_military.gd`: **PASS (334 assertions, Exit Code 0)**
+  2. `scripts/test/test_player_army.gd`: **PASS (Exit Code 0)**
+  3. `scripts/test/test_army_movement.gd`: **PASS (Exit Code 0)**
+  4. `scripts/test/test_live_battle_loop.gd`: **PASS (Exit Code 0)**
+  5. `scripts/test/test_offensive_campaign.gd`: **PASS (Exit Code 0)**
+  6. `scripts/test/test_save_load.gd`: **PASS (107 assertions, Exit Code 0)**
+  7. `scripts/test/test_responsive_layout.gd`: **PASS (435 checks, Exit Code 0)**
+  8. `scripts/test/test_automation_graph.gd`: **PASS (69 checks, Exit Code 0)**
+  9. `scripts/test/test_logistics.gd`: **PASS (Exit Code 0)**
+  10. `scripts/test/test_faction_relation_matrix.gd`: **PASS (160 checks, Exit Code 0)**
+  11. `scripts/test/test_factions_and_battles.gd`: **PASS (48 assertions, Exit Code 0)**
+- **Headless Editor Check (`--headless --editor --quit`):** **PASS (Exit Code 0, 0 Parse/Script Errors)**.
+- **Whitespace / Git Check (`git diff --check`):** **PASS (Exit Code 0, 0 Errors)**.
+
+### Files Created or Modified
+- `docs/BACKLOG.md`
+- `docs/SCOPE_DECISIONS.md`
+- `docs/TEST_PLAN.md`
+- `docs/WORKLOG.md`
+- `scripts/military/player_army_manager.gd`
+- `scripts/military/tactical_military_manager.gd`
+- `scripts/test/test_army_movement.gd`
+- `scripts/test/test_offensive_campaign.gd`
+- `scripts/test/test_tactical_military.gd`
+
+### Next Exact Step
+- Stage modified files and commit to branch `fix/package-1w-final-consolidated-audit`.
+- Push to remote `origin/fix/package-1w-final-consolidated-audit`.
+- Deliver comprehensive completion report with full transition audit matrix, commit SHA, and test evidence.
+- Await user review and authorization before merging or proceeding to Package 1X.

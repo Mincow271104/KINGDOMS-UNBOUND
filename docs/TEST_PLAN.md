@@ -639,4 +639,22 @@ When Godot Editor is running with the MCP plugin:
       - **Part A:** `are_all_tactical_units_settled_at_base()` returns `true` for 0 soldiers with 0 units.
       - **Part B:** Direct `deserialize()` normalizes genuine 0-soldier army to `GARRISONED` at `rally_cell`.
       - **Part C:** Integrated save validation and application restores 0-soldier army as `GARRISONED` cleanly.
-  - *Status:* **PASSED** (2026-10-29, Exit Code 0: 308/308 assertions passed in `test_tactical_military.gd`).
+    - **GTA-CASE.8 (Missing Tactical Manager with Positive Soldier Count):**
+      - **Part A:** `are_all_tactical_units_settled_at_base()` returns `false` when `tactical_military_mgr == null` and `soldier_count > 0`.
+      - **Part B:** `get_settled_state_for_cell(rally_cell)` strictly refuses `GARRISONED` and yields safe `IDLE_AT_FIELD`.
+      - **Part C:** `sync_state_from_tactical()` immediately clears `GARRISONED` and sets `IDLE_AT_FIELD` when manager is null.
+      - **Part D:** Direct `deserialize()` strictly refuses `GARRISONED` and sets safe `IDLE_AT_FIELD` when manager is null.
+      - **Part E:** `_arrive_at_destination()` at `rally_cell` sets `IDLE_AT_FIELD` (never `GARRISONED`) when manager is null.
+    - **GTA-CASE.9 (Tactical Roster Count Mismatch Fail-Closed):**
+      - **Part A:** `are_all_tactical_units_settled_at_base()` returns `false` when roster count differs from `soldier_count`.
+      - **Part B:** `get_settled_state_for_cell()` returns `IDLE_AT_FIELD` on count mismatch.
+      - **Part C:** `sync_state_from_tactical()` clears `GARRISONED` and sets `IDLE_AT_FIELD` on count mismatch.
+      - **Part D:** `SaveManager.validate_save_data()` strictly rejects count mismatch fail-closed (`valid: false`).
+    - **GTA-CASE.10 (Zero-Soldier Exception with Missing Manager):**
+      - **Part A:** `are_all_tactical_units_settled_at_base()` returns `true` for genuine 0-soldier army even when manager is null.
+      - **Part B:** `get_settled_state_for_cell()` yields `GARRISONED` at `rally_cell` for genuine 0 soldiers.
+      - **Part C:** `sync_state_from_tactical()` normalizes 0-soldier army to `GARRISONED` at `rally_cell`.
+    - **GTA-CASE.11 (State Transitions & Return-Home Command Audit):**
+      - **Part A:** `order_return_home()` when tactical units are stationary outside perimeter (or manager is missing/mismatched) transitions to safe `IDLE_AT_FIELD` via `get_settled_state_for_cell()`, returning action `idle_at_rally` and strictly avoiding false `GARRISONED` or fabricated `MARCHING`.
+      - **Part B:** Casualty reduction to 0 soldiers (`remove_casualties`) immediately normalizes strategic army to `GARRISONED` at `rally_cell` and synchronizes tactical roster to 0 units.
+  - *Status:* **PASSED** (2026-10-29, Exit Code 0: 334/334 assertions passed in `test_tactical_military.gd`).

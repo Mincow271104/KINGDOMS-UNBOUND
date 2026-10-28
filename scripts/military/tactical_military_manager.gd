@@ -39,14 +39,13 @@ var _custom_time_mgr: Object = null
 
 func _init(wv: Node = null, army_mgr: PlayerArmyManager = null) -> void:
 	world_view = wv
-	player_army_mgr = army_mgr
 	units = {}
 	selected_unit_ids = []
 	control_groups = {1: [], 2: [], 3: []}
 	current_formation = FORMATION_LINE
 	next_unit_index = 1
-	if player_army_mgr != null:
-		_bind_army_manager(player_army_mgr)
+	if army_mgr != null:
+		set_player_army_manager(army_mgr)
 
 func set_world_view(wv: Node) -> void:
 	world_view = wv
@@ -57,6 +56,8 @@ func set_tactical_units_container(container: Node) -> void:
 func set_player_army_manager(mgr: PlayerArmyManager) -> void:
 	player_army_mgr = mgr
 	if player_army_mgr != null:
+		if player_army_mgr.has_method("set_tactical_military_manager") and player_army_mgr.get("tactical_military_mgr") != self:
+			player_army_mgr.call("set_tactical_military_manager", self)
 		_bind_army_manager(player_army_mgr)
 		sync_with_player_army()
 
