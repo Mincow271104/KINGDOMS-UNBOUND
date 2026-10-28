@@ -181,6 +181,14 @@ When Godot Editor is running with the MCP plugin:
   - *Script:* `res://scripts/test/test_save_load.gd`
   - *Acceptance Criteria:* HUD save button writes file and shows success; HUD load button restores world state; MainMenu LoadWorldBtn enabled when save exists.
   - *Status:* **PASSED** (2026-10-12, Exit Code 0).
+- **TC-8.9: Package 1X Schema Validation (Enemy Military & Field Siege)**
+  - *Script:* `res://scripts/test/test_save_load.gd`
+  - *Acceptance Criteria:* Deep validation rejects malformed enemy military records (bad ID, coords, bounds, paths) and malformed field siege records (bad IDs, durability, non-existent objective references) fail closed, while accepting valid schema version 1 structures.
+  - *Status:* **PASSED** (2026-10-29, Exit Code 0).
+- **TC-8.10: Package 1X WorldView End-to-End Persistence & Double Load Idempotency**
+  - *Script:* `res://scripts/test/test_save_load.gd`
+  - *Acceptance Criteria:* Full live world persistence roundtrip saves and restores outposts, enemy tactical forces, and active sieges; second consecutive load preserves 100% identical state with zero node duplication.
+  - *Status:* **PASSED** (2026-10-29, Exit Code 0).
 
 ### Phase 9: Performance Stress & Polish
 - **TC-9.1: 100 Citizen Simulation Stress Test**
@@ -693,7 +701,7 @@ When Godot Editor is running with the MCP plugin:
     - **TC-COMBAT.11 (Combat Serialization Roundtrip):** Serializes and deserializes all combat properties (`health`, `max_health`, `attack_damage`, `attack_range`, `attack_cooldown`, `is_alive`, `faction_id`, `target_actor_id`) faithfully.
   - *Status:* **PASSED** (2026-10-29, Exit Code 0: 58/58 assertions passed).
 
-- **TC-ENEMY.1 to TC-ENEMY.9: Enemy Military Entities & Tactical AI Test Suite**
+- **TC-ENEMY.1 to TC-ENEMY.11: Enemy Military Entities & Tactical AI Test Suite**
   - *Tracked Test Suite:* `res://scripts/test/test_enemy_military_ai.gd`
   - *Command:* `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --path "e:\KINGDOMS UNBOUND\kingdoms-unbound" -s res://scripts/test/test_enemy_military_ai.gd`
   - *Acceptance Criteria:*
@@ -706,19 +714,38 @@ When Godot Editor is running with the MCP plugin:
     - **TC-ENEMY.7 (Peace Treaty Cessation):** Signing a peace treaty immediately halts attack orders, transitions AI to `RECOVER_RETREAT`, and paths units back to retreat coordinates.
     - **TC-ENEMY.8 (Defeat Cleanup):** Defeated enemy emits `enemy_defeated` on manager and is immediately removed from the active enemy roster.
     - **TC-ENEMY.9 (Serialization Roundtrip):** Serializes and deserializes enemy units, stats, coordinates, and owning factions accurately.
-  - *Status:* **PASSED** (2026-10-29, Exit Code 0: 44/44 assertions passed).
+    - **TC-ENEMY.10 (Patrol Area Recovery & Perimeter Return):** Units outside `patrol_radius` calculate path back toward `patrol_origin` and transition to `MOVING`; trapped units gracefully fall back to `HOLD`.
+    - **TC-ENEMY.11 (Atomic Fail-Closed Enemy Deserialization):** Corrupted enemy save records fail validation before clearing live roster, preserving pre-existing units intact.
+  - *Status:* **PASSED** (2026-10-29, Exit Code 0: 54/54 assertions passed).
 
-- **TC-SIEGE.1 to TC-SIEGE.9: Field Siege Operations & Victory Conditions Test Suite**
+- **TC-SIEGE.1 to TC-SIEGE.13: Field Siege Operations & Victory Conditions Test Suite**
   - *Tracked Test Suite:* `res://scripts/test/test_field_siege.gd`
   - *Command:* `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --path "e:\KINGDOMS UNBOUND\kingdoms-unbound" -s res://scripts/test/test_field_siege.gd`
   - *Acceptance Criteria:*
     - **TC-SIEGE.1 (Objective Actor Lifecycle):** `SiegeObjectiveActor` initializes with ID, owning faction, 300.0 durability, `is_alive = true`, `is_captured = false`, and garrison defender count.
-    - **TC-SIEGE.2 (Outpost Durability & Capture):** Health reductions emit `objective_damaged`; reaching 0.0 HP sets `is_alive = false`, `is_captured = true`, and emits `objective_destroyed` and `objective_captured`.
+    - **TC-SIEGE.2 (Outpost Durability, Active Siege Gating & Capture):** Health reductions require `is_under_active_siege == true`; taking damage emits `objective_damaged`; reaching 0.0 HP sets `is_alive = false`, `is_captured = true`, and emits `objective_destroyed` and `objective_captured`. Damage calls before active siege return early without taking damage.
     - **TC-SIEGE.3 (Eligibility Gating):** Rejects when player has 0 field troops, when not at war, when faction is inactive, or when player army is too far from the objective; accepts when assembled field troops are in proximity.
-    - **TC-SIEGE.4 (Launch & Defender Mobilization):** `launch_field_siege()` emits `field_siege_started` and mobilizes garrison defenders on distinct walkable cells around the outpost.
-    - **TC-SIEGE.5 (Victory Resolution & Plunder Awards):** Capturing the objective resolves siege as `VICTORY`, emits `field_siege_resolved`, reduces faction military power (-20), and awards plunder (+60 Gold, +40 Food, +20 Iron).
+    - **TC-SIEGE.4 (Launch & Defender Mobilization):** `launch_field_siege()` emits `field_siege_started` and mobilizes garrison defenders on distinct walkable cells around the outpost. Sets `is_under_active_siege = true`.
+    - **TC-SIEGE.5 (Victory Resolution & Plunder Awards):** Capturing the objective resolves siege as `VICTORY`, emits `field_siege_resolved`, reduces faction military power (-20), and awards plunder (+60 Gold, +40 Food, +20 Metal). Resets `is_under_active_siege = false`.
     - **TC-SIEGE.6 (Defeat Resolution):** Total wipeout of attacking field forces resolves siege as `DEFEAT`.
     - **TC-SIEGE.7 (Withdrawal Resolution):** Retreating field troops back to base perimeter resolves siege as `WITHDRAWAL`.
     - **TC-SIEGE.8 (Coexistence with Battle Campaigns):** `FieldSiegeManager` operations and objectives coexist cleanly with `BattleCampaignManager` without mutating offensive sequence counters.
     - **TC-SIEGE.9 (Siege Serialization Roundtrip):** Serializes and deserializes active siege objectives and operational status with fail-closed schema validation.
-  - *Status:* **PASSED** (2026-10-29, Exit Code 0: 45/45 assertions passed).
+    - **TC-SIEGE.10 (Atomic Fail-Closed Deserialization):** Staged validation verifies all records before clearing live state; invalid objectives or sieges return `false` without corrupting live instances.
+    - **TC-SIEGE.11 (Real ResourceManager Integration & Canonical Stock):** Plunder rewards deposit into real `ResourceManager` storage, clamped strictly by warehouse capacity.
+    - **TC-SIEGE.12 (Tactical Attack Order Gating):** Tactical attack orders on inactive outpost targets are rejected fail-closed with localized reason code.
+    - **TC-SIEGE.13 (Peace Treaty Siege Cancellation):** Peace treaty cancels active sieges against the faction and resets objective siege status.
+  - *Status:* **PASSED** (2026-10-29, Exit Code 0: 67/67 assertions passed).
+
+- **TC-INT.1 to TC-INT.7: Package 1X Gameplay Integration Test Suite**
+  - *Tracked Test Suite:* `res://scripts/test/test_package_1x_gameplay_integration.gd`
+  - *Command:* `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --path "e:\KINGDOMS UNBOUND\kingdoms-unbound" -s res://scripts/test/test_package_1x_gameplay_integration.gd`
+  - *Acceptance Criteria:*
+    - **TC-INT.1 (WorldView Outpost Initialization):** Deterministic outpost registration creates exactly one objective per active faction at walkable cells > 15 distance from player rally, avoiding buildings and obstacles.
+    - **TC-INT.2 (War Declaration & Idempotent Spawning):** `FactionManager.war_declared` triggers idempotent hostile force mobilization around the faction's outpost. Repeated events do not duplicate defenders.
+    - **TC-INT.3 (Right-Click Siege Gating & Launch):** Ineligible right-clicks (inactive siege, army not assembled/nearby) show HUD banner and reject attack orders; eligible right-clicks launch siege, mobilize defenders, and issue attack orders.
+    - **TC-INT.4 (Combat, Objective Capture & Canonical Plunder):** Units engage defenders and outpost; destroying outpost triggers `VICTORY`, deposits +60 Gold, +40 Food, +20 Metal bounded by storage.
+    - **TC-INT.5 (Peace Declaration Cessation & Retreat):** `FactionManager.peace_signed` disengages player units, cancels active sieges, and commands enemy forces to retreat cleanly.
+    - **TC-INT.6 (World Simulation TimeManager Controls):** Pause halts enemy AI and combat progression; 2x/3x speed advances movement and combat proportionally.
+    - **TC-INT.7 (Save/Load Persistence & Double-Load Idempotency):** Complete WorldView roundtrip serializes and restores outposts, enemy forces, and active sieges; repeated load produces 100% identical state without duplication.
+  - *Status:* **PASSED** (2026-10-29, Exit Code 0: 39/39 assertions passed).

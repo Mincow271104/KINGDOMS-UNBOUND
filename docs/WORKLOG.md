@@ -6509,6 +6509,97 @@ Implement all requirements of Package 1X as defined in `MASTER_PROMPT.md` and us
 - `docs/WORKLOG.md` (Modified)
 
 ### Next Exact Step
+- Execute Package 1X Final Gameplay Integration & Persistence Closure pass.
+
+---
+
+## [2026-10-29] Milestone 30: Package 1X Final Gameplay Integration & Persistence Closure
+
+### Context & Objective
+Close concrete gameplay integration and persistence gaps for Package 1X:
+1. Wire enemy forces and siege objectives into actual gameplay lifecycle (`WorldView`).
+2. Enforce siege eligibility and damage gating on outpost objectives (`SiegeObjectiveActor`).
+3. Standardize canonical resource IDs (`EconomyConfig.RES_METAL` / `"metal"` replacing `"iron"`).
+4. Enforce fail-closed validation & atomic restoration across `SaveManager`, `EnemyMilitaryManager`, and `FieldSiegeManager`.
+5. Complete patrol return behavior in `EnemyTacticalUnit._ai_tick_patrol()`.
+
+### Completed Work
+1. **Fix A — Wire Gameplay Lifecycle into WorldView (`scripts/world/world_view.gd`):**
+   - Registered deterministic, visible, persistent enemy outpost objectives for active rival factions (`rival_military`, `rival_merchant`, `neutral_tribe`) at valid, walkable, in-bounds cells (> 15 distance from player base) avoiding existing buildings, blocked terrain, citizens, and player units.
+   - Idempotent force spawning: connected `FactionManager.war_declared` to `_on_faction_war_declared(faction_id)`. Repeated war events, world simulation ticks, and save/load cycles never duplicate forces or objectives.
+   - Peace treaty & cessation of hostilities: connected `FactionManager.peace_signed` to `_on_faction_peace_signed(faction_id)` to disengage player units, cancel active sieges, and command enemy forces to retreat.
+   - Player right-click siege initiation: checks if target outpost is under active siege; if not, evaluates `FieldSiegeManager.can_launch_field_siege()`. On success, launches siege and issues attack orders. On rejection, emits localized Vietnamese HUD error banners (`"Quân đội phải tiếp cận mục tiêu để phát động công thành!"`, etc.).
+   - World simulation loop updates enemy military and siege managers, respecting `TimeManager` pause and speed controls.
+
+2. **Fix B — Enforce Siege Eligibility & Damage Gating (`scripts/combat/siege_objective_actor.gd`, `scripts/combat/field_siege_manager.gd`, `scripts/military/tactical_military_manager.gd`):**
+   - Outpost actors enforce `@export var is_under_active_siege: bool = false`. Damage calls when not under active siege return early without taking damage or emitting signals.
+   - Launching a siege sets `is_under_active_siege = true` and mobilizes defenders; resolving victory, defeat, or withdrawal resets `is_under_active_siege = false`.
+   - `TacticalMilitaryManager.issue_attack_order()` rejects attack orders on un-sieged outposts fail-closed with localized reason.
+
+3. **Fix C — Canonical Resource IDs (`scripts/combat/field_siege_manager.gd`):**
+   - Replaced invalid resource key `"iron"` with authoritative `EconomyConfig.RES_METAL` (`"metal"`) in `FieldSiegeManager.PLUNDER_REWARDS` (`{"gold": 60, "food": 40, "metal": 20}`).
+   - Reward delivery integrates directly with `ResourceManager.add_resource()`, bounds intake by storage capacity, and guarantees roundtrip preservation in save files and economy UI without unknown keys.
+
+4. **Fix D — Fail-Closed Validation & Atomic Restoration (`scripts/persistence/save_manager.gd`, `scripts/military/enemy_military_manager.gd`, `scripts/combat/field_siege_manager.gd`, `scripts/military/tactical_unit.gd`, `scripts/military/enemy_tactical_unit.gd`):**
+   - `SaveManager.validate_save_data()` deeply validates `enemy_military` (unit IDs, coordinates, health/max_health bounds, string and integer order states, paths) and `field_siege` (objective IDs, coordinates, health, garrison, active siege references and statuses).
+   - Atomic deserialization in `EnemyMilitaryManager.deserialize()` and `FieldSiegeManager.deserialize()`: stages all entities and validates them completely before clearing live state; on validation error, returns `false` without corrupting live instances.
+   - `SaveManager.apply_loaded_state_to_world()` propagates deserialization return values.
+   - `TacticalUnit` and `EnemyTacticalUnit` safely recover unresolvable target references to `OrderState.IDLE`.
+
+5. **Fix E — Patrol Perimeter Return Behavior (`scripts/military/enemy_tactical_unit.gd`):**
+   - `EnemyTacticalUnit._ai_tick_patrol()` uses `GridNavigation` to navigate back to `patrol_origin` when outside `patrol_radius`, or transitions to `HOLD` if navigation is obstructed.
+
+6. **Authoring Test Suites & Verification:**
+   - Authored `scripts/test/test_package_1x_gameplay_integration.gd` (TC-INT.1 - TC-INT.7: 39 assertions, PASS).
+   - Extended `scripts/test/test_field_siege.gd` (added Tests 10-13, updated metal & gating: 67 assertions, PASS).
+   - Extended `scripts/test/test_enemy_military_ai.gd` (added Tests 10-11: 54 assertions, PASS).
+   - Extended `scripts/test/test_save_load.gd` (added TC-8.9 and TC-8.10: 129 assertions, PASS).
+
+### Validations Performed & Results
+- **Package 1X Dedicated & Integration Suites:**
+  - `scripts/test/test_package_1x_gameplay_integration.gd`: **PASS (Exit Code 0: 39/39 assertions)**
+  - `scripts/test/test_tactical_combat.gd`: **PASS (Exit Code 0: 58/58 assertions)**
+  - `scripts/test/test_enemy_military_ai.gd`: **PASS (Exit Code 0: 54/54 assertions)**
+  - `scripts/test/test_field_siege.gd`: **PASS (Exit Code 0: 67/67 assertions)**
+- **Full Project Regression Matrix:**
+  1. `scripts/test/test_tactical_military.gd`: **PASS (Exit Code 0: 385/385 assertions)**
+  2. `scripts/test/test_save_load.gd`: **PASS (Exit Code 0: 129/129 assertions)**
+  3. `scripts/test/test_army_movement.gd`: **PASS (Exit Code 0: 33/33 tests)**
+  4. `scripts/test/test_player_army.gd`: **PASS (Exit Code 0: 48/48 tests)**
+  5. `scripts/test/test_live_battle_loop.gd`: **PASS (Exit Code 0: 19/19 tests)**
+  6. `scripts/test/test_offensive_campaign.gd`: **PASS (Exit Code 0: 14/14 tests)**
+  7. `scripts/test/test_battle_diplomacy_consequences.gd`: **PASS (Exit Code 0: 11/11 tests)**
+  8. `scripts/test/test_battle_fortification.gd`: **PASS (Exit Code 0: 12/12 tests)**
+  9. `scripts/test/test_factions_and_battles.gd`: **PASS (Exit Code 0: 48/48 assertions)**
+  10. `scripts/test/test_faction_relation_matrix.gd`: **PASS (Exit Code 0: 160/160 assertions)**
+  11. `scripts/test/test_world_events.gd`: **PASS (Exit Code 0: 72/72 assertions)**
+  12. `scripts/test/test_barracks.gd`: **PASS (Exit Code 0: 7/7 tests)**
+  13. `scripts/test/test_palisade.gd`: **PASS (Exit Code 0: 7/7 tests)**
+  14. `scripts/test/test_watchtower.gd`: **PASS (Exit Code 0: 10/10 tests)**
+- **Headless Editor Validation:**
+  - `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --editor --quit`: **PASS (Exit Code 0)**
+- **Whitespace / Git Check:**
+  - `git diff --check`: **PASS (Exit Code 0)**
+
+### Files Created or Modified
+- `scripts/combat/siege_objective_actor.gd` (Modified)
+- `scripts/combat/field_siege_manager.gd` (Modified)
+- `scripts/military/tactical_unit.gd` (Modified)
+- `scripts/military/enemy_tactical_unit.gd` (Modified)
+- `scripts/military/enemy_military_manager.gd` (Modified)
+- `scripts/military/tactical_military_manager.gd` (Modified)
+- `scripts/world/world_view.gd` (Modified)
+- `scripts/persistence/save_manager.gd` (Modified)
+- `scripts/test/test_field_siege.gd` (Modified)
+- `scripts/test/test_enemy_military_ai.gd` (Modified)
+- `scripts/test/test_save_load.gd` (Modified)
+- `scripts/test/test_package_1x_gameplay_integration.gd` (New)
+- `docs/BACKLOG.md` (Modified)
+- `docs/SCOPE_DECISIONS.md` (Modified)
+- `docs/TEST_PLAN.md` (Modified)
+- `docs/WORKLOG.md` (Modified)
+
+### Next Exact Step
 - Verify git status to ensure untracked protected files are preserved.
 - Stage only tracked and intended Package 1X files.
 - Commit to branch `feat/package-1x-tactical-combat-enemy-ai`.

@@ -299,6 +299,9 @@ func advance_combat(delta: float, speed_mult: float = 1.0, nav: GridNavigation =
 	if order_state != OrderState.ATTACKING:
 		return
 
+	if target_actor == null and not target_actor_id.is_empty():
+		resolve_target_actor()
+
 	# Target soft-reference validation
 	if target_actor == null or not is_instance_valid(target_actor):
 		target_actor = null
@@ -382,6 +385,37 @@ func _advance_pursuit(tgt_cell: Vector2i, delta: float, speed_mult: float, nav: 
 			current_path.clear()
 			step_accumulator = 0.0
 			break
+
+func resolve_target_actor() -> void:
+	if target_actor != null and is_instance_valid(target_actor):
+		return
+	if target_actor_id.is_empty():
+		if order_state == OrderState.ATTACKING:
+			order_state = OrderState.IDLE
+		return
+	if is_instance_valid(world_view):
+		var em = world_view.get("enemy_military_mgr")
+		if em != null and em.has_method("get_enemy"):
+			var e = em.get_enemy(target_actor_id)
+			if e != null and is_instance_valid(e) and e.is_alive:
+				target_actor = e
+				return
+		var sm = world_view.get("field_siege_mgr")
+		if sm != null and sm.has_method("get_objective"):
+			var o = sm.get_objective(target_actor_id)
+			if o != null and is_instance_valid(o) and o.is_alive:
+				target_actor = o
+				return
+		var tm = world_view.get("tactical_military_mgr")
+		if tm != null and tm.has_method("get_unit"):
+			var u = tm.get_unit(target_actor_id)
+			if u != null and is_instance_valid(u) and u.is_alive:
+				target_actor = u
+				return
+	if order_state == OrderState.ATTACKING:
+		order_state = OrderState.IDLE
+		target_actor_id = ""
+		target_actor = null
 
 func _process(delta: float) -> void:
 	# Continuous visual interpolation towards authoritative current_cell local position
@@ -537,5 +571,7 @@ func deserialize(data: Dictionary) -> bool:
 	faction_id = String(data.get("faction_id", "player"))
 	target_actor_id = String(data.get("target_actor_id", ""))
 	target_actor = null
+	if order_state == OrderState.ATTACKING and target_actor_id.is_empty():
+		order_state = OrderState.IDLE
 	damage_flash_timer = 0.0
 	return true

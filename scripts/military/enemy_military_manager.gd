@@ -217,6 +217,8 @@ func advance_simulation(delta: float, speed_mult: float = 1.0, nav: GridNavigati
 		var unit = enemies.get(eid, null)
 		if unit != null and is_instance_valid(unit) and unit.is_alive:
 			unit.update_ai(delta, speed_mult, nav, player_units, faction_mgr)
+			if unit.order_state == TacticalUnit.OrderState.MOVING:
+				unit.advance_movement(delta, speed_mult, nav)
 			unit.advance_combat(delta, speed_mult, nav)
 
 # -----------------------------------------------------------------------------
@@ -284,36 +286,53 @@ func serialize() -> Dictionary:
 	}
 
 func deserialize(data: Dictionary) -> bool:
-	clear_all_enemies()
 	if data.is_empty():
+		clear_all_enemies()
+		next_enemy_index = 1
 		return true
 
 	var raw_enemies = data.get("enemies")
 	if raw_enemies != null and not (raw_enemies is Array):
 		return false
 
-	next_enemy_index = maxi(1, int(data.get("next_enemy_index", 1)))
-
+	var staged_units: Dictionary = {}
 	if raw_enemies is Array:
 		for item in raw_enemies:
 			if not (item is Dictionary):
-				continue
-			var u_id = String(item.get("unit_id", ""))
-			if u_id.is_empty():
-				continue
+				_free_staged_enemies(staged_units)
+				return false
+			var u_id = String(item.get("unit_id", "")).strip_edges()
+			if u_id.is_empty() or staged_units.has(u_id):
+				_free_staged_enemies(staged_units)
+				return false
 			var unit := EnemyTacticalUnitScript.new()
 			unit.set_world_view(world_view)
 			if _custom_time_mgr != null:
 				unit.set_custom_time_manager(_custom_time_mgr)
 			if not unit.deserialize(item):
 				unit.free()
-				continue
-			unit.unit_defeated.connect(_on_unit_defeated)
-			unit.enemy_retreated.connect(_on_enemy_retreated)
-			var container = _get_container()
-			if container != null and is_instance_valid(container):
-				container.add_child(unit)
-			enemies[u_id] = unit
-			enemy_spawned.emit(u_id, unit.owning_faction_id, unit.current_cell)
+				_free_staged_enemies(staged_units)
+				return false
+			staged_units[u_id] = unit
+
+	# 100% Validated: Atomically replace live state
+	clear_all_enemies()
+	next_enemy_index = maxi(1, int(data.get("next_enemy_index", 1)))
+
+	for u_id in staged_units.keys():
+		var unit = staged_units[u_id]
+		unit.unit_defeated.connect(_on_unit_defeated)
+		unit.enemy_retreated.connect(_on_enemy_retreated)
+		var container = _get_container()
+		if container != null and is_instance_valid(container):
+			container.add_child(unit)
+		enemies[u_id] = unit
+		enemy_spawned.emit(u_id, unit.owning_faction_id, unit.current_cell)
 
 	return true
+
+func _free_staged_enemies(staged: Dictionary) -> void:
+	for u in staged.values():
+		if is_instance_valid(u) and u is Node:
+			u.free()
+	staged.clear()

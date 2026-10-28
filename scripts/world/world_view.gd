@@ -217,6 +217,13 @@ func _generate_and_build_world() -> void:
 	_spawn_pois()
 	_spawn_starter_citizens()
 	_setup_army_marker()
+	_setup_default_siege_objectives()
+
+	if faction_mgr != null:
+		if faction_mgr.has_signal("war_declared") and not faction_mgr.war_declared.is_connected(_on_faction_war_declared):
+			faction_mgr.war_declared.connect(_on_faction_war_declared)
+		if faction_mgr.has_signal("peace_signed") and not faction_mgr.peace_signed.is_connected(_on_faction_peace_signed):
+			faction_mgr.peace_signed.connect(_on_faction_peace_signed)
 
 func _setup_workplaces() -> void:
 	# Farm at (36, 35)
@@ -533,6 +540,120 @@ func get_enemy_military_manager() -> RefCounted:
 func get_field_siege_manager() -> RefCounted:
 	return field_siege_mgr
 
+func _find_valid_outpost_cell(preferred_center: Vector2i, min_dist_from_rally: int = 15) -> Vector2i:
+	var rally := Vector2i(30, 30)
+	if player_army_mgr != null and player_army_mgr.has_method("get_rally_cell"):
+		rally = player_army_mgr.get_rally_cell()
+
+	var is_cell_valid := func(c: Vector2i) -> bool:
+		if not IsoMath.is_in_bounds(c):
+			return false
+		if IsoMath.grid_distance(c, rally) < min_dist_from_rally:
+			return false
+		if nav != null and not nav.is_cell_walkable(c):
+			return false
+		if world_data != null and world_data.occupancy != null:
+			if world_data.occupancy[c.x][c.y]:
+				return false
+		if field_siege_mgr != null and field_siege_mgr.has_method("get_all_objectives"):
+			for o in field_siege_mgr.get_all_objectives():
+				if is_instance_valid(o) and o.current_cell == c:
+					return false
+		for cit in citizen_list:
+			if is_instance_valid(cit) and cit.get("current_cell") == c:
+				return false
+		if tactical_military_mgr != null and tactical_military_mgr.has_method("get_all_units"):
+			for u in tactical_military_mgr.get_all_units():
+				if is_instance_valid(u) and u.current_cell == c:
+					return false
+		return true
+
+	if is_cell_valid.call(preferred_center):
+		return preferred_center
+
+	var max_radius := 20
+	for r in range(1, max_radius + 1):
+		for dy in range(-r, r + 1):
+			for dx in range(-r, r + 1):
+				if maxi(absi(dx), absi(dy)) != r:
+					continue
+				var cand := preferred_center + Vector2i(dx, dy)
+				if is_cell_valid.call(cand):
+					return cand
+
+	return preferred_center
+
+func _setup_default_siege_objectives() -> void:
+	if field_siege_mgr == null:
+		return
+
+	var outpost_configs := [
+		{"fid": "rival_military", "id": "outpost_rival_military", "anchor": Vector2i(14, 14), "hp": 300.0, "gar": 4},
+		{"fid": "rival_merchant", "id": "outpost_rival_merchant", "anchor": Vector2i(50, 16), "hp": 250.0, "gar": 3},
+		{"fid": "neutral_tribe", "id": "outpost_neutral_tribe", "anchor": Vector2i(16, 48), "hp": 200.0, "gar": 2}
+	]
+
+	for cfg in outpost_configs:
+		var fid: String = cfg["fid"]
+		var oid: String = cfg["id"]
+		if field_siege_mgr.get_objective(oid) != null:
+			continue
+		var cell: Vector2i = _find_valid_outpost_cell(cfg["anchor"], 15)
+		field_siege_mgr.register_objective(oid, cell, fid, cfg["hp"], cfg["gar"])
+
+func _on_faction_war_declared(faction_id: String) -> void:
+	if faction_mgr == null or enemy_military_mgr == null or field_siege_mgr == null:
+		return
+
+	var fac = null
+	if faction_mgr.has_method("get_faction"):
+		fac = faction_mgr.get_faction(faction_id)
+	if fac == null:
+		return
+	if fac.get("existence_status") != null and fac.get("existence_status") != "active":
+		return
+
+	# Idempotency check: if forces already spawned for this faction, do not duplicate
+	var existing = enemy_military_mgr.get_enemies_by_faction(faction_id)
+	if existing.size() > 0:
+		return
+
+	var obj_id := "outpost_%s" % faction_id
+	var obj = field_siege_mgr.get_objective(obj_id)
+	if obj == null:
+		for o in field_siege_mgr.get_all_objectives():
+			if is_instance_valid(o) and o.owning_faction_id == faction_id:
+				obj = o
+				break
+
+	var spawn_center: Vector2i = Vector2i(14, 14)
+	if obj != null:
+		spawn_center = obj.current_cell
+	else:
+		spawn_center = _find_valid_outpost_cell(Vector2i(20, 20), 15)
+		obj = field_siege_mgr.register_objective(obj_id, spawn_center, faction_id)
+
+	var force_count: int = obj.garrison_count if obj != null else 3
+	var spawned_units = enemy_military_mgr.spawn_enemy_force(faction_id, spawn_center, force_count, nav)
+	for u in spawned_units:
+		if u != null:
+			u.patrol_origin = spawn_center
+			u.patrol_radius = 5
+			if u.has_method("set_ai_state"):
+				u.set_ai_state(1) # 1 = PATROL
+
+	if hud != null:
+		var fac_name: String = str(fac.name) if fac.get("name") != null else faction_id
+		hud.show_event_banner("Chiến Sự Bùng Nổ!", "Thế lực %s đã điều động quân đội đối đầu với chúng ta!" % fac_name, false, 5.0)
+
+func _on_faction_peace_signed(faction_id: String) -> void:
+	if enemy_military_mgr != null and enemy_military_mgr.has_method("on_peace_signed"):
+		enemy_military_mgr.on_peace_signed(faction_id)
+	if tactical_military_mgr != null and tactical_military_mgr.has_method("disengage_targets_of_faction"):
+		tactical_military_mgr.disengage_targets_of_faction(faction_id)
+	if field_siege_mgr != null and field_siege_mgr.has_method("cancel_active_sieges_for_faction"):
+		field_siege_mgr.cancel_active_sieges_for_faction(faction_id, "WITHDRAWAL")
+
 func _setup_selection_box_overlay() -> void:
 	if _selection_box_layer == null:
 		_selection_box_layer = CanvasLayer.new()
@@ -748,9 +869,29 @@ func _unhandled_input(event: InputEvent) -> void:
 					else:
 						var obj_target = _find_siege_objective_at_cell(cell)
 						if obj_target != null:
-							var res: Dictionary = tactical_military_mgr.call("issue_attack_order", obj_target, nav)
-							if not res.get("success", false) and hud != null:
-								hud.show_event_banner("Lệnh Tấn Công Thất Bại", res.get("reason", "Không thể tấn công"), false, 3.0)
+							var is_active := false
+							if field_siege_mgr != null and field_siege_mgr.has_method("is_siege_active_for_objective"):
+								is_active = field_siege_mgr.is_siege_active_for_objective(obj_target.objective_id)
+
+							if is_active:
+								var res: Dictionary = tactical_military_mgr.call("issue_attack_order", obj_target, nav)
+								if not res.get("success", false) and hud != null:
+									hud.show_event_banner("Lệnh Tấn Công Thất Bại", res.get("reason", "Không thể tấn công"), false, 3.0)
+							else:
+								if field_siege_mgr != null:
+									var check: Dictionary = field_siege_mgr.can_launch_field_siege(obj_target.owning_faction_id, obj_target.objective_id)
+									if bool(check.get("can_launch", false)):
+										var launch_res: Dictionary = field_siege_mgr.launch_field_siege(obj_target.owning_faction_id, obj_target.objective_id)
+										if bool(launch_res.get("success", false)):
+											var atk_res: Dictionary = tactical_military_mgr.call("issue_attack_order", obj_target, nav)
+											if hud != null:
+												hud.show_event_banner("Phát Động Công Thành!", "Đã phát động chiến dịch công thành đối với %s!" % obj_target.objective_name, true, 4.0)
+										else:
+											if hud != null:
+												hud.show_event_banner("Không Thể Công Thành", launch_res.get("reason", "Phát động thất bại"), false, 3.5)
+									else:
+										if hud != null:
+											hud.show_event_banner("Không Thể Công Thành", check.get("reason", "Không đủ điều kiện công thành"), false, 3.5)
 						else:
 							var res: Dictionary = tactical_military_mgr.call("issue_move_order", cell, nav)
 							if not res.get("success", false) and hud != null:

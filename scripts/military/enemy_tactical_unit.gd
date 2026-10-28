@@ -103,11 +103,18 @@ func _ai_tick_patrol(_delta: float, _speed_mult: float, _nav: GridNavigation, pl
 	if target != null:
 		_engage_target(target)
 		return
-	# When idle, could loiter near patrol_origin
-	if order_state == OrderState.IDLE and patrol_origin != Vector2i(0, 0):
+	# When idle, maintain patrol perimeter around patrol_origin
+	if order_state == OrderState.IDLE and IsoMath.is_in_bounds(patrol_origin):
 		if IsoMath.grid_distance(current_cell, patrol_origin) > patrol_radius:
-			# Step back towards patrol origin
-			pass
+			if _nav != null:
+				var path: Array[Vector2i] = _nav.find_path(current_cell, patrol_origin)
+				if path.size() > 1:
+					order_move(path, patrol_origin)
+				else:
+					# Unreachable path back to origin: safe transition to HOLD
+					set_ai_state(AIState.HOLD)
+			else:
+				set_ai_state(AIState.HOLD)
 
 func _ai_tick_acquire(player_units: Array) -> void:
 	var target = _find_best_player_target(player_units)
@@ -254,17 +261,33 @@ func serialize() -> Dictionary:
 func deserialize(data: Dictionary) -> bool:
 	if not super.deserialize(data):
 		return false
-	owning_faction_id = String(data.get("owning_faction_id", ""))
+	owning_faction_id = String(data.get("owning_faction_id", "")).strip_edges()
+	if owning_faction_id.is_empty():
+		return false
 	ai_state = string_to_ai_state(String(data.get("ai_state", "acquire_target")))
 	detection_range = maxi(1, int(data.get("detection_range", 8)))
 	var raw_p_orig = data.get("patrol_origin")
 	if raw_p_orig is Array and raw_p_orig.size() >= 2:
 		patrol_origin = Vector2i(int(raw_p_orig[0]), int(raw_p_orig[1]))
+	elif raw_p_orig is Vector2i:
+		patrol_origin = raw_p_orig
+	if not IsoMath.is_in_bounds(patrol_origin):
+		patrol_origin = current_cell
+
 	patrol_radius = maxi(1, int(data.get("patrol_radius", 3)))
 	var raw_ret = data.get("retreat_destination")
 	if raw_ret is Array and raw_ret.size() >= 2:
 		retreat_destination = Vector2i(int(raw_ret[0]), int(raw_ret[1]))
-	faction_id = owning_faction_id if not owning_faction_id.is_empty() else "enemy"
+	elif raw_ret is Vector2i:
+		retreat_destination = raw_ret
+
+	faction_id = owning_faction_id
+	if order_state == OrderState.ATTACKING:
+		resolve_target_actor()
+		if target_actor == null:
+			order_state = OrderState.IDLE
+			ai_state = AIState.ACQUIRE_TARGET
+
 	if sprite != null:
 		sprite.modulate = CRIMSON_MODULATE
 	return true

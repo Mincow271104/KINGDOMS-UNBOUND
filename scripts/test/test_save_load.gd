@@ -61,10 +61,12 @@ func _process(_delta: float) -> bool:
 		var pass_tc6: bool = _test_tc8_6_battle_campaign_sequence_compatibility()
 		var pass_tc7: bool = _test_tc8_7_immigration_persistence_and_collision_proof_ids()
 		var pass_tc8: bool = _test_tc8_8_world_event_persistence_and_legacy_fallback()
+		var pass_tc9: bool = _test_tc8_9_package_1x_schema_validation()
+		var pass_tc10: bool = _test_tc8_10_package_1x_worldview_and_double_load()
 		
 		print("\n--------------------------------------------------------")
 		print("  Assertions Passed: %d | Failed: %d" % [_assertions_passed, _assertions_failed])
-		if pass_tc1 and pass_tc2 and pass_tc3 and pass_tc4 and pass_tc5 and pass_tc6 and pass_tc7 and pass_tc8 and _assertions_failed == 0:
+		if pass_tc1 and pass_tc2 and pass_tc3 and pass_tc4 and pass_tc5 and pass_tc6 and pass_tc7 and pass_tc8 and pass_tc9 and pass_tc10 and _assertions_failed == 0:
 			print("  ALL PHASE 8 PERSISTENCE TESTS PASSED! (Exit Code 0)")
 			print("--------------------------------------------------------\n")
 			quit(0)
@@ -735,4 +737,157 @@ func _test_tc8_8_world_event_persistence_and_legacy_fallback() -> bool:
 	_assert_eq(es.is_heatwave_active(15), false, "TC-8.8-LEGACY-RESET-HW", "Legacy load cleared stale heatwave multiplier")
 
 	print("  [PASS] TC-8.8 PASSED.\n")
+	return _assertions_failed == 0
+
+func _test_tc8_9_package_1x_schema_validation() -> bool:
+	print("--- Running TC-8.9: Package 1X Enemy Military & Field Siege Schema Validation ---")
+	var base_save: Dictionary = SaveManager.serialize_world_state(world_instance)
+
+	# 1. Invalid enemy_military type (not a dict)
+	var bad1 = base_save.duplicate(true)
+	bad1["enemy_military"] = "invalid_string"
+	var res1 = SaveManager.validate_save_data(bad1)
+	_assert_eq(res1["valid"], false, "TC-8.9-ENEMY-NON-DICT", "Rejected non-dict enemy_military")
+
+	# 2. Invalid enemy coordinate
+	var bad2 = base_save.duplicate(true)
+	bad2["enemy_military"] = {
+		"enemies": [
+			{"unit_id": "e_bad_coord", "owning_faction_id": "rival_military", "current_cell": [-9, 99]}
+		]
+	}
+	var res2 = SaveManager.validate_save_data(bad2)
+	_assert_eq(res2["valid"], false, "TC-8.9-ENEMY-BAD-COORD", "Rejected out-of-bounds enemy coordinates")
+
+	# 3. Duplicate enemy unit IDs
+	var bad3 = base_save.duplicate(true)
+	bad3["enemy_military"] = {
+		"enemies": [
+			{"unit_id": "dup_e", "owning_faction_id": "rival_military", "current_cell": [10, 10]},
+			{"unit_id": "dup_e", "owning_faction_id": "rival_merchant", "current_cell": [11, 11]}
+		]
+	}
+	var res3 = SaveManager.validate_save_data(bad3)
+	_assert_eq(res3["valid"], false, "TC-8.9-ENEMY-DUP-ID", "Rejected duplicate enemy unit IDs")
+
+	# 4. Enemy health > max_health
+	var bad4 = base_save.duplicate(true)
+	bad4["enemy_military"] = {
+		"enemies": [
+			{"unit_id": "e_overhp", "owning_faction_id": "rival_military", "current_cell": [10, 10], "health": 150.0, "max_health": 100.0}
+		]
+	}
+	var res4 = SaveManager.validate_save_data(bad4)
+	_assert_eq(res4["valid"], false, "TC-8.9-ENEMY-OVERHP", "Rejected enemy health exceeding max_health")
+
+	# 5. Invalid field_siege type
+	var bad5 = base_save.duplicate(true)
+	bad5["field_siege"] = 12345
+	var res5 = SaveManager.validate_save_data(bad5)
+	_assert_eq(res5["valid"], false, "TC-8.9-SIEGE-NON-DICT", "Rejected non-dict field_siege")
+
+	# 6. Duplicate objective IDs
+	var bad6 = base_save.duplicate(true)
+	bad6["field_siege"] = {
+		"objectives": [
+			{"objective_id": "dup_obj", "owning_faction_id": "fac_a", "current_cell": [10, 10]},
+			{"objective_id": "dup_obj", "owning_faction_id": "fac_b", "current_cell": [12, 12]}
+		]
+	}
+	var res6 = SaveManager.validate_save_data(bad6)
+	_assert_eq(res6["valid"], false, "TC-8.9-OBJ-DUP-ID", "Rejected duplicate objective IDs")
+
+	# 7. active_sieges referencing missing objective
+	var bad7 = base_save.duplicate(true)
+	bad7["field_siege"] = {
+		"objectives": [
+			{"objective_id": "obj_alpha", "owning_faction_id": "fac_a", "current_cell": [10, 10]}
+		],
+		"active_sieges": {
+			"siege_1": {
+				"siege_id": "siege_1",
+				"faction_id": "fac_a",
+				"objective_id": "missing_obj",
+				"status": "active"
+			}
+		}
+	}
+	var res7 = SaveManager.validate_save_data(bad7)
+	_assert_eq(res7["valid"], false, "TC-8.9-SIEGE-MISSING-OBJ", "Rejected active_siege referencing missing objective")
+
+	# 8. active_sieges invalid status
+	var bad8 = base_save.duplicate(true)
+	bad8["field_siege"] = {
+		"objectives": [
+			{"objective_id": "obj_alpha", "owning_faction_id": "fac_a", "current_cell": [10, 10]}
+		],
+		"active_sieges": {
+			"siege_1": {
+				"siege_id": "siege_1",
+				"faction_id": "fac_a",
+				"objective_id": "obj_alpha",
+				"status": "invalid_status_xyz"
+			}
+		}
+	}
+	var res8 = SaveManager.validate_save_data(bad8)
+	_assert_eq(res8["valid"], false, "TC-8.9-SIEGE-INVALID-STATUS", "Rejected active_siege with invalid status")
+
+	print("  [PASS] TC-8.9 PASSED.\n")
+	return _assertions_failed == 0
+
+func _test_tc8_10_package_1x_worldview_and_double_load() -> bool:
+	print("--- Running TC-8.10: Package 1X WorldView End-to-End Persistence & Double Load ---")
+	var base_save: Dictionary = SaveManager.serialize_world_state(world_instance)
+
+	# 1. Verify default outposts exist in WorldView after startup
+	var sm = world_instance.get("field_siege_mgr")
+	_assert_true(sm != null, "TC-8.10-SM-EXISTS", "FieldSiegeManager exists on WorldView")
+	var objs: Array = sm.get_all_objectives()
+	_assert_true(objs.size() >= 3, "TC-8.10-DEFAULT-OBJECTIVES", "WorldView startup registered at least 3 default outposts")
+
+	# 2. Trigger war declaration and verify force spawn
+	var fm = world_instance.get("faction_mgr")
+	_assert_true(fm != null, "TC-8.10-FM-EXISTS", "FactionManager exists on WorldView")
+	fm.war_declared.emit("rival_military")
+
+	var em = world_instance.get("enemy_military_mgr")
+	_assert_true(em != null, "TC-8.10-EM-EXISTS", "EnemyMilitaryManager exists on WorldView")
+	var enemies_before: int = em.get_enemies_by_faction("rival_military").size()
+	_assert_true(enemies_before > 0, "TC-8.10-WAR-SPAWN", "War declaration spawned hostile forces for rival_military")
+
+	# Idempotency check: emit war_declared again -> count must NOT increase
+	fm.war_declared.emit("rival_military")
+	var enemies_after_war2: int = em.get_enemies_by_faction("rival_military").size()
+	_assert_eq(enemies_after_war2, enemies_before, "TC-8.10-WAR-IDEMPOTENT", "Repeated war declaration did NOT duplicate enemy forces")
+
+	# 3. Serialize full state with enemies and objectives
+	var save_with_war: Dictionary = SaveManager.serialize_world_state(world_instance)
+	_assert_true(save_with_war.has("enemy_military"), "TC-8.10-SAVE-HAS-ENEMY", "Saved state contains enemy_military")
+	_assert_true(save_with_war.has("field_siege"), "TC-8.10-SAVE-HAS-SIEGE", "Saved state contains field_siege")
+
+	# 4. Load save once
+	var load_res1 = SaveManager.apply_loaded_state_to_world(world_instance, save_with_war)
+	if not load_res1.get("success", false):
+		print("DEBUG LOAD ERROR: ", load_res1.get("error"))
+	_assert_true(load_res1.get("success", false), "TC-8.10-LOAD-1-SUCCESS", "First restoration succeeded")
+	var count_load1: int = em.get_enemies_by_faction("rival_military").size()
+	_assert_eq(count_load1, enemies_before, "TC-8.10-LOAD-1-ENEMY-COUNT", "First restoration restored exact enemy count")
+
+	# 5. Load save a second time (double load idempotency)
+	var load_res2 = SaveManager.apply_loaded_state_to_world(world_instance, save_with_war)
+	_assert_true(load_res2.get("success", false), "TC-8.10-LOAD-2-SUCCESS", "Second restoration succeeded (double-load)")
+	var count_load2: int = em.get_enemies_by_faction("rival_military").size()
+	_assert_eq(count_load2, enemies_before, "TC-8.10-LOAD-2-NO-DUPLICATES", "Double load did NOT duplicate enemy units")
+	var obj_count_load2: int = sm.get_all_objectives().size()
+	_assert_eq(obj_count_load2, objs.size(), "TC-8.10-LOAD-2-NO-DUP-OBJS", "Double load did NOT duplicate siege objectives")
+
+	# 6. Legacy save without Package 1X sections loads safely
+	var legacy_save: Dictionary = base_save.duplicate(true)
+	legacy_save.erase("enemy_military")
+	legacy_save.erase("field_siege")
+	var leg_res = SaveManager.apply_loaded_state_to_world(world_instance, legacy_save)
+	_assert_true(leg_res.get("success", false), "TC-8.10-LEGACY-SUCCESS", "Legacy save without enemy_military/field_siege loads cleanly")
+
+	print("  [PASS] TC-8.10 PASSED.\n")
 	return _assertions_failed == 0

@@ -6,6 +6,7 @@ extends RefCounted
 ## tactical victory/defeat/withdrawal resolution, plunder awards, and faction power impact.
 
 const SiegeObjectiveActorScript = preload("res://scripts/combat/siege_objective_actor.gd")
+const EconomyConfigScript = preload("res://scripts/economy/economy_config.gd")
 
 signal field_siege_started(siege_id: String, faction_id: String, objective_id: String)
 signal field_siege_resolved(siege_id: String, outcome: String, details: Dictionary)
@@ -27,7 +28,7 @@ const PLUNDER_REWARDS: Dictionary = {
 	"gold": 60,
 	"food": 40,
 	"wood": 30,
-	"iron": 20
+	"metal": 20
 }
 
 func _init(wv: Node = null, fm: Object = null, army_mgr: Object = null, enemy_mgr: Object = null) -> void:
@@ -221,6 +222,9 @@ func launch_field_siege(target_faction_id: String, objective_id: String) -> Dict
 	var s_id := "siege_%d" % next_siege_index
 	next_siege_index += 1
 
+	if obj != null:
+		obj.is_under_active_siege = true
+
 	var siege_record: Dictionary = {
 		"siege_id": s_id,
 		"faction_id": target_faction_id,
@@ -237,6 +241,21 @@ func launch_field_siege(target_faction_id: String, objective_id: String) -> Dict
 		"siege_id": s_id,
 		"defenders": defender_ids.size()
 	}
+
+func is_siege_active_for_objective(obj_id: String) -> bool:
+	for s in active_sieges.values():
+		if s.get("objective_id") == obj_id and s.get("status") == "active":
+			return true
+	return false
+
+func cancel_active_sieges_for_faction(faction_id: String, reason: String = "WITHDRAWAL") -> void:
+	for s_id in active_sieges.keys():
+		var s = active_sieges[s_id]
+		if s.get("faction_id") == faction_id and s.get("status") == "active":
+			var obj = get_objective(s.get("objective_id", ""))
+			if obj != null:
+				obj.is_under_active_siege = false
+			_resolve_siege_outcome(s_id, reason)
 
 # -----------------------------------------------------------------------------
 # Evaluation & Victory Conditions
@@ -280,6 +299,10 @@ func _resolve_siege_outcome(siege_id: String, outcome: String) -> Dictionary:
 	var record: Dictionary = active_sieges[siege_id]
 	record["status"] = "resolved"
 	record["outcome"] = outcome
+
+	var obj = get_objective(record.get("objective_id", ""))
+	if obj != null:
+		obj.is_under_active_siege = false
 
 	var details: Dictionary = {"outcome": outcome}
 	var faction_id: String = record.get("faction_id", "")
@@ -334,33 +357,75 @@ func serialize() -> Dictionary:
 	}
 
 func deserialize(data: Dictionary) -> bool:
-	clear_all_objectives()
-	active_sieges.clear()
 	if data.is_empty():
+		clear_all_objectives()
+		active_sieges.clear()
+		next_siege_index = 1
 		return true
 
-	next_siege_index = maxi(1, int(data.get("next_siege_index", 1)))
-
 	var raw_objs = data.get("objectives")
+	if raw_objs != null and not (raw_objs is Array):
+		return false
+
+	var raw_sieges = data.get("active_sieges")
+	if raw_sieges != null and not (raw_sieges is Dictionary):
+		return false
+
+	var staged_objs: Dictionary = {}
 	if raw_objs is Array:
 		for item in raw_objs:
 			if not (item is Dictionary):
-				continue
+				_free_staged_objs(staged_objs)
+				return false
 			var obj := SiegeObjectiveActorScript.new()
 			if not obj.deserialize(item):
 				obj.free()
-				continue
-			obj.objective_destroyed.connect(_on_objective_destroyed)
-			var container = _get_container()
-			if container != null and is_instance_valid(container):
-				container.add_child(obj)
-			objectives[obj.objective_id] = obj
+				_free_staged_objs(staged_objs)
+				return false
+			if staged_objs.has(obj.objective_id):
+				obj.free()
+				_free_staged_objs(staged_objs)
+				return false
+			staged_objs[obj.objective_id] = obj
 
-	var raw_sieges = data.get("active_sieges")
+	var staged_sieges: Dictionary = {}
 	if raw_sieges is Dictionary:
-		active_sieges = raw_sieges.duplicate(true)
+		for s_id in raw_sieges.keys():
+			var s = raw_sieges[s_id]
+			if not (s is Dictionary):
+				_free_staged_objs(staged_objs)
+				return false
+			var target_obj_id = String(s.get("objective_id", ""))
+			if not staged_objs.has(target_obj_id):
+				_free_staged_objs(staged_objs)
+				return false
+			var status_str = String(s.get("status", ""))
+			if status_str != "active" and status_str != "resolved" and status_str != "cancelled":
+				_free_staged_objs(staged_objs)
+				return false
+			staged_sieges[String(s_id)] = s.duplicate(true)
 
+	# Validation succeeded completely: replace live state atomically
+	clear_all_objectives()
+	active_sieges.clear()
+	next_siege_index = maxi(1, int(data.get("next_siege_index", 1)))
+
+	for obj_id in staged_objs.keys():
+		var obj = staged_objs[obj_id]
+		obj.objective_destroyed.connect(_on_objective_destroyed)
+		var container = _get_container()
+		if container != null and is_instance_valid(container):
+			container.add_child(obj)
+		objectives[obj_id] = obj
+
+	active_sieges = staged_sieges
 	return true
+
+func _free_staged_objs(staged: Dictionary) -> void:
+	for o in staged.values():
+		if is_instance_valid(o) and o is Node:
+			o.free()
+	staged.clear()
 
 func clear_all_objectives() -> void:
 	for k in objectives.keys():

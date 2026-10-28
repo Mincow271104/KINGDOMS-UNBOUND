@@ -685,6 +685,16 @@ func issue_attack_order(target: Node, nav: GridNavigation = null) -> Dictionary:
 	if tgt_faction_str == "player":
 		return {"success": false, "reason": "Không thể tấn công đơn vị phe mình"}
 
+	# Siege objective active check (Package 1X)
+	var is_siege_obj: bool = target.get("objective_id") != null and target.get("garrison_count") != null
+	if is_siege_obj:
+		var under_siege = target.get("is_under_active_siege")
+		if under_siege == null or not bool(under_siege):
+			return {"success": false, "reason": "Chưa phát động chiến dịch công thành đối với mục tiêu này"}
+		var is_cap = target.get("is_captured")
+		if is_cap != null and bool(is_cap):
+			return {"success": false, "reason": "Mục tiêu công thành đã bị chiếm đóng"}
+
 	var fm = null
 	if is_instance_valid(world_view) and world_view.get("faction_manager") != null:
 		fm = world_view.get("faction_manager")
@@ -722,6 +732,18 @@ func halt_selected_units() -> void:
 	for uid in selected_unit_ids:
 		if units.has(uid):
 			units[uid].order_hold()
+	tactical_state_updated.emit()
+
+func disengage_targets_of_faction(faction_id: String) -> void:
+	for u in units.values():
+		if u != null and is_instance_valid(u) and u.order_state == TacticalUnit.OrderState.ATTACKING:
+			var tgt = u.target_actor
+			if tgt != null and is_instance_valid(tgt):
+				var tf = tgt.get("faction_id")
+				if tf == null:
+					tf = tgt.get("owning_faction_id")
+				if str(tf) == faction_id:
+					u.order_hold()
 	tactical_state_updated.emit()
 
 # -----------------------------------------------------------------------------

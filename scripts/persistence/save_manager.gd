@@ -927,17 +927,55 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 				var eid = e.get("unit_id")
 				if not (eid is String) or String(eid).strip_edges().is_empty():
 					return {"valid": false, "error": "unit_id của đơn vị địch không hợp lệ."}
-				if seen_e_ids.has(String(eid)):
-					return {"valid": false, "error": "Phát hiện unit_id trùng lặp trong enemy_military: %s." % String(eid)}
-				seen_e_ids[String(eid)] = true
+				var eid_str: String = String(eid).strip_edges()
+				if seen_e_ids.has(eid_str):
+					return {"valid": false, "error": "Phát hiện unit_id trùng lặp trong enemy_military: %s." % eid_str}
+				seen_e_ids[eid_str] = true
+
+				var fac_id = e.get("owning_faction_id")
+				if not (fac_id is String) or String(fac_id).strip_edges().is_empty():
+					return {"valid": false, "error": "owning_faction_id của đơn vị địch %s không hợp lệ." % eid_str}
+
 				if not _is_valid_coord_arr(e.get("current_cell")):
-					return {"valid": false, "error": "Tọa độ current_cell của đơn vị địch %s không hợp lệ." % String(eid)}
+					return {"valid": false, "error": "Tọa độ current_cell của đơn vị địch %s không hợp lệ." % eid_str}
+
+				if e.has("target_cell") and not _is_valid_coord_arr(e.get("target_cell")):
+					return {"valid": false, "error": "Tọa độ target_cell của đơn vị địch %s không hợp lệ." % eid_str}
+
+				if e.has("health"):
+					if not (e.get("health") is int or e.get("health") is float) or float(e.get("health")) < 0.0:
+						return {"valid": false, "error": "health của đơn vị địch %s phải là số không âm." % eid_str}
+				if e.has("max_health"):
+					if not (e.get("max_health") is int or e.get("max_health") is float) or float(e.get("max_health")) <= 0.0:
+						return {"valid": false, "error": "max_health của đơn vị địch %s phải lớn hơn 0." % eid_str}
+				if e.has("health") and e.has("max_health"):
+					if float(e.get("health")) > float(e.get("max_health")):
+						return {"valid": false, "error": "health (%f) của đơn vị %s vượt quá max_health (%f)." % [float(e.get("health")), eid_str, float(e.get("max_health"))]}
+
+				if e.has("order_state"):
+					var ost = e.get("order_state")
+					var is_valid_ost := false
+					if ost is String and String(ost).to_lower() in ["idle", "moving", "holding", "attacking"]:
+						is_valid_ost = true
+					elif _is_valid_integer_val(ost) and int(ost) >= 0 and int(ost) <= 3:
+						is_valid_ost = true
+					if not is_valid_ost:
+						return {"valid": false, "error": "order_state của đơn vị địch %s không hợp lệ." % eid_str}
+
+				if e.has("current_path"):
+					var cp = e.get("current_path")
+					if not (cp is Array):
+						return {"valid": false, "error": "current_path của đơn vị địch %s phải là Array." % eid_str}
+					for pt in cp:
+						if not _is_valid_coord_arr(pt):
+							return {"valid": false, "error": "current_path của đơn vị địch %s chứa tọa độ không hợp lệ." % eid_str}
 
 	# Validate optional field_siege section (Package 1X)
 	if json_dict.has("field_siege"):
 		var siege_val = json_dict.get("field_siege")
 		if not (siege_val is Dictionary):
 			return {"valid": false, "error": "Dữ liệu công thành 'field_siege' phải là Dictionary."}
+		var seen_obj_ids: Dictionary = {}
 		if siege_val.has("objectives"):
 			var obj_list = siege_val.get("objectives")
 			if not (obj_list is Array):
@@ -948,8 +986,48 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 				var oid = o.get("objective_id")
 				if not (oid is String) or String(oid).strip_edges().is_empty():
 					return {"valid": false, "error": "objective_id trong field_siege không hợp lệ."}
+				var oid_str: String = String(oid).strip_edges()
+				if seen_obj_ids.has(oid_str):
+					return {"valid": false, "error": "Phát hiện objective_id trùng lặp trong field_siege: %s." % oid_str}
+				seen_obj_ids[oid_str] = true
+
+				var fac_id = o.get("owning_faction_id")
+				if not (fac_id is String) or String(fac_id).strip_edges().is_empty():
+					return {"valid": false, "error": "owning_faction_id của mục tiêu %s không hợp lệ." % oid_str}
+
 				if not _is_valid_coord_arr(o.get("current_cell")):
-					return {"valid": false, "error": "Tọa độ current_cell của mục tiêu %s trong field_siege không hợp lệ." % String(oid)}
+					return {"valid": false, "error": "Tọa độ current_cell của mục tiêu %s trong field_siege không hợp lệ." % oid_str}
+
+				if o.has("health"):
+					if not (o.get("health") is int or o.get("health") is float) or float(o.get("health")) < 0.0:
+						return {"valid": false, "error": "health của mục tiêu %s phải là số không âm." % oid_str}
+				if o.has("max_health"):
+					if not (o.get("max_health") is int or o.get("max_health") is float) or float(o.get("max_health")) <= 0.0:
+						return {"valid": false, "error": "max_health của mục tiêu %s phải lớn hơn 0." % oid_str}
+				if o.has("garrison_count"):
+					if not _is_valid_integer_val(o.get("garrison_count")) or int(o.get("garrison_count")) < 0:
+						return {"valid": false, "error": "garrison_count của mục tiêu %s không hợp lệ." % oid_str}
+
+		if siege_val.has("active_sieges"):
+			var sieges_dict = siege_val.get("active_sieges")
+			if not (sieges_dict is Dictionary):
+				return {"valid": false, "error": "active_sieges trong field_siege phải là Dictionary."}
+			for s_key in sieges_dict.keys():
+				var s = sieges_dict[s_key]
+				if not (s is Dictionary):
+					return {"valid": false, "error": "Bản ghi chiến dịch %s trong active_sieges phải là Dictionary." % str(s_key)}
+				var sid = s.get("siege_id")
+				if str(sid) != str(s_key):
+					return {"valid": false, "error": "siege_id (%s) không khớp với khóa active_sieges (%s)." % [str(sid), str(s_key)]}
+				var target_obj_id = s.get("objective_id")
+				if not (target_obj_id is String) or not seen_obj_ids.has(String(target_obj_id)):
+					return {"valid": false, "error": "Chiến dịch %s tham chiếu objective_id không tồn tại: %s." % [str(sid), str(target_obj_id)]}
+				var fac = s.get("faction_id")
+				if not (fac is String) or String(fac).strip_edges().is_empty():
+					return {"valid": false, "error": "faction_id của chiến dịch %s không hợp lệ." % str(sid)}
+				var st = s.get("status")
+				if st != "active" and st != "resolved" and st != "cancelled":
+					return {"valid": false, "error": "Trạng thái status của chiến dịch %s không hợp lệ: %s." % [str(sid), str(st)]}
 
 	return {"valid": true, "error": ""}
 
@@ -1367,19 +1445,25 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 	var enemy_mgr = world_view.get("enemy_military_mgr")
 	if enemy_mgr != null and enemy_mgr.has_method("deserialize"):
 		var enemy_data = loaded_data.get("enemy_military", {})
+		var em_ok: bool = false
 		if enemy_data is Dictionary:
-			enemy_mgr.call("deserialize", enemy_data)
+			em_ok = bool(enemy_mgr.call("deserialize", enemy_data))
 		else:
-			enemy_mgr.call("deserialize", {})
+			em_ok = bool(enemy_mgr.call("deserialize", {}))
+		if not em_ok:
+			return {"success": false, "error": "Khôi phục dữ liệu quân sự địch 'enemy_military' thất bại."}
 
 	# 19. Restore Field Siege Operations (Package 1X)
 	var siege_mgr = world_view.get("field_siege_mgr")
 	if siege_mgr != null and siege_mgr.has_method("deserialize"):
 		var siege_data = loaded_data.get("field_siege", {})
+		var fs_ok: bool = false
 		if siege_data is Dictionary:
-			siege_mgr.call("deserialize", siege_data)
+			fs_ok = bool(siege_mgr.call("deserialize", siege_data))
 		else:
-			siege_mgr.call("deserialize", {})
+			fs_ok = bool(siege_mgr.call("deserialize", {}))
+		if not fs_ok:
+			return {"success": false, "error": "Khôi phục dữ liệu công thành 'field_siege' thất bại."}
 
 	print("[SaveManager] Loaded world state restored successfully (%d citizens, %d buildings)" % [world_view.get("citizen_list").size(), world_data.buildings.size()])
 	return {"success": true}

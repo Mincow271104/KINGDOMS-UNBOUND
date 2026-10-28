@@ -71,6 +71,8 @@ func _run_all_tests() -> void:
 	_test_peace_treaty_reaction()
 	_test_enemy_defeat_and_cleanup()
 	_test_enemy_serialization_roundtrip()
+	_test_patrol_perimeter_return_behavior()
+	_test_atomic_enemy_deserialization_fail_closed()
 
 	print("========================================================")
 	if failed_assertions == 0:
@@ -293,3 +295,88 @@ func _test_enemy_serialization_roundtrip() -> void:
 
 	mgr1.clear_all_enemies()
 	mgr2.clear_all_enemies()
+
+func _test_patrol_perimeter_return_behavior() -> void:
+	print("\n--- Test 10: Patrol Area Recovery & Perimeter Return ---")
+	var nav = MockNav.new()
+	var unit = EnemyTacticalUnitScript.new()
+	unit.unit_id = "patrol_guard_1"
+	unit.owning_faction_id = "frontier_clans"
+	unit.patrol_origin = Vector2i(10, 10)
+	unit.patrol_radius = 3
+	unit.current_cell = Vector2i(20, 20)
+	unit.target_cell = Vector2i(20, 20)
+	unit.ai_state = EnemyTacticalUnitScript.AIState.PATROL
+	unit.order_state = TacticalUnitScript.OrderState.IDLE
+
+	# Dist is |20-10| + |20-10| = 20 > 3.
+	# Running update_ai without nearby threats must find path and issue move towards patrol_origin
+	unit.update_ai(0.5, 1.0, nav, [], null)
+	_assert(unit.order_state == TacticalUnitScript.OrderState.MOVING, "TC-ENEMY.10: Enemy outside patrol area issues move order")
+	_assert(unit.target_cell == Vector2i(10, 10), "TC-ENEMY.10: Enemy moves towards patrol_origin (10, 10)")
+	_assert(unit.current_path.size() > 0, "TC-ENEMY.10: Enemy has computed route back to patrol origin")
+
+	# Advance movement: steps towards destination
+	var cell_before = unit.current_cell
+	unit.advance_movement(0.5, 1.0, nav)
+	_assert(unit.current_cell != cell_before, "TC-ENEMY.10: Movement actually advanced towards patrol area")
+
+	# Trapped case: mock nav that returns empty path
+	var trapped_nav = Node.new()
+	# Create inline script for trapped nav
+	var inline_src = """extends GridNavigation
+func is_cell_walkable(_c: Vector2i) -> bool: return false
+func find_path(_s: Vector2i, _g: Vector2i) -> Array[Vector2i]: return []
+"""
+	var inline_script = GDScript.new()
+	inline_script.source_code = inline_src
+	inline_script.reload()
+	var trapped_instance = inline_script.new()
+
+	unit.order_state = TacticalUnitScript.OrderState.IDLE
+	unit.current_path.clear()
+	unit.update_ai(0.5, 1.0, trapped_instance, [], null)
+	_assert(unit.ai_state == EnemyTacticalUnitScript.AIState.HOLD, "TC-ENEMY.10: Trapped enemy transitions to HOLD when no route exists")
+
+	unit.free()
+
+func _test_atomic_enemy_deserialization_fail_closed() -> void:
+	print("\n--- Test 11: Atomic Fail-Closed Enemy Deserialization ---")
+	var mgr = EnemyMilitaryManagerScript.new()
+	var e = mgr.spawn_enemy_unit("live_faction", Vector2i(12, 12), "live_enemy_1")
+	_assert(mgr.get_enemy_count() == 1, "TC-ENEMY.11: 1 live enemy registered initially")
+
+	# Payload 1: invalid coordinate
+	var bad_data_1 = {
+		"enemies": [
+			{
+				"unit_id": "bad_unit_1",
+				"owning_faction_id": "live_faction",
+				"current_cell": [-5, 999]
+			}
+		]
+	}
+	var res1: bool = mgr.deserialize(bad_data_1)
+	_assert(res1 == false, "TC-ENEMY.11A: Deserialization rejected on out-of-bounds coordinates")
+	_assert(mgr.get_enemy("live_enemy_1") != null, "TC-ENEMY.11A: Live enemy preserved on deserialization failure")
+
+	# Payload 2: duplicate unit IDs
+	var bad_data_2 = {
+		"enemies": [
+			{
+				"unit_id": "dup_unit",
+				"owning_faction_id": "fac_a",
+				"current_cell": [15, 15]
+			},
+			{
+				"unit_id": "dup_unit",
+				"owning_faction_id": "fac_b",
+				"current_cell": [16, 16]
+			}
+		]
+	}
+	var res2: bool = mgr.deserialize(bad_data_2)
+	_assert(res2 == false, "TC-ENEMY.11B: Deserialization rejected on duplicate unit IDs")
+	_assert(mgr.get_enemy("live_enemy_1") != null, "TC-ENEMY.11B: Live enemy preserved on duplicate ID rejection")
+
+	mgr.clear_all_enemies()

@@ -13,6 +13,7 @@ extends Node2D
 @export var max_health: float = 250.0
 @export var is_alive: bool = true
 @export var is_captured: bool = false
+@export var is_under_active_siege: bool = false
 @export var garrison_count: int = 3
 @export var defending_unit_ids: Array[String] = []
 
@@ -27,7 +28,7 @@ func _ready() -> void:
 	position = IsoMath.map_to_local(current_cell)
 
 func take_damage(amount: float, attacker_id: String = "") -> void:
-	if not is_alive or amount <= 0.0:
+	if not is_alive or is_captured or amount <= 0.0 or not is_under_active_siege:
 		return
 
 	health = clampf(health - amount, 0.0, max_health)
@@ -109,6 +110,7 @@ func serialize() -> Dictionary:
 		"max_health": max_health,
 		"is_alive": is_alive,
 		"is_captured": is_captured,
+		"is_under_active_siege": is_under_active_siege,
 		"garrison_count": garrison_count,
 		"defending_unit_ids": defending_unit_ids.duplicate()
 	}
@@ -135,6 +137,7 @@ func deserialize(data: Dictionary) -> bool:
 	health = clampf(float(data.get("health", 250.0)), 0.0, max_health)
 	is_alive = bool(data.get("is_alive", health > 0.0))
 	is_captured = bool(data.get("is_captured", not is_alive))
+	is_under_active_siege = bool(data.get("is_under_active_siege", false))
 	garrison_count = maxi(0, int(data.get("garrison_count", 3)))
 	defending_unit_ids.clear()
 	var raw_def = data.get("defending_unit_ids")
