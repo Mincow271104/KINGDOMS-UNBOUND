@@ -752,3 +752,45 @@ When Godot Editor is running with the MCP plugin:
     - **TC-INT.7 (Authoritative Spawn-Slot Entity Exclusion):** Verifies that all active enemy units are in bounds, occupy walkable cells, are not on water tiles, do not overlap building footprints, and strictly exclude objective cells, player tactical units, and living citizens.
     - **TC-INT.8 (End-to-End Siege Retry Lifecycle & Anti-Inflation):** Tests live WorldView war declaration, siege launch, withdrawal, and retry, verifying that retrying does not inflate defenders beyond `garrison_count`, and repeated war declarations preserve exact unit counts.
   - *Status:* **PASSED** (2026-10-29, Exit Code 0: 57/57 assertions passed).
+
+---
+
+### Package 1Y: Automation Graph Delay & Repeat Nodes
+- **TC-Y.1 to TC-Y.30: Automation Graph Delay & Repeat Test Suite**
+  - *Tracked Test Suite:* `res://scripts/test/test_automation_graph_delay_repeat.gd`
+  - *Command:* `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --path "e:\KINGDOMS UNBOUND\kingdoms-unbound" -s res://scripts/test/test_automation_graph_delay_repeat.gd`
+  - *Acceptance Criteria by Group:*
+    - **Group 1: Delay Node Validation & Bounds (1–720h) (TC-Y.1 to TC-Y.2)**
+      - **TC-Y.1 (Valid Durations):** Accepts integer durations 1, 24, and 720 hours.
+      - **TC-Y.2 (Invalid Durations & Missing Edge Rejection):** Rejects fail-closed invalid durations (0, -5, 721, 9999, floats, strings, null) and Delay nodes lacking an outgoing `out` port.
+    - **Group 2: Delay Runtime Progression & Simulation Clock (TC-Y.3 to TC-Y.8)**
+      - **TC-Y.3 (Execution Suspension & Scheduling):** Execution halts at Delay; downstream action is not executed immediately; exactly 1 continuation scheduled.
+      - **TC-Y.4 (Exact Simulation Hour Resumption):** Verifies scheduled `due_day`, `due_hour`, and `due_total_hours`; continuation does not execute before due hour and executes cleanly on the exact target hour.
+      - **TC-Y.5 (Minimum 1h Next-Hour Execution):** A 1h delay scheduled at hour $H$ does not resume at hour $H$; it resumes on the next eligible simulation hour $H+1$.
+      - **TC-Y.6 (Pause Compliance):** Paused simulation freezes continuation processing even if simulation time has advanced; resumes cleanly when unpaused.
+      - **TC-Y.8 (Cross-Day Boundary Transitions):** Scheduling a delay across midnight accurately calculates `due_day` (Day 2) and `due_hour` without off-by-one errors.
+    - **Group 3: Delay Continuation Lifecycle & Safety (TC-Y.9 to TC-Y.12)**
+      - **TC-Y.9 (Pre-Delay vs Post-Delay Actions):** Pre-delay actions execute initially; continuation resumption executes strictly post-delay actions (skipping triggers and pre-delay actions).
+      - **TC-Y.10 (Single Execution Guarantee):** Resumed continuations are atomically removed from the pending queue and cannot re-execute.
+      - **TC-Y.11 (Queue Limits & Fail-Closed Protection):** Schedules up to 10 continuations per program; 11th continuation is rejected with `LIMIT_PROGRAM`.
+      - **TC-Y.12 (Program Deletion & Disabled State):** Deleting a program purges all its pending continuations; disabling a program safely skips continuation resumes without errors.
+    - **Group 4: Repeat Validation & Iterations (TC-Y.13 to TC-Y.17)**
+      - **TC-Y.13 (Valid Counts & Structure):** Accepts integer counts 1, 5, and 20; rejects 0, -1, 21, 100, floats, strings, null, and Repeat nodes without a `body` connection.
+      - **TC-Y.14 (Finite Loop Execution):** Body actions execute exactly $N$ times.
+      - **TC-Y.15 (Completed Post-Loop Flow):** Downstream nodes connected to the `completed` port execute once all iterations finish.
+      - **TC-Y.16 (Acyclicity Enforcement):** Back-edges into Repeat nodes are strictly rejected by the graph validator cycle detector.
+      - **TC-Y.17 (Budget Safety & Step Capping):** Combined steps across all iterations increment the global step counter and halt cleanly if `MAX_STEPS_PER_RUN = 60` is exceeded.
+    - **Group 5: Editor Ports & Dry-Run Simulation (TC-Y.19 to TC-Y.22)**
+      - **TC-Y.19 (Palette Integration):** Palette contains `AddDelayBtn` and `AddRepeatBtn`; clicking adds corresponding nodes.
+      - **TC-Y.20 (Slot & Port Mapping):** Verifies port mapping: Delay (`in`: 0, `out`: 0), Repeat (`in`: 0, `body`: 0, `completed`: 1).
+      - **TC-Y.22 (Side-Effect-Free Dry Run):** Dry run outputs trace simulation logs detailing expected continuation resume hours and iteration steps without modifying citizen roles, resources, or queuing persistent continuations.
+    - **Group 6: SaveManager Persistence & Schema Compatibility (TC-Y.23 to TC-Y.27)**
+      - **TC-Y.23 (Continuations Serialization Roundtrip):** Serialized data contains `pending_continuations`; SaveManager accepts valid schema; restored queue preserves `due_day`, `due_hour`, and `due_total_hours`.
+      - **TC-Y.24 (Double-Load Idempotency):** Consecutive loads restore the exact continuation queue with zero duplicates.
+      - **TC-Y.26 (Malformed Record Fail-Closed Validation):** Rejects invalid types, empty IDs, missing fields, out-of-bounds hours, and negative days fail-closed.
+      - **TC-Y.27 (Legacy Save Compatibility):** Saves without `pending_continuations` pass validation and load cleanly with an empty queue under schema version 1.
+    - **Group 7: Non-Regression & WorldView Integration (TC-Y.28 to TC-Y.30)**
+      - **TC-Y.28 (Preset Rules Preservation):** Preset priority rules (e.g. food emergency) boost jobs properly.
+      - **TC-Y.29 (evaluate_rules Backward Compatibility):** Calling `evaluate_rules` without explicit day/hour parameters functions seamlessly.
+      - **TC-Y.30 (WorldView Integration):** `WorldView` initializes `automation_mgr` and feeds simulation clock into hourly graph evaluation ticks.
+  - *Status:* **PASSED** (2026-10-29, Exit Code 0: 110/110 assertions passed across all 30 requirements).

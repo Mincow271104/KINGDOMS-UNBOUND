@@ -11,7 +11,9 @@ const VALID_NODE_TYPES: Array[String] = [
 	"LogicGate",
 	"IfElse",
 	"Action",
-	"End"
+	"End",
+	"Delay",
+	"Repeat"
 ]
 
 const VALID_ACTION_SUBTYPES: Array[String] = [
@@ -180,6 +182,28 @@ static func validate_program(prog: Variant) -> Dictionary:
 					if not (delta_p is int or delta_p is float) or is_nan(float(delta_p)) or is_inf(float(delta_p)) or int(delta_p) == 0:
 						errors.push_back("delta_priority phải là số nguyên khác 0 tại node '%s'" % nid)
 
+			"Delay":
+				var d_val = params.get("duration_hours", params.get("duration", params.get("durationHours", null)))
+				if d_val == null:
+					errors.push_back("Node Delay '%s' thiếu tham số 'duration_hours'" % nid)
+				elif not (d_val is int or (d_val is float and not is_nan(float(d_val)) and not is_inf(float(d_val)) and floor(float(d_val)) == float(d_val))):
+					errors.push_back("duration_hours của node Delay '%s' phải là số nguyên hợp lệ" % nid)
+				else:
+					var d_int: int = int(d_val)
+					if d_int < 1 or d_int > 720:
+						errors.push_back("duration_hours của node Delay '%s' (%d) phải nằm trong khoảng 1–720 giờ" % [nid, d_int])
+
+			"Repeat":
+				var c_val = params.get("count", params.get("iterations", params.get("repeat_count", null)))
+				if c_val == null:
+					errors.push_back("Node Repeat '%s' thiếu tham số 'count'" % nid)
+				elif not (c_val is int or (c_val is float and not is_nan(float(c_val)) and not is_inf(float(c_val)) and floor(float(c_val)) == float(c_val))):
+					errors.push_back("count của node Repeat '%s' phải là số nguyên hợp lệ" % nid)
+				else:
+					var c_int: int = int(c_val)
+					if c_int < 1 or c_int > 20:
+						errors.push_back("count của node Repeat '%s' (%d) phải nằm trong khoảng 1–20 lần" % [nid, c_int])
+
 	if triggers.is_empty():
 		errors.push_back("Thiếu Node khởi đầu (Trigger)")
 
@@ -210,11 +234,15 @@ static func validate_program(prog: Variant) -> Dictionary:
 
 		# Port compatibility checks
 		var is_bool_out: bool = (src_type in ["Condition", "LogicGate"] and fp == "bool")
-		var is_flow_out: bool = (fp in ["out", "true", "false"])
+		var is_flow_out: bool = (fp in ["out", "true", "false", "body", "completed"])
 
-		if is_bool_out and not (tp in ["cond", "inA", "inB", "in"]):
-			errors.push_back("Sai kiểu cổng: Cổng boolean (%s:%s) không nối được vào (%s:%s)" % [fn, fp, tn, tp])
-			continue
+		if is_bool_out:
+			if tgt_type in ["Action", "End", "Delay", "Repeat", "Trigger"] or (tgt_type == "IfElse" and tp != "cond"):
+				errors.push_back("Sai kiểu cổng: Cổng boolean (%s:%s) không nối được vào cổng luồng (%s:%s)" % [fn, fp, tn, tp])
+				continue
+			if not (tp in ["cond", "inA", "inB", "in"]):
+				errors.push_back("Sai kiểu cổng: Cổng boolean (%s:%s) không nối được vào (%s:%s)" % [fn, fp, tn, tp])
+				continue
 		if is_flow_out and (tp in ["inA", "inB", "cond"] or tgt_type == "LogicGate"):
 			errors.push_back("Sai kiểu cổng: Cổng luồng (%s:%s) không nối được vào cổng boolean (%s:%s)" % [fn, fp, tn, tp])
 			continue
@@ -275,6 +303,22 @@ static func validate_program(prog: Variant) -> Dictionary:
 				errors.push_back("Node IF/ELSE (%s) thiếu đầu vào điều kiện" % nid)
 			if not has_true and not has_false:
 				errors.push_back("Node IF/ELSE (%s) chưa nối nhánh đầu ra True hoặc False" % nid)
+		elif ntype == "Repeat":
+			var has_body: bool = false
+			for ed in valid_edges:
+				if ed["from_node"] == nid and ed["from_port"] in ["body", "out"]:
+					has_body = true
+					break
+			if not has_body:
+				errors.push_back("Node Repeat (%s) chưa nối nhánh lặp 'body'" % nid)
+		elif ntype == "Delay":
+			var has_out: bool = false
+			for ed in valid_edges:
+				if ed["from_node"] == nid and ed["from_port"] == "out":
+					has_out = true
+					break
+			if not has_out:
+				errors.push_back("Node Delay (%s) chưa nối nhánh tiếp tục 'out'" % nid)
 
 	# Cycle detection (Iterative DFS with visiting stack)
 	var visiting: Dictionary = {}

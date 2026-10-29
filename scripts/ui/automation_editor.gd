@@ -117,6 +117,12 @@ func _setup_palette_buttons() -> void:
 	var add_act_log: Button = left_box.get_node_or_null("AddActLogBtn")
 	if add_act_log:
 		add_act_log.pressed.connect(func(): add_node_to_current("Action", "EmitLog", {"message": "Nhật ký tự động"}))
+	var add_delay: Button = left_box.get_node_or_null("AddDelayBtn")
+	if add_delay:
+		add_delay.pressed.connect(func(): add_node_to_current("Delay", "", {"duration_hours": 1}))
+	var add_repeat: Button = left_box.get_node_or_null("AddRepeatBtn")
+	if add_repeat:
+		add_repeat.pressed.connect(func(): add_node_to_current("Repeat", "", {"count": 3}))
 	var add_end: Button = left_box.get_node_or_null("AddEndBtn")
 	if add_end:
 		add_end.pressed.connect(func(): add_node_to_current("End", "Default"))
@@ -298,6 +304,23 @@ func _create_graph_node_ui(n_data: Dictionary) -> GraphNode:
 			gn.add_child(l0)
 			gn.set_slot(0, true, PORT_TYPE_FLOW, COLOR_FLOW, true, PORT_TYPE_FLOW, COLOR_FLOW)
 
+		"Delay":
+			var l0 := Label.new()
+			l0.text = _format_delay_label(n_data)
+			gn.add_child(l0)
+			gn.set_slot(0, true, PORT_TYPE_FLOW, COLOR_FLOW, true, PORT_TYPE_FLOW, COLOR_FLOW)
+
+		"Repeat":
+			var l0 := Label.new()
+			l0.text = _format_repeat_label(n_data)
+			gn.add_child(l0)
+			gn.set_slot(0, true, PORT_TYPE_FLOW, COLOR_FLOW, true, PORT_TYPE_FLOW, COLOR_FLOW)
+
+			var l1 := Label.new()
+			l1.text = "🏁 Hoàn thành (Done)"
+			gn.add_child(l1)
+			gn.set_slot(1, false, 0, Color.WHITE, true, PORT_TYPE_FLOW, COLOR_FLOW)
+
 		"End":
 			var l0 := Label.new()
 			l0.text = "🛑 Dừng luồng"
@@ -306,6 +329,16 @@ func _create_graph_node_ui(n_data: Dictionary) -> GraphNode:
 
 	graph_edit.add_child(gn)
 	return gn
+
+func _format_delay_label(n_data: Dictionary) -> String:
+	var p = n_data.get("params", {}) if (n_data.get("params") is Dictionary) else {}
+	var dur = int(p.get("duration_hours", p.get("duration", 1)))
+	return "⏳ Trì hoãn (%d giờ)" % dur
+
+func _format_repeat_label(n_data: Dictionary) -> String:
+	var p = n_data.get("params", {}) if (n_data.get("params") is Dictionary) else {}
+	var count = int(p.get("count", p.get("iterations", 3)))
+	return "🔁 Lặp lại (%d lần) → Thân" % count
 
 func _format_condition_label(n_data: Dictionary) -> String:
 	var sub = str(n_data.get("subtype", "ResourceCompare"))
@@ -370,6 +403,10 @@ func _port_name_to_index(n_data: Dictionary, is_left: bool, port_name: String) -
 		if not is_left and port_name in ["false"]:
 			return 1
 		return 0
+	elif ntype == "Repeat":
+		if not is_left and port_name == "completed":
+			return 1
+		return 0
 	return 0
 
 func _index_to_port_name(n_data: Dictionary, is_left: bool, port_idx: int) -> String:
@@ -395,6 +432,13 @@ func _index_to_port_name(n_data: Dictionary, is_left: bool, port_idx: int) -> St
 				return "false" if port_idx == 1 else "true"
 		"Action":
 			return "in" if is_left else "out"
+		"Delay":
+			return "in" if is_left else "out"
+		"Repeat":
+			if is_left:
+				return "in"
+			else:
+				return "completed" if port_idx == 1 else "body"
 		"End":
 			return "in" if is_left else ""
 	return "in" if is_left else "out"
@@ -658,6 +702,38 @@ func _build_inspector_for_node(n_data: Dictionary) -> void:
 				)
 				inspector_params_box.add_child(line_m)
 
+		"Delay":
+			var lbl_d := Label.new()
+			lbl_d.text = "Thời gian trì hoãn (giờ, 1–720):"
+			inspector_params_box.add_child(lbl_d)
+
+			var spin_d := SpinBox.new()
+			spin_d.min_value = 1
+			spin_d.max_value = 720
+			spin_d.step = 1
+			spin_d.value = float(params.get("duration_hours", params.get("duration", 1)))
+			spin_d.value_changed.connect(func(val: float):
+				params["duration_hours"] = int(val)
+				_refresh_node_label_in_graph(nid)
+			)
+			inspector_params_box.add_child(spin_d)
+
+		"Repeat":
+			var lbl_c := Label.new()
+			lbl_c.text = "Số lần lặp (1–20):"
+			inspector_params_box.add_child(lbl_c)
+
+			var spin_c := SpinBox.new()
+			spin_c.min_value = 1
+			spin_c.max_value = 20
+			spin_c.step = 1
+			spin_c.value = float(params.get("count", params.get("iterations", 3)))
+			spin_c.value_changed.connect(func(val: float):
+				params["count"] = int(val)
+				_refresh_node_label_in_graph(nid)
+			)
+			inspector_params_box.add_child(spin_c)
+
 		_:
 			var lbl_info := Label.new()
 			lbl_info.text = "Node này không có tham số mở rộng."
@@ -676,6 +752,10 @@ func _refresh_node_label_in_graph(nid: String) -> void:
 				first_child.text = _format_condition_label(n_data)
 			elif ntype == "Action":
 				first_child.text = _format_action_label(n_data)
+			elif ntype == "Delay":
+				first_child.text = _format_delay_label(n_data)
+			elif ntype == "Repeat":
+				first_child.text = _format_repeat_label(n_data)
 
 # -----------------------------------------------------------------------------
 # Validation & Dry-Run Simulation

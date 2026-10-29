@@ -360,12 +360,39 @@
       - On `VICTORY`, surviving defenders belonging to the captured outpost are commanded to `RECOVER_RETREAT` and despawn (`retreat_and_despawn()`), while `obj.defending_unit_ids` is cleared.
       - Resolving siege outcomes (`_resolve_siege_outcome`) is strictly guarded against re-entrancy (`record.get("status") != "active"`).
 
+  - **Package 1Y: Automation Graph Delay & Repeat Nodes:**
+    - *Delay Clock Convention & Bounded Scheduling:*
+      - Delay nodes specify `duration_hours` strictly bounded between 1 and 720 game hours (up to 30 game days). Values $\le 0$, $> 720$, or non-integers are rejected fail-closed.
+      - Scheduled continuations calculate target simulation hours using the canonical formula `due_total_hours = (current_day - 1) * 24 + current_hour + duration_hours`.
+      - Target day and hour are derived deterministically: `due_day = int(floor(float(due_total_hours) / 24.0)) + 1` and `due_hour = due_total_hours % 24`. This cleanly handles midnight roll-overs and season/year boundaries.
+      - Minimum 1-hour delay cannot execute in the same simulation hour as its scheduling tick; it resumes on the next eligible simulation hour tick.
+      - Paused simulation (`TimeManager.is_paused`) freezes continuation execution.
+    - *Continuation Queue Limits & Lifecycle Safety:*
+      - Enforces strict queue bounds: global cap `MAX_GLOBAL_PENDING_CONTINUATIONS = 50` and per-program cap `MAX_PROGRAM_PENDING_CONTINUATIONS = 10`. Scheduling attempts exceeding these limits fail closed with diagnostic error codes.
+      - Continuations are executed in deterministic order: sorted by `due_total_hours` ascending, then by program priority descending, and finally by stable ID.
+      - Deleting a program automatically purges all pending continuations for that program. Disabled programs skip continuation resumes without throwing errors.
+      - Each continuation record can only execute once and is atomically removed from the pending queue upon resumption.
+    - *Repeat Node Semantics & Execution Budget Bounding:*
+      - Repeat nodes specify `count` strictly bounded between 1 and 20 iterations. Values $\le 0$, $> 20$, or non-integers are rejected fail-closed.
+      - Employs a dual-output model: Slot 0 `body` for the iteration body, and Slot 1 `completed` for post-loop downstream flow.
+      - Graph cycle detector continues strictly rejecting circular connections and back-edges, preserving the Directed Acyclic Graph (DAG) invariant while providing finite loop capability.
+      - Execution budget safety: increments `steps` on each step through the loop body, strictly honoring `MAX_STEPS_PER_RUN = 60` across all iterations combined. If budget is exhausted, execution halts safely with an informative diagnostic log.
+    - *Visual Editor & Side-Effect-Free Dry Run:*
+      - Visual editor features `AddDelayBtn` and `AddRepeatBtn` in the palette with Vietnamese labels ("⏳ Trì hoãn", "🔁 Lặp lại").
+      - Graph node inspector provides live SpinBox controls updating node params with immediate label refresh.
+      - Dry-run simulation produces detailed trace logs (explaining expected continuation resume times and loop iterations) without modifying citizen roles, altering resources, or enqueuing persistent continuations.
+    - *Save/Load Persistence & Schema Version Compatibility:*
+      - Schema version remains 1. The `"automation"` payload persists `pending_continuations` alongside existing graph data.
+      - `SaveManager.validate_save_data()` enforces deep fail-closed validation on all continuation records (validating types, ID strings, program IDs, node IDs, integer duration 1–720, due_day $\ge 1$, due_hour 0–23, and due_total_hours $\ge 0$).
+      - Legacy saves lacking `pending_continuations` pass validation and load cleanly with an empty queue.
+      - Double-load idempotency is verified with zero duplicated continuation records.
+
 ---
 
 ## 2. Deferred & Excluded Scope for MVP
 | Feature | GDD Section | Status for MVP | Rationale |
 |---|---|---|---|
-| Automation Graph Delay & Repeat Nodes | Phần VII | Deferred | Bounded MVP node set; timer queues deferred to future package |
+| Automation Graph Delay & Repeat Nodes | Phần VII | Implemented | Delivered end-to-end in Package 1Y with bounded simulation clock queues |
 | Complex family trees & genetics | Phần IV | Deferred | Replaced by deterministic immigration system |
 | Real-time physical tactical combat | Phần VII | Implemented | Tactical combat, enemy AI & field siege delivered in Package 1X |
 | Cosmetic Legacy store | Phần IX | Post-MVP | Preserves focus on core simulation and save/load |

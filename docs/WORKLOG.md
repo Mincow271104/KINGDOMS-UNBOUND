@@ -6674,8 +6674,108 @@ Resolve confirmed issues in Package 1X regarding entity spawn collisions and unb
 - `docs/WORKLOG.md` (Modified)
 
 ### Next Exact Step
-- Verify git status to ensure untracked protected files are preserved.
-- Stage only tracked and intended Package 1X files.
-- Commit to branch `feat/package-1x-tactical-combat-enemy-ai`.
-- Push to remote `origin/feat/package-1x-tactical-combat-enemy-ai`.
+- Complete Package 1Y: Automation Graph Delay & Repeat Nodes.
+
+---
+
+## [2026-10-29] Milestone 32: Package 1Y Automation Graph Delay & Repeat Nodes ✅ IMPLEMENTED & VERIFIED
+
+### Context & Objective
+Implement Package 1Y: Automation Graph Delay & Repeat Nodes for `Mincow271104/KINGDOMS-UNBOUND` on branch `feat/package-1y-automation-delay-repeat`.
+Extend the existing Functional Automation Graph MVP with bounded delayed execution and finite repetition, making automation programs capable of scheduling actions for later simulation hours and repeating defined flows a finite number of times without violating Directed Acyclic Graph (DAG) acyclicity, strict execution budgets, or persistence schema compatibility.
+
+### Completed Work
+1. **Delay & Repeat Graph Validation (`scripts/economy/automation_graph_validator.gd`):**
+   - Added `"Delay"` and `"Repeat"` to `VALID_NODE_TYPES`.
+   - Validated `duration_hours` (integer strictly in range 1..720) on Delay nodes.
+   - Validated `count` (integer strictly in range 1..20) on Repeat nodes.
+   - Enforced strict port typing: boolean outputs cannot connect to flow inputs (`in`); flow outputs (`out`, `true`, `false`, `body`, `completed`) cannot connect to boolean inputs.
+   - Enforced structural requirements: Delay requires outgoing `out` edge; Repeat requires outgoing `body` or `out` edge.
+   - Preserved strict DAG cycle detection, ensuring back-edges and cycles remain rejected fail-closed.
+
+2. **Simulation-Clock Continuations & Runtime Execution (`scripts/economy/automation_manager.gd`):**
+   - Added queue bounds: global cap `MAX_GLOBAL_PENDING_CONTINUATIONS = 50` and per-program cap `MAX_PROGRAM_PENDING_CONTINUATIONS = 10`.
+   - Managed `pending_continuations: Array[Dictionary]` tracking `id`, `program_id`, `node_id`, `resume_node_id`, `duration_hours`, `due_day`, `due_hour`, and `due_total_hours = (day - 1) * 24 + hour`.
+   - Implemented `schedule_continuation()`, `process_due_continuations()`, `get_pending_continuations()`, `get_pending_continuations_for_program()`, `cancel_continuation()`, and `clear_pending_continuations_for_program()`.
+   - In `run_program()`:
+     - Supported resumption via `options["start_node_id"]`.
+     - Handled `Delay` nodes by scheduling a continuation and suspending further downstream execution during live runs; during dry runs, recorded simulation trace without enqueuing continuations.
+     - Handled `Repeat` nodes via a dual-output model: evaluated downstream nodes on the `body` port exactly `count` times, incrementing `steps` per iteration and safely halting if `MAX_STEPS_PER_RUN = 60` is exceeded, then seamlessly triggering downstream nodes on the `completed` port.
+   - In `evaluate_all_graphs()`: processed due continuations first, then ran enabled programs sorted by priority descending and ID ascending.
+   - Updated `evaluate_rules()` to accept `current_day` and `current_hour` (falling back to `TimeManager` or defaults) preserving backward compatibility.
+   - Serialized and deserialized `pending_continuations` and `next_continuation_counter`.
+
+3. **WorldView Hourly Simulation Integration (`scripts/world/world_view.gd`):**
+   - In `_on_simulation_hour_passed()`, passed `cur_d = tm.current_day` and `cur_h = tm.current_hour` to `automation_mgr.evaluate_rules(...)`.
+
+4. **Visual Editor Integration (`scenes/ui/automation_editor.tscn`, `scripts/ui/automation_editor.gd`):**
+   - Added `AddDelayBtn` ("⏳ Trì hoãn") and `AddRepeatBtn` ("🔁 Lặp lại") to the Palette.
+   - Configured GraphNode slot types and colors: Delay (input: flow, output: flow), Repeat (input: flow, output 0: `body` flow, output 1: `completed` flow).
+   - Added port mapping helpers (`_port_name_to_index`, `_index_to_port_name`), dynamic node title and label formatters, and inspector SpinBox controls with live graph node updates.
+
+5. **Persistence Schema Compatibility (`scripts/persistence/save_manager.gd`):**
+   - Maintained schema version 1 compatibility.
+   - Added fail-closed validation for `pending_continuations` in `SaveManager.validate_save_data()` (validating types, IDs, program IDs, node IDs, integer duration 1–720, due_day $\ge 1$, due_hour 0–23, and due_total_hours $\ge 0$).
+   - Supported legacy saves lacking `pending_continuations` cleanly with empty queue.
+   - Verified double-load idempotency.
+
+6. **Automated Test Suite Authoring & Full Regression Matrix:**
+   - Implemented `scripts/test/test_automation_graph_delay_repeat.gd` covering 7 test groups and 110 assertions (110/110 passed, Exit Code 0):
+     - Group 1: Delay Node Validation & Bounds (1–720h)
+     - Group 2: Delay Runtime Progression & Simulation Clock
+     - Group 3: Delay Continuation Lifecycle & Safety
+     - Group 4: Repeat Validation & Iterations
+     - Group 5: Editor Ports & Dry-Run Simulation
+     - Group 6: SaveManager Persistence & Compatibility
+     - Group 7: Non-Regression & WorldView Integration
+   - Verified 100% full project regression matrix across all 21 test suites with 0 failures.
+
+### Validations Performed & Results
+- **Package 1Y Dedicated Test Suite:**
+  - `scripts/test/test_automation_graph_delay_repeat.gd`: **PASS (Exit Code 0: 110/110 assertions)**
+- **Full Project Regression Matrix:**
+  1. `scripts/test/test_automation_graph.gd`: **PASS (Exit Code 0: 69/69 assertions)**
+  2. `scripts/test/test_save_load.gd`: **PASS (Exit Code 0: 129/129 assertions)**
+  3. `scripts/test/test_package_1x_gameplay_integration.gd`: **PASS (Exit Code 0: 57/57 assertions)**
+  4. `scripts/test/test_field_siege.gd`: **PASS (Exit Code 0: 85/85 assertions)**
+  5. `scripts/test/test_enemy_military_ai.gd`: **PASS (Exit Code 0: 54/54 assertions)**
+  6. `scripts/test/test_tactical_combat.gd`: **PASS (Exit Code 0: 58/58 assertions)**
+  7. `scripts/test/test_tactical_military.gd`: **PASS (Exit Code 0: 385/385 assertions)**
+  8. `scripts/test/test_player_army.gd`: **PASS (Exit Code 0: 48/48 tests)**
+  9. `scripts/test/test_army_movement.gd`: **PASS (Exit Code 0: 33/33 tests)**
+  10. `scripts/test/test_live_battle_loop.gd`: **PASS (Exit Code 0: 19/19 tests)**
+  11. `scripts/test/test_offensive_campaign.gd`: **PASS (Exit Code 0: 14/14 tests)**
+  12. `scripts/test/test_battle_diplomacy_consequences.gd`: **PASS (Exit Code 0: 11/11 tests)**
+  13. `scripts/test/test_battle_fortification.gd`: **PASS (Exit Code 0: 12/12 tests)**
+  14. `scripts/test/test_faction_relation_matrix.gd`: **PASS (Exit Code 0: 160/160 assertions)**
+  15. `scripts/test/test_factions_and_battles.gd`: **PASS (Exit Code 0: 48/48 assertions)**
+  16. `scripts/test/test_world_events.gd`: **PASS (Exit Code 0: 72/72 assertions)**
+  17. `scripts/test/test_dynamic_workplaces.gd`: **PASS (Exit Code 0)**
+  18. `scripts/test/test_construction.gd`: **PASS (Exit Code 0)**
+  19. `scripts/test/test_barracks.gd`: **PASS (Exit Code 0)**
+  20. `scripts/test/test_watchtower.gd`: **PASS (Exit Code 0)**
+  21. `scripts/test/test_palisade.gd`: **PASS (Exit Code 0)**
+- **Headless Editor Validation:**
+  - `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --editor --quit`: **PASS (Exit Code 0)**
+- **Whitespace / Git Check:**
+  - `git diff --check`: **PASS (Exit Code 0)**
+
+### Files Created or Modified
+- `scenes/ui/automation_editor.tscn` (Modified)
+- `scripts/economy/automation_graph_validator.gd` (Modified)
+- `scripts/economy/automation_manager.gd` (Modified)
+- `scripts/persistence/save_manager.gd` (Modified)
+- `scripts/ui/automation_editor.gd` (Modified)
+- `scripts/world/world_view.gd` (Modified)
+- `scripts/test/test_automation_graph_delay_repeat.gd` (New)
+- `docs/BACKLOG.md` (Modified)
+- `docs/SCOPE_DECISIONS.md` (Modified)
+- `docs/TEST_PLAN.md` (Modified)
+- `docs/WORKLOG.md` (Modified)
+
+### Next Exact Step
+- Check git status to confirm protected untracked files are untouched.
+- Stage only intended Package 1Y files.
+- Commit to branch `feat/package-1y-automation-delay-repeat`.
+- Push to remote `origin/feat/package-1y-automation-delay-repeat`.
 - Deliver comprehensive completion report.

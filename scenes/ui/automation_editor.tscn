@@ -152,6 +152,14 @@ text = "🎯 Tăng Ưu Tiên"
 layout_mode = 2
 text = "📝 Ghi Log"
 
+[node name="AddDelayBtn" type="Button" parent="Panel/MarginContainer/VBoxContainer/HSplit/LeftBox/Palette"]
+layout_mode = 2
+text = "⏳ Trì hoãn"
+
+[node name="AddRepeatBtn" type="Button" parent="Panel/MarginContainer/VBoxContainer/HSplit/LeftBox/Palette"]
+layout_mode = 2
+text = "🔁 Lặp lại"
+
 [node name="AddEndBtn" type="Button" parent="Panel/MarginContainer/VBoxContainer/HSplit/LeftBox/Palette"]
 layout_mode = 2
 text = "🛑 End"

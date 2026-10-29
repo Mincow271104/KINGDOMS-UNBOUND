@@ -1667,7 +1667,9 @@ func _on_simulation_hour_passed(hour: int, day: int) -> void:
 			var tm = get_node_or_null("/root/TimeManager")
 			var season: String = tm.get_season_name() if tm else "spring"
 			var paused: bool = (tm != null and tm.has_method("is_paused") and tm.is_paused())
-			automation_mgr.evaluate_rules(rm, job_mgr, workplace_mgr, season, citizen_list, world_data, paused)
+			var cur_d: int = tm.current_day if tm else 1
+			var cur_h: int = tm.current_hour if tm else 0
+			automation_mgr.evaluate_rules(rm, job_mgr, workplace_mgr, season, citizen_list, world_data, paused, cur_d, cur_h)
 
 	# Hourly Immigration & Victory/Crisis Evaluation
 	var housing_cap: int = BuildingSystem.get_total_housing_capacity(world_data)

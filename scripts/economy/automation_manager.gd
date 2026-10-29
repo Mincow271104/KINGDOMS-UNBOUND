@@ -8,6 +8,8 @@ extends RefCounted
 const MAX_RULE_CHECKS_PER_TICK: int = 10
 const MAX_STEPS_PER_RUN: int = 60
 const MAX_LOGS: int = 60
+const MAX_GLOBAL_PENDING_CONTINUATIONS: int = 50
+const MAX_PROGRAM_PENDING_CONTINUATIONS: int = 10
 
 # Preset rules configuration
 var food_emergency_threshold: int = 30
@@ -21,6 +23,10 @@ var total_evaluations: int = 0
 var programs: Array[AutomationProgram] = []
 var execution_logs: Array[String] = []
 var _next_program_counter: int = 1
+
+# Pending Delayed Continuations (Package 1Y)
+var pending_continuations: Array[Dictionary] = []
+var _next_continuation_counter: int = 1
 
 # -----------------------------------------------------------------------------
 # Program Lifecycle & Management
@@ -60,6 +66,7 @@ func duplicate_program(prog_id: String) -> AutomationProgram:
 	return new_prog
 
 func delete_program(prog_id: String) -> bool:
+	clear_pending_continuations_for_program(prog_id)
 	for i in range(programs.size()):
 		if programs[i].id == prog_id:
 			programs.remove_at(i)
@@ -93,15 +100,26 @@ func add_node(prog: AutomationProgram, type: String, subtype: String = "", x: fl
 			title = "🎯 %s" % (subtype if not subtype.is_empty() else "Action")
 		"End":
 			title = "🛑 End"
+		"Delay":
+			title = "⏳ Trì hoãn"
+		"Repeat":
+			title = "🔁 Lặp lại"
+
+	var final_params := params.duplicate(true)
+	if final_params.is_empty():
+		if type == "Delay":
+			final_params["duration_hours"] = 1
+		elif type == "Repeat":
+			final_params["count"] = 3
 
 	var node: Dictionary = {
 		"id": node_id,
 		"type": type,
-		"subtype": subtype if not subtype.is_empty() else ("Default" if type == "Condition" else ("EmitLog" if type == "Action" else "")),
+		"subtype": subtype if not subtype.is_empty() else ("Default" if type in ["Condition", "Delay", "Repeat"] else ("EmitLog" if type == "Action" else "")),
 		"title": title,
 		"x": x,
 		"y": y,
-		"params": params.duplicate(true)
+		"params": final_params
 	}
 	prog.nodes.append(node)
 	return node
@@ -128,10 +146,13 @@ func connect_nodes(prog: AutomationProgram, from_node: String, from_port: String
 
 	# Port compatibility check
 	var is_bool_out: bool = (src_type in ["Condition", "LogicGate"] and from_port == "bool")
-	var is_flow_out: bool = (from_port in ["out", "true", "false"])
+	var is_flow_out: bool = (from_port in ["out", "true", "false", "body", "completed"])
 
-	if is_bool_out and not (to_port in ["cond", "inA", "inB", "in"]):
-		return {"ok": false, "reason": "Sai kiểu cổng: Cổng boolean (%s) không nối được vào (%s)" % [from_port, to_port]}
+	if is_bool_out:
+		if tgt_type in ["Action", "End", "Delay", "Repeat", "Trigger"] or (tgt_type == "IfElse" and to_port != "cond"):
+			return {"ok": false, "reason": "Sai kiểu cổng: Cổng boolean (%s) không nối được vào cổng luồng (%s)" % [from_port, to_port]}
+		if not (to_port in ["cond", "inA", "inB", "in"]):
+			return {"ok": false, "reason": "Sai kiểu cổng: Cổng boolean (%s) không nối được vào (%s)" % [from_port, to_port]}
 	if is_flow_out and (to_port in ["inA", "inB", "cond"] or tgt_type == "LogicGate"):
 		return {"ok": false, "reason": "Sai kiểu cổng: Cổng luồng (%s) không nối được vào cổng boolean (%s)" % [from_port, to_port]}
 
@@ -179,6 +200,156 @@ func log_trace(prog_id: String, msg: String, is_dry_run: bool = false, target_tr
 		execution_logs.push_front(entry)
 		if execution_logs.size() > MAX_LOGS:
 			execution_logs.pop_back()
+
+# -----------------------------------------------------------------------------
+# Delayed Continuation Queue Management (Package 1Y)
+# -----------------------------------------------------------------------------
+
+func get_pending_continuations() -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	for c in pending_continuations:
+		result.append(c.duplicate(true))
+	return result
+
+func get_pending_continuations_for_program(prog_id: String) -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	for c in pending_continuations:
+		if str(c.get("program_id", "")) == prog_id:
+			result.append(c.duplicate(true))
+	return result
+
+func cancel_continuation(cont_id: String) -> bool:
+	for i in range(pending_continuations.size()):
+		if str(pending_continuations[i].get("id", "")) == cont_id:
+			pending_continuations.remove_at(i)
+			return true
+	return false
+
+func clear_pending_continuations_for_program(prog_id: String) -> int:
+	var count: int = 0
+	var kept: Array[Dictionary] = []
+	for c in pending_continuations:
+		if str(c.get("program_id", "")) == prog_id:
+			count += 1
+		else:
+			kept.append(c)
+	pending_continuations = kept
+	return count
+
+func schedule_continuation(
+	prog_id: String,
+	delay_node_id: String,
+	resume_node_id: String,
+	duration_hours: int,
+	current_day: int,
+	current_hour: int,
+	extra_meta: Dictionary = {}
+) -> Dictionary:
+	if pending_continuations.size() >= MAX_GLOBAL_PENDING_CONTINUATIONS:
+		var msg := "Hàng đợi trì hoãn toàn cục đã đầy (Tối đa %d)" % MAX_GLOBAL_PENDING_CONTINUATIONS
+		log_trace(prog_id, msg, false, [], current_day)
+		return {"ok": false, "reason": msg, "code": "LIMIT_GLOBAL"}
+
+	var prog_count: int = 0
+	for c in pending_continuations:
+		if str(c.get("program_id", "")) == prog_id:
+			prog_count += 1
+	if prog_count >= MAX_PROGRAM_PENDING_CONTINUATIONS:
+		var msg := "Hàng đợi trì hoãn của chương trình '%s' đã đầy (Tối đa %d)" % [prog_id, MAX_PROGRAM_PENDING_CONTINUATIONS]
+		log_trace(prog_id, msg, false, [], current_day)
+		return {"ok": false, "reason": msg, "code": "LIMIT_PROGRAM"}
+
+	var cur_total: int = (current_day - 1) * 24 + current_hour
+	var due_total: int = cur_total + duration_hours
+	var due_day: int = 1 + int(due_total / 24)
+	var due_hour: int = due_total % 24
+	var cont_id: String = "cont_%d" % _next_continuation_counter
+	_next_continuation_counter += 1
+
+	var entry: Dictionary = {
+		"id": cont_id,
+		"program_id": prog_id,
+		"delay_node_id": delay_node_id,
+		"resume_node_id": resume_node_id,
+		"duration_hours": duration_hours,
+		"scheduled_day": current_day,
+		"scheduled_hour": current_hour,
+		"due_day": due_day,
+		"due_hour": due_hour,
+		"due_total_hours": due_total
+	}
+	for k in extra_meta:
+		entry[k] = extra_meta[k]
+
+	pending_continuations.append(entry)
+	return {"ok": true, "continuation": entry}
+
+func process_due_continuations(context: Dictionary) -> Array[Dictionary]:
+	if bool(context.get("is_paused", false)):
+		return []
+
+	var cur_day: int = int(context.get("current_day", 1))
+	var cur_hour: int = int(context.get("current_hour", 0))
+	var cur_total: int = (cur_day - 1) * 24 + cur_hour
+
+	var due: Array[Dictionary] = []
+	var remaining: Array[Dictionary] = []
+	for c in pending_continuations:
+		if int(c.get("due_total_hours", 0)) <= cur_total:
+			due.append(c)
+		else:
+			remaining.append(c)
+	pending_continuations = remaining
+
+	if due.is_empty():
+		return []
+
+	due.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		var ta = int(a.get("due_total_hours", 0))
+		var tb = int(b.get("due_total_hours", 0))
+		if ta != tb:
+			return ta < tb
+		return str(a.get("id", "")) < str(b.get("id", ""))
+	)
+
+	var executed_results: Array[Dictionary] = []
+	var shared_action_locks: Dictionary = context.get("shared_action_locks", {})
+
+	for c in due:
+		var cid: String = str(c.get("id", ""))
+		var prog_id: String = str(c.get("program_id", ""))
+		var resume_id: String = str(c.get("resume_node_id", ""))
+
+		var prog := get_program(prog_id)
+		if prog == null:
+			log_trace(prog_id, "Hủy continuation '%s': Chương trình không tồn tại" % cid, false, [], cur_day)
+			continue
+		if not prog.enabled:
+			log_trace(prog_id, "Bỏ qua continuation '%s': Chương trình '%s' đang bị tắt" % [cid, prog_id], false, [], cur_day)
+			continue
+
+		var has_resume_node: bool = false
+		for n in prog.nodes:
+			if str(n.get("id", "")) == resume_id:
+				has_resume_node = true
+				break
+		if not has_resume_node:
+			log_trace(prog_id, "Hủy continuation '%s': Node tiếp tục '%s' không còn tồn tại" % [cid, resume_id], false, [], cur_day)
+			continue
+
+		log_trace(prog_id, "Kích hoạt continuation '%s' (tiếp tục tại node '%s')" % [cid, resume_id], false, [], cur_day)
+		var res := run_program(prog_id, context, {
+			"dry_run": false,
+			"start_node_id": resume_id,
+			"continuation_id": cid,
+			"shared_action_locks": shared_action_locks
+		})
+		executed_results.append({
+			"continuation": c,
+			"result": res
+		})
+
+	return executed_results
 
 # -----------------------------------------------------------------------------
 # Graph Node Evaluation & Action Execution
@@ -427,9 +598,16 @@ func run_program(prog_id: String, context: Dictionary, options: Dictionary = {})
 	var actions_executed: Array[Dictionary] = []
 
 	var queue: Array[Dictionary] = []
-	for n in prog.nodes:
-		if str(n.get("type", "")) == "Trigger":
-			queue.append(n)
+	var start_node_id: String = str(options.get("start_node_id", ""))
+	if not start_node_id.is_empty():
+		for n in prog.nodes:
+			if str(n.get("id", "")) == start_node_id:
+				queue.append(n)
+				break
+	else:
+		for n in prog.nodes:
+			if str(n.get("type", "")) == "Trigger":
+				queue.append(n)
 
 	while not queue.is_empty():
 		steps += 1
@@ -535,6 +713,189 @@ func run_program(prog_id: String, context: Dictionary, options: Dictionary = {})
 			"End":
 				log_trace(prog.id, "Kết thúc luồng tại Node End (%s)" % cid, is_dry_run, trace, cur_day)
 
+			"Delay":
+				var d_val = cur.get("params", {}).get("duration_hours", cur.get("params", {}).get("duration", 1))
+				var duration: int = clampi(int(d_val), 1, 720)
+				var cur_day_val: int = int(context.get("current_day", 1))
+				var cur_hour_val: int = int(context.get("current_hour", 0))
+				var cur_total_h: int = (cur_day_val - 1) * 24 + cur_hour_val
+				var due_total_h: int = cur_total_h + duration
+				var due_d: int = 1 + int(due_total_h / 24)
+				var due_h: int = due_total_h % 24
+
+				var out_nodes: Array[String] = []
+				for e in prog.edges:
+					var fn = str(e.get("from_node", e.get("fromNode", "")))
+					var fp = str(e.get("from_port", e.get("fromPort", "")))
+					if fn == cid and fp == "out":
+						var tn = str(e.get("to_node", e.get("toNode", "")))
+						out_nodes.append(tn)
+
+				if is_dry_run:
+					var sim_msg := "Trì hoãn %d giờ: Dự kiến kích hoạt vào Ngày %d, %02d:00 (Nối %d node)" % [
+						duration, due_d, due_h, out_nodes.size()
+					]
+					log_trace(prog.id, sim_msg, is_dry_run, trace, cur_day_val)
+				else:
+					if out_nodes.is_empty():
+						log_trace(prog.id, "Node Delay (%s) không có nhánh ra 'out'" % cid, is_dry_run, trace, cur_day_val)
+					else:
+						for target_nid in out_nodes:
+							var sched_res := schedule_continuation(prog.id, cid, target_nid, duration, cur_day_val, cur_hour_val)
+							if sched_res.get("ok", false):
+								var c_info: Dictionary = sched_res.get("continuation", {})
+								var sched_msg := "Đã lập lịch trì hoãn %s: %d giờ → tiếp tục tại '%s' (Đến hạn: Ngày %d, %02d:00)" % [
+									str(c_info.get("id")), duration, target_nid, due_d, due_h
+								]
+								log_trace(prog.id, sched_msg, is_dry_run, trace, cur_day_val)
+							else:
+								var err_msg := "Lỗi lập lịch trì hoãn tại node '%s': %s" % [cid, sched_res.get("reason", "")]
+								log_trace(prog.id, err_msg, is_dry_run, trace, cur_day_val)
+				# Suspend current execution path: do not append out_nodes to queue
+
+			"Repeat":
+				var c_val = cur.get("params", {}).get("count", cur.get("params", {}).get("iterations", 1))
+				var count: int = clampi(int(c_val), 1, 20)
+				log_trace(prog.id, "Bắt đầu vòng lặp Repeat (%s) với %d lần lặp" % [cid, count], is_dry_run, trace, cur_day)
+
+				var body_node_ids: Array[String] = []
+				var completed_node_ids: Array[String] = []
+
+				for e in prog.edges:
+					var fn = str(e.get("from_node", e.get("fromNode", "")))
+					var fp = str(e.get("from_port", e.get("fromPort", "")))
+					var tn = str(e.get("to_node", e.get("toNode", "")))
+					if fn == cid:
+						if fp in ["body", "out"]:
+							body_node_ids.append(tn)
+						elif fp == "completed":
+							completed_node_ids.append(tn)
+
+				for iter_idx in range(1, count + 1):
+					log_trace(prog.id, "Repeat %s: Vòng lặp %d/%d" % [cid, iter_idx, count], is_dry_run, trace, cur_day)
+					var body_queue: Array[Dictionary] = []
+					for bn_id in body_node_ids:
+						for n in prog.nodes:
+							if str(n.get("id", "")) == bn_id:
+								body_queue.append(n)
+								break
+
+					while not body_queue.is_empty():
+						steps += 1
+						if steps > MAX_STEPS_PER_RUN:
+							var budget_msg := "Dừng khẩn cấp: Vượt ngân sách thực thi (%d bước/tick)" % MAX_STEPS_PER_RUN
+							log_trace(prog.id, budget_msg, is_dry_run, trace, cur_day)
+							return {"ok": false, "reason": budget_msg, "trace": trace, "actions_executed": actions_executed}
+
+						var b_cur: Dictionary = body_queue.pop_front()
+						var b_cid: String = str(b_cur.get("id", ""))
+						var b_ctype: String = str(b_cur.get("type", ""))
+						var b_ctitle: String = str(b_cur.get("title", b_ctype))
+
+						match b_ctype:
+							"Action":
+								var act_res := execute_action_node(b_cur, prog, context, is_dry_run, trace, action_locks)
+								actions_executed.append({
+									"node_id": b_cid,
+									"subtype": b_cur.get("subtype", ""),
+									"ok": act_res.get("ok", false),
+									"detail": act_res.get("delta", act_res.get("reason", ""))
+								})
+								for e in prog.edges:
+									var fn = str(e.get("from_node", e.get("fromNode", "")))
+									if fn == b_cid:
+										var tn = str(e.get("to_node", e.get("toNode", "")))
+										for n in prog.nodes:
+											if str(n.get("id", "")) == tn:
+												body_queue.append(n)
+												break
+
+							"Condition", "LogicGate":
+								var val := evaluate_condition_node(b_cur, prog, context, memo_bool)
+								log_trace(prog.id, "Đánh giá %s = %s" % [b_ctitle, "TRUE" if val else "FALSE"], is_dry_run, trace, cur_day)
+								for e in prog.edges:
+									var fn = str(e.get("from_node", e.get("fromNode", "")))
+									if fn == b_cid:
+										var tn = str(e.get("to_node", e.get("toNode", "")))
+										for n in prog.nodes:
+											if str(n.get("id", "")) == tn:
+												var nt: String = str(n.get("type", ""))
+												if nt in ["IfElse", "LogicGate"]:
+													body_queue.append(n)
+												elif val:
+													body_queue.append(n)
+												break
+
+							"IfElse":
+								var cond_node: Dictionary = {}
+								for e in prog.edges:
+									var tn = str(e.get("to_node", e.get("toNode", "")))
+									var tp = str(e.get("to_port", e.get("toPort", "")))
+									if tn == b_cid and tp == "cond":
+										var fn = str(e.get("from_node", e.get("fromNode", "")))
+										for n in prog.nodes:
+											if str(n.get("id", "")) == fn:
+												cond_node = n
+												break
+										if not cond_node.is_empty():
+											break
+
+								if cond_node.is_empty():
+									for e in prog.edges:
+										var tn = str(e.get("to_node", e.get("toNode", "")))
+										if tn == b_cid:
+											var fn = str(e.get("from_node", e.get("fromNode", "")))
+											for n in prog.nodes:
+												if str(n.get("id", "")) == fn and str(n.get("type", "")) in ["Condition", "LogicGate"]:
+													cond_node = n
+													break
+											if not cond_node.is_empty():
+												break
+
+								var cond_val: bool = false
+								if not cond_node.is_empty():
+									cond_val = evaluate_condition_node(cond_node, prog, context, memo_bool)
+
+								var branch_port: String = "true" if cond_val else "false"
+								log_trace(prog.id, "Nhánh IF/ELSE chọn cổng [%s]" % branch_port.to_upper(), is_dry_run, trace, cur_day)
+
+								for e in prog.edges:
+									var fn = str(e.get("from_node", e.get("fromNode", "")))
+									var fp = str(e.get("from_port", e.get("fromPort", "")))
+									if fn == b_cid and fp == branch_port:
+										var tn = str(e.get("to_node", e.get("toNode", "")))
+										for n in prog.nodes:
+											if str(n.get("id", "")) == tn:
+												body_queue.append(n)
+												break
+
+							"End":
+								log_trace(prog.id, "Kết thúc vòng lặp tại Node End (%s)" % b_cid, is_dry_run, trace, cur_day)
+								body_queue.clear()
+
+							"Delay":
+								var d_dur: int = clampi(int(b_cur.get("params", {}).get("duration_hours", 1)), 1, 720)
+								var d_out_nodes: Array[String] = []
+								for e in prog.edges:
+									if str(e.get("from_node", e.get("fromNode", ""))) == b_cid and str(e.get("from_port", e.get("fromPort", ""))) == "out":
+										d_out_nodes.append(str(e.get("to_node", e.get("toNode", ""))))
+								if is_dry_run:
+									log_trace(prog.id, "Trì hoãn %d giờ trong vòng lặp (vòng %d)" % [d_dur, iter_idx], is_dry_run, trace, cur_day)
+								else:
+									for dn_id in d_out_nodes:
+										schedule_continuation(prog.id, b_cid, dn_id, d_dur, cur_day, int(context.get("current_hour", 0)), {
+											"repeat_node_id": cid,
+											"repeat_iteration": iter_idx,
+											"repeat_count": count
+										})
+
+				log_trace(prog.id, "Repeat %s hoàn thành tất cả %d lần lặp" % [cid, count], is_dry_run, trace, cur_day)
+				for cn_id in completed_node_ids:
+					for n in prog.nodes:
+						if str(n.get("id", "")) == cn_id:
+							queue.append(n)
+							break
+
 	return {
 		"ok": true,
 		"dry_run": is_dry_run,
@@ -546,6 +907,27 @@ func run_program(prog_id: String, context: Dictionary, options: Dictionary = {})
 func evaluate_all_graphs(context: Dictionary, _dt: float = 0.0) -> Dictionary:
 	if bool(context.get("is_paused", false)):
 		return {"executed_programs": []}
+
+	# Ensure authoritative current_day and current_hour in context
+	if not context.has("current_day") or int(context.get("current_day", 1)) < 1:
+		context["current_day"] = 1
+	if not context.has("current_hour") or int(context.get("current_hour", 0)) < 0:
+		context["current_hour"] = 0
+
+	var shared_action_locks: Dictionary = {}
+	context["shared_action_locks"] = shared_action_locks
+	var executed_programs: Array[String] = []
+
+	# First, process due continuations (Package 1Y)
+	var cont_results := process_due_continuations(context)
+	for cr in cont_results:
+		var c_dict: Dictionary = cr.get("continuation", {})
+		var pid: String = str(c_dict.get("program_id", ""))
+		var c_res: Dictionary = cr.get("result", {})
+		if not pid.is_empty() and not executed_programs.has(pid):
+			var acts: Array = c_res.get("actions_executed", [])
+			if not acts.is_empty():
+				executed_programs.append(pid)
 
 	var enabled_progs: Array[AutomationProgram] = []
 	for p in programs:
@@ -559,9 +941,6 @@ func evaluate_all_graphs(context: Dictionary, _dt: float = 0.0) -> Dictionary:
 		return a.id < b.id
 	)
 
-	var shared_action_locks: Dictionary = {}
-	var executed_programs: Array[String] = []
-
 	for prog in enabled_progs:
 		var res := run_program(prog.id, context, {
 			"dry_run": false,
@@ -569,7 +948,7 @@ func evaluate_all_graphs(context: Dictionary, _dt: float = 0.0) -> Dictionary:
 		})
 		if res.get("ok", false):
 			var acts: Array = res.get("actions_executed", [])
-			if not acts.is_empty():
+			if not acts.is_empty() and not executed_programs.has(prog.id):
 				executed_programs.append(prog.id)
 
 	return {"executed_programs": executed_programs}
@@ -585,11 +964,28 @@ func evaluate_rules(
 	current_season: String = "spring",
 	citizens: Array = [],
 	world_data = null,
-	is_paused: bool = false
+	is_paused: bool = false,
+	current_day: int = -1,
+	current_hour: int = -1
 ) -> Array[String]:
 	var actions_taken: Array[String] = []
 	execution_budget_used = 0
 	total_evaluations += 1
+
+	var eff_day: int = current_day
+	var eff_hour: int = current_hour
+	if eff_day < 1 or eff_hour < 0:
+		var tm = Engine.get_main_loop().root.get_node_or_null("/root/TimeManager") if (Engine.get_main_loop() and Engine.get_main_loop().has_method("get_root") and Engine.get_main_loop().root) else null
+		if tm != null:
+			if eff_day < 1:
+				eff_day = int(tm.get("current_day")) if tm.get("current_day") != null else 1
+			if eff_hour < 0:
+				eff_hour = int(tm.get("current_hour")) if tm.get("current_hour") != null else 0
+		else:
+			if eff_day < 1:
+				eff_day = 1
+			if eff_hour < 0:
+				eff_hour = 0
 
 	if resource_mgr != null and job_mgr != null:
 		# --- Rule 1: Food Emergency Priority Boost ---
@@ -646,7 +1042,8 @@ func evaluate_rules(
 		"citizens": citizens,
 		"world_data": world_data,
 		"is_paused": is_paused,
-		"current_day": 1
+		"current_day": eff_day,
+		"current_hour": eff_hour
 	}
 	var graph_res := evaluate_all_graphs(graph_context)
 	var exec_progs: Array = graph_res.get("executed_programs", [])
@@ -663,14 +1060,20 @@ func serialize() -> Dictionary:
 	var serialized_progs: Array = []
 	for p in programs:
 		serialized_progs.append(p.serialize())
+	var serialized_conts: Array = []
+	for c in pending_continuations:
+		serialized_conts.append(c.duplicate(true))
 	return {
 		"programs": serialized_progs,
-		"execution_logs": execution_logs.duplicate()
+		"execution_logs": execution_logs.duplicate(),
+		"pending_continuations": serialized_conts,
+		"next_continuation_counter": _next_continuation_counter
 	}
 
 func deserialize(data: Dictionary) -> void:
 	programs.clear()
 	execution_logs.clear()
+	pending_continuations.clear()
 
 	var raw_progs = data.get("programs", [])
 	if raw_progs is Array:
@@ -689,3 +1092,19 @@ func deserialize(data: Dictionary) -> void:
 	if raw_logs is Array:
 		for l in raw_logs:
 			execution_logs.append(str(l))
+
+	var raw_conts = data.get("pending_continuations", [])
+	if raw_conts is Array:
+		for c_data in raw_conts:
+			if c_data is Dictionary:
+				pending_continuations.append(c_data.duplicate(true))
+				var cid_str: String = str(c_data.get("id", ""))
+				if cid_str.begins_with("cont_"):
+					var num_part := cid_str.trim_prefix("cont_").to_int()
+					if num_part >= _next_continuation_counter:
+						_next_continuation_counter = num_part + 1
+
+	if data.has("next_continuation_counter"):
+		var ncc = int(data.get("next_continuation_counter", 1))
+		if ncc > _next_continuation_counter:
+			_next_continuation_counter = ncc

@@ -292,3 +292,35 @@
   - Outpost targeting click priority: `WorldView._unhandled_input()` prioritizes exact-cell siege objective clicks over fuzzy adjacent enemy targeting, ensuring direct outpost right-clicks are never intercepted.
   - Single explicit distinction between faction field forces and objective defenders: added `@export var is_garrison_defender: bool` and `@export var assigned_objective_id: String` to `EnemyTacticalUnit`, preserved in serialization; `FieldSiegeManager.launch_field_siege()` reuses living defenders, assigns eligible nearby faction units, and spawns only missing defenders up to `garrison_count` on retry, preventing unbounded enemy inflation; on victory, surviving defenders of the captured outpost retreat and despawn.
   - Automated test suites: added TC-SIEGE.14 and TC-SIEGE.15 in `scripts/test/test_field_siege.gd` (85/85 assertions passed) and TC-INT.7 and TC-INT.8 in `scripts/test/test_package_1x_gameplay_integration.gd` (57/57 assertions passed).
+
+---
+
+## Package 1Y: Automation Graph Delay & Repeat Nodes (Completed)
+- [x] **TASK-1Y.1:** Bounded Delay Node & Simulation Clock Continuations:
+  - Validated integer `duration_hours` bounded between 1 and 720 hours (up to 30 game days).
+  - Flow ports (`in` -> `out`) that suspend execution upon reaching the Delay node.
+  - Scheduled continuations stored with `id`, `program_id`, `node_id`, `resume_node_id`, `duration_hours`, `due_day`, `due_hour`, and absolute simulation clock `due_total_hours = (due_day - 1) * 24 + due_hour`.
+  - Queue limits: global cap `MAX_GLOBAL_PENDING_CONTINUATIONS = 50`, per-program cap `MAX_PROGRAM_PENDING_CONTINUATIONS = 10` failing closed with informative error codes.
+  - Clean lifecycle: deletion of programs cleans pending continuations; disabled programs skip continuation resumes; paused simulation freezes execution; 1h delays execute on the next eligible simulation hour; day boundary transitions calculate exact `due_day` and `due_hour`.
+- [x] **TASK-1Y.2:** Bounded Repeat Node & Budget Safety:
+  - Validated integer `count` bounded between 1 and 20 iterations.
+  - Dual control-flow outputs: Slot 0 `body` for the loop iteration body and Slot 1 `completed` for post-loop execution.
+  - Strict DAG enforcement: graph cycle detection continues rejecting cycles and back-edges, preventing infinite recursion while enabling finite visual loops.
+  - Execution budget safety: increments step budget on every node execution within iterations, safely terminating execution if combined steps reach `MAX_STEPS_PER_RUN = 60`.
+- [x] **TASK-1Y.3:** Visual Editor Integration:
+  - Palette buttons `AddDelayBtn` ("⏳ Trì hoãn") and `AddRepeatBtn` ("🔁 Lặp lại") added to `scenes/ui/automation_editor.tscn`.
+  - GraphNode slot configurations, port mapping helpers (`body` -> 0, `completed` -> 1), dynamic title/label formatters, and inspector spinbox controls in `scripts/ui/automation_editor.gd` with live node parameter mutation and graph refresh.
+- [x] **TASK-1Y.4:** Strict Graph Validation:
+  - Added `"Delay"` and `"Repeat"` to `VALID_NODE_TYPES` in `scripts/economy/automation_graph_validator.gd`.
+  - Enforced strict integer range validation for `duration_hours` (1–720) and `count` (1–20).
+  - Enforced flow-to-boolean and boolean-to-flow connection incompatibility.
+  - Enforced required outgoing edges: Delay requires `out`; Repeat requires `body` or `out`.
+- [x] **TASK-1Y.5:** Side-Effect-Free Dry Run:
+  - Full trace simulation for Delay (logging scheduled resume day/hour without queuing continuations) and Repeat (logging iterations and completed step without mutating citizens, jobs, or resources).
+- [x] **TASK-1Y.6:** Save/Load Persistence & Schema Compatibility:
+  - Added fail-closed schema validation in `SaveManager` for `pending_continuations` (validating types, ID strings, program IDs, node IDs, integer duration 1–720, due_day >= 1, due_hour 0–23, due_total_hours >= 0).
+  - Maintained schema version 1 compatibility; legacy saves lacking continuations load cleanly with an empty queue.
+  - Verified double-load idempotency without duplicate continuation records.
+- [x] **TASK-1Y.7:** Automated Test Suite:
+  - Implemented `scripts/test/test_automation_graph_delay_repeat.gd` covering 7 test groups and 110 assertions (110/110 passed, Exit Code 0).
+  - Verified full regression matrix across all 21 project test suites with 0 failures.
