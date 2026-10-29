@@ -51,6 +51,8 @@ func set_player_army_manager(army_mgr: Object) -> void:
 
 func set_enemy_military_manager(enemy_mgr: Object) -> void:
 	enemy_military_mgr = enemy_mgr
+	if enemy_military_mgr != null and enemy_military_mgr.has_method("set_field_siege_manager"):
+		enemy_military_mgr.set_field_siege_manager(self)
 
 func set_resource_manager(rm: Object) -> void:
 	resource_mgr = rm
@@ -205,18 +207,63 @@ func launch_field_siege(target_faction_id: String, objective_id: String) -> Dict
 	var obj = get_objective(objective_id)
 	var em = get_enemy_military_manager()
 
-	# Mobilize garrison defenders around objective if needed
+	# Mobilize garrison defenders around objective:
+	# Reuse living existing defenders, assign eligible nearby faction units, and spawn only missing defenders.
 	var defender_ids: Array[String] = []
 	if em != null and obj != null:
-		var defenders = em.spawn_enemy_force(target_faction_id, obj.current_cell, obj.garrison_count)
-		for d in defenders:
-			if d != null:
+		var living_defenders: Array[TacticalUnit] = []
+		for uid in obj.defending_unit_ids:
+			var u = em.get_enemy(uid)
+			if u != null and is_instance_valid(u) and u.is_alive and not living_defenders.has(u):
+				living_defenders.append(u)
+
+		if em.has_method("get_garrison_defenders_by_objective"):
+			var assigned = em.get_garrison_defenders_by_objective(objective_id)
+			for u in assigned:
+				if u != null and is_instance_valid(u) and u.is_alive and not living_defenders.has(u):
+					living_defenders.append(u)
+
+		# If still below target garrison capacity, reuse unassigned faction units in proximity
+		if living_defenders.size() < obj.garrison_count and em.has_method("get_enemies_by_faction"):
+			var faction_units: Array = em.get_enemies_by_faction(target_faction_id)
+			for u in faction_units:
+				if living_defenders.size() >= obj.garrison_count:
+					break
+				if u != null and is_instance_valid(u) and u.is_alive and not living_defenders.has(u):
+					if not u.get("is_garrison_defender") or u.get("assigned_objective_id") == "":
+						var dist: int = IsoMath.grid_distance(u.current_cell, obj.current_cell)
+						if dist <= 8:
+							u.is_garrison_defender = true
+							u.assigned_objective_id = objective_id
+							living_defenders.append(u)
+
+		# Spawn only genuinely missing defenders up to garrison_count
+		var needed: int = maxi(0, obj.garrison_count - living_defenders.size())
+		var new_defenders: Array[TacticalUnit] = []
+		if needed > 0:
+			var nav = em.get_nav() if em.has_method("get_nav") else null
+			new_defenders = em.spawn_enemy_force(target_faction_id, obj.current_cell, needed, nav, true, true, objective_id)
+
+		for d in living_defenders:
+			if d != null and is_instance_valid(d):
 				defender_ids.append(d.unit_id)
-				# Defenders defend objective
 				d.patrol_origin = obj.current_cell
 				d.patrol_radius = 4
+				d.is_garrison_defender = true
+				d.assigned_objective_id = objective_id
 				if d.has_method("set_ai_state"):
 					d.set_ai_state(0) # 0 = HOLD
+
+		for d in new_defenders:
+			if d != null and is_instance_valid(d):
+				defender_ids.append(d.unit_id)
+				d.patrol_origin = obj.current_cell
+				d.patrol_radius = 4
+				d.is_garrison_defender = true
+				d.assigned_objective_id = objective_id
+				if d.has_method("set_ai_state"):
+					d.set_ai_state(0) # 0 = HOLD
+
 		obj.defending_unit_ids = defender_ids
 
 	var s_id := "siege_%d" % next_siege_index
@@ -267,7 +314,7 @@ func evaluate_siege_status(siege_id: String) -> Dictionary:
 
 	var record: Dictionary = active_sieges[siege_id]
 	if record.get("status") != "active":
-		return {"status": record.get("status"), "outcome": record.get("outcome", "NONE")}
+		return {"status": record.get("status"), "outcome": record.get("outcome", "NONE"), "details": record.get("details", {})}
 
 	var obj_id: String = record.get("objective_id", "")
 	var obj = get_objective(obj_id)
@@ -297,6 +344,13 @@ func _resolve_siege_outcome(siege_id: String, outcome: String) -> Dictionary:
 		return {}
 
 	var record: Dictionary = active_sieges[siege_id]
+	if record.get("status") != "active":
+		return {
+			"status": record.get("status", "resolved"),
+			"outcome": record.get("outcome", outcome),
+			"details": record.get("details", {})
+		}
+
 	record["status"] = "resolved"
 	record["outcome"] = outcome
 
@@ -324,6 +378,19 @@ func _resolve_siege_outcome(siege_id: String, outcome: String) -> Dictionary:
 				rm.call("add_resource", r_type, plunder[r_type])
 		details["plunder"] = plunder
 
+		# 3. Clean up / route surviving defenders of captured outpost
+		var em = get_enemy_military_manager()
+		if em != null and obj != null:
+			for uid in obj.defending_unit_ids:
+				var u = em.get_enemy(uid)
+				if u != null and is_instance_valid(u) and u.is_alive:
+					if u.has_method("retreat_and_despawn"):
+						u.retreat_and_despawn()
+					elif u.has_method("set_ai_state"):
+						u.set_ai_state(5) # 5 = RECOVER_RETREAT
+			obj.defending_unit_ids.clear()
+
+	record["details"] = details
 	field_siege_resolved.emit(siege_id, outcome, details)
 	return {
 		"status": "resolved",

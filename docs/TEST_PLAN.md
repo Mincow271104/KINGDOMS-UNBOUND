@@ -735,9 +735,11 @@ When Godot Editor is running with the MCP plugin:
     - **TC-SIEGE.11 (Real ResourceManager Integration & Canonical Stock):** Plunder rewards deposit into real `ResourceManager` storage, clamped strictly by warehouse capacity.
     - **TC-SIEGE.12 (Tactical Attack Order Gating):** Tactical attack orders on inactive outpost targets are rejected fail-closed with localized reason code.
     - **TC-SIEGE.13 (Peace Treaty Siege Cancellation):** Peace treaty cancels active sieges against the faction and resets objective siege status.
-  - *Status:* **PASSED** (2026-10-29, Exit Code 0: 67/67 assertions passed).
+    - **TC-SIEGE.14 (Siege Retry Idempotency & Bounded Defender Replenishment):** Launching a siege spawns initial defenders; defeating one defender, withdrawing, and retrying replenishes only the missing defender up to `garrison_count` rather than spawning duplicate full waves; subsequent retry with full garrison spawns 0 new units.
+    - **TC-SIEGE.15 (Exact Objective Cell Prioritization & Zero Objective Overlap):** Guaranteed zero spawned units occupy the objective cell; direct clicks on the objective cell prioritize the outpost over adjacent enemy units.
+  - *Status:* **PASSED** (2026-10-29, Exit Code 0: 85/85 assertions passed).
 
-- **TC-INT.1 to TC-INT.7: Package 1X Gameplay Integration Test Suite**
+- **TC-INT.1 to TC-INT.8: Package 1X Gameplay Integration Test Suite**
   - *Tracked Test Suite:* `res://scripts/test/test_package_1x_gameplay_integration.gd`
   - *Command:* `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --path "e:\KINGDOMS UNBOUND\kingdoms-unbound" -s res://scripts/test/test_package_1x_gameplay_integration.gd`
   - *Acceptance Criteria:*
@@ -746,6 +748,7 @@ When Godot Editor is running with the MCP plugin:
     - **TC-INT.3 (Right-Click Siege Gating & Launch):** Ineligible right-clicks (inactive siege, army not assembled/nearby) show HUD banner and reject attack orders; eligible right-clicks launch siege, mobilize defenders, and issue attack orders.
     - **TC-INT.4 (Combat, Objective Capture & Canonical Plunder):** Units engage defenders and outpost; destroying outpost triggers `VICTORY`, deposits +60 Gold, +40 Food, +20 Metal bounded by storage.
     - **TC-INT.5 (Peace Declaration Cessation & Retreat):** `FactionManager.peace_signed` disengages player units, cancels active sieges, and commands enemy forces to retreat cleanly.
-    - **TC-INT.6 (World Simulation TimeManager Controls):** Pause halts enemy AI and combat progression; 2x/3x speed advances movement and combat proportionally.
-    - **TC-INT.7 (Save/Load Persistence & Double-Load Idempotency):** Complete WorldView roundtrip serializes and restores outposts, enemy forces, and active sieges; repeated load produces 100% identical state without duplication.
-  - *Status:* **PASSED** (2026-10-29, Exit Code 0: 39/39 assertions passed).
+    - **TC-INT.6 (Save/Load Persistence & Double-Load Idempotency):** Complete WorldView roundtrip serializes and restores outposts, enemy forces, and active sieges; repeated load produces 100% identical state without duplication.
+    - **TC-INT.7 (Authoritative Spawn-Slot Entity Exclusion):** Verifies that all active enemy units are in bounds, occupy walkable cells, are not on water tiles, do not overlap building footprints, and strictly exclude objective cells, player tactical units, and living citizens.
+    - **TC-INT.8 (End-to-End Siege Retry Lifecycle & Anti-Inflation):** Tests live WorldView war declaration, siege launch, withdrawal, and retry, verifying that retrying does not inflate defenders beyond `garrison_count`, and repeated war declarations preserve exact unit counts.
+  - *Status:* **PASSED** (2026-10-29, Exit Code 0: 57/57 assertions passed).

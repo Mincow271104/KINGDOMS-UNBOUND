@@ -65,6 +65,8 @@ func _run_all_integration_tests() -> void:
 	_test_siege_combat_and_plunder()
 	_test_peace_treaty_disengagement()
 	_test_persistence_and_double_load()
+	_test_spawn_slot_policy_entity_exclusion()
+	_test_end_to_end_siege_retry_and_anti_inflation()
 
 func _test_worldview_outpost_generation() -> void:
 	print("--- Test 1: WorldView Outpost Objective Generation ---")
@@ -257,3 +259,131 @@ func _test_persistence_and_double_load() -> void:
 	_assert(load_2.get("success", false) == true, "TC-INT.6: Second restoration succeeded (double-load)")
 	_assert(em.get_enemy_count() == e_count_before, "TC-INT.6: Enemy count strictly identical after double load")
 	_assert(sm.get_all_objectives().size() == o_count_before, "TC-INT.6: Objective count strictly identical after double load")
+
+func _test_spawn_slot_policy_entity_exclusion() -> void:
+	print("\n--- Test 7: Authoritative Spawn-Slot Entity Exclusion ---")
+	var em = world_instance.get("enemy_military_mgr")
+	var sm = world_instance.get("field_siege_mgr")
+	var tac_mgr = world_instance.get("tactical_military_mgr")
+	var nav = world_instance.get("nav")
+	var wd = world_instance.get("world_data")
+	var citizens = world_instance.get("citizen_list")
+
+	# Collect all registered objective cells
+	var obj_cells: Array[Vector2i] = []
+	for o in sm.get_all_objectives():
+		obj_cells.append(o.current_cell)
+
+	# Collect all player unit cells
+	var player_cells: Array[Vector2i] = []
+	for u in tac_mgr.get_all_units():
+		if u.is_alive:
+			player_cells.append(u.current_cell)
+
+	# Collect all living citizen cells
+	var citizen_cells: Array[Vector2i] = []
+	for cit in citizens:
+		if is_instance_valid(cit) and cit.call("is_alive"):
+			citizen_cells.append(cit.current_cell)
+
+	# Verify every living enemy unit satisfies the authoritative spawn policy
+	var all_enemies = em.get_all_enemies()
+	_assert(all_enemies.size() > 0, "TC-INT.7: Active enemy units exist for verification")
+
+	var seen_enemy_cells: Dictionary = {}
+	var has_duplicate_enemy_cells := false
+	var shares_objective_cell := false
+	var shares_player_cell := false
+	var shares_citizen_cell := false
+	var on_water := false
+	var on_occupied_building := false
+	var out_of_bounds := false
+	var unwalkable := false
+
+	for e in all_enemies:
+		if not is_instance_valid(e) or not e.is_alive:
+			continue
+		var c = e.current_cell
+		if not IsoMath.is_in_bounds(c):
+			out_of_bounds = true
+		if nav != null and not nav.is_cell_walkable(c):
+			unwalkable = true
+		if wd != null:
+			if wd.terrain[c.x][c.y] == WorldGenerator.TerrainType.WATER:
+				on_water = true
+			if wd.occupancy[c.x][c.y]:
+				on_occupied_building = true
+
+		if obj_cells.has(c):
+			shares_objective_cell = true
+		if player_cells.has(c):
+			shares_player_cell = true
+		if citizen_cells.has(c):
+			shares_citizen_cell = true
+
+		if seen_enemy_cells.has(c):
+			has_duplicate_enemy_cells = true
+		seen_enemy_cells[c] = true
+
+	_assert(not out_of_bounds, "TC-INT.7: All enemy units are in bounds")
+	_assert(not unwalkable, "TC-INT.7: All enemy units occupy walkable cells")
+	_assert(not on_water, "TC-INT.7: Zero enemy units on water tiles")
+	_assert(not on_occupied_building, "TC-INT.7: Zero enemy units inside building footprints")
+	_assert(not shares_objective_cell, "TC-INT.7: Zero enemy units share a cell with any siege objective")
+	_assert(not shares_player_cell, "TC-INT.7: Zero enemy units share a cell with player tactical units")
+	_assert(not shares_citizen_cell, "TC-INT.7: Zero enemy units share a cell with living citizens")
+	_assert(not has_duplicate_enemy_cells, "TC-INT.7: All enemy units occupy pairwise distinct cells")
+
+func _test_end_to_end_siege_retry_and_anti_inflation() -> void:
+	print("\n--- Test 8: End-to-End Siege Retry Lifecycle & Anti-Inflation ---")
+	var fm = world_instance.get("faction_mgr")
+	var em = world_instance.get("enemy_military_mgr")
+	var sm = world_instance.get("field_siege_mgr")
+	var army_mgr = world_instance.get("player_army_mgr")
+	var tac_mgr = world_instance.get("tactical_military_mgr")
+
+	var tribe_obj = sm.get_objective("outpost_neutral_tribe")
+	_assert(tribe_obj != null, "TC-INT.8: neutral_tribe outpost found")
+
+	var tribe_fac = fm.get_faction("neutral_tribe")
+	tribe_fac.is_at_war = true
+	fm.war_declared.emit("neutral_tribe")
+
+	var initial_tribe_units = em.get_enemies_by_faction("neutral_tribe")
+	_assert(initial_tribe_units.size() == tribe_obj.garrison_count, "TC-INT.8: War declared spawned exactly garrison_count units (%d)" % tribe_obj.garrison_count)
+
+	# Position player army at outpost proximity
+	var near_cell = tribe_obj.current_cell + Vector2i(1, 1)
+	army_mgr.current_cell = near_cell
+	army_mgr.destination_cell = near_cell
+	army_mgr.movement_state = PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD
+	for u in tac_mgr.get_all_units():
+		u.current_cell = near_cell
+		u.target_cell = near_cell
+		u.order_state = TacticalUnitScript.OrderState.IDLE
+
+	# Launch siege 1 -> should reuse the existing garrison units without duplicating
+	var launch_res1 = sm.launch_field_siege("neutral_tribe", "outpost_neutral_tribe")
+	_assert(launch_res1["success"] == true, "TC-INT.8: First siege launch on neutral_tribe succeeded")
+	var after_launch1 = em.get_enemies_by_faction("neutral_tribe")
+	_assert(after_launch1.size() == tribe_obj.garrison_count, "TC-INT.8: Total units remains exactly garrison_count after launch (%d, not doubled)" % tribe_obj.garrison_count)
+
+	# Simulate player withdrawal
+	army_mgr.current_cell = Vector2i(32, 33)
+	army_mgr.movement_state = PlayerArmyManagerScript.MovementState.GARRISONED
+	var s_id1 = launch_res1["siege_id"]
+	var eval_res1 = sm.evaluate_siege_status(s_id1)
+	_assert(eval_res1["outcome"] == "WITHDRAWAL", "TC-INT.8: Siege evaluated as WITHDRAWAL upon army return home")
+	_assert(tribe_obj.is_under_active_siege == false, "TC-INT.8: Outpost active siege flag cleared")
+
+	# Return to outpost and launch siege retry
+	army_mgr.current_cell = near_cell
+	army_mgr.movement_state = PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD
+	var launch_res2 = sm.launch_field_siege("neutral_tribe", "outpost_neutral_tribe")
+	_assert(launch_res2["success"] == true, "TC-INT.8: Retry launch succeeded")
+	var after_retry = em.get_enemies_by_faction("neutral_tribe")
+	_assert(after_retry.size() == tribe_obj.garrison_count, "TC-INT.8: Retry does NOT spawn duplicate garrison (count remains %d)" % tribe_obj.garrison_count)
+
+	# Repeated war_declared events must not add units either
+	fm.war_declared.emit("neutral_tribe")
+	_assert(em.get_enemies_by_faction("neutral_tribe").size() == tribe_obj.garrison_count, "TC-INT.8: Repeated war_declared preserves exact garrison count")

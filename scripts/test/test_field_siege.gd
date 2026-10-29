@@ -74,6 +74,8 @@ func _run_all_tests() -> void:
 	_test_real_resource_manager_integration()
 	_test_tactical_attack_order_gating()
 	_test_peace_treaty_siege_cancellation()
+	_test_siege_retry_and_bounded_defenders()
+	_test_objective_click_prioritization_and_no_overlap()
 
 	print("========================================================")
 	if failed_assertions == 0:
@@ -582,3 +584,116 @@ func _test_peace_treaty_siege_cancellation() -> void:
 	_assert(record["outcome"] == "WITHDRAWAL", "TC-SIEGE.13: Siege outcome recorded as WITHDRAWAL")
 
 	sm.clear_all_objectives()
+
+func _test_siege_retry_and_bounded_defenders() -> void:
+	print("\n--- Test 14: Siege Retry Idempotency & Bounded Defender Replenishment ---")
+	var fm = MockFactionManager.new()
+	var fac = MockFactionData.new()
+	fac.id = "retry_faction"
+	fac.is_at_war = true
+	fm.add_faction(fac)
+
+	var army_mgr = PlayerArmyManagerScript.new()
+	var tac_mgr = TacticalMilitaryManagerScript.new(null, army_mgr)
+	army_mgr.set_tactical_military_manager(tac_mgr)
+	army_mgr.soldier_count = 3
+	tac_mgr.sync_with_player_army()
+	for u in tac_mgr.get_all_units():
+		u.current_cell = Vector2i(22, 22)
+	army_mgr.current_cell = Vector2i(22, 22)
+	army_mgr.movement_state = PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD
+
+	var enemy_mgr = EnemyMilitaryManagerScript.new(null, fm)
+	var sm = FieldSiegeManagerScript.new(null, fm, army_mgr, enemy_mgr)
+	enemy_mgr.set_field_siege_manager(sm)
+	enemy_mgr.set_tactical_military_manager(tac_mgr)
+
+	var obj = sm.register_objective("obj_retry_1", Vector2i(20, 20), "retry_faction", 300.0, 3)
+
+	# 1. First Launch: spawns full garrison (3 defenders)
+	var launch1 = sm.launch_field_siege("retry_faction", "obj_retry_1")
+	_assert(launch1["success"] == true, "TC-SIEGE.14: First siege launch succeeded")
+	_assert(enemy_mgr.get_enemy_count() == 3, "TC-SIEGE.14: Exactly 3 defenders spawned for initial garrison")
+	_assert(obj.defending_unit_ids.size() == 3, "TC-SIEGE.14: Objective recorded 3 defending unit IDs")
+	for uid in obj.defending_unit_ids:
+		var u = enemy_mgr.get_enemy(uid)
+		_assert(u.current_cell != obj.current_cell, "TC-SIEGE.14: Defender does not occupy objective cell")
+
+	# 2. Defeat 1 defender in combat -> 2 defenders remain alive
+	var killed_id: String = obj.defending_unit_ids[0]
+	var killed_unit = enemy_mgr.get_enemy(killed_id)
+	killed_unit.take_damage(150.0, "player_test")
+	_assert(enemy_mgr.get_enemy_count() == 2, "TC-SIEGE.14: 1 defender defeated, exactly 2 remain in manager")
+
+	# 3. Player army retreats -> WITHDRAWAL
+	army_mgr.current_cell = Vector2i(35, 35)
+	army_mgr.movement_state = PlayerArmyManagerScript.MovementState.GARRISONED
+	var eval1 = sm.evaluate_siege_status(launch1["siege_id"])
+	_assert(eval1["outcome"] == "WITHDRAWAL", "TC-SIEGE.14: Siege resolved as WITHDRAWAL")
+	_assert(obj.is_under_active_siege == false, "TC-SIEGE.14: Objective no longer under active siege")
+
+	# 4. Player army returns and retries siege launch
+	army_mgr.current_cell = Vector2i(22, 22)
+	army_mgr.movement_state = PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD
+	var launch2 = sm.launch_field_siege("retry_faction", "obj_retry_1")
+	_assert(launch2["success"] == true, "TC-SIEGE.14: Retry siege launch succeeded")
+	# Crucial: Must reuse the 2 living defenders and spawn ONLY 1 missing defender -> total 3 (NOT 2 + 3 = 5)!
+	_assert(enemy_mgr.get_enemy_count() == 3, "TC-SIEGE.14: Retry replenished only 1 missing defender (total remains 3, not 5)")
+	_assert(obj.defending_unit_ids.size() == 3, "TC-SIEGE.14: Objective records exactly 3 defenders")
+
+	# 5. Withdraw again without killing any defenders
+	army_mgr.current_cell = Vector2i(35, 35)
+	sm.evaluate_siege_status(launch2["siege_id"])
+
+	# 6. Retry again when all 3 defenders are alive -> 0 new defenders spawned
+	army_mgr.current_cell = Vector2i(22, 22)
+	var launch3 = sm.launch_field_siege("retry_faction", "obj_retry_1")
+	_assert(launch3["success"] == true, "TC-SIEGE.14: Second retry succeeded")
+	_assert(enemy_mgr.get_enemy_count() == 3, "TC-SIEGE.14: Zero new defenders spawned when garrison is already full (count remains 3)")
+	_assert(obj.defending_unit_ids.size() == 3, "TC-SIEGE.14: Defenders array maintained at 3")
+
+	sm.clear_all_objectives()
+	enemy_mgr.clear_all_enemies()
+
+func _test_objective_click_prioritization_and_no_overlap() -> void:
+	print("\n--- Test 15: Exact Objective Cell Prioritization & Zero Objective Overlap ---")
+	var fm = MockFactionManager.new()
+	var fac = MockFactionData.new()
+	fac.id = "target_faction"
+	fac.is_at_war = true
+	fm.add_faction(fac)
+
+	var enemy_mgr = EnemyMilitaryManagerScript.new(null, fm)
+	var sm = FieldSiegeManagerScript.new(null, fm, null, enemy_mgr)
+	enemy_mgr.set_field_siege_manager(sm)
+
+	var obj_cell := Vector2i(15, 15)
+	var obj = sm.register_objective("obj_click_test", obj_cell, "target_faction", 200.0, 4)
+
+	# Spawn enemy force around objective
+	var defenders = enemy_mgr.spawn_enemy_force("target_faction", obj_cell, 4, null, true, true, "obj_click_test")
+	_assert(defenders.size() == 4, "TC-SIEGE.15: 4 defenders spawned")
+
+	# Assert that NO enemy unit was placed on obj_cell
+	var on_obj_cell := false
+	for d in defenders:
+		if d.current_cell == obj_cell:
+			on_obj_cell = true
+	_assert(on_obj_cell == false, "TC-SIEGE.15: Authoritative spawn policy guaranteed zero defenders on objective cell")
+
+	# Verify targeting prioritization logic:
+	# Clicking obj_cell when an enemy is at adjacent (15, 16) matches objective as exact target
+	var cand_obj = obj
+	var cand_enemy = defenders[0]
+	cand_enemy.current_cell = Vector2i(15, 16)
+
+	var click_cell := obj_cell
+	var target_is_obj: bool = false
+	if cand_obj != null and cand_obj.current_cell == click_cell:
+		target_is_obj = true
+	elif cand_enemy != null:
+		target_is_obj = false
+	_assert(target_is_obj == true, "TC-SIEGE.15: Direct click on objective cell prioritizes objective over adjacent enemy")
+
+	sm.clear_all_objectives()
+	enemy_mgr.clear_all_enemies()

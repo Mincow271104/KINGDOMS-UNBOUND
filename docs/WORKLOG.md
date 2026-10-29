@@ -6600,6 +6600,80 @@ Close concrete gameplay integration and persistence gaps for Package 1X:
 - `docs/WORKLOG.md` (Modified)
 
 ### Next Exact Step
+- Execute Package 1X Final Enemy Spawn, Occupancy & Siege Retry Fix pass.
+
+---
+
+## [2026-10-29] Milestone 31: Package 1X Final Enemy Spawn, Occupancy & Siege Retry Fix
+
+### Context & Objective
+Resolve confirmed issues in Package 1X regarding entity spawn collisions and unbounded siege retry garrisons:
+1. Implement an authoritative, deterministic spawn-slot policy in `EnemyMilitaryManager` that excludes registered siege objective cells, existing enemy units, living player tactical units, living citizens, building footprints, and water tiles.
+2. Ensure initial war deployment (`WorldView._on_faction_war_declared`) and siege defender placement (`FieldSiegeManager.launch_field_siege`) never place an enemy unit on an objective's cell (`exclude_center = true`).
+3. Prioritize exact-cell objective clicks in `WorldView._unhandled_input()` over fuzzy adjacent enemy targeting, guaranteeing that clicking an outpost cell is never intercepted by an adjacent enemy.
+4. Establish an explicit distinction between faction field forces and objective garrison defenders (`is_garrison_defender`, `assigned_objective_id`), ensuring siege retries replenish only deceased garrison slots up to `garrison_count` rather than spawning unbounded duplicate waves. On victory, surviving defenders of the captured outpost retreat and despawn.
+5. Preserve 100% of existing Package 1X/1W mechanics, canonical resource accounting, persistence validation, and pass full project regression.
+
+### Completed Work
+1. **Authoritative Spawn-Slot Policy & Entity Exclusion (`scripts/military/enemy_military_manager.gd`):**
+   - Implemented `get_authoritative_occupied_cells(extra_excluded: Array = []) -> Dictionary`, aggregating occupied coordinates from registered siege objectives, living enemy units, living player tactical units, living citizens (using safe `cit.has_method("is_alive")` / `cit.call("is_alive")` check), and building footprints.
+   - Implemented `is_cell_spawn_eligible(c: Vector2i, nav, occupied: Dictionary) -> bool`, validating bounds, walkability, non-water tiles, and non-occupancy.
+   - Updated `_find_distinct_walkable_cells()` with `exclude_center: bool = false`, strictly skipping center coordinates when requested.
+   - Updated `spawn_enemy_unit()` and `spawn_enemy_force()` with optional `exclude_center`, `is_defender`, and `objective_id` parameters.
+   - Added `get_field_enemies_by_faction(faction_id)` and `get_garrison_defenders_by_objective(objective_id)`.
+
+2. **Garrison Defender Distinction & Bounded Replenishment (`scripts/military/enemy_tactical_unit.gd`, `scripts/combat/field_siege_manager.gd`, `scripts/persistence/save_manager.gd`):**
+   - Added `@export var is_garrison_defender: bool = false` and `@export var assigned_objective_id: String = ""` to `EnemyTacticalUnit`, serialized and restored in `serialize()` and `deserialize()`.
+   - Updated `SaveManager.validate_save_data()` to validate optional `is_garrison_defender` (bool) and `assigned_objective_id` (String) fields.
+   - Updated `FieldSiegeManager.launch_field_siege()`: gathers living assigned defenders, reuses eligible nearby faction units, and spawns only missing units (`needed = max(0, obj.garrison_count - living_defenders.size())`). Mobilizes defenders into `HOLD` state with `patrol_origin` at the objective cell.
+   - Updated `FieldSiegeManager._resolve_siege_outcome()`: added idempotency guard (`if record.get("status") != "active": return ...`), saves outcome details, and on `VICTORY` commands surviving defenders of the captured outpost to `RECOVER_RETREAT` and despawn (`retreat_and_despawn()`), clearing `obj.defending_unit_ids`.
+
+3. **WorldView Integration & Exact Objective Click Priority (`scripts/world/world_view.gd`):**
+   - Wired `enemy_military_mgr.set_field_siege_manager(field_siege_mgr)` and `set_tactical_military_manager(tactical_military_mgr)`.
+   - In `_on_faction_war_declared()`, calls `spawn_enemy_force()` with `exclude_center=true, is_defender=true, objective_id=obj.objective_id`.
+   - In `_find_enemy_unit_at_cell()` and `_find_siege_objective_at_cell()`, added early break on exact coordinate match (`d == 0`).
+   - In `_unhandled_input()`, checks exact-cell objective matches (`obj_target != null and obj_target.current_cell == cell`) before adjacent fuzzy enemy targeting, ensuring outpost clicks are never intercepted.
+
+4. **Automated Testing & Coverage:**
+   - Added Test 14 (`_test_siege_retry_and_bounded_defenders`) and Test 15 (`_test_objective_click_prioritization_and_no_overlap`) to `scripts/test/test_field_siege.gd` (85/85 assertions passed, Exit Code 0).
+   - Added Test 7 (`_test_spawn_slot_policy_entity_exclusion`) and Test 8 (`_test_end_to_end_siege_retry_and_anti_inflation`) to `scripts/test/test_package_1x_gameplay_integration.gd` (57/57 assertions passed, Exit Code 0).
+   - Verified 100% full project regression matrix across all test suites.
+
+### Validations Performed & Results
+- **`scripts/test/test_package_1x_gameplay_integration.gd`:** **PASS (Exit Code 0: 57/57 assertions)**
+- **`scripts/test/test_field_siege.gd`:** **PASS (Exit Code 0: 85/85 assertions)**
+- **`scripts/test/test_enemy_military_ai.gd`:** **PASS (Exit Code 0: 54/54 assertions)**
+- **`scripts/test/test_tactical_combat.gd`:** **PASS (Exit Code 0: 58/58 assertions)**
+- **`scripts/test/test_tactical_military.gd`:** **PASS (Exit Code 0: 385/385 assertions)**
+- **`scripts/test/test_save_load.gd`:** **PASS (Exit Code 0: 129/129 assertions)**
+- **`scripts/test/test_player_army.gd`:** **PASS (Exit Code 0: 48/48 tests)**
+- **`scripts/test/test_army_movement.gd`:** **PASS (Exit Code 0: 33/33 tests)**
+- **`scripts/test/test_live_battle_loop.gd`:** **PASS (Exit Code 0: 19/19 tests)**
+- **`scripts/test/test_offensive_campaign.gd`:** **PASS (Exit Code 0: 14/14 tests)**
+- **`scripts/test/test_battle_diplomacy_consequences.gd`:** **PASS (Exit Code 0: 11/11 tests)**
+- **`scripts/test/test_battle_fortification.gd`:** **PASS (Exit Code 0: 12/12 tests)**
+- **`scripts/test/test_faction_relation_matrix.gd`:** **PASS (Exit Code 0: 160/160 assertions)**
+- **`scripts/test/test_factions_and_battles.gd`:** **PASS (Exit Code 0: 48/48 assertions)**
+- **`scripts/test/test_world_events.gd`:** **PASS (Exit Code 0: 72/72 assertions)**
+- **Headless Editor Validation:**
+  - `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --editor --quit`: **PASS (Exit Code 0)**
+- **Whitespace / Git Check:**
+  - `git diff --check`: **PASS (Exit Code 0)**
+
+### Files Created or Modified
+- `scripts/military/enemy_tactical_unit.gd` (Modified)
+- `scripts/military/enemy_military_manager.gd` (Modified)
+- `scripts/combat/field_siege_manager.gd` (Modified)
+- `scripts/world/world_view.gd` (Modified)
+- `scripts/persistence/save_manager.gd` (Modified)
+- `scripts/test/test_field_siege.gd` (Modified)
+- `scripts/test/test_package_1x_gameplay_integration.gd` (Modified)
+- `docs/BACKLOG.md` (Modified)
+- `docs/SCOPE_DECISIONS.md` (Modified)
+- `docs/TEST_PLAN.md` (Modified)
+- `docs/WORKLOG.md` (Modified)
+
+### Next Exact Step
 - Verify git status to ensure untracked protected files are preserved.
 - Stage only tracked and intended Package 1X files.
 - Commit to branch `feat/package-1x-tactical-combat-enemy-ai`.

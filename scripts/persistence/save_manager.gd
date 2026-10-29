@@ -970,6 +970,11 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 						if not _is_valid_coord_arr(pt):
 							return {"valid": false, "error": "current_path của đơn vị địch %s chứa tọa độ không hợp lệ." % eid_str}
 
+				if e.has("is_garrison_defender") and not (e.get("is_garrison_defender") is bool):
+					return {"valid": false, "error": "is_garrison_defender của đơn vị địch %s phải là boolean." % eid_str}
+				if e.has("assigned_objective_id") and not (e.get("assigned_objective_id") is String):
+					return {"valid": false, "error": "assigned_objective_id của đơn vị địch %s phải là String." % eid_str}
+
 	# Validate optional field_siege section (Package 1X)
 	if json_dict.has("field_siege"):
 		var siege_val = json_dict.get("field_siege")

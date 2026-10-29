@@ -15,6 +15,10 @@ signal all_enemies_cleared()
 var world_view: Node = null
 var faction_mgr: Object = null
 var enemy_units_container: Node = null
+var field_siege_mgr: Object = null
+var tactical_military_mgr: Object = null
+
+const MAX_FIELD_FORCE_PER_FACTION: int = 3
 
 var enemies: Dictionary = {} # enemy_id: String -> EnemyTacticalUnit
 var next_enemy_index: int = 1
@@ -25,6 +29,8 @@ var _custom_time_mgr: Object = null
 func _init(wv: Node = null, fm: Object = null) -> void:
 	world_view = wv
 	faction_mgr = fm
+	field_siege_mgr = null
+	tactical_military_mgr = null
 	enemies = {}
 	next_enemy_index = 1
 	_bind_faction_signals()
@@ -36,6 +42,26 @@ func set_faction_manager(fm: Object) -> void:
 	_unbind_faction_signals()
 	faction_mgr = fm
 	_bind_faction_signals()
+
+func set_field_siege_manager(fsm: Object) -> void:
+	field_siege_mgr = fsm
+
+func set_tactical_military_manager(tmm: Object) -> void:
+	tactical_military_mgr = tmm
+
+func get_field_siege_manager() -> Object:
+	if field_siege_mgr != null:
+		return field_siege_mgr
+	if is_instance_valid(world_view) and world_view.get("field_siege_mgr") != null:
+		return world_view.get("field_siege_mgr")
+	return null
+
+func get_tactical_military_manager() -> Object:
+	if tactical_military_mgr != null:
+		return tactical_military_mgr
+	if is_instance_valid(world_view) and world_view.get("tactical_military_mgr") != null:
+		return world_view.get("tactical_military_mgr")
+	return null
 
 func set_enemy_units_container(container: Node) -> void:
 	enemy_units_container = container
@@ -92,7 +118,110 @@ func get_enemies_by_faction(faction_id: String) -> Array:
 			result.append(e)
 	return result
 
-func spawn_enemy_unit(faction_id: String, cell: Vector2i, enemy_id: String = "", custom_hp: float = 100.0, custom_dmg: float = 20.0) -> TacticalUnit:
+func get_field_enemies_by_faction(faction_id: String) -> Array:
+	var result: Array = []
+	for e in enemies.values():
+		if is_instance_valid(e) and e.owning_faction_id == faction_id and not e.get("is_garrison_defender"):
+			result.append(e)
+	return result
+
+func get_garrison_defenders_by_objective(objective_id: String) -> Array:
+	var result: Array = []
+	for e in enemies.values():
+		if is_instance_valid(e) and e.get("is_garrison_defender") and e.get("assigned_objective_id") == objective_id:
+			result.append(e)
+	return result
+
+func get_authoritative_occupied_cells(extra_excluded: Array = []) -> Dictionary:
+	var occupied: Dictionary = {}
+
+	# 1. Registered siege objective cells
+	var fsm = get_field_siege_manager()
+	if fsm != null and fsm.has_method("get_all_objectives"):
+		for obj in fsm.get_all_objectives():
+			if obj != null and is_instance_valid(obj):
+				occupied[obj.current_cell] = true
+
+	# 2. Existing living enemy units
+	for e in enemies.values():
+		if e != null and is_instance_valid(e) and e.is_alive:
+			occupied[e.current_cell] = true
+			if e.target_cell != null and e.target_cell != e.current_cell:
+				occupied[e.target_cell] = true
+
+	# 3. Living player tactical units
+	var tmm = get_tactical_military_manager()
+	if tmm != null and tmm.has_method("get_all_units"):
+		for u in tmm.get_all_units():
+			if u != null and is_instance_valid(u) and u.is_alive:
+				occupied[u.current_cell] = true
+				if u.target_cell != null and u.target_cell != u.current_cell:
+					occupied[u.target_cell] = true
+
+	# 4. Living citizens
+	if is_instance_valid(world_view) and world_view.get("citizen_list") != null:
+		var c_list = world_view.get("citizen_list")
+		if c_list is Array:
+			for cit in c_list:
+				if cit != null and is_instance_valid(cit):
+					var alive := true
+					if cit.has_method("is_alive"):
+						alive = bool(cit.call("is_alive"))
+					elif cit.get("health") != null:
+						alive = float(cit.get("health")) > 0.0
+					if alive:
+						var c_pos = cit.get("current_cell")
+						if c_pos is Vector2i:
+							occupied[c_pos] = true
+
+	# 5. Building footprints from WorldData
+	var wd = null
+	if is_instance_valid(world_view) and world_view.get("world_data") != null:
+		wd = world_view.get("world_data")
+	if wd != null and wd.get("buildings") is Array:
+		for b in wd.buildings:
+			if b is Dictionary:
+				var b_cell: Vector2i = b.get("cell", Vector2i(-1, -1))
+				var b_size: Vector2i = b.get("size", Vector2i(1, 1))
+				for bx in range(b_size.x):
+					for by in range(b_size.y):
+						occupied[b_cell + Vector2i(bx, by)] = true
+
+	# 6. Extra excluded cells
+	for c in extra_excluded:
+		if c is Vector2i:
+			occupied[c] = true
+
+	return occupied
+
+func is_cell_spawn_eligible(c: Vector2i, nav: GridNavigation = null, occupied: Dictionary = {}) -> bool:
+	if not IsoMath.is_in_bounds(c):
+		return false
+	if occupied.has(c):
+		return false
+	if nav != null and not nav.is_cell_walkable(c):
+		return false
+
+	var wd = null
+	if is_instance_valid(world_view) and world_view.get("world_data") != null:
+		wd = world_view.get("world_data")
+	if wd != null:
+		if wd.get("terrain") != null and wd.terrain[c.x][c.y] == WorldGenerator.TerrainType.WATER:
+			return false
+		if wd.get("occupancy") != null and wd.occupancy[c.x][c.y]:
+			return false
+
+	return true
+
+func spawn_enemy_unit(
+	faction_id: String,
+	cell: Vector2i,
+	enemy_id: String = "",
+	custom_hp: float = 100.0,
+	custom_dmg: float = 20.0,
+	is_defender: bool = false,
+	objective_id: String = ""
+) -> TacticalUnit:
 	if not IsoMath.is_in_bounds(cell):
 		return null
 
@@ -116,6 +245,8 @@ func spawn_enemy_unit(faction_id: String, cell: Vector2i, enemy_id: String = "",
 	unit.max_health = custom_hp
 	unit.attack_damage = custom_dmg
 	unit.patrol_origin = cell
+	unit.is_garrison_defender = is_defender
+	unit.assigned_objective_id = objective_id
 	unit.set_world_view(world_view)
 	if _custom_time_mgr != null:
 		unit.set_custom_time_manager(_custom_time_mgr)
@@ -131,7 +262,15 @@ func spawn_enemy_unit(faction_id: String, cell: Vector2i, enemy_id: String = "",
 	enemy_spawned.emit(e_id, faction_id, cell)
 	return unit
 
-func spawn_enemy_force(faction_id: String, center_cell: Vector2i, count: int, nav: GridNavigation = null) -> Array[TacticalUnit]:
+func spawn_enemy_force(
+	faction_id: String,
+	center_cell: Vector2i,
+	count: int,
+	nav: GridNavigation = null,
+	exclude_center: bool = false,
+	is_defender: bool = false,
+	objective_id: String = ""
+) -> Array[TacticalUnit]:
 	var result: Array[TacticalUnit] = []
 	if count <= 0 or not IsoMath.is_in_bounds(center_cell):
 		return result
@@ -139,50 +278,51 @@ func spawn_enemy_force(faction_id: String, center_cell: Vector2i, count: int, na
 	if nav == null:
 		nav = get_nav()
 
-	var slots := _find_distinct_walkable_cells(center_cell, count, nav)
+	var slots := _find_distinct_walkable_cells(center_cell, count, nav, [], exclude_center)
 	for slot in slots:
-		var u = spawn_enemy_unit(faction_id, slot)
+		var u = spawn_enemy_unit(faction_id, slot, "", 100.0, 20.0, is_defender, objective_id)
 		if u != null:
 			result.append(u)
 	return result
 
-func _find_distinct_walkable_cells(center: Vector2i, count: int, nav: GridNavigation) -> Array[Vector2i]:
+func _find_distinct_walkable_cells(
+	center: Vector2i,
+	count: int,
+	nav: GridNavigation = null,
+	extra_excluded: Array = [],
+	exclude_center: bool = false
+) -> Array[Vector2i]:
 	var slots: Array[Vector2i] = []
 	if count <= 0:
 		return slots
 
-	var occupied_cells: Array[Vector2i] = []
-	for e in enemies.values():
-		if is_instance_valid(e):
-			occupied_cells.append(e.current_cell)
+	if nav == null:
+		nav = get_nav()
 
-	var is_cell_free = func(c: Vector2i) -> bool:
-		if not IsoMath.is_in_bounds(c):
-			return false
-		if occupied_cells.has(c) or slots.has(c):
-			return false
-		if nav != null and not nav.is_cell_walkable(c):
-			return false
-		return true
+	var occupied := get_authoritative_occupied_cells(extra_excluded)
+	if exclude_center:
+		occupied[center] = true
 
-	if is_cell_free.call(center):
+	if not occupied.has(center) and is_cell_spawn_eligible(center, nav, occupied):
 		slots.append(center)
+		occupied[center] = true
 
-	var max_radius := 15
-	for radius in range(1, max_radius + 1):
-		if slots.size() >= count:
-			break
+	if slots.size() >= count:
+		return slots
+
+	var max_radius: int = IsoMath.MAP_SIZE
+	for radius in range(1, max_radius):
 		for dy in range(-radius, radius + 1):
 			for dx in range(-radius, radius + 1):
 				if maxi(absi(dx), absi(dy)) != radius:
 					continue
 				var candidate := center + Vector2i(dx, dy)
-				if is_cell_free.call(candidate):
+				if not occupied.has(candidate) and is_cell_spawn_eligible(candidate, nav, occupied):
 					slots.append(candidate)
+					occupied[candidate] = true
 					if slots.size() >= count:
-						break
-			if slots.size() >= count:
-				break
+						return slots
+	return slots
 
 	return slots
 

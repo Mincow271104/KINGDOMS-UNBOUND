@@ -183,6 +183,8 @@ func _generate_and_build_world() -> void:
 	player_army_mgr.set_tactical_military_manager(tactical_military_mgr)
 	enemy_military_mgr = EnemyMilitaryManagerScript.new(self, faction_mgr)
 	field_siege_mgr = FieldSiegeManagerScript.new(self, faction_mgr, player_army_mgr, enemy_military_mgr)
+	enemy_military_mgr.set_field_siege_manager(field_siege_mgr)
+	enemy_military_mgr.set_tactical_military_manager(tactical_military_mgr)
 	var rm_node = get_node_or_null("/root/ResourceManager")
 	if rm_node != null:
 		field_siege_mgr.set_resource_manager(rm_node)
@@ -634,13 +636,20 @@ func _on_faction_war_declared(faction_id: String) -> void:
 		obj = field_siege_mgr.register_objective(obj_id, spawn_center, faction_id)
 
 	var force_count: int = obj.garrison_count if obj != null else 3
-	var spawned_units = enemy_military_mgr.spawn_enemy_force(faction_id, spawn_center, force_count, nav)
+	var spawned_units = enemy_military_mgr.spawn_enemy_force(faction_id, spawn_center, force_count, nav, true, true, obj.objective_id if obj != null else "")
 	for u in spawned_units:
 		if u != null:
 			u.patrol_origin = spawn_center
 			u.patrol_radius = 5
 			if u.has_method("set_ai_state"):
 				u.set_ai_state(1) # 1 = PATROL
+
+	if obj != null:
+		var ids: Array[String] = []
+		for u in spawned_units:
+			if u != null:
+				ids.append(u.unit_id)
+		obj.defending_unit_ids = ids
 
 	if hud != null:
 		var fac_name: String = str(fac.name) if fac.get("name") != null else faction_id
@@ -706,6 +715,8 @@ func _find_enemy_unit_at_cell(cell: Vector2i) -> Node2D:
 		if d < best_dist:
 			best_dist = d
 			best_unit = e
+			if d == 0:
+				break
 	return best_unit
 
 func _find_siege_objective_at_cell(cell: Vector2i) -> Node2D:
@@ -720,6 +731,8 @@ func _find_siege_objective_at_cell(cell: Vector2i) -> Node2D:
 		if d < best_dist:
 			best_dist = d
 			best_obj = o
+			if d == 0:
+				break
 	return best_obj
 
 func _process(delta: float) -> void:
@@ -861,41 +874,50 @@ func _unhandled_input(event: InputEvent) -> void:
 							_check_citizen_click(cell)
 			elif mb.button_index == MOUSE_BUTTON_RIGHT and mb.pressed:
 				if tactical_military_mgr != null and tactical_military_mgr.call("get_selected_count") > 0:
+					var obj_target = _find_siege_objective_at_cell(cell)
 					var enemy_target = _find_enemy_unit_at_cell(cell)
-					if enemy_target != null:
+
+					# If right-clicking directly on an outpost objective cell, prioritize the objective!
+					var target_is_obj: bool = false
+					if obj_target != null and obj_target.current_cell == cell:
+						target_is_obj = true
+					elif enemy_target != null:
+						target_is_obj = false
+					elif obj_target != null:
+						target_is_obj = true
+
+					if target_is_obj and obj_target != null:
+						var is_active := false
+						if field_siege_mgr != null and field_siege_mgr.has_method("is_siege_active_for_objective"):
+							is_active = field_siege_mgr.is_siege_active_for_objective(obj_target.objective_id)
+
+						if is_active:
+							var res: Dictionary = tactical_military_mgr.call("issue_attack_order", obj_target, nav)
+							if not res.get("success", false) and hud != null:
+								hud.show_event_banner("Lệnh Tấn Công Thất Bại", res.get("reason", "Không thể tấn công"), false, 3.0)
+						else:
+							if field_siege_mgr != null:
+								var check: Dictionary = field_siege_mgr.can_launch_field_siege(obj_target.owning_faction_id, obj_target.objective_id)
+								if bool(check.get("can_launch", false)):
+									var launch_res: Dictionary = field_siege_mgr.launch_field_siege(obj_target.owning_faction_id, obj_target.objective_id)
+									if bool(launch_res.get("success", false)):
+										var atk_res: Dictionary = tactical_military_mgr.call("issue_attack_order", obj_target, nav)
+										if hud != null:
+											hud.show_event_banner("Phát Động Công Thành!", "Đã phát động chiến dịch công thành đối với %s!" % obj_target.objective_name, true, 4.0)
+									else:
+										if hud != null:
+											hud.show_event_banner("Không Thể Công Thành", launch_res.get("reason", "Phát động thất bại"), false, 3.5)
+								else:
+									if hud != null:
+										hud.show_event_banner("Không Thể Công Thành", check.get("reason", "Không đủ điều kiện công thành"), false, 3.5)
+					elif enemy_target != null:
 						var res: Dictionary = tactical_military_mgr.call("issue_attack_order", enemy_target, nav)
 						if not res.get("success", false) and hud != null:
 							hud.show_event_banner("Lệnh Tấn Công Thất Bại", res.get("reason", "Không thể tấn công"), false, 3.0)
 					else:
-						var obj_target = _find_siege_objective_at_cell(cell)
-						if obj_target != null:
-							var is_active := false
-							if field_siege_mgr != null and field_siege_mgr.has_method("is_siege_active_for_objective"):
-								is_active = field_siege_mgr.is_siege_active_for_objective(obj_target.objective_id)
-
-							if is_active:
-								var res: Dictionary = tactical_military_mgr.call("issue_attack_order", obj_target, nav)
-								if not res.get("success", false) and hud != null:
-									hud.show_event_banner("Lệnh Tấn Công Thất Bại", res.get("reason", "Không thể tấn công"), false, 3.0)
-							else:
-								if field_siege_mgr != null:
-									var check: Dictionary = field_siege_mgr.can_launch_field_siege(obj_target.owning_faction_id, obj_target.objective_id)
-									if bool(check.get("can_launch", false)):
-										var launch_res: Dictionary = field_siege_mgr.launch_field_siege(obj_target.owning_faction_id, obj_target.objective_id)
-										if bool(launch_res.get("success", false)):
-											var atk_res: Dictionary = tactical_military_mgr.call("issue_attack_order", obj_target, nav)
-											if hud != null:
-												hud.show_event_banner("Phát Động Công Thành!", "Đã phát động chiến dịch công thành đối với %s!" % obj_target.objective_name, true, 4.0)
-										else:
-											if hud != null:
-												hud.show_event_banner("Không Thể Công Thành", launch_res.get("reason", "Phát động thất bại"), false, 3.5)
-									else:
-										if hud != null:
-											hud.show_event_banner("Không Thể Công Thành", check.get("reason", "Không đủ điều kiện công thành"), false, 3.5)
-						else:
-							var res: Dictionary = tactical_military_mgr.call("issue_move_order", cell, nav)
-							if not res.get("success", false) and hud != null:
-								hud.show_event_banner("Lệnh Thất Bại", res.get("reason", "Vị trí không thể đi tới"), false, 3.0)
+						var res: Dictionary = tactical_military_mgr.call("issue_move_order", cell, nav)
+						if not res.get("success", false) and hud != null:
+							hud.show_event_banner("Lệnh Thất Bại", res.get("reason", "Vị trí không thể đi tới"), false, 3.0)
 
 func _check_citizen_click(cell: Vector2i) -> void:
 	# Find closest citizen to the clicked cell

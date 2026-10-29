@@ -23,6 +23,8 @@ const CRIMSON_MODULATE := Color(0.95, 0.3, 0.3, 1.0)
 @export var patrol_origin: Vector2i = Vector2i(0, 0)
 @export var patrol_radius: int = 3
 @export var retreat_destination: Vector2i = Vector2i(0, 0)
+@export var is_garrison_defender: bool = false
+@export var assigned_objective_id: String = ""
 
 signal ai_state_changed(enemy_id: String, old_state: int, new_state: int)
 signal enemy_retreated(enemy_id: String)
@@ -256,6 +258,8 @@ func serialize() -> Dictionary:
 	dict["patrol_origin"] = [patrol_origin.x, patrol_origin.y]
 	dict["patrol_radius"] = patrol_radius
 	dict["retreat_destination"] = [retreat_destination.x, retreat_destination.y]
+	dict["is_garrison_defender"] = is_garrison_defender
+	dict["assigned_objective_id"] = assigned_objective_id
 	return dict
 
 func deserialize(data: Dictionary) -> bool:
@@ -266,6 +270,8 @@ func deserialize(data: Dictionary) -> bool:
 		return false
 	ai_state = string_to_ai_state(String(data.get("ai_state", "acquire_target")))
 	detection_range = maxi(1, int(data.get("detection_range", 8)))
+	is_garrison_defender = bool(data.get("is_garrison_defender", false))
+	assigned_objective_id = String(data.get("assigned_objective_id", ""))
 	var raw_p_orig = data.get("patrol_origin")
 	if raw_p_orig is Array and raw_p_orig.size() >= 2:
 		patrol_origin = Vector2i(int(raw_p_orig[0]), int(raw_p_orig[1]))
