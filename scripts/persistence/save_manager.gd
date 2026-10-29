@@ -778,62 +778,12 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 			if not ev_rng_ok:
 				return {"valid": false, "error": "rng_state trong world_events phải là số nguyên hoặc chuỗi số nguyên hợp lệ: %s." % str(ev_rng)}
 
-	# Validate optional automation section (Package 1V)
+	# Validate optional automation section (Package 1V & 1Y)
 	if json_dict.has("automation"):
 		var auto_val = json_dict.get("automation")
-		if not (auto_val is Dictionary):
-			return {"valid": false, "error": "Mục 'automation' phải là từ điển (Dictionary)."}
-		if auto_val.has("programs"):
-			var progs_val = auto_val.get("programs")
-			if not (progs_val is Array):
-				return {"valid": false, "error": "Mục 'programs' trong automation phải là danh sách (Array)."}
-			for p_entry in progs_val:
-				if not (p_entry is Dictionary):
-					return {"valid": false, "error": "Bản ghi chương trình automation không đúng định dạng Dictionary."}
-				var val_prog := AutomationGraphValidator.validate_program(p_entry)
-				if not val_prog.get("valid", false):
-					var err_list: Array = val_prog.get("errors", ["Lỗi đồ thị không xác định"])
-					return {"valid": false, "error": "Chương trình automation '%s' không hợp lệ: %s." % [str(p_entry.get("id", "unknown")), "; ".join(err_list)]}
-		if auto_val.has("execution_logs"):
-			var logs_val = auto_val.get("execution_logs")
-			if not (logs_val is Array):
-				return {"valid": false, "error": "Mục 'execution_logs' trong automation phải là danh sách (Array)."}
-		if auto_val.has("pending_continuations"):
-			var conts_val = auto_val.get("pending_continuations")
-			if not (conts_val is Array):
-				return {"valid": false, "error": "Mục 'pending_continuations' trong automation phải là danh sách (Array)."}
-			if conts_val.size() > 50:
-				return {"valid": false, "error": "Số lượng pending_continuations (%d) vượt quá giới hạn tối đa (50)." % conts_val.size()}
-			for c_entry in conts_val:
-				if not (c_entry is Dictionary):
-					return {"valid": false, "error": "Bản ghi pending_continuation không đúng định dạng Dictionary."}
-				var cid = str(c_entry.get("id", "")).strip_edges()
-				if cid.is_empty():
-					return {"valid": false, "error": "pending_continuation thiếu trường 'id' hợp lệ."}
-				var pid = str(c_entry.get("program_id", "")).strip_edges()
-				if pid.is_empty():
-					return {"valid": false, "error": "pending_continuation '%s' thiếu trường 'program_id'." % cid}
-				var r_nid = str(c_entry.get("resume_node_id", "")).strip_edges()
-				if r_nid.is_empty():
-					return {"valid": false, "error": "pending_continuation '%s' thiếu trường 'resume_node_id'." % cid}
-				var dur = c_entry.get("duration_hours")
-				if not (dur is int or (dur is float and not is_nan(float(dur)) and not is_inf(float(dur)) and floor(float(dur)) == float(dur))):
-					return {"valid": false, "error": "pending_continuation '%s' trường 'duration_hours' không phải số nguyên." % cid}
-				var dur_int: int = int(dur)
-				if dur_int < 1 or dur_int > 720:
-					return {"valid": false, "error": "pending_continuation '%s' duration_hours (%d) nằm ngoài khoảng 1–720." % [cid, dur_int]}
-				for h_key in ["due_day", "due_hour", "due_total_hours"]:
-					if not c_entry.has(h_key):
-						return {"valid": false, "error": "pending_continuation '%s' thiếu trường thời gian '%s'." % [cid, h_key]}
-					var h_val = c_entry.get(h_key)
-					if not (h_val is int or (h_val is float and not is_nan(float(h_val)) and not is_inf(float(h_val)) and floor(float(h_val)) == float(h_val))):
-						return {"valid": false, "error": "pending_continuation '%s' trường '%s' không phải số nguyên." % [cid, h_key]}
-					if h_key == "due_day" and int(h_val) < 1:
-						return {"valid": false, "error": "pending_continuation '%s' due_day (%d) phải >= 1." % [cid, int(h_val)]}
-					if h_key == "due_hour" and (int(h_val) < 0 or int(h_val) > 23):
-						return {"valid": false, "error": "pending_continuation '%s' due_hour (%d) phải nằm trong khoảng 0–23." % [cid, int(h_val)]}
-					if h_key == "due_total_hours" and int(h_val) < 0:
-						return {"valid": false, "error": "pending_continuation '%s' due_total_hours (%d) phải >= 0." % [cid, int(h_val)]}
+		var val_auto = AutomationManager.validate_automation_data(auto_val)
+		if not val_auto.get("valid", false):
+			return {"valid": false, "error": val_auto.get("error", "Dữ liệu automation không hợp lệ.")}
 
 	# Validate optional tactical_military section (Package 1W)
 	if json_dict.has("tactical_military"):

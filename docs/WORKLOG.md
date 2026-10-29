@@ -6774,8 +6774,71 @@ Extend the existing Functional Automation Graph MVP with bounded delayed executi
 - `docs/WORKLOG.md` (Modified)
 
 ### Next Exact Step
-- Check git status to confirm protected untracked files are untouched.
-- Stage only intended Package 1Y files.
-- Commit to branch `feat/package-1y-automation-delay-repeat`.
-- Push to remote `origin/feat/package-1y-automation-delay-repeat`.
-- Deliver comprehensive completion report.
+- Execute follow-up audit for Repeat+Delay lifecycle interleaving, fresh condition evaluation across loop iterations, and atomic persistence validation.
+
+---
+
+## [2026-10-29] Milestone 33: Package 1Y Final Repeat/Delay Lifecycle and Persistence Fix ✅ IMPLEMENTED & VERIFIED
+
+### Context & Objective
+Implement the final correction pass for Package 1Y: Automation Graph Delay & Repeat Nodes on branch `feat/package-1y-automation-delay-repeat`.
+Address confirmed runtime semantics and persistence edge cases:
+1. Repeat + Delay interaction: when a Delay occurs inside a Repeat iteration, suspend execution without prematurely running subsequent iterations or firing the `completed` branch. Resume cleanly via simulation clock continuations, resuming the specific iteration at post-delay actions, executing subsequent iterations from the top of the body, and firing `completed` only after all iterations finish.
+2. Step budget enforcement: carry `steps_used` across continuations so delayed repeat loops respect the global `MAX_STEPS_PER_RUN = 60` budget.
+3. Fresh condition evaluation: isolate `iter_memo_bool` per iteration so condition results do not bleed across iterations.
+4. Nested Repeat prevention: reject nested Repeat nodes during graph validation fail-closed.
+5. Strict continuation persistence: validate pending continuation metadata (IDs, program/node existence, delay duration 1–720, exact due-time formula consistency, valid Repeat metadata, queue limits $\le 50$ global / $\le 10$ per program) and ensure atomic fail-closed deserialization in `AutomationManager`.
+
+### Completed Work
+1. **Nested Repeat Validation (`scripts/economy/automation_graph_validator.gd`):**
+   - Implemented body-branch traversal in `AutomationGraphValidator` detecting and rejecting nested Repeat nodes fail-closed (`"Không hỗ trợ lặp lồng nhau (Nested Repeat): Node Repeat '%s' nằm trong nhánh lặp của node Repeat '%s'"`).
+2. **Unified Repeat/Delay Execution & Fresh Condition Evaluation (`scripts/economy/automation_manager.gd`):**
+   - Implemented unified helper `_execute_repeat_node()` handling both fresh Repeat executions and continuation resumptions.
+   - Enforced per-iteration `var iter_memo_bool: Dictionary = {}` so condition evaluation in Repeat loops is strictly evaluated freshly each iteration.
+   - When Delay is encountered inside Repeat: schedules continuation enriched with `repeat_node_id`, `repeat_iteration`, `repeat_count`, and `steps_used`, sets `suspended = true`, and halts iteration immediately without firing `completed` or subsequent iterations.
+   - Resumption starts strictly at the post-delay node (`start_body_node_id`), executes remaining body nodes for that iteration, then continues subsequent iterations starting at the Repeat body root until all iterations complete, finally returning downstream nodes on `completed`.
+   - Carried step counter `steps_used` across continuations to prevent infinite budget bypassing.
+   - Added `get_execution_logs()` and `clear_execution_logs()` helper methods.
+3. **Strict Fail-Closed Save Validation & Atomic Deserialization (`scripts/persistence/save_manager.gd`, `scripts/economy/automation_manager.gd`):**
+   - Added `AutomationManager.validate_automation_data()` and `AutomationManager.validate_pending_continuations()` verifying non-empty unique continuation IDs, valid programs and target nodes, delay duration 1–720, mathematical due-time consistency (`due_total_hours == (due_day - 1) * 24 + due_hour`), valid Repeat target nodes and iterations ($\le count$), steps budget ($\le 60$), global limit $\le 50$, and per-program limit $\le 10$.
+   - Wired `SaveManager.validate_save_data()` to delegate automation validation to `AutomationManager.validate_automation_data()`.
+   - Updated `AutomationManager.deserialize()` to stage all restored programs and continuations into temporary variables, swapping into live state only after 100% successful validation (fail-closed without mutating live state on malformed data).
+4. **Targeted Regression Suite Authoring (`scripts/test/test_automation_graph_delay_repeat.gd`):**
+   - Added Group 8 with 5 comprehensive test suites (TC-Y.31 to TC-Y.36):
+     - TC-Y.31: Hour-by-hour stepping of Repeat with Delay (Hour 6 init, Hour 7 pending, Hour 8 resume iter 1 + delay iter 2, Hour 9 pending, Hour 10 resume iter 2 + complete).
+     - TC-Y.32: Save/load during delayed Repeat, seamless resumption, and double-load idempotency.
+     - TC-Y.33: Fresh condition evaluation across Repeat iterations without memoization bleed.
+     - TC-Y.34: Graph validation rejection of nested Repeat structures.
+     - TC-Y.35: Malformed continuation persistence rejection (duplicate IDs, ghost programs/nodes, inconsistent due times, invalid repeat metadata, limit overflows).
+     - TC-Y.36: Atomic staged deserialization preserving live state on corruption.
+   - Total assertions in `test_automation_graph_delay_repeat.gd` expanded from 110 to 169 (169/169 passed, Exit Code 0).
+
+### Validations Performed & Results
+- **Package 1Y Test Suite:**
+  - `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --path "e:\KINGDOMS UNBOUND\kingdoms-unbound" -s res://scripts/test/test_automation_graph_delay_repeat.gd`: **PASS (Exit Code 0: 169/169 assertions)**
+- **Regression Suite:**
+  - `scripts/test/test_automation_graph.gd`: **PASS (Exit Code 0: 69/69 assertions)**
+  - `scripts/test/test_save_load.gd`: **PASS (Exit Code 0: 129/129 assertions)**
+  - `scripts/test/test_package_1x_gameplay_integration.gd`: **PASS (Exit Code 0: 57/57 assertions)**
+  - `scripts/test/test_field_siege.gd`: **PASS (Exit Code 0: 85/85 assertions)**
+  - `scripts/test/test_tactical_military.gd`: **PASS (Exit Code 0: 385/385 assertions)**
+- **Headless Engine / Project Check:**
+  - `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --editor --quit`: **PASS (Exit Code 0)**
+- **Whitespace / Git Check:**
+  - `git diff --check`: **PASS (Exit Code 0)**
+
+### Files Created or Modified
+- `scripts/economy/automation_graph_validator.gd` (Modified)
+- `scripts/economy/automation_manager.gd` (Modified)
+- `scripts/persistence/save_manager.gd` (Modified)
+- `scripts/test/test_automation_graph_delay_repeat.gd` (Modified)
+- `docs/BACKLOG.md` (Modified)
+- `docs/SCOPE_DECISIONS.md` (Modified)
+- `docs/TEST_PLAN.md` (Modified)
+- `docs/WORKLOG.md` (Modified)
+
+### Next Exact Step
+- Verify git status.
+- Commit all modified files with `fix(automation): preserve repeat state across delayed continuations`.
+- Push commit to remote branch `origin/feat/package-1y-automation-delay-repeat`.
+- Provide final completion report.

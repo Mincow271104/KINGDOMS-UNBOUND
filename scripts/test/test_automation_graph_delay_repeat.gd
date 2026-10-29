@@ -107,6 +107,7 @@ func _run_all_tests() -> void:
 	_test_group_5_editor_ports_and_dry_run()
 	_test_group_6_persistence_and_compatibility()
 	_test_group_7_non_regression_and_world_integration()
+	_test_group_8_repeat_delay_interaction_and_fail_closed()
 
 # -----------------------------------------------------------------------------
 # GROUP 1: Delay Validation & Configuration
@@ -633,3 +634,333 @@ func _test_group_7_non_regression_and_world_integration() -> void:
 	_assert_true(world_instance != null, "TC-Y.30.1", "WorldView instance exists")
 	var wv_auto_mgr = world_instance.get("automation_mgr")
 	_assert_true(wv_auto_mgr != null, "TC-Y.30.2", "WorldView automation_mgr initialized")
+
+# -----------------------------------------------------------------------------
+# GROUP 8: Repeat + Delay Interaction, State Machine & Fail-Closed Validation
+# -----------------------------------------------------------------------------
+func _test_group_8_repeat_delay_interaction_and_fail_closed() -> void:
+	print("--- Group 8: Repeat + Delay Interaction, Resumption & Persistence Validation ---")
+
+	# --- 8.1: Repeat containing Delay hour-by-hour stepping ---
+	var mgr := AutomationManager.new()
+	var prog := AutomationProgram.new("p_step", "Prog Repeat Delay Stepping")
+	prog.enabled = true
+	prog.nodes = [
+		{"id": "tr", "type": "Trigger", "subtype": "HourTick", "params": {"hour": 6}},
+		{"id": "rep", "type": "Repeat", "subtype": "", "params": {"count": 2}},
+		{"id": "act1", "type": "Action", "subtype": "EmitLog", "params": {"message": "STEP_ACT1"}},
+		{"id": "dly", "type": "Delay", "subtype": "", "params": {"duration_hours": 2}},
+		{"id": "act2", "type": "Action", "subtype": "EmitLog", "params": {"message": "STEP_ACT2"}},
+		{"id": "act_done", "type": "Action", "subtype": "EmitLog", "params": {"message": "STEP_DONE"}}
+	]
+	prog.edges = [
+		{"id": "e1", "from_node": "tr", "from_port": "out", "to_node": "rep", "to_port": "in"},
+		{"id": "e2", "from_node": "rep", "from_port": "body", "to_node": "act1", "to_port": "in"},
+		{"id": "e3", "from_node": "act1", "from_port": "out", "to_node": "dly", "to_port": "in"},
+		{"id": "e4", "from_node": "dly", "from_port": "out", "to_node": "act2", "to_port": "in"},
+		{"id": "e5", "from_node": "rep", "from_port": "completed", "to_node": "act_done", "to_port": "in"}
+	]
+	mgr.programs.append(prog)
+
+	# Hour 6: Run program. Action 1 runs in Iteration 1. Delay 2h suspends.
+	var ctx := {"current_day": 1, "current_hour": 6}
+	var res6 := mgr.run_program(prog.id, ctx)
+	_assert_true(res6.get("ok", false), "TC-Y.31.1", "Program executed at Hour 6")
+	_assert_eq(mgr.get_pending_continuations().size(), 1, "TC-Y.31.2", "Exactly 1 continuation pending at Hour 6")
+	var c6: Dictionary = mgr.get_pending_continuations()[0]
+	_assert_eq(int(c6.get("repeat_iteration")), 1, "TC-Y.31.3", "Continuation is in Repeat iteration 1")
+	_assert_eq(int(c6.get("repeat_count")), 2, "TC-Y.31.4", "Continuation repeat_count is 2")
+	_assert_eq(str(c6.get("resume_node_id")), "act2", "TC-Y.31.5", "Continuation resumes at act2")
+	_assert_eq(int(c6.get("due_total_hours")), 8, "TC-Y.31.6", "Due at total hours 8 (Hour 8)")
+
+	var logs_h6: Array = mgr.get_execution_logs()
+	var act1_cnt_h6 := 0
+	var act2_cnt_h6 := 0
+	var done_cnt_h6 := 0
+	for l in logs_h6:
+		if "STEP_ACT1" in l: act1_cnt_h6 += 1
+		if "STEP_ACT2" in l: act2_cnt_h6 += 1
+		if "STEP_DONE" in l: done_cnt_h6 += 1
+	_assert_eq(act1_cnt_h6, 1, "TC-Y.31.7", "Action 1 ran once at Hour 6")
+	_assert_eq(act2_cnt_h6, 0, "TC-Y.31.8", "Action 2 did not run before delay")
+	_assert_eq(done_cnt_h6, 0, "TC-Y.31.9", "Action Done did not run prematurely")
+
+	# Hour 7: Not due yet
+	ctx["current_hour"] = 7
+	var due_7 := mgr.process_due_continuations(ctx)
+	_assert_eq(mgr.get_pending_continuations().size(), 1, "TC-Y.31.10", "Continuation remains pending at Hour 7")
+	_assert_eq(due_7.size(), 0, "TC-Y.31.11", "No continuations due at Hour 7")
+
+	# Hour 8: Due! Iteration 1 resumes at act2; then Iteration 2 runs act1 and hits Delay (due Hour 10)
+	ctx["current_hour"] = 8
+	var due_8 := mgr.process_due_continuations(ctx)
+	_assert_eq(due_8.size(), 1, "TC-Y.31.12", "Continuation resumed program at Hour 8")
+	_assert_eq(mgr.get_pending_continuations().size(), 1, "TC-Y.31.13", "Iteration 2 scheduled new continuation")
+	var c8: Dictionary = mgr.get_pending_continuations()[0]
+	_assert_eq(int(c8.get("repeat_iteration")), 2, "TC-Y.31.14", "Continuation is in Repeat iteration 2")
+	_assert_eq(int(c8.get("due_total_hours")), 10, "TC-Y.31.15", "Due at total hours 10 (Hour 10)")
+
+	var logs_h8: Array = mgr.get_execution_logs()
+	var act1_cnt_h8 := 0
+	var act2_cnt_h8 := 0
+	var done_cnt_h8 := 0
+	for l in logs_h8:
+		if "STEP_ACT1" in l: act1_cnt_h8 += 1
+		if "STEP_ACT2" in l: act2_cnt_h8 += 1
+		if "STEP_DONE" in l: done_cnt_h8 += 1
+	_assert_eq(act1_cnt_h8, 2, "TC-Y.31.16", "Action 1 ran total 2 times (Iter 1 and Iter 2)")
+	_assert_eq(act2_cnt_h8, 1, "TC-Y.31.17", "Action 2 ran once (Iter 1 resumed)")
+	_assert_eq(done_cnt_h8, 0, "TC-Y.31.18", "Action Done has not run yet")
+
+	# Hour 9: Not due yet
+	ctx["current_hour"] = 9
+	var due_9 := mgr.process_due_continuations(ctx)
+	_assert_eq(due_9.size(), 0, "TC-Y.31.19a", "No continuations due at Hour 9")
+	_assert_eq(mgr.get_pending_continuations().size(), 1, "TC-Y.31.19", "Continuation remains pending at Hour 9")
+
+	# Hour 10: Due! Iteration 2 resumes at act2; all iterations complete; act_done runs
+	ctx["current_hour"] = 10
+	var due_10 := mgr.process_due_continuations(ctx)
+	_assert_eq(due_10.size(), 1, "TC-Y.31.20", "Continuation resumed program at Hour 10")
+	_assert_eq(mgr.get_pending_continuations().size(), 0, "TC-Y.31.21", "All continuations completed")
+
+	var logs_h10: Array = mgr.get_execution_logs()
+	var act1_cnt_h10 := 0
+	var act2_cnt_h10 := 0
+	var done_cnt_h10 := 0
+	for l in logs_h10:
+		if "STEP_ACT1" in l: act1_cnt_h10 += 1
+		if "STEP_ACT2" in l: act2_cnt_h10 += 1
+		if "STEP_DONE" in l: done_cnt_h10 += 1
+	_assert_eq(act1_cnt_h10, 2, "TC-Y.31.22", "Action 1 ran exactly 2 times across entire Repeat")
+	_assert_eq(act2_cnt_h10, 2, "TC-Y.31.23", "Action 2 ran exactly 2 times across entire Repeat")
+	_assert_eq(done_cnt_h10, 1, "TC-Y.31.24", "Action Done ran exactly once after Repeat completion")
+
+	# --- 8.2: Save/Load during delayed Repeat & Double-Load Idempotency ---
+	var mgr_pers := AutomationManager.new()
+	var prog_pers := AutomationProgram.new("p_pers", "Prog Persist Delayed Repeat")
+	prog_pers.enabled = true
+	prog_pers.nodes = [
+		{"id": "p_tr", "type": "Trigger", "subtype": "HourTick", "params": {"hour": 6}},
+		{"id": "p_rep", "type": "Repeat", "subtype": "", "params": {"count": 2}},
+		{"id": "p_act1", "type": "Action", "subtype": "EmitLog", "params": {"message": "PERS_ACT1"}},
+		{"id": "p_dly", "type": "Delay", "subtype": "", "params": {"duration_hours": 2}},
+		{"id": "p_act2", "type": "Action", "subtype": "EmitLog", "params": {"message": "PERS_ACT2"}},
+		{"id": "p_done", "type": "Action", "subtype": "EmitLog", "params": {"message": "PERS_DONE"}}
+	]
+	prog_pers.edges = [
+		{"id": "e1", "from_node": "p_tr", "from_port": "out", "to_node": "p_rep", "to_port": "in"},
+		{"id": "e2", "from_node": "p_rep", "from_port": "body", "to_node": "p_act1", "to_port": "in"},
+		{"id": "e3", "from_node": "p_act1", "from_port": "out", "to_node": "p_dly", "to_port": "in"},
+		{"id": "e4", "from_node": "p_dly", "from_port": "out", "to_node": "p_act2", "to_port": "in"},
+		{"id": "e5", "from_node": "p_rep", "from_port": "completed", "to_node": "p_done", "to_port": "in"}
+	]
+	mgr_pers.programs.append(prog_pers)
+
+	# Execute at Hour 6 -> suspended at Delay in Iteration 1
+	mgr_pers.run_program(prog_pers.id, {"current_day": 1, "current_hour": 6})
+	_assert_eq(mgr_pers.get_pending_continuations().size(), 1, "TC-Y.32.1", "Initial continuation scheduled")
+
+	var saved_dict := mgr_pers.serialize()
+	var mgr_restored := AutomationManager.new()
+	var des_ok: bool = mgr_restored.deserialize(saved_dict)
+	_assert_true(des_ok, "TC-Y.32.2", "Deserialization succeeded")
+	_assert_eq(mgr_restored.get_pending_continuations().size(), 1, "TC-Y.32.3", "Restored 1 pending continuation")
+
+	var rc = mgr_restored.get_pending_continuations()[0]
+	_assert_eq(int(rc.get("repeat_iteration")), 1, "TC-Y.32.4", "Restored repeat_iteration is 1")
+	_assert_eq(int(rc.get("repeat_count")), 2, "TC-Y.32.5", "Restored repeat_count is 2")
+	_assert_eq(int(rc.get("due_total_hours")), 8, "TC-Y.32.6", "Restored due_total_hours is 8")
+
+	# Advance restored manager to Hour 8: Iteration 1 completes, Iteration 2 delays to Hour 10
+	mgr_restored.process_due_continuations({"current_day": 1, "current_hour": 8})
+	_assert_eq(mgr_restored.get_pending_continuations().size(), 1, "TC-Y.32.7", "Continuation for Iteration 2 scheduled")
+	var rc2 = mgr_restored.get_pending_continuations()[0]
+	_assert_eq(int(rc2.get("repeat_iteration")), 2, "TC-Y.32.8", "Continuation is in iteration 2")
+	_assert_eq(int(rc2.get("due_total_hours")), 10, "TC-Y.32.9", "Due at total hours 10")
+
+	# Test double-load idempotency: save and deserialize twice
+	var saved_dict2 := mgr_restored.serialize()
+	var mgr_double := AutomationManager.new()
+	var d1: bool = mgr_double.deserialize(saved_dict2)
+	var d2: bool = mgr_double.deserialize(saved_dict2)
+	_assert_true(d1 and d2, "TC-Y.32.10", "Double deserialization succeeded")
+	_assert_eq(mgr_double.get_pending_continuations().size(), 1, "TC-Y.32.11", "Double load preserves exact single continuation (no duplicates)")
+
+	# Advance to Hour 10: Repeat finishes cleanly
+	mgr_double.process_due_continuations({"current_day": 1, "current_hour": 10})
+	_assert_eq(mgr_double.get_pending_continuations().size(), 0, "TC-Y.32.12", "All continuations completed after double load")
+	var double_logs = mgr_double.get_execution_logs()
+	var pers_done_cnt := 0
+	for l in double_logs:
+		if "PERS_DONE" in l: pers_done_cnt += 1
+	_assert_eq(pers_done_cnt, 1, "TC-Y.32.13", "PERS_DONE executed exactly once on restored graph")
+
+	# --- 8.3: Fresh Condition evaluation per iteration (no stale memo_bool bleed) ---
+	var mgr_cond := AutomationManager.new()
+	var p_cond := AutomationProgram.new("p_cond", "Prog Condition Fresh Evaluation")
+	p_cond.enabled = true
+	p_cond.nodes = [
+		{"id": "c_tr", "type": "Trigger", "subtype": "HourTick", "params": {"hour": 6}},
+		{"id": "c_rep", "type": "Repeat", "subtype": "", "params": {"count": 2}},
+		{"id": "c_cond", "type": "Condition", "subtype": "ResourceCompare", "params": {"resource": "food", "op": ">", "value": 50}},
+		{"id": "c_if", "type": "IfElse", "subtype": "", "params": {}},
+		{"id": "c_act_hi", "type": "Action", "subtype": "EmitLog", "params": {"message": "COND_HIGH"}},
+		{"id": "c_act_lo", "type": "Action", "subtype": "EmitLog", "params": {"message": "COND_LOW"}}
+	]
+	p_cond.edges = [
+		{"id": "e1", "from_node": "c_tr", "from_port": "out", "to_node": "c_rep", "to_port": "in"},
+		{"id": "e2", "from_node": "c_rep", "from_port": "body", "to_node": "c_if", "to_port": "in"},
+		{"id": "e3", "from_node": "c_cond", "from_port": "bool", "to_node": "c_if", "to_port": "cond"},
+		{"id": "e4", "from_node": "c_if", "from_port": "true", "to_node": "c_act_hi", "to_port": "in"},
+		{"id": "e5", "from_node": "c_if", "from_port": "false", "to_node": "c_act_lo", "to_port": "in"}
+	]
+	mgr_cond.programs.append(p_cond)
+
+	# Mock stock mutating between evaluations:
+	var stock_data := {"food": 60}
+	var dynamic_res_mgr = {
+		"get_available_stock": func(res_name: String) -> int:
+			var cur: int = int(stock_data.get(res_name, 0))
+			if res_name == "food":
+				stock_data["food"] = 30 # Degrades after first evaluation!
+			return cur
+	}
+	mgr_cond.run_program(p_cond.id, {"current_day": 1, "current_hour": 6, "resource_mgr": dynamic_res_mgr})
+	var cond_logs = mgr_cond.get_execution_logs()
+	var hi_cnt := 0
+	var lo_cnt := 0
+	for l in cond_logs:
+		if "COND_HIGH" in l: hi_cnt += 1
+		if "COND_LOW" in l: lo_cnt += 1
+	_assert_eq(hi_cnt, 1, "TC-Y.33.1", "Iteration 1 evaluated condition TRUE -> COND_HIGH ran")
+	_assert_eq(lo_cnt, 1, "TC-Y.33.2", "Iteration 2 evaluated condition FALSE -> COND_LOW ran fresh without stale memoization")
+
+	# --- 8.4: Graph Validation Rejection of Nested Repeat ---
+	var p_nest := AutomationProgram.new("p_nest", "Prog Nested Repeat")
+	p_nest.nodes = [
+		{"id": "n_tr", "type": "Trigger", "subtype": "HourTick", "params": {}},
+		{"id": "n_rep1", "type": "Repeat", "subtype": "", "params": {"count": 2}},
+		{"id": "n_rep2", "type": "Repeat", "subtype": "", "params": {"count": 2}},
+		{"id": "n_act", "type": "Action", "subtype": "EmitLog", "params": {}}
+	]
+	p_nest.edges = [
+		{"id": "e1", "from_node": "n_tr", "from_port": "out", "to_node": "n_rep1", "to_port": "in"},
+		{"id": "e2", "from_node": "n_rep1", "from_port": "body", "to_node": "n_rep2", "to_port": "in"},
+		{"id": "e3", "from_node": "n_rep2", "from_port": "body", "to_node": "n_act", "to_port": "in"}
+	]
+
+	var val_nest := AutomationGraphValidator.validate_program(p_nest)
+	_assert_false(val_nest.get("valid", true), "TC-Y.34.1", "Nested Repeat rejected by validator")
+	var err_s := str(val_nest.get("errors", []))
+	_assert_true("Không hỗ trợ lặp lồng nhau" in err_s, "TC-Y.34.2", "Diagnostic explains Nested Repeat is unsupported")
+
+	# --- 8.5: Malformed Continuation Validation & Fail-Closed Deserialization ---
+	var base_prog_dict: Dictionary = {
+		"id": "prog_valid_1",
+		"name": "P1",
+		"enabled": true,
+		"priority": 0,
+		"nodes": [
+			{"id": "t1", "type": "Trigger", "title": "Trig", "params": {}},
+			{"id": "d1", "type": "Delay", "title": "Del", "params": {"duration_hours": 2}},
+			{"id": "a1", "type": "Action", "subtype": "EmitLog", "title": "Act", "params": {}},
+			{"id": "r1", "type": "Repeat", "title": "Rep", "params": {"count": 3}},
+			{"id": "a2", "type": "Action", "subtype": "EmitLog", "title": "Act2", "params": {}}
+		],
+		"edges": [
+			{"id": "e1", "from_node": "t1", "from_port": "out", "to_node": "d1", "to_port": "in"},
+			{"id": "e2", "from_node": "d1", "from_port": "out", "to_node": "a1", "to_port": "in"},
+			{"id": "e3", "from_node": "r1", "from_port": "body", "to_node": "a2", "to_port": "in"}
+		]
+	}
+
+	# 8.5.1: Duplicate continuation ID
+	var bad_dup_conts = [
+		{"id": "cont_1", "program_id": "prog_valid_1", "delay_node_id": "d1", "resume_node_id": "a1", "duration_hours": 2, "scheduled_day": 1, "scheduled_hour": 6, "due_day": 1, "due_hour": 8, "due_total_hours": 8},
+		{"id": "cont_1", "program_id": "prog_valid_1", "delay_node_id": "d1", "resume_node_id": "a1", "duration_hours": 2, "scheduled_day": 1, "scheduled_hour": 6, "due_day": 1, "due_hour": 8, "due_total_hours": 8}
+	]
+	var v_dup := AutomationManager.validate_pending_continuations(bad_dup_conts, [base_prog_dict])
+	_assert_false(v_dup["valid"], "TC-Y.35.1", "Duplicate continuation ID rejected fail-closed")
+
+	# 8.5.2: Nonexistent program_id
+	var bad_prog_conts = [
+		{"id": "cont_1", "program_id": "prog_ghost", "delay_node_id": "d1", "resume_node_id": "a1", "duration_hours": 2, "scheduled_day": 1, "scheduled_hour": 6, "due_day": 1, "due_hour": 8, "due_total_hours": 8}
+	]
+	var v_prog := AutomationManager.validate_pending_continuations(bad_prog_conts, [base_prog_dict])
+	_assert_false(v_prog["valid"], "TC-Y.35.2", "Nonexistent program_id in continuation rejected fail-closed")
+
+	# 8.5.3: Nonexistent resume_node_id
+	var bad_node_conts = [
+		{"id": "cont_1", "program_id": "prog_valid_1", "delay_node_id": "d1", "resume_node_id": "node_ghost", "duration_hours": 2, "scheduled_day": 1, "scheduled_hour": 6, "due_day": 1, "due_hour": 8, "due_total_hours": 8}
+	]
+	var v_node := AutomationManager.validate_pending_continuations(bad_node_conts, [base_prog_dict])
+	_assert_false(v_node["valid"], "TC-Y.35.3", "Nonexistent resume_node_id in continuation rejected fail-closed")
+
+	# 8.5.4: Inconsistent due time formula: due_total_hours != (due_day - 1)*24 + due_hour
+	var bad_time_conts = [
+		{"id": "cont_1", "program_id": "prog_valid_1", "delay_node_id": "d1", "resume_node_id": "a1", "duration_hours": 2, "scheduled_day": 1, "scheduled_hour": 6, "due_day": 1, "due_hour": 8, "due_total_hours": 999}
+	]
+	var v_time := AutomationManager.validate_pending_continuations(bad_time_conts, [base_prog_dict])
+	_assert_false(v_time["valid"], "TC-Y.35.4", "Inconsistent due_total_hours formula rejected fail-closed")
+
+	# 8.5.5: Invalid Repeat metadata: repeat_node_id points to non-Repeat node
+	var bad_rep_meta1 = [
+		{"id": "cont_1", "program_id": "prog_valid_1", "delay_node_id": "d1", "resume_node_id": "a1", "duration_hours": 2, "scheduled_day": 1, "scheduled_hour": 6, "due_day": 1, "due_hour": 8, "due_total_hours": 8, "repeat_node_id": "d1", "repeat_iteration": 1, "repeat_count": 3}
+	]
+	var v_rm1 := AutomationManager.validate_pending_continuations(bad_rep_meta1, [base_prog_dict])
+	_assert_false(v_rm1["valid"], "TC-Y.35.5", "Repeat metadata pointing to non-Repeat node rejected fail-closed")
+
+	# 8.5.6: Repeat metadata count mismatch with node params
+	var bad_rep_meta2 = [
+		{"id": "cont_1", "program_id": "prog_valid_1", "delay_node_id": "d1", "resume_node_id": "a1", "duration_hours": 2, "scheduled_day": 1, "scheduled_hour": 6, "due_day": 1, "due_hour": 8, "due_total_hours": 8, "repeat_node_id": "r1", "repeat_iteration": 1, "repeat_count": 99}
+	]
+	var v_rm2 := AutomationManager.validate_pending_continuations(bad_rep_meta2, [base_prog_dict])
+	_assert_false(v_rm2["valid"], "TC-Y.35.6", "Repeat metadata count mismatch rejected fail-closed")
+
+	# 8.5.7: Repeat metadata iteration > count
+	var bad_rep_meta3 = [
+		{"id": "cont_1", "program_id": "prog_valid_1", "delay_node_id": "d1", "resume_node_id": "a1", "duration_hours": 2, "scheduled_day": 1, "scheduled_hour": 6, "due_day": 1, "due_hour": 8, "due_total_hours": 8, "repeat_node_id": "r1", "repeat_iteration": 4, "repeat_count": 3}
+	]
+	var v_rm3 := AutomationManager.validate_pending_continuations(bad_rep_meta3, [base_prog_dict])
+	_assert_false(v_rm3["valid"], "TC-Y.35.7", "Repeat metadata iteration > count rejected fail-closed")
+
+	# 8.5.8: Invalid steps_used
+	var bad_steps_conts = [
+		{"id": "cont_1", "program_id": "prog_valid_1", "delay_node_id": "d1", "resume_node_id": "a1", "duration_hours": 2, "scheduled_day": 1, "scheduled_hour": 6, "due_day": 1, "due_hour": 8, "due_total_hours": 8, "steps_used": 61}
+	]
+	var v_steps := AutomationManager.validate_pending_continuations(bad_steps_conts, [base_prog_dict])
+	_assert_false(v_steps["valid"], "TC-Y.35.8", "steps_used exceeding MAX_STEPS_PER_RUN rejected fail-closed")
+
+	# 8.5.9: Program limit overflow (> 10 continuations)
+	var overflow_conts = []
+	for i in range(11):
+		overflow_conts.append({
+			"id": "cont_%d" % i, "program_id": "prog_valid_1", "delay_node_id": "d1", "resume_node_id": "a1",
+			"duration_hours": 2, "scheduled_day": 1, "scheduled_hour": 6, "due_day": 1, "due_hour": 8, "due_total_hours": 8
+		})
+	var v_ovf := AutomationManager.validate_pending_continuations(overflow_conts, [base_prog_dict])
+	_assert_false(v_ovf["valid"], "TC-Y.35.9", "More than 10 continuations for a single program rejected fail-closed")
+
+	# 8.5.10: Atomic fail-closed deserialize() preserves existing live state
+	var mgr_live := AutomationManager.new()
+	var live_p := mgr_live.create_program("Live Program")
+	live_p.enabled = true
+	mgr_live.log_trace(live_p.id, "Existing live log entry")
+	mgr_live.schedule_continuation(live_p.id, "d1", "a1", 5, 1, 6)
+
+	_assert_eq(mgr_live.programs.size(), 1, "TC-Y.36.1", "Initial live manager has 1 program")
+	_assert_eq(mgr_live.get_pending_continuations().size(), 1, "TC-Y.36.2", "Initial live manager has 1 continuation")
+	_assert_eq(mgr_live.get_execution_logs().size(), 1, "TC-Y.36.3", "Initial live manager has 1 log")
+
+	# Attempt to deserialize invalid data with duplicate continuations
+	var bad_save_dict: Dictionary = {
+		"programs": [base_prog_dict],
+		"pending_continuations": bad_dup_conts
+	}
+	var des_fail_res: bool = mgr_live.deserialize(bad_save_dict)
+	_assert_false(des_fail_res, "TC-Y.36.4", "deserialize() with invalid data returned false")
+	_assert_eq(mgr_live.programs.size(), 1, "TC-Y.36.5", "Live programs preserved intact after failed deserialize()")
+	_assert_eq(mgr_live.programs[0].id, live_p.id, "TC-Y.36.6", "Live program identity preserved intact")
+	_assert_eq(mgr_live.get_pending_continuations().size(), 1, "TC-Y.36.7", "Live pending continuations preserved intact")
+	_assert_eq(mgr_live.get_execution_logs().size(), 1, "TC-Y.36.8", "Live execution logs preserved intact")

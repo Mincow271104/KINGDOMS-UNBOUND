@@ -305,12 +305,28 @@ static func validate_program(prog: Variant) -> Dictionary:
 				errors.push_back("Node IF/ELSE (%s) chưa nối nhánh đầu ra True hoặc False" % nid)
 		elif ntype == "Repeat":
 			var has_body: bool = false
+			var body_targets: Array[String] = []
 			for ed in valid_edges:
 				if ed["from_node"] == nid and ed["from_port"] in ["body", "out"]:
 					has_body = true
-					break
+					body_targets.append(ed["to_node"])
 			if not has_body:
 				errors.push_back("Node Repeat (%s) chưa nối nhánh lặp 'body'" % nid)
+			else:
+				# Explicitly reject nested Repeat nodes reachable within this Repeat's body branch
+				var rep_visited: Dictionary = {nid: true}
+				var rep_queue: Array[String] = body_targets.duplicate()
+				while not rep_queue.is_empty():
+					var b_curr: String = rep_queue.pop_front()
+					if rep_visited.has(b_curr):
+						continue
+					rep_visited[b_curr] = true
+					if node_ids.has(b_curr) and str(node_ids[b_curr].get("type", "")) == "Repeat":
+						errors.push_back("Không hỗ trợ lặp lồng nhau (Nested Repeat): Node Repeat '%s' nằm trong nhánh lặp của node Repeat '%s'" % [b_curr, nid])
+						break
+					for ed in valid_edges:
+						if ed["from_node"] == b_curr:
+							rep_queue.append(ed["to_node"])
 		elif ntype == "Delay":
 			var has_out: bool = false
 			for ed in valid_edges:

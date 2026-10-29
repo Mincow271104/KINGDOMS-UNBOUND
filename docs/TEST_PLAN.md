@@ -756,7 +756,7 @@ When Godot Editor is running with the MCP plugin:
 ---
 
 ### Package 1Y: Automation Graph Delay & Repeat Nodes
-- **TC-Y.1 to TC-Y.30: Automation Graph Delay & Repeat Test Suite**
+- **TC-Y.1 to TC-Y.36: Automation Graph Delay & Repeat Test Suite**
   - *Tracked Test Suite:* `res://scripts/test/test_automation_graph_delay_repeat.gd`
   - *Command:* `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --path "e:\KINGDOMS UNBOUND\kingdoms-unbound" -s res://scripts/test/test_automation_graph_delay_repeat.gd`
   - *Acceptance Criteria by Group:*
@@ -793,4 +793,11 @@ When Godot Editor is running with the MCP plugin:
       - **TC-Y.28 (Preset Rules Preservation):** Preset priority rules (e.g. food emergency) boost jobs properly.
       - **TC-Y.29 (evaluate_rules Backward Compatibility):** Calling `evaluate_rules` without explicit day/hour parameters functions seamlessly.
       - **TC-Y.30 (WorldView Integration):** `WorldView` initializes `automation_mgr` and feeds simulation clock into hourly graph evaluation ticks.
-  - *Status:* **PASSED** (2026-10-29, Exit Code 0: 110/110 assertions passed across all 30 requirements).
+    - **Group 8: Repeat/Delay Interaction, Nested Repeat Prevention & Strict Persistence Gating (TC-Y.31 to TC-Y.36)**
+      - **TC-Y.31 (Hour-by-Hour Repeat + Delay Lifecycle):** Executing a 2-iteration loop with an embedded Delay suspends execution upon encountering Delay without prematurely executing subsequent iterations or the `completed` branch. Simulation clock advancement resumes iteration 1 post-delay actions at Hour 8, schedules iteration 2 delay, and Hour 10 resumes iteration 2 post-delay actions, runs completed branch once, with zero premature or duplicate executions.
+      - **TC-Y.32 (Save/Load During Delayed Repeat):** Serializing world state while a Repeat loop is suspended on Delay preserves complete continuation metadata (`repeat_node_id`, `repeat_iteration`, `repeat_count`, `steps_used`). Restoration resumes seamlessly across save boundaries, and repeated loading is strictly idempotent with zero duplicate continuations.
+      - **TC-Y.33 (Fresh Condition Evaluation Across Repeat Iterations):** Condition nodes evaluated in Repeat loops evaluate freshly per iteration (`iter_memo_bool`), ensuring role or resource changes in iteration 1 correctly influence branching in iteration 2 without stale memoized bleed.
+      - **TC-Y.34 (Nested Repeat Fail-Closed Graph Validation):** `AutomationGraphValidator` traverses Repeat body branches and rejects nested Repeat nodes fail-closed with clear diagnostic error.
+      - **TC-Y.35 (Strict Fail-Closed Continuation Validation in SaveManager):** Rejects continuation records with duplicate IDs, nonexistent programs, missing resume nodes, invalid delay node IDs, inconsistent due times (`due_total_hours != (due_day - 1) * 24 + due_hour`), non-Repeat target nodes for repeat continuations, iteration > count, steps > budget, global queue limit > 50, or per-program queue limit > 10.
+      - **TC-Y.36 (Atomic Staged Deserialization in AutomationManager):** Corrupted or malformed save data fails validation before mutating live state; live programs and pending continuations remain completely intact.
+  - *Status:* **PASSED** (2026-10-29, Exit Code 0: 169/169 assertions passed across all 36 requirements in Groups 1–8).

@@ -82,6 +82,12 @@ func get_program(prog_id: String) -> AutomationProgram:
 func get_all_programs() -> Array[AutomationProgram]:
 	return programs
 
+func get_execution_logs() -> Array[String]:
+	return execution_logs.duplicate()
+
+func clear_execution_logs() -> void:
+	execution_logs.clear()
+
 func add_node(prog: AutomationProgram, type: String, subtype: String = "", x: float = 160.0, y: float = 90.0, params: Dictionary = {}) -> Dictionary:
 	if prog == null:
 		return {}
@@ -202,8 +208,189 @@ func log_trace(prog_id: String, msg: String, is_dry_run: bool = false, target_tr
 			execution_logs.pop_back()
 
 # -----------------------------------------------------------------------------
-# Delayed Continuation Queue Management (Package 1Y)
+# Delayed Continuation Queue Management & Data Validation (Package 1Y)
 # -----------------------------------------------------------------------------
+
+static func validate_automation_data(auto_dict: Variant) -> Dictionary:
+	if not (auto_dict is Dictionary):
+		return {"valid": false, "error": "Mục 'automation' phải là từ điển (Dictionary)."}
+
+	var progs_val = auto_dict.get("programs", null)
+	if progs_val != null:
+		if not (progs_val is Array):
+			return {"valid": false, "error": "Mục 'programs' trong automation phải là danh sách (Array)."}
+		var seen_pids: Dictionary = {}
+		for p_entry in progs_val:
+			if not (p_entry is Dictionary):
+				return {"valid": false, "error": "Bản ghi chương trình automation không đúng định dạng Dictionary."}
+			var pid = str(p_entry.get("id", "")).strip_edges()
+			if pid.is_empty():
+				return {"valid": false, "error": "Chương trình automation thiếu ID hợp lệ."}
+			if seen_pids.has(pid):
+				return {"valid": false, "error": "Trùng lặp ID chương trình automation: '%s'." % pid}
+			seen_pids[pid] = true
+
+			var val_prog := AutomationGraphValidator.validate_program(p_entry)
+			if not val_prog.get("valid", false):
+				var err_list: Array = val_prog.get("errors", ["Lỗi đồ thị không xác định"])
+				return {"valid": false, "error": "Chương trình automation '%s' không hợp lệ: %s." % [pid, "; ".join(err_list)]}
+
+	if auto_dict.has("execution_logs"):
+		var logs_val = auto_dict.get("execution_logs")
+		if not (logs_val is Array):
+			return {"valid": false, "error": "Mục 'execution_logs' trong automation phải là danh sách (Array)."}
+
+	if auto_dict.has("pending_continuations"):
+		var val_conts = validate_pending_continuations(auto_dict.get("pending_continuations"), auto_dict.get("programs", []))
+		if not val_conts.get("valid", false):
+			return val_conts
+
+	return {"valid": true}
+
+static func validate_pending_continuations(conts_val: Variant, programs_val: Variant) -> Dictionary:
+	if not (conts_val is Array):
+		return {"valid": false, "error": "Mục 'pending_continuations' phải là danh sách (Array)."}
+
+	if conts_val.size() > MAX_GLOBAL_PENDING_CONTINUATIONS:
+		return {"valid": false, "error": "Số lượng pending_continuations (%d) vượt quá giới hạn tối đa toàn cục (%d)." % [conts_val.size(), MAX_GLOBAL_PENDING_CONTINUATIONS]}
+
+	var prog_map: Dictionary = {}
+	if programs_val is Array:
+		for p in programs_val:
+			if p is Dictionary and p.has("id"):
+				var pid = str(p["id"]).strip_edges()
+				var node_dict: Dictionary = {}
+				var raw_nodes = p.get("nodes", [])
+				if raw_nodes is Array:
+					for nd in raw_nodes:
+						if nd is Dictionary and nd.has("id"):
+							node_dict[str(nd["id"]).strip_edges()] = nd
+				prog_map[pid] = {"nodes": node_dict, "program": p}
+			elif p is AutomationProgram:
+				var pid = p.id.strip_edges()
+				var node_dict: Dictionary = {}
+				for nd in p.nodes:
+					if nd is Dictionary and nd.has("id"):
+						node_dict[str(nd["id"]).strip_edges()] = nd
+				prog_map[pid] = {"nodes": node_dict, "program": p}
+
+	var seen_cids: Dictionary = {}
+	var prog_counts: Dictionary = {}
+
+	for c_entry in conts_val:
+		if not (c_entry is Dictionary):
+			return {"valid": false, "error": "Bản ghi pending_continuation không đúng định dạng Dictionary."}
+
+		if not c_entry.has("id"):
+			return {"valid": false, "error": "pending_continuation thiếu trường 'id'."}
+		var cid = str(c_entry.get("id", "")).strip_edges()
+		if cid.is_empty():
+			return {"valid": false, "error": "pending_continuation có ID rỗng."}
+		if seen_cids.has(cid):
+			return {"valid": false, "error": "Trùng lặp ID pending_continuation: '%s'." % cid}
+		seen_cids[cid] = true
+
+		if not c_entry.has("program_id"):
+			return {"valid": false, "error": "pending_continuation '%s' thiếu trường 'program_id'." % cid}
+		var pid = str(c_entry.get("program_id", "")).strip_edges()
+		if pid.is_empty():
+			return {"valid": false, "error": "pending_continuation '%s' có program_id rỗng." % cid}
+		if not prog_map.has(pid):
+			return {"valid": false, "error": "pending_continuation '%s' trỏ tới chương trình không tồn tại: '%s'." % [cid, pid]}
+
+		prog_counts[pid] = prog_counts.get(pid, 0) + 1
+		if prog_counts[pid] > MAX_PROGRAM_PENDING_CONTINUATIONS:
+			return {"valid": false, "error": "Số lượng pending_continuations của chương trình '%s' vượt quá giới hạn tối đa (%d)." % [pid, MAX_PROGRAM_PENDING_CONTINUATIONS]}
+
+		var prog_nodes: Dictionary = prog_map[pid]["nodes"]
+
+		if not c_entry.has("resume_node_id"):
+			return {"valid": false, "error": "pending_continuation '%s' thiếu trường 'resume_node_id'." % cid}
+		var r_nid = str(c_entry.get("resume_node_id", "")).strip_edges()
+		if r_nid.is_empty():
+			return {"valid": false, "error": "pending_continuation '%s' có resume_node_id rỗng." % cid}
+		if not prog_nodes.has(r_nid):
+			return {"valid": false, "error": "pending_continuation '%s' có resume_node_id '%s' không tồn tại trong chương trình '%s'." % [cid, r_nid, pid]}
+
+		if c_entry.has("delay_node_id"):
+			var d_nid = str(c_entry.get("delay_node_id", "")).strip_edges()
+			if not d_nid.is_empty():
+				if not prog_nodes.has(d_nid):
+					return {"valid": false, "error": "pending_continuation '%s' có delay_node_id '%s' không tồn tại trong chương trình '%s'." % [cid, d_nid, pid]}
+				if str(prog_nodes[d_nid].get("type", "")) != "Delay":
+					return {"valid": false, "error": "pending_continuation '%s' có delay_node_id '%s' không phải loại node 'Delay'." % [cid, d_nid]}
+
+		if not c_entry.has("duration_hours"):
+			return {"valid": false, "error": "pending_continuation '%s' thiếu trường 'duration_hours'." % cid}
+		var dur = c_entry.get("duration_hours")
+		if not (dur is int or (dur is float and not is_nan(float(dur)) and not is_inf(float(dur)) and floor(float(dur)) == float(dur))):
+			return {"valid": false, "error": "pending_continuation '%s' duration_hours không phải số nguyên." % cid}
+		var dur_int: int = int(dur)
+		if dur_int < 1 or dur_int > 720:
+			return {"valid": false, "error": "pending_continuation '%s' duration_hours (%d) nằm ngoài khoảng [1, 720]." % [cid, dur_int]}
+
+		for h_key in ["due_day", "due_hour", "due_total_hours"]:
+			if not c_entry.has(h_key):
+				return {"valid": false, "error": "pending_continuation '%s' thiếu trường thời gian '%s'." % [cid, h_key]}
+			var h_val = c_entry.get(h_key)
+			if not (h_val is int or (h_val is float and not is_nan(float(h_val)) and not is_inf(float(h_val)) and floor(float(h_val)) == float(h_val))):
+				return {"valid": false, "error": "pending_continuation '%s' trường '%s' không phải số nguyên." % [cid, h_key]}
+
+		var due_d = int(c_entry["due_day"])
+		var due_h = int(c_entry["due_hour"])
+		var due_tot = int(c_entry["due_total_hours"])
+
+		if due_d < 1:
+			return {"valid": false, "error": "pending_continuation '%s' due_day (%d) phải >= 1." % [cid, due_d]}
+		if due_h < 0 or due_h > 23:
+			return {"valid": false, "error": "pending_continuation '%s' due_hour (%d) phải nằm trong khoảng [0, 23]." % [cid, due_h]}
+		if due_tot < 0:
+			return {"valid": false, "error": "pending_continuation '%s' due_total_hours (%d) phải >= 0." % [cid, due_tot]}
+
+		var expected_total: int = (due_d - 1) * 24 + due_h
+		if due_tot != expected_total:
+			return {"valid": false, "error": "pending_continuation '%s' due_total_hours (%d) không khớp công thức với due_day (%d) và due_hour (%d) (Kỳ vọng: %d)." % [cid, due_tot, due_d, due_h, expected_total]}
+
+		if c_entry.has("repeat_node_id"):
+			var rep_id = str(c_entry.get("repeat_node_id", "")).strip_edges()
+			if not rep_id.is_empty():
+				if not prog_nodes.has(rep_id):
+					return {"valid": false, "error": "pending_continuation '%s' có repeat_node_id '%s' không tồn tại trong chương trình '%s'." % [cid, rep_id, pid]}
+				var rep_node = prog_nodes[rep_id]
+				if str(rep_node.get("type", "")) != "Repeat":
+					return {"valid": false, "error": "pending_continuation '%s' có repeat_node_id '%s' không phải loại node 'Repeat'." % [cid, rep_id]}
+
+				if not c_entry.has("repeat_count"):
+					return {"valid": false, "error": "pending_continuation '%s' có repeat_node_id nhưng thiếu 'repeat_count'." % cid}
+				var rc = c_entry.get("repeat_count")
+				if not (rc is int or (rc is float and floor(float(rc)) == float(rc))):
+					return {"valid": false, "error": "pending_continuation '%s' repeat_count không phải số nguyên." % cid}
+				var rc_int: int = int(rc)
+				if rc_int < 1 or rc_int > 20:
+					return {"valid": false, "error": "pending_continuation '%s' repeat_count (%d) nằm ngoài khoảng [1, 20]." % [cid, rc_int]}
+
+				var node_rc: int = int(rep_node.get("params", {}).get("count", rep_node.get("params", {}).get("iterations", 1)))
+				if rc_int != node_rc:
+					return {"valid": false, "error": "pending_continuation '%s' repeat_count (%d) không khớp giá trị cấu hình (%d) của node Repeat '%s'." % [cid, rc_int, node_rc, rep_id]}
+
+				if not c_entry.has("repeat_iteration"):
+					return {"valid": false, "error": "pending_continuation '%s' có repeat_node_id nhưng thiếu 'repeat_iteration'." % cid}
+				var ri = c_entry.get("repeat_iteration")
+				if not (ri is int or (ri is float and floor(float(ri)) == float(ri))):
+					return {"valid": false, "error": "pending_continuation '%s' repeat_iteration không phải số nguyên." % cid}
+				var ri_int: int = int(ri)
+				if ri_int < 1 or ri_int > rc_int:
+					return {"valid": false, "error": "pending_continuation '%s' repeat_iteration (%d) nằm ngoài khoảng [1, %d]." % [cid, ri_int, rc_int]}
+
+		if c_entry.has("steps_used"):
+			var su = c_entry.get("steps_used")
+			if not (su is int or (su is float and floor(float(su)) == float(su))):
+				return {"valid": false, "error": "pending_continuation '%s' steps_used không phải số nguyên." % cid}
+			var su_int: int = int(su)
+			if su_int < 0 or su_int > MAX_STEPS_PER_RUN:
+				return {"valid": false, "error": "pending_continuation '%s' steps_used (%d) nằm ngoài khoảng [0, %d]." % [cid, su_int, MAX_STEPS_PER_RUN]}
+
+	return {"valid": true}
 
 func get_pending_continuations() -> Array[Dictionary]:
 	var result: Array[Dictionary] = []
@@ -309,6 +496,12 @@ func process_due_continuations(context: Dictionary) -> Array[Dictionary]:
 		var tb = int(b.get("due_total_hours", 0))
 		if ta != tb:
 			return ta < tb
+		var prog_a := get_program(str(a.get("program_id", "")))
+		var prog_b := get_program(str(b.get("program_id", "")))
+		var pa = prog_a.priority if prog_a != null else 0
+		var pb = prog_b.priority if prog_b != null else 0
+		if pa != pb:
+			return pa > pb
 		return str(a.get("id", "")) < str(b.get("id", ""))
 	)
 
@@ -338,12 +531,20 @@ func process_due_continuations(context: Dictionary) -> Array[Dictionary]:
 			continue
 
 		log_trace(prog_id, "Kích hoạt continuation '%s' (tiếp tục tại node '%s')" % [cid, resume_id], false, [], cur_day)
-		var res := run_program(prog_id, context, {
+		var run_opts: Dictionary = {
 			"dry_run": false,
 			"start_node_id": resume_id,
 			"continuation_id": cid,
 			"shared_action_locks": shared_action_locks
-		})
+		}
+		if c.has("repeat_node_id") and not str(c.get("repeat_node_id", "")).is_empty():
+			run_opts["repeat_node_id"] = str(c.get("repeat_node_id", ""))
+			run_opts["repeat_iteration"] = int(c.get("repeat_iteration", 1))
+			run_opts["repeat_count"] = int(c.get("repeat_count", 1))
+		if c.has("steps_used"):
+			run_opts["steps_used"] = int(c.get("steps_used", 0))
+
+		var res := run_program(prog_id, context, run_opts)
 		executed_results.append({
 			"continuation": c,
 			"result": res
@@ -577,6 +778,229 @@ func execute_action_node(
 # Program Execution Engine (Supports Dry-Run Simulation)
 # -----------------------------------------------------------------------------
 
+func _execute_repeat_node(
+	rep_node: Dictionary,
+	prog: AutomationProgram,
+	context: Dictionary,
+	is_dry_run: bool,
+	trace: Array,
+	action_locks: Dictionary,
+	actions_executed: Array[Dictionary],
+	cur_day: int,
+	cur_hour: int,
+	start_iter: int = 1,
+	start_body_node_id: String = "",
+	count: int = -1,
+	in_steps: int = 0
+) -> Dictionary:
+	var cid: String = str(rep_node.get("id", ""))
+	if count < 0:
+		var p_dict: Dictionary = rep_node.get("params", {}) if (rep_node.get("params") is Dictionary) else {}
+		var c_val = p_dict.get("count", p_dict.get("iterations", p_dict.get("repeat_count", 1)))
+		count = clampi(int(c_val), 1, 20)
+
+	var steps: int = in_steps
+	var body_node_ids: Array[String] = []
+	var completed_node_ids: Array[String] = []
+
+	for e in prog.edges:
+		var fn = str(e.get("from_node", e.get("fromNode", "")))
+		var fp = str(e.get("from_port", e.get("fromPort", "")))
+		var tn = str(e.get("to_node", e.get("toNode", "")))
+		if fn == cid:
+			if fp in ["body", "out"]:
+				body_node_ids.append(tn)
+			elif fp == "completed":
+				completed_node_ids.append(tn)
+
+	if start_iter == 1 and start_body_node_id.is_empty():
+		log_trace(prog.id, "Bắt đầu vòng lặp Repeat (%s) với %d lần lặp" % [cid, count], is_dry_run, trace, cur_day)
+	else:
+		log_trace(prog.id, "Tiếp tục vòng lặp Repeat (%s) tại lần lặp %d/%d (node '%s')" % [cid, start_iter, count, start_body_node_id], is_dry_run, trace, cur_day)
+
+	var suspended: bool = false
+
+	for iter_idx in range(start_iter, count + 1):
+		log_trace(prog.id, "Repeat %s: Vòng lặp %d/%d" % [cid, iter_idx, count], is_dry_run, trace, cur_day)
+		var iter_memo_bool: Dictionary = {}
+		var body_queue: Array[Dictionary] = []
+
+		if iter_idx == start_iter and not start_body_node_id.is_empty():
+			for n in prog.nodes:
+				if str(n.get("id", "")) == start_body_node_id:
+					body_queue.append(n)
+					break
+		else:
+			for bn_id in body_node_ids:
+				for n in prog.nodes:
+					if str(n.get("id", "")) == bn_id:
+						body_queue.append(n)
+						break
+
+		while not body_queue.is_empty():
+			steps += 1
+			if steps > MAX_STEPS_PER_RUN:
+				var budget_msg := "Dừng khẩn cấp: Vượt ngân sách thực thi (%d bước/tick)" % MAX_STEPS_PER_RUN
+				log_trace(prog.id, budget_msg, is_dry_run, trace, cur_day)
+				return {
+					"ok": false,
+					"reason": budget_msg,
+					"trace": trace,
+					"actions_executed": actions_executed,
+					"steps": steps,
+					"suspended": false
+				}
+
+			var b_cur: Dictionary = body_queue.pop_front()
+			var b_cid: String = str(b_cur.get("id", ""))
+			var b_ctype: String = str(b_cur.get("type", ""))
+			var b_ctitle: String = str(b_cur.get("title", b_ctype))
+
+			match b_ctype:
+				"Action":
+					var act_res := execute_action_node(b_cur, prog, context, is_dry_run, trace, action_locks)
+					actions_executed.append({
+						"node_id": b_cid,
+						"subtype": b_cur.get("subtype", ""),
+						"ok": act_res.get("ok", false),
+						"detail": act_res.get("delta", act_res.get("reason", ""))
+					})
+					for e in prog.edges:
+						var fn = str(e.get("from_node", e.get("fromNode", "")))
+						if fn == b_cid:
+							var tn = str(e.get("to_node", e.get("toNode", "")))
+							for n in prog.nodes:
+								if str(n.get("id", "")) == tn:
+									body_queue.append(n)
+									break
+
+				"Condition", "LogicGate":
+					var val := evaluate_condition_node(b_cur, prog, context, iter_memo_bool)
+					log_trace(prog.id, "Đánh giá %s = %s" % [b_ctitle, "TRUE" if val else "FALSE"], is_dry_run, trace, cur_day)
+					for e in prog.edges:
+						var fn = str(e.get("from_node", e.get("fromNode", "")))
+						if fn == b_cid:
+							var tn = str(e.get("to_node", e.get("toNode", "")))
+							for n in prog.nodes:
+								if str(n.get("id", "")) == tn:
+									var nt: String = str(n.get("type", ""))
+									if nt in ["IfElse", "LogicGate"]:
+										body_queue.append(n)
+									elif val:
+										body_queue.append(n)
+									break
+
+				"IfElse":
+					var cond_node: Dictionary = {}
+					for e in prog.edges:
+						var tn = str(e.get("to_node", e.get("toNode", "")))
+						var tp = str(e.get("to_port", e.get("toPort", "")))
+						if tn == b_cid and tp == "cond":
+							var fn = str(e.get("from_node", e.get("fromNode", "")))
+							for n in prog.nodes:
+								if str(n.get("id", "")) == fn:
+									cond_node = n
+									break
+							if not cond_node.is_empty():
+								break
+
+					if cond_node.is_empty():
+						for e in prog.edges:
+							var tn = str(e.get("to_node", e.get("toNode", "")))
+							if tn == b_cid:
+								var fn = str(e.get("from_node", e.get("fromNode", "")))
+								for n in prog.nodes:
+									if str(n.get("id", "")) == fn and str(n.get("type", "")) in ["Condition", "LogicGate"]:
+										cond_node = n
+										break
+								if not cond_node.is_empty():
+									break
+
+					var cond_val: bool = false
+					if not cond_node.is_empty():
+						cond_val = evaluate_condition_node(cond_node, prog, context, iter_memo_bool)
+
+					var branch_port: String = "true" if cond_val else "false"
+					log_trace(prog.id, "Nhánh IF/ELSE chọn cổng [%s]" % branch_port.to_upper(), is_dry_run, trace, cur_day)
+
+					for e in prog.edges:
+						var fn = str(e.get("from_node", e.get("fromNode", "")))
+						var fp = str(e.get("from_port", e.get("fromPort", "")))
+						if fn == b_cid and fp == branch_port:
+							var tn = str(e.get("to_node", e.get("toNode", "")))
+							for n in prog.nodes:
+								if str(n.get("id", "")) == tn:
+									body_queue.append(n)
+									break
+
+				"End":
+					log_trace(prog.id, "Kết thúc vòng lặp tại Node End (%s)" % b_cid, is_dry_run, trace, cur_day)
+					body_queue.clear()
+
+				"Delay":
+					var d_p: Dictionary = b_cur.get("params", {}) if (b_cur.get("params") is Dictionary) else {}
+					var d_val = d_p.get("duration_hours", d_p.get("duration", d_p.get("durationHours", 1)))
+					var duration: int = clampi(int(d_val), 1, 720)
+					var cur_total_h: int = (cur_day - 1) * 24 + cur_hour
+					var due_total_h: int = cur_total_h + duration
+					var due_d: int = 1 + int(due_total_h / 24)
+					var due_h: int = due_total_h % 24
+
+					var d_out_nodes: Array[String] = []
+					for e in prog.edges:
+						var fn = str(e.get("from_node", e.get("fromNode", "")))
+						var fp = str(e.get("from_port", e.get("fromPort", "")))
+						if fn == b_cid and fp == "out":
+							d_out_nodes.append(str(e.get("to_node", e.get("toNode", ""))))
+
+					if is_dry_run:
+						var sim_msg := "Trì hoãn %d giờ trong vòng lặp (vòng %d): Dự kiến Ngày %d, %02d:00" % [
+							duration, iter_idx, due_d, due_h
+						]
+						log_trace(prog.id, sim_msg, is_dry_run, trace, cur_day)
+					else:
+						if d_out_nodes.is_empty():
+							log_trace(prog.id, "Node Delay (%s) trong vòng lặp không có nhánh 'out'" % b_cid, is_dry_run, trace, cur_day)
+						else:
+							for dn_id in d_out_nodes:
+								var sched_res := schedule_continuation(prog.id, b_cid, dn_id, duration, cur_day, cur_hour, {
+									"repeat_node_id": cid,
+									"repeat_iteration": iter_idx,
+									"repeat_count": count,
+									"steps_used": steps
+								})
+								if sched_res.get("ok", false):
+									var c_info: Dictionary = sched_res.get("continuation", {})
+									var sched_msg := "Đã lập lịch trì hoãn %s trong vòng lặp: %d giờ → '%s' (vòng %d/%d, Ngày %d, %02d:00)" % [
+										str(c_info.get("id")), duration, dn_id, iter_idx, count, due_d, due_h
+									]
+									log_trace(prog.id, sched_msg, is_dry_run, trace, cur_day)
+								else:
+									var err_msg := "Lỗi lập lịch trì hoãn trong vòng lặp tại node '%s': %s" % [b_cid, sched_res.get("reason", "")]
+									log_trace(prog.id, err_msg, is_dry_run, trace, cur_day)
+
+					suspended = true
+					break
+
+		if suspended:
+			break
+
+	if suspended:
+		return {
+			"ok": true,
+			"suspended": true,
+			"steps": steps,
+			"completed_node_ids": []
+		}
+
+	log_trace(prog.id, "Repeat %s hoàn thành tất cả %d lần lặp" % [cid, count], is_dry_run, trace, cur_day)
+	return {
+		"ok": true,
+		"suspended": false,
+		"steps": steps,
+		"completed_node_ids": completed_node_ids
+	}
+
 func run_program(prog_id: String, context: Dictionary, options: Dictionary = {}) -> Dictionary:
 	var prog := get_program(prog_id)
 	if prog == null:
@@ -584,6 +1008,7 @@ func run_program(prog_id: String, context: Dictionary, options: Dictionary = {})
 
 	var is_dry_run: bool = bool(options.get("dry_run", false))
 	var cur_day: int = int(context.get("current_day", 1))
+	var cur_hour: int = int(context.get("current_hour", 0))
 	var trace: Array = []
 
 	var validation := AutomationGraphValidator.validate_program(prog)
@@ -594,20 +1019,52 @@ func run_program(prog_id: String, context: Dictionary, options: Dictionary = {})
 
 	var action_locks: Dictionary = options.get("shared_action_locks", {})
 	var memo_bool: Dictionary = {}
-	var steps: int = 0
+	var steps: int = int(options.get("steps_used", 0))
 	var actions_executed: Array[Dictionary] = []
 
 	var queue: Array[Dictionary] = []
-	var start_node_id: String = str(options.get("start_node_id", ""))
-	if not start_node_id.is_empty():
+
+	var repeat_node_id: String = str(options.get("repeat_node_id", ""))
+	if not repeat_node_id.is_empty():
+		var rep_node: Dictionary = {}
 		for n in prog.nodes:
-			if str(n.get("id", "")) == start_node_id:
-				queue.append(n)
+			if str(n.get("id", "")) == repeat_node_id:
+				rep_node = n
 				break
+		if rep_node.is_empty():
+			var err_rep := "Không tìm thấy Repeat node '%s' để tiếp tục" % repeat_node_id
+			log_trace(prog.id, err_rep, is_dry_run, trace, cur_day)
+			return {"ok": false, "reason": err_rep, "trace": trace, "actions_executed": actions_executed}
+
+		var rep_iter: int = int(options.get("repeat_iteration", 1))
+		var rep_cnt: int = int(options.get("repeat_count", 1))
+		var resume_nid: String = str(options.get("start_node_id", ""))
+
+		var rep_res := _execute_repeat_node(
+			rep_node, prog, context, is_dry_run, trace, action_locks, actions_executed,
+			cur_day, cur_hour, rep_iter, resume_nid, rep_cnt, steps
+		)
+		steps = int(rep_res.get("steps", steps))
+		if not rep_res.get("ok", false):
+			return rep_res
+
+		if not rep_res.get("suspended", false):
+			for cn_id in rep_res.get("completed_node_ids", []):
+				for n in prog.nodes:
+					if str(n.get("id", "")) == cn_id:
+						queue.append(n)
+						break
 	else:
-		for n in prog.nodes:
-			if str(n.get("type", "")) == "Trigger":
-				queue.append(n)
+		var start_node_id: String = str(options.get("start_node_id", ""))
+		if not start_node_id.is_empty():
+			for n in prog.nodes:
+				if str(n.get("id", "")) == start_node_id:
+					queue.append(n)
+					break
+		else:
+			for n in prog.nodes:
+				if str(n.get("type", "")) == "Trigger":
+					queue.append(n)
 
 	while not queue.is_empty():
 		steps += 1
@@ -714,10 +1171,11 @@ func run_program(prog_id: String, context: Dictionary, options: Dictionary = {})
 				log_trace(prog.id, "Kết thúc luồng tại Node End (%s)" % cid, is_dry_run, trace, cur_day)
 
 			"Delay":
-				var d_val = cur.get("params", {}).get("duration_hours", cur.get("params", {}).get("duration", 1))
+				var d_p: Dictionary = cur.get("params", {}) if (cur.get("params") is Dictionary) else {}
+				var d_val = d_p.get("duration_hours", d_p.get("duration", d_p.get("durationHours", 1)))
 				var duration: int = clampi(int(d_val), 1, 720)
-				var cur_day_val: int = int(context.get("current_day", 1))
-				var cur_hour_val: int = int(context.get("current_hour", 0))
+				var cur_day_val: int = cur_day
+				var cur_hour_val: int = cur_hour
 				var cur_total_h: int = (cur_day_val - 1) * 24 + cur_hour_val
 				var due_total_h: int = cur_total_h + duration
 				var due_d: int = 1 + int(due_total_h / 24)
@@ -741,7 +1199,9 @@ func run_program(prog_id: String, context: Dictionary, options: Dictionary = {})
 						log_trace(prog.id, "Node Delay (%s) không có nhánh ra 'out'" % cid, is_dry_run, trace, cur_day_val)
 					else:
 						for target_nid in out_nodes:
-							var sched_res := schedule_continuation(prog.id, cid, target_nid, duration, cur_day_val, cur_hour_val)
+							var sched_res := schedule_continuation(prog.id, cid, target_nid, duration, cur_day_val, cur_hour_val, {
+								"steps_used": steps
+							})
 							if sched_res.get("ok", false):
 								var c_info: Dictionary = sched_res.get("continuation", {})
 								var sched_msg := "Đã lập lịch trì hoãn %s: %d giờ → tiếp tục tại '%s' (Đến hạn: Ngày %d, %02d:00)" % [
@@ -754,147 +1214,20 @@ func run_program(prog_id: String, context: Dictionary, options: Dictionary = {})
 				# Suspend current execution path: do not append out_nodes to queue
 
 			"Repeat":
-				var c_val = cur.get("params", {}).get("count", cur.get("params", {}).get("iterations", 1))
-				var count: int = clampi(int(c_val), 1, 20)
-				log_trace(prog.id, "Bắt đầu vòng lặp Repeat (%s) với %d lần lặp" % [cid, count], is_dry_run, trace, cur_day)
+				var rep_res := _execute_repeat_node(
+					cur, prog, context, is_dry_run, trace, action_locks, actions_executed,
+					cur_day, cur_hour, 1, "", -1, steps
+				)
+				steps = int(rep_res.get("steps", steps))
+				if not rep_res.get("ok", false):
+					return rep_res
 
-				var body_node_ids: Array[String] = []
-				var completed_node_ids: Array[String] = []
-
-				for e in prog.edges:
-					var fn = str(e.get("from_node", e.get("fromNode", "")))
-					var fp = str(e.get("from_port", e.get("fromPort", "")))
-					var tn = str(e.get("to_node", e.get("toNode", "")))
-					if fn == cid:
-						if fp in ["body", "out"]:
-							body_node_ids.append(tn)
-						elif fp == "completed":
-							completed_node_ids.append(tn)
-
-				for iter_idx in range(1, count + 1):
-					log_trace(prog.id, "Repeat %s: Vòng lặp %d/%d" % [cid, iter_idx, count], is_dry_run, trace, cur_day)
-					var body_queue: Array[Dictionary] = []
-					for bn_id in body_node_ids:
+				if not rep_res.get("suspended", false):
+					for cn_id in rep_res.get("completed_node_ids", []):
 						for n in prog.nodes:
-							if str(n.get("id", "")) == bn_id:
-								body_queue.append(n)
+							if str(n.get("id", "")) == cn_id:
+								queue.append(n)
 								break
-
-					while not body_queue.is_empty():
-						steps += 1
-						if steps > MAX_STEPS_PER_RUN:
-							var budget_msg := "Dừng khẩn cấp: Vượt ngân sách thực thi (%d bước/tick)" % MAX_STEPS_PER_RUN
-							log_trace(prog.id, budget_msg, is_dry_run, trace, cur_day)
-							return {"ok": false, "reason": budget_msg, "trace": trace, "actions_executed": actions_executed}
-
-						var b_cur: Dictionary = body_queue.pop_front()
-						var b_cid: String = str(b_cur.get("id", ""))
-						var b_ctype: String = str(b_cur.get("type", ""))
-						var b_ctitle: String = str(b_cur.get("title", b_ctype))
-
-						match b_ctype:
-							"Action":
-								var act_res := execute_action_node(b_cur, prog, context, is_dry_run, trace, action_locks)
-								actions_executed.append({
-									"node_id": b_cid,
-									"subtype": b_cur.get("subtype", ""),
-									"ok": act_res.get("ok", false),
-									"detail": act_res.get("delta", act_res.get("reason", ""))
-								})
-								for e in prog.edges:
-									var fn = str(e.get("from_node", e.get("fromNode", "")))
-									if fn == b_cid:
-										var tn = str(e.get("to_node", e.get("toNode", "")))
-										for n in prog.nodes:
-											if str(n.get("id", "")) == tn:
-												body_queue.append(n)
-												break
-
-							"Condition", "LogicGate":
-								var val := evaluate_condition_node(b_cur, prog, context, memo_bool)
-								log_trace(prog.id, "Đánh giá %s = %s" % [b_ctitle, "TRUE" if val else "FALSE"], is_dry_run, trace, cur_day)
-								for e in prog.edges:
-									var fn = str(e.get("from_node", e.get("fromNode", "")))
-									if fn == b_cid:
-										var tn = str(e.get("to_node", e.get("toNode", "")))
-										for n in prog.nodes:
-											if str(n.get("id", "")) == tn:
-												var nt: String = str(n.get("type", ""))
-												if nt in ["IfElse", "LogicGate"]:
-													body_queue.append(n)
-												elif val:
-													body_queue.append(n)
-												break
-
-							"IfElse":
-								var cond_node: Dictionary = {}
-								for e in prog.edges:
-									var tn = str(e.get("to_node", e.get("toNode", "")))
-									var tp = str(e.get("to_port", e.get("toPort", "")))
-									if tn == b_cid and tp == "cond":
-										var fn = str(e.get("from_node", e.get("fromNode", "")))
-										for n in prog.nodes:
-											if str(n.get("id", "")) == fn:
-												cond_node = n
-												break
-										if not cond_node.is_empty():
-											break
-
-								if cond_node.is_empty():
-									for e in prog.edges:
-										var tn = str(e.get("to_node", e.get("toNode", "")))
-										if tn == b_cid:
-											var fn = str(e.get("from_node", e.get("fromNode", "")))
-											for n in prog.nodes:
-												if str(n.get("id", "")) == fn and str(n.get("type", "")) in ["Condition", "LogicGate"]:
-													cond_node = n
-													break
-											if not cond_node.is_empty():
-												break
-
-								var cond_val: bool = false
-								if not cond_node.is_empty():
-									cond_val = evaluate_condition_node(cond_node, prog, context, memo_bool)
-
-								var branch_port: String = "true" if cond_val else "false"
-								log_trace(prog.id, "Nhánh IF/ELSE chọn cổng [%s]" % branch_port.to_upper(), is_dry_run, trace, cur_day)
-
-								for e in prog.edges:
-									var fn = str(e.get("from_node", e.get("fromNode", "")))
-									var fp = str(e.get("from_port", e.get("fromPort", "")))
-									if fn == b_cid and fp == branch_port:
-										var tn = str(e.get("to_node", e.get("toNode", "")))
-										for n in prog.nodes:
-											if str(n.get("id", "")) == tn:
-												body_queue.append(n)
-												break
-
-							"End":
-								log_trace(prog.id, "Kết thúc vòng lặp tại Node End (%s)" % b_cid, is_dry_run, trace, cur_day)
-								body_queue.clear()
-
-							"Delay":
-								var d_dur: int = clampi(int(b_cur.get("params", {}).get("duration_hours", 1)), 1, 720)
-								var d_out_nodes: Array[String] = []
-								for e in prog.edges:
-									if str(e.get("from_node", e.get("fromNode", ""))) == b_cid and str(e.get("from_port", e.get("fromPort", ""))) == "out":
-										d_out_nodes.append(str(e.get("to_node", e.get("toNode", ""))))
-								if is_dry_run:
-									log_trace(prog.id, "Trì hoãn %d giờ trong vòng lặp (vòng %d)" % [d_dur, iter_idx], is_dry_run, trace, cur_day)
-								else:
-									for dn_id in d_out_nodes:
-										schedule_continuation(prog.id, b_cid, dn_id, d_dur, cur_day, int(context.get("current_hour", 0)), {
-											"repeat_node_id": cid,
-											"repeat_iteration": iter_idx,
-											"repeat_count": count
-										})
-
-				log_trace(prog.id, "Repeat %s hoàn thành tất cả %d lần lặp" % [cid, count], is_dry_run, trace, cur_day)
-				for cn_id in completed_node_ids:
-					for n in prog.nodes:
-						if str(n.get("id", "")) == cn_id:
-							queue.append(n)
-							break
 
 	return {
 		"ok": true,
@@ -1070,41 +1403,56 @@ func serialize() -> Dictionary:
 		"next_continuation_counter": _next_continuation_counter
 	}
 
-func deserialize(data: Dictionary) -> void:
-	programs.clear()
-	execution_logs.clear()
-	pending_continuations.clear()
+func deserialize(data: Dictionary) -> bool:
+	if not data.is_empty():
+		var val_res := validate_automation_data(data)
+		if not val_res.get("valid", false):
+			push_error("AutomationManager.deserialize failed validation: " + val_res.get("error", ""))
+			return false
+
+	var new_programs: Array[AutomationProgram] = []
+	var new_logs: Array[String] = []
+	var new_continuations: Array[Dictionary] = []
+	var new_prog_counter: int = _next_program_counter
+	var new_cont_counter: int = _next_continuation_counter
 
 	var raw_progs = data.get("programs", [])
 	if raw_progs is Array:
 		for p_data in raw_progs:
 			if p_data is Dictionary:
 				var prog := AutomationProgram.deserialize(p_data)
-				programs.append(prog)
+				new_programs.append(prog)
 				# Update counter to avoid colliding IDs
 				var pid_str := prog.id
 				if pid_str.begins_with("prog_"):
 					var num_part := pid_str.trim_prefix("prog_").to_int()
-					if num_part >= _next_program_counter:
-						_next_program_counter = num_part + 1
+					if num_part >= new_prog_counter:
+						new_prog_counter = num_part + 1
 
 	var raw_logs = data.get("execution_logs", [])
 	if raw_logs is Array:
 		for l in raw_logs:
-			execution_logs.append(str(l))
+			new_logs.append(str(l))
 
 	var raw_conts = data.get("pending_continuations", [])
 	if raw_conts is Array:
 		for c_data in raw_conts:
 			if c_data is Dictionary:
-				pending_continuations.append(c_data.duplicate(true))
+				new_continuations.append(c_data.duplicate(true))
 				var cid_str: String = str(c_data.get("id", ""))
 				if cid_str.begins_with("cont_"):
 					var num_part := cid_str.trim_prefix("cont_").to_int()
-					if num_part >= _next_continuation_counter:
-						_next_continuation_counter = num_part + 1
+					if num_part >= new_cont_counter:
+						new_cont_counter = num_part + 1
 
 	if data.has("next_continuation_counter"):
 		var ncc = int(data.get("next_continuation_counter", 1))
-		if ncc > _next_continuation_counter:
-			_next_continuation_counter = ncc
+		if ncc > new_cont_counter:
+			new_cont_counter = ncc
+
+	programs = new_programs
+	execution_logs = new_logs
+	pending_continuations = new_continuations
+	_next_program_counter = new_prog_counter
+	_next_continuation_counter = new_cont_counter
+	return true

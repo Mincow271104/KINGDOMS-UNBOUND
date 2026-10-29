@@ -324,3 +324,11 @@
 - [x] **TASK-1Y.7:** Automated Test Suite:
   - Implemented `scripts/test/test_automation_graph_delay_repeat.gd` covering 7 test groups and 110 assertions (110/110 passed, Exit Code 0).
   - Verified full regression matrix across all 21 project test suites with 0 failures.
+- [x] **TASK-1Y.8:** Package 1Y Final Repeat/Delay Lifecycle and Persistence Fix:
+  - Preserved Repeat state across delayed continuations: encountering a Delay node within a Repeat loop iteration schedules downstream continuation with `repeat_node_id`, `repeat_iteration`, `repeat_count`, and `steps_used`, suspending the Repeat loop without prematurely executing subsequent iterations or the `completed` branch.
+  - Unified Repeat execution and resumption: `_execute_repeat_node()` handles both fresh Repeat runs and continuation resumptions. Resumed iterations execute strictly from `resume_node_id` without replaying pre-delay actions or triggers; subsequent iterations restart fresh from the Repeat body; once all iterations finish, `completed` output is triggered exactly once.
+  - Fresh condition evaluation per iteration: allocated `iter_memo_bool = {}` per iteration so dynamic simulation conditions evaluate fresh without stale memoization bleeding across loop iterations.
+  - Step budget bounding: step budget is carried across continuations via `steps_used`, bounding total logical execution steps across delayed resumptions to `MAX_STEPS_PER_RUN = 60`.
+  - Rejection of nested Repeat: `AutomationGraphValidator` traverses body branches to reject nested Repeat structures fail-closed.
+  - Deep validation & atomic fail-closed persistence: unified validation in `AutomationManager.validate_automation_data()` and `validate_pending_continuations()`, checking unique IDs, program/node existence, delay parameters, due-time formulas (`due_total_hours == (due_day - 1) * 24 + due_hour`), Repeat metadata (valid Repeat node, matching count, iteration <= count, steps_used <= 60), and queue limits. `AutomationManager.deserialize()` validates first and stages all variables, returning `false` on malformed data without mutating live state.
+  - Extended regression suite: added Group 8 to `scripts/test/test_automation_graph_delay_repeat.gd` (total 169/169 assertions passed, Exit Code 0).

@@ -386,6 +386,13 @@
       - `SaveManager.validate_save_data()` enforces deep fail-closed validation on all continuation records (validating types, ID strings, program IDs, node IDs, integer duration 1–720, due_day $\ge 1$, due_hour 0–23, and due_total_hours $\ge 0$).
       - Legacy saves lacking `pending_continuations` pass validation and load cleanly with an empty queue.
       - Double-load idempotency is verified with zero duplicated continuation records.
+    - *Final Repeat/Delay Lifecycle & Persistence Fix:*
+      - *Repeat + Delay Interleaving:* When a Delay node is encountered inside a Repeat loop body, it schedules a continuation tagged with `repeat_node_id`, `repeat_iteration`, `repeat_count`, and `steps_used`. The Repeat loop suspends immediately without executing subsequent iterations or triggering the `completed` branch prematurely.
+      - *Exact Post-Delay Resumption:* Resuming from a continuation restarts execution directly at `resume_node_id` (post-delay actions only, skipping pre-delay actions and Trigger). Once the resumed iteration completes, the loop advances to subsequent iterations (`repeat_iteration + 1` up to `repeat_count`), restarting each fresh from the top of the Repeat body. The `completed` branch fires exactly once after all iterations complete.
+      - *Fresh Condition Evaluation per Iteration:* Each loop iteration allocates its own empty `iter_memo_bool = {}`, preventing stale condition evaluation results from bleeding across iterations and ensuring dynamic simulation changes (such as fluctuating resource stocks) are re-evaluated fresh each iteration.
+      - *Nested Repeat Validation Rejection:* `AutomationGraphValidator` explicitly traverses body branches to reject nested Repeat structures fail-closed with clear diagnostics.
+      - *Step Budget Bounding Across Resumptions:* Preserves `steps_used` across scheduled continuations, enforcing that logical program executions cannot exceed `MAX_STEPS_PER_RUN = 60` across delayed iterations combined.
+      - *Deep Validation & Atomic Fail-Closed Deserialization:* Static `AutomationManager.validate_automation_data()` and `validate_pending_continuations()` enforce non-empty unique continuation IDs, valid programs and nodes, due-time consistency (`due_total_hours == (due_day - 1) * 24 + due_hour`), Repeat metadata matching configured node counts, and queue limits. `AutomationManager.deserialize()` validates first and stages all variables, returning `false` on malformed saves without clearing or mutating live programs, logs, or continuations.
 
 ---
 
