@@ -247,6 +247,65 @@ static func validate_automation_data(auto_dict: Variant) -> Dictionary:
 
 	return {"valid": true}
 
+static func find_enclosing_repeat_node(prog_data: Variant, target_delay_id: String) -> String:
+	if target_delay_id.is_empty():
+		return ""
+
+	var raw_nodes = []
+	var raw_edges = []
+	if prog_data is Dictionary:
+		raw_nodes = prog_data.get("nodes", [])
+		raw_edges = prog_data.get("edges", [])
+	elif prog_data is AutomationProgram:
+		raw_nodes = prog_data.nodes
+		raw_edges = prog_data.edges
+	else:
+		return ""
+
+	if not (raw_nodes is Array) or not (raw_edges is Array):
+		return ""
+
+	var repeat_node_ids: Array[String] = []
+	for nd in raw_nodes:
+		if nd is Dictionary and str(nd.get("type", "")) == "Repeat":
+			var r_id = str(nd.get("id", "")).strip_edges()
+			if not r_id.is_empty():
+				repeat_node_ids.append(r_id)
+
+	for rep_id in repeat_node_ids:
+		var body_start_nodes: Array[String] = []
+		for e in raw_edges:
+			if not (e is Dictionary):
+				continue
+			var fn = str(e.get("from_node", e.get("fromNode", ""))).strip_edges()
+			var fp = str(e.get("from_port", e.get("fromPort", ""))).strip_edges()
+			var tn = str(e.get("to_node", e.get("toNode", ""))).strip_edges()
+			if fn == rep_id and (fp in ["body", "out"] or fp.is_empty()):
+				if not tn.is_empty():
+					body_start_nodes.append(tn)
+
+		var visited: Dictionary = {rep_id: true}
+		var queue: Array[String] = body_start_nodes.duplicate()
+		while not queue.is_empty():
+			var curr = queue.pop_front()
+			if visited.has(curr):
+				continue
+			visited[curr] = true
+			if curr == target_delay_id:
+				return rep_id
+
+			for e in raw_edges:
+				if not (e is Dictionary):
+					continue
+				var fn = str(e.get("from_node", e.get("fromNode", ""))).strip_edges()
+				var fp = str(e.get("from_port", e.get("fromPort", ""))).strip_edges()
+				var tn = str(e.get("to_node", e.get("toNode", ""))).strip_edges()
+				if fn == curr and not tn.is_empty():
+					if fp in ["out", "true", "false", "body", ""]:
+						queue.append(tn)
+
+	return ""
+
 static func validate_pending_continuations(conts_val: Variant, programs_val: Variant) -> Dictionary:
 	if not (conts_val is Array):
 		return {"valid": false, "error": "Mục 'pending_continuations' phải là danh sách (Array)."}
@@ -265,14 +324,23 @@ static func validate_pending_continuations(conts_val: Variant, programs_val: Var
 					for nd in raw_nodes:
 						if nd is Dictionary and nd.has("id"):
 							node_dict[str(nd["id"]).strip_edges()] = nd
-				prog_map[pid] = {"nodes": node_dict, "program": p}
+				var raw_edges = p.get("edges", [])
+				prog_map[pid] = {
+					"nodes": node_dict,
+					"edges": raw_edges if (raw_edges is Array) else [],
+					"program": p
+				}
 			elif p is AutomationProgram:
 				var pid = p.id.strip_edges()
 				var node_dict: Dictionary = {}
 				for nd in p.nodes:
 					if nd is Dictionary and nd.has("id"):
 						node_dict[str(nd["id"]).strip_edges()] = nd
-				prog_map[pid] = {"nodes": node_dict, "program": p}
+				prog_map[pid] = {
+					"nodes": node_dict,
+					"edges": p.edges,
+					"program": p
+				}
 
 	var seen_cids: Dictionary = {}
 	var prog_counts: Dictionary = {}
@@ -304,6 +372,16 @@ static func validate_pending_continuations(conts_val: Variant, programs_val: Var
 
 		var prog_nodes: Dictionary = prog_map[pid]["nodes"]
 
+		if not c_entry.has("delay_node_id"):
+			return {"valid": false, "error": "pending_continuation '%s' thiếu trường 'delay_node_id'." % cid}
+		var d_nid = str(c_entry.get("delay_node_id", "")).strip_edges()
+		if d_nid.is_empty():
+			return {"valid": false, "error": "pending_continuation '%s' có delay_node_id rỗng." % cid}
+		if not prog_nodes.has(d_nid):
+			return {"valid": false, "error": "pending_continuation '%s' có delay_node_id '%s' không tồn tại trong chương trình '%s'." % [cid, d_nid, pid]}
+		if str(prog_nodes[d_nid].get("type", "")) != "Delay":
+			return {"valid": false, "error": "pending_continuation '%s' có delay_node_id '%s' không phải loại node 'Delay'." % [cid, d_nid]}
+
 		if not c_entry.has("resume_node_id"):
 			return {"valid": false, "error": "pending_continuation '%s' thiếu trường 'resume_node_id'." % cid}
 		var r_nid = str(c_entry.get("resume_node_id", "")).strip_edges()
@@ -312,13 +390,20 @@ static func validate_pending_continuations(conts_val: Variant, programs_val: Var
 		if not prog_nodes.has(r_nid):
 			return {"valid": false, "error": "pending_continuation '%s' có resume_node_id '%s' không tồn tại trong chương trình '%s'." % [cid, r_nid, pid]}
 
-		if c_entry.has("delay_node_id"):
-			var d_nid = str(c_entry.get("delay_node_id", "")).strip_edges()
-			if not d_nid.is_empty():
-				if not prog_nodes.has(d_nid):
-					return {"valid": false, "error": "pending_continuation '%s' có delay_node_id '%s' không tồn tại trong chương trình '%s'." % [cid, d_nid, pid]}
-				if str(prog_nodes[d_nid].get("type", "")) != "Delay":
-					return {"valid": false, "error": "pending_continuation '%s' có delay_node_id '%s' không phải loại node 'Delay'." % [cid, d_nid]}
+		# Verify resume_node_id is a valid downstream target of delay_node_id
+		var prog_edges: Array = prog_map[pid].get("edges", [])
+		var is_downstream: bool = false
+		for e in prog_edges:
+			if not (e is Dictionary):
+				continue
+			var fn = str(e.get("from_node", e.get("fromNode", ""))).strip_edges()
+			var fp = str(e.get("from_port", e.get("fromPort", ""))).strip_edges()
+			var tn = str(e.get("to_node", e.get("toNode", ""))).strip_edges()
+			if fn == d_nid and tn == r_nid and (fp == "out" or fp.is_empty()):
+				is_downstream = true
+				break
+		if not is_downstream:
+			return {"valid": false, "error": "pending_continuation '%s' có resume_node_id '%s' không phải đích đến hợp lệ từ node Delay '%s'." % [cid, r_nid, d_nid]}
 
 		if not c_entry.has("duration_hours"):
 			return {"valid": false, "error": "pending_continuation '%s' thiếu trường 'duration_hours'." % cid}
@@ -351,44 +436,78 @@ static func validate_pending_continuations(conts_val: Variant, programs_val: Var
 		if due_tot != expected_total:
 			return {"valid": false, "error": "pending_continuation '%s' due_total_hours (%d) không khớp công thức với due_day (%d) và due_hour (%d) (Kỳ vọng: %d)." % [cid, due_tot, due_d, due_h, expected_total]}
 
-		if c_entry.has("repeat_node_id"):
-			var rep_id = str(c_entry.get("repeat_node_id", "")).strip_edges()
-			if not rep_id.is_empty():
-				if not prog_nodes.has(rep_id):
-					return {"valid": false, "error": "pending_continuation '%s' có repeat_node_id '%s' không tồn tại trong chương trình '%s'." % [cid, rep_id, pid]}
-				var rep_node = prog_nodes[rep_id]
-				if str(rep_node.get("type", "")) != "Repeat":
-					return {"valid": false, "error": "pending_continuation '%s' có repeat_node_id '%s' không phải loại node 'Repeat'." % [cid, rep_id]}
+		var enclosing_rep_id: String = find_enclosing_repeat_node(prog_map[pid]["program"], d_nid)
 
-				if not c_entry.has("repeat_count"):
-					return {"valid": false, "error": "pending_continuation '%s' có repeat_node_id nhưng thiếu 'repeat_count'." % cid}
-				var rc = c_entry.get("repeat_count")
-				if not (rc is int or (rc is float and floor(float(rc)) == float(rc))):
-					return {"valid": false, "error": "pending_continuation '%s' repeat_count không phải số nguyên." % cid}
-				var rc_int: int = int(rc)
-				if rc_int < 1 or rc_int > 20:
-					return {"valid": false, "error": "pending_continuation '%s' repeat_count (%d) nằm ngoài khoảng [1, 20]." % [cid, rc_int]}
+		var has_rep_id: bool = c_entry.has("repeat_node_id")
+		var has_rep_iter: bool = c_entry.has("repeat_iteration")
+		var has_rep_count: bool = c_entry.has("repeat_count")
 
-				var node_rc: int = int(rep_node.get("params", {}).get("count", rep_node.get("params", {}).get("iterations", 1)))
-				if rc_int != node_rc:
-					return {"valid": false, "error": "pending_continuation '%s' repeat_count (%d) không khớp giá trị cấu hình (%d) của node Repeat '%s'." % [cid, rc_int, node_rc, rep_id]}
+		var is_repeat_continuation: bool = (not enclosing_rep_id.is_empty()) or has_rep_id or has_rep_iter or has_rep_count
 
-				if not c_entry.has("repeat_iteration"):
-					return {"valid": false, "error": "pending_continuation '%s' có repeat_node_id nhưng thiếu 'repeat_iteration'." % cid}
-				var ri = c_entry.get("repeat_iteration")
-				if not (ri is int or (ri is float and floor(float(ri)) == float(ri))):
-					return {"valid": false, "error": "pending_continuation '%s' repeat_iteration không phải số nguyên." % cid}
-				var ri_int: int = int(ri)
-				if ri_int < 1 or ri_int > rc_int:
-					return {"valid": false, "error": "pending_continuation '%s' repeat_iteration (%d) nằm ngoài khoảng [1, %d]." % [cid, ri_int, rc_int]}
+		if is_repeat_continuation:
+			if not has_rep_id:
+				if not enclosing_rep_id.is_empty():
+					return {"valid": false, "error": "pending_continuation '%s' thuộc nhánh lặp của node Repeat '%s' nhưng thiếu trường 'repeat_node_id'." % [cid, enclosing_rep_id]}
+				else:
+					return {"valid": false, "error": "pending_continuation '%s' chứa thông tin lặp không đầy đủ (thiếu 'repeat_node_id')." % cid}
 
-		if c_entry.has("steps_used"):
+			var raw_rep_id = c_entry.get("repeat_node_id")
+			if not (raw_rep_id is String):
+				return {"valid": false, "error": "pending_continuation '%s' repeat_node_id phải là chuỗi (String)." % cid}
+			var rep_id: String = str(raw_rep_id).strip_edges()
+			if rep_id.is_empty():
+				return {"valid": false, "error": "pending_continuation '%s' có repeat_node_id rỗng." % cid}
+			if not prog_nodes.has(rep_id):
+				return {"valid": false, "error": "pending_continuation '%s' có repeat_node_id '%s' không tồn tại trong chương trình '%s'." % [cid, rep_id, pid]}
+
+			var rep_node = prog_nodes[rep_id]
+			if str(rep_node.get("type", "")) != "Repeat":
+				return {"valid": false, "error": "pending_continuation '%s' có repeat_node_id '%s' không phải loại node 'Repeat'." % [cid, rep_id]}
+
+			if enclosing_rep_id.is_empty():
+				return {"valid": false, "error": "pending_continuation '%s' có repeat_node_id '%s' nhưng node Delay '%s' không nằm trong nhánh lặp của node Repeat này." % [cid, rep_id, d_nid]}
+
+			if rep_id != enclosing_rep_id:
+				return {"valid": false, "error": "pending_continuation '%s' có repeat_node_id '%s' không khớp với node Repeat bao đóng '%s'." % [cid, rep_id, enclosing_rep_id]}
+
+			if not has_rep_count:
+				return {"valid": false, "error": "pending_continuation '%s' thiếu trường 'repeat_count'." % cid}
+			var rc = c_entry.get("repeat_count")
+			if not (rc is int or (rc is float and not is_nan(float(rc)) and not is_inf(float(rc)) and floor(float(rc)) == float(rc))):
+				return {"valid": false, "error": "pending_continuation '%s' repeat_count không phải số nguyên." % cid}
+			var rc_int: int = int(rc)
+			if rc_int < 1 or rc_int > 20:
+				return {"valid": false, "error": "pending_continuation '%s' repeat_count (%d) nằm ngoài khoảng [1, 20]." % [cid, rc_int]}
+
+			var node_rc: int = int(rep_node.get("params", {}).get("count", rep_node.get("params", {}).get("iterations", 1)))
+			if rc_int != node_rc:
+				return {"valid": false, "error": "pending_continuation '%s' repeat_count (%d) không khớp giá trị cấu hình (%d) của node Repeat '%s'." % [cid, rc_int, node_rc, rep_id]}
+
+			if not has_rep_iter:
+				return {"valid": false, "error": "pending_continuation '%s' thiếu trường 'repeat_iteration'." % cid}
+			var ri = c_entry.get("repeat_iteration")
+			if not (ri is int or (ri is float and not is_nan(float(ri)) and not is_inf(float(ri)) and floor(float(ri)) == float(ri))):
+				return {"valid": false, "error": "pending_continuation '%s' repeat_iteration không phải số nguyên." % cid}
+			var ri_int: int = int(ri)
+			if ri_int < 1 or ri_int > rc_int:
+				return {"valid": false, "error": "pending_continuation '%s' repeat_iteration (%d) nằm ngoài khoảng [1, %d]." % [cid, ri_int, rc_int]}
+
+			if not c_entry.has("steps_used"):
+				return {"valid": false, "error": "pending_continuation '%s' thuộc vòng lặp Repeat nhưng thiếu trường 'steps_used'." % cid}
 			var su = c_entry.get("steps_used")
-			if not (su is int or (su is float and floor(float(su)) == float(su))):
+			if not (su is int or (su is float and not is_nan(float(su)) and not is_inf(float(su)) and floor(float(su)) == float(su))):
 				return {"valid": false, "error": "pending_continuation '%s' steps_used không phải số nguyên." % cid}
 			var su_int: int = int(su)
 			if su_int < 0 or su_int > MAX_STEPS_PER_RUN:
 				return {"valid": false, "error": "pending_continuation '%s' steps_used (%d) nằm ngoài khoảng [0, %d]." % [cid, su_int, MAX_STEPS_PER_RUN]}
+		else:
+			if c_entry.has("steps_used"):
+				var su = c_entry.get("steps_used")
+				if not (su is int or (su is float and not is_nan(float(su)) and not is_inf(float(su)) and floor(float(su)) == float(su))):
+					return {"valid": false, "error": "pending_continuation '%s' steps_used không phải số nguyên." % cid}
+				var su_int: int = int(su)
+				if su_int < 0 or su_int > MAX_STEPS_PER_RUN:
+					return {"valid": false, "error": "pending_continuation '%s' steps_used (%d) nằm ngoài khoảng [0, %d]." % [cid, su_int, MAX_STEPS_PER_RUN]}
 
 	return {"valid": true}
 

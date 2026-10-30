@@ -942,6 +942,132 @@ func _test_group_8_repeat_delay_interaction_and_fail_closed() -> void:
 	var v_ovf := AutomationManager.validate_pending_continuations(overflow_conts, [base_prog_dict])
 	_assert_false(v_ovf["valid"], "TC-Y.35.9", "More than 10 continuations for a single program rejected fail-closed")
 
+	# --- 8.6: Focused Repeat Continuation Metadata Validation Suite ---
+	var repeat_prog_dict: Dictionary = {
+		"id": "prog_rep_val",
+		"name": "Repeat Prog",
+		"enabled": true,
+		"priority": 0,
+		"nodes": [
+			{"id": "t1", "type": "Trigger", "title": "Trig", "params": {}},
+			{"id": "r1", "type": "Repeat", "title": "Rep1", "params": {"count": 3}},
+			{"id": "a1", "type": "Action", "subtype": "EmitLog", "title": "Act1", "params": {}},
+			{"id": "d1", "type": "Delay", "title": "Del1", "params": {"duration_hours": 2}},
+			{"id": "a2", "type": "Action", "subtype": "EmitLog", "title": "Act2", "params": {}},
+			{"id": "r2", "type": "Repeat", "title": "Rep2", "params": {"count": 2}},
+			{"id": "a3", "type": "Action", "subtype": "EmitLog", "title": "Act3", "params": {}}
+		],
+		"edges": [
+			{"id": "e1", "from_node": "t1", "from_port": "out", "to_node": "r1", "to_port": "in"},
+			{"id": "e2", "from_node": "r1", "from_port": "body", "to_node": "a1", "to_port": "in"},
+			{"id": "e3", "from_node": "a1", "from_port": "out", "to_node": "d1", "to_port": "in"},
+			{"id": "e4", "from_node": "d1", "from_port": "out", "to_node": "a2", "to_port": "in"},
+			{"id": "e5", "from_node": "r1", "from_port": "completed", "to_node": "r2", "to_port": "in"},
+			{"id": "e6", "from_node": "r2", "from_port": "body", "to_node": "a3", "to_port": "in"}
+		]
+	}
+
+	# TC-Y.37.1: Missing repeat_node_id with other metadata present is rejected
+	var cont_no_rep_id = [{
+		"id": "c_no_rid", "program_id": "prog_rep_val", "delay_node_id": "d1", "resume_node_id": "a2",
+		"duration_hours": 2, "due_day": 1, "due_hour": 8, "due_total_hours": 8,
+		"repeat_iteration": 1, "repeat_count": 3, "steps_used": 5
+	}]
+	var v_no_rid := AutomationManager.validate_pending_continuations(cont_no_rep_id, [repeat_prog_dict])
+	_assert_false(v_no_rid["valid"], "TC-Y.37.1", "Repeat continuation missing repeat_node_id rejected fail-closed")
+
+	# TC-Y.37.2: Missing repeat_iteration is rejected
+	var cont_no_iter = [{
+		"id": "c_no_iter", "program_id": "prog_rep_val", "delay_node_id": "d1", "resume_node_id": "a2",
+		"duration_hours": 2, "due_day": 1, "due_hour": 8, "due_total_hours": 8,
+		"repeat_node_id": "r1", "repeat_count": 3, "steps_used": 5
+	}]
+	var v_no_iter := AutomationManager.validate_pending_continuations(cont_no_iter, [repeat_prog_dict])
+	_assert_false(v_no_iter["valid"], "TC-Y.37.2", "Repeat continuation missing repeat_iteration rejected fail-closed")
+
+	# TC-Y.37.3: Missing repeat_count is rejected
+	var cont_no_cnt = [{
+		"id": "c_no_cnt", "program_id": "prog_rep_val", "delay_node_id": "d1", "resume_node_id": "a2",
+		"duration_hours": 2, "due_day": 1, "due_hour": 8, "due_total_hours": 8,
+		"repeat_node_id": "r1", "repeat_iteration": 1, "steps_used": 5
+	}]
+	var v_no_cnt := AutomationManager.validate_pending_continuations(cont_no_cnt, [repeat_prog_dict])
+	_assert_false(v_no_cnt["valid"], "TC-Y.37.3", "Repeat continuation missing repeat_count rejected fail-closed")
+
+	# TC-Y.37.4: Missing steps_used is rejected
+	var cont_no_steps = [{
+		"id": "c_no_steps", "program_id": "prog_rep_val", "delay_node_id": "d1", "resume_node_id": "a2",
+		"duration_hours": 2, "due_day": 1, "due_hour": 8, "due_total_hours": 8,
+		"repeat_node_id": "r1", "repeat_iteration": 1, "repeat_count": 3
+	}]
+	var v_no_steps := AutomationManager.validate_pending_continuations(cont_no_steps, [repeat_prog_dict])
+	_assert_false(v_no_steps["valid"], "TC-Y.37.4", "Repeat continuation missing steps_used rejected fail-closed")
+
+	# TC-Y.37.5: Delay inside Repeat body cannot omit Repeat metadata
+	var cont_stripped = [{
+		"id": "c_stripped", "program_id": "prog_rep_val", "delay_node_id": "d1", "resume_node_id": "a2",
+		"duration_hours": 2, "due_day": 1, "due_hour": 8, "due_total_hours": 8
+	}]
+	var v_stripped := AutomationManager.validate_pending_continuations(cont_stripped, [repeat_prog_dict])
+	_assert_false(v_stripped["valid"], "TC-Y.37.5", "Delay structurally inside Repeat body without repeat metadata rejected fail-closed")
+
+	# TC-Y.37.6: Repeat continuation referencing unrelated Repeat node is rejected
+	var cont_unrelated = [{
+		"id": "c_unrel", "program_id": "prog_rep_val", "delay_node_id": "d1", "resume_node_id": "a2",
+		"duration_hours": 2, "due_day": 1, "due_hour": 8, "due_total_hours": 8,
+		"repeat_node_id": "r2", "repeat_iteration": 1, "repeat_count": 2, "steps_used": 5
+	}]
+	var v_unrel := AutomationManager.validate_pending_continuations(cont_unrelated, [repeat_prog_dict])
+	_assert_false(v_unrel["valid"], "TC-Y.37.6", "Repeat continuation referencing unrelated Repeat node rejected fail-closed")
+
+	# TC-Y.37.7: Resume node not downstream of Delay is rejected
+	var cont_bad_target = [{
+		"id": "c_bad_tgt", "program_id": "prog_rep_val", "delay_node_id": "d1", "resume_node_id": "a3",
+		"duration_hours": 2, "due_day": 1, "due_hour": 8, "due_total_hours": 8,
+		"repeat_node_id": "r1", "repeat_iteration": 1, "repeat_count": 3, "steps_used": 5
+	}]
+	var v_bad_tgt := AutomationManager.validate_pending_continuations(cont_bad_target, [repeat_prog_dict])
+	_assert_false(v_bad_tgt["valid"], "TC-Y.37.7", "Continuation with non-downstream resume node rejected fail-closed")
+
+	# TC-Y.37.8: Valid normal Delay outside Repeat remains compatible
+	var normal_prog_dict: Dictionary = {
+		"id": "prog_norm_val",
+		"name": "Normal Delay Prog",
+		"enabled": true,
+		"priority": 0,
+		"nodes": [
+			{"id": "t1", "type": "Trigger", "title": "Trig", "params": {}},
+			{"id": "d1", "type": "Delay", "title": "Del", "params": {"duration_hours": 2}},
+			{"id": "a1", "type": "Action", "subtype": "EmitLog", "title": "Act", "params": {}}
+		],
+		"edges": [
+			{"id": "e1", "from_node": "t1", "from_port": "out", "to_node": "d1", "to_port": "in"},
+			{"id": "e2", "from_node": "d1", "from_port": "out", "to_node": "a1", "to_port": "in"}
+		]
+	}
+	var cont_norm = [{
+		"id": "c_norm", "program_id": "prog_norm_val", "delay_node_id": "d1", "resume_node_id": "a1",
+		"duration_hours": 2, "due_day": 1, "due_hour": 8, "due_total_hours": 8
+	}]
+	var v_norm := AutomationManager.validate_pending_continuations(cont_norm, [normal_prog_dict])
+	_assert_true(v_norm["valid"], "TC-Y.37.8a", "Normal Delay continuation without repeat metadata accepted")
+
+	var cont_norm_su = [{
+		"id": "c_norm_su", "program_id": "prog_norm_val", "delay_node_id": "d1", "resume_node_id": "a1",
+		"duration_hours": 2, "due_day": 1, "due_hour": 8, "due_total_hours": 8, "steps_used": 15
+	}]
+	var v_norm_su := AutomationManager.validate_pending_continuations(cont_norm_su, [normal_prog_dict])
+	_assert_true(v_norm_su["valid"], "TC-Y.37.8b", "Normal Delay continuation with optional steps_used accepted")
+
+	# Valid Repeat continuation with full metadata
+	var cont_valid_rep = [{
+		"id": "c_vrep", "program_id": "prog_rep_val", "delay_node_id": "d1", "resume_node_id": "a2",
+		"duration_hours": 2, "due_day": 1, "due_hour": 8, "due_total_hours": 8,
+		"repeat_node_id": "r1", "repeat_iteration": 1, "repeat_count": 3, "steps_used": 5
+	}]
+	var v_vrep := AutomationManager.validate_pending_continuations(cont_valid_rep, [repeat_prog_dict])
+	_assert_true(v_vrep["valid"], "TC-Y.37.9", "Complete and valid Repeat continuation accepted")
+
 	# 8.5.10: Atomic fail-closed deserialize() preserves existing live state
 	var mgr_live := AutomationManager.new()
 	var live_p := mgr_live.create_program("Live Program")

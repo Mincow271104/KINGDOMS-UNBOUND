@@ -332,3 +332,10 @@
   - Rejection of nested Repeat: `AutomationGraphValidator` traverses body branches to reject nested Repeat structures fail-closed.
   - Deep validation & atomic fail-closed persistence: unified validation in `AutomationManager.validate_automation_data()` and `validate_pending_continuations()`, checking unique IDs, program/node existence, delay parameters, due-time formulas (`due_total_hours == (due_day - 1) * 24 + due_hour`), Repeat metadata (valid Repeat node, matching count, iteration <= count, steps_used <= 60), and queue limits. `AutomationManager.deserialize()` validates first and stages all variables, returning `false` on malformed data without mutating live state.
   - Extended regression suite: added Group 8 to `scripts/test/test_automation_graph_delay_repeat.gd` (total 169/169 assertions passed, Exit Code 0).
+- [x] **TASK-1Y.9:** Final Repeat Continuation Metadata Validation Fix:
+  - Enforced all-or-nothing Repeat metadata validation in `AutomationManager.validate_pending_continuations()`: `repeat_node_id`, `repeat_iteration`, `repeat_count`, and `steps_used` form a single required logical unit for Repeat continuations.
+  - Implemented graph reachability detector `AutomationManager.find_enclosing_repeat_node()` to identify Delay nodes structurally located within a Repeat body branch.
+  - Prohibited omitting Repeat metadata for Delay nodes located inside a Repeat body; prohibited Repeat metadata referencing unrelated Repeat nodes.
+  - Validated that `resume_node_id` is an authoritative downstream target connected from the continuation's `delay_node_id`'s `out` port.
+  - Preserved complete backward compatibility for normal Delay continuations outside Repeat bodies (which do not require Repeat metadata and accept optional `steps_used`).
+  - Added dedicated test suite TC-Y.37 (TC-Y.37.1 to TC-Y.37.9) to `scripts/test/test_automation_graph_delay_repeat.gd`, expanding suite to 179/179 assertions passing with exit code 0.

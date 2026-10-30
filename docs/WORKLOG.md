@@ -6838,7 +6838,76 @@ Address confirmed runtime semantics and persistence edge cases:
 - `docs/WORKLOG.md` (Modified)
 
 ### Next Exact Step
+- Execute follow-up audit for Repeat continuation metadata validation completeness.
+
+---
+
+## [2026-10-31] Milestone 34: Package 1Y Final Repeat Continuation Metadata Validation Fix ✅ IMPLEMENTED & VERIFIED
+
+### Context & Objective
+Implement the final persistence-validation correction for Package 1Y: Automation Graph Delay & Repeat Nodes on branch `feat/package-1y-automation-delay-repeat`.
+Address confirmed validation gap:
+1. `validate_pending_continuations()` previously validated Repeat metadata only when `repeat_node_id` was present and non-empty, which permitted partial Repeat metadata (e.g. `repeat_iteration` without `repeat_node_id`), stripped metadata for Delay nodes located inside Repeat bodies, and missing `steps_used`.
+2. Enforce all-or-nothing Repeat metadata (`repeat_node_id`, `repeat_iteration`, `repeat_count`, `steps_used`).
+3. Detect Delay nodes structurally belonging to a Repeat body branch via serialized program graph traversal (`find_enclosing_repeat_node()`).
+4. Validate that `resume_node_id` is an authoritative downstream target connected from the continuation's `delay_node_id` (`out` port).
+5. Ensure Repeat metadata cannot point to an unrelated Repeat node, and cannot be omitted when Delay is inside a Repeat body.
+6. Preserve full compatibility for normal Delay continuations outside Repeat bodies (no repeat metadata required, optional `steps_used`).
+
+### Completed Work
+1. **Graph Reachability & Enclosing Repeat Detection (`scripts/economy/automation_manager.gd`):**
+   - Implemented static helper `AutomationManager.find_enclosing_repeat_node(prog_data, target_delay_id)`.
+   - Traverses control-flow edges (`out`, `true`, `false`, `body`) starting from each Repeat node's `body` branch via BFS, cleanly identifying which Repeat node (if any) owns a given Delay node.
+   - Respects DAG acyclicity and isolates Repeat body branches from post-loop `completed` outputs.
+2. **Authoritative Downstream Target Validation (`scripts/economy/automation_manager.gd`):**
+   - Validates that `resume_node_id` corresponds to an actual edge in the program graph originating from `delay_node_id`'s `out` port.
+   - Rejects continuations where `resume_node_id` is not a downstream target of `delay_node_id` fail-closed.
+3. **All-or-Nothing Repeat Metadata Gating (`scripts/economy/automation_manager.gd`):**
+   - Required mandatory `delay_node_id` for all continuations.
+   - If a Delay node belongs to a Repeat body, or if any Repeat metadata field is provided:
+     - `repeat_node_id`: must be non-empty String, exist in program nodes, have type `Repeat`, and match `enclosing_rep_id`.
+     - `repeat_count`: must be integer in `1..20`, matching the Repeat node's configured count.
+     - `repeat_iteration`: must be integer in `1..repeat_count`.
+     - `steps_used`: must be present and integer in `0..MAX_STEPS_PER_RUN` (0..60).
+   - If Delay is outside Repeat bodies:
+     - Repeat metadata must be omitted.
+     - `steps_used` is optional (compatible with legacy saves / normal delays); if present, validated in `0..MAX_STEPS_PER_RUN`.
+4. **Targeted Regression Suite Authoring (`scripts/test/test_automation_graph_delay_repeat.gd`):**
+   - Added dedicated test suite TC-Y.37 (TC-Y.37.1 to TC-Y.37.9) covering:
+     - TC-Y.37.1: Missing `repeat_node_id` with other metadata rejected fail-closed.
+     - TC-Y.37.2: Missing `repeat_iteration` rejected fail-closed.
+     - TC-Y.37.3: Missing `repeat_count` rejected fail-closed.
+     - TC-Y.37.4: Missing `steps_used` for Repeat continuation rejected fail-closed.
+     - TC-Y.37.5: Delay inside Repeat body with stripped Repeat metadata rejected fail-closed.
+     - TC-Y.37.6: Repeat continuation referencing unrelated Repeat node rejected fail-closed.
+     - TC-Y.37.7: Continuation with non-downstream resume node rejected fail-closed.
+     - TC-Y.37.8a & 8b: Valid normal Delay continuations without Repeat metadata (with and without optional `steps_used`) accepted.
+     - TC-Y.37.9: Complete, valid Repeat continuation accepted.
+   - Total assertions in `test_automation_graph_delay_repeat.gd` expanded from 169 to 179 (179/179 passed, Exit Code 0).
+
+### Validations Performed & Results
+- **Package 1Y Dedicated Test Suite:**
+  - `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --path "e:\KINGDOMS UNBOUND\kingdoms-unbound" -s res://scripts/test/test_automation_graph_delay_repeat.gd`: **PASS (Exit Code 0: 179/179 assertions)**
+- **Regression Suite:**
+  - `scripts/test/test_automation_graph.gd`: **PASS (Exit Code 0: 69/69 assertions)**
+  - `scripts/test/test_save_load.gd`: **PASS (Exit Code 0: 129/129 assertions)**
+  - `scripts/test/test_package_1x_gameplay_integration.gd`: **PASS (Exit Code 0: 57/57 assertions)**
+  - `scripts/test/test_field_siege.gd`: **PASS (Exit Code 0: 85/85 assertions)**
+  - `scripts/test/test_tactical_military.gd`: **PASS (Exit Code 0: 385/385 assertions)**
+- **Headless Engine / Project Check:**
+  - `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --editor --quit`: **PASS (Exit Code 0)**
+- **Whitespace / Git Check:**
+  - `git diff --check`: **PASS (Exit Code 0)**
+
+### Files Created or Modified
+- `scripts/economy/automation_manager.gd` (Modified)
+- `scripts/test/test_automation_graph_delay_repeat.gd` (Modified)
+- `docs/BACKLOG.md` (Modified)
+- `docs/TEST_PLAN.md` (Modified)
+- `docs/WORKLOG.md` (Modified)
+
+### Next Exact Step
 - Verify git status.
-- Commit all modified files with `fix(automation): preserve repeat state across delayed continuations`.
+- Commit all modified files with `fix(automation): enforce complete repeat continuation metadata`.
 - Push commit to remote branch `origin/feat/package-1y-automation-delay-repeat`.
 - Provide final completion report.
