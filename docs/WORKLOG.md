@@ -7080,3 +7080,87 @@ Execute the corrective post-implementation audit of Package 1Z: **Legacy Fund & 
 - Commit all changes with `fix(legacy): harden rewards and profile integrity`.
 - Push commit to remote branch `origin/feat/package-1z-legacy-fund-foundation`.
 - Deliver comprehensive completion report.
+
+---
+
+## [2026-10-31] Package 1Z: Second Hardening Audit — Reward ID Security, Atomic Persistence & Overflow Protection
+
+### Objective
+Execute the second hardening audit for Package 1Z (Legacy Fund & Meta-Progression Foundation) to resolve security and reliability findings:
+1. **FIX-1Z-E:** Canonical Exactly-Once Victory Reward IDs (`victory_<world_id>`), eliminating exploit cycling via custom reward IDs and synchronizing profile state upon older save reloads.
+2. **FIX-1Z-F & FIX-1Z-H:** Hardened profile atomic persistence and safe backup recovery: fail-closed directory checking, write/flush verification, `.tmp` read-back schema validation, and preventing corrupted primary files from overwriting valid `.bak` files during backup rotation.
+3. **FIX-1Z-G:** SaveManager atomic write hardening: directory access verification, write/flush error checking, aborting before removing target if backup copy fails, and backup restoration on rename errors.
+4. **FIX-1Z-I:** Correct HUD reward status classification, decoupling `is_claimed` from `not is_reward_claimable()` to distinguish all 6 gating/claim states with clear Vietnamese UI buttons and status labels.
+5. **FIX-1Z-J:** 64-bit integer overflow protection (`MAX_SAFE_INT = 9223372036854775807`), rejecting any claim amounts or schema records that would overflow `legacy_balance`, `lifetime_legacy_earned`, or reward totals fail-closed.
+6. **Comprehensive Automated Test Expansion:** 30 total tests in `scripts/test/test_legacy_fund.gd` (30/30 passed, Exit Code 0).
+
+### Completed Work
+1. **Canonical Reward IDs & Exploit Closure (`scripts/core/victory_manager.gd`):**
+   - Added `get_canonical_victory_reward_id() -> String` deriving `victory_<world_id>`.
+   - Ignored deprecated `custom_reward_id` parameter in `claim_legacy_reward()` to eliminate bypass exploits.
+   - Synchronized `is_legacy_claimed` directly from profile state in `is_reward_claimable()`, `claim_legacy_reward()`, and `generate_summary_report()`.
+   - Gated claims fail-closed on unpersisted or invalid world IDs, while preserving headless fallback for standalone unit tests.
+2. **Profile Safe Persistence & Backup Recovery (`scripts/legacy/legacy_profile_manager.gd`):**
+   - In `save_profile()`: verified `dir != null` fail-closed; checked `file.get_error() == OK` after flush; read back and validated `.tmp` via `_read_and_validate_json_file()` before touching target.
+   - Guarded backup rotation: inspected `target_path` with schema validator before copying to `.bak`; if `target_path` is corrupt, preserved existing `.bak` intact without overwriting it with corrupt primary data.
+   - Handled rename failures by attempting target restoration from `.bak` and cleaning up `.tmp`.
+3. **SaveManager Atomic Write Hardening (`scripts/persistence/save_manager.gd`):**
+   - In `save_dict_to_file()`: verified `dir != null` fail-closed; verified `file.get_error() == OK` after flush.
+   - Guarded backup copy: checked `copy_err == OK` before deleting original file; aborted immediately if backup copy failed, leaving original save untouched.
+   - On rename errors: cleaned up temporary files and restored original file from backup.
+4. **Accurate HUD Reward State Classification (`scripts/ui/hud.gd`):**
+   - In `_refresh_victory_claim_state()`: decoupled `is_claimed` from `not is_reward_claimable()`, accurately differentiating 6 independent states:
+     - Already claimed: button disabled ("Đã Nhận Di Sản").
+     - Profile unavailable: button disabled ("Hồ Sơ Lỗi (Không Thể Nhận)").
+     - Unpersisted world: button disabled ("Chưa Lưu Thế Giới").
+     - Invalid world ID: button disabled ("ID Thế Giới Không Hợp Lệ").
+     - Claimable: button enabled ("Nhận Di Sản (+100)").
+     - Conditions unmet: button disabled ("Chưa Đạt Điều Kiện").
+5. **64-Bit Integer Overflow Bounds (`scripts/legacy/legacy_profile_manager.gd`):**
+   - Defined `const MAX_SAFE_INT: int = 9223372036854775807`.
+   - In `_is_valid_integer_val()`: validated float bounds against 64-bit integer range.
+   - In `validate_profile_data()`: checked `int_val <= MAX_SAFE_INT` for balances, earned, spent, and reward amounts; checked addition overflow when summing claimed rewards.
+   - In `claim_reward()` and `unlock_achievement()`: checked `amt > MAX_SAFE_INT - legacy_balance` and `amt > MAX_SAFE_INT - lifetime_legacy_earned`; returned `{"success": false, "reason": "overflow"}` without mutating state.
+6. **Automated Test Expansion (`scripts/test/test_legacy_fund.gd`):**
+   - Added 5 dedicated test functions:
+     - Scenario 26: `_test_canonical_reward_id_enforcement_and_custom_id_bypass_rejection()`
+     - Scenario 27: `_test_safe_backup_recovery_and_corrupt_primary_protection()`
+     - Scenario 28: `_test_save_manager_atomic_backup_hardening()`
+     - Scenario 29: `_test_hud_reward_status_classification()`
+     - Scenario 30: `_test_integer_overflow_rejection()`
+
+### Validations Performed & Results
+- **Package 1Z Expanded Test Suite (30 tests):**
+  - `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless -s scripts/test/test_legacy_fund.gd`: **PASS (Exit Code 0: 30/30 tests passed)**
+- **Full Project Regression Test Matrix (10 suites):**
+  - `scripts/test/test_victory_and_collapse.gd`: **PASS (Exit Code 0)**
+  - `scripts/test/test_save_load.gd`: **PASS (Exit Code 0: 129/129 assertions)**
+  - `scripts/test/test_automation_graph.gd`: **PASS (Exit Code 0: 69/69 assertions)**
+  - `scripts/test/test_automation_graph_delay_repeat.gd`: **PASS (Exit Code 0: 179/179 assertions)**
+  - `scripts/test/test_factions_and_battles.gd`: **PASS (Exit Code 0: 48/48 assertions)**
+  - `scripts/test/test_package_1x_gameplay_integration.gd`: **PASS (Exit Code 0: 57/57 assertions)**
+  - `scripts/test/test_field_siege.gd`: **PASS (Exit Code 0: 85/85 assertions)**
+  - `scripts/test/test_tactical_military.gd`: **PASS (Exit Code 0: 385/385 assertions)**
+  - `scripts/test/test_enemy_military_ai.gd`: **PASS (Exit Code 0: 54/54 assertions)**
+- **Headless Engine / Project Check:**
+  - `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --editor --quit`: **PASS (Exit Code 0, zero compile errors)**
+- **Whitespace / Git Check:**
+  - `git diff --check`: **PASS (Exit Code 0, zero trailing whitespaces)**
+
+### Files Modified
+- `scripts/core/victory_manager.gd` (Modified)
+- `scripts/legacy/legacy_profile_manager.gd` (Modified)
+- `scripts/persistence/save_manager.gd` (Modified)
+- `scripts/ui/hud.gd` (Modified)
+- `scripts/test/test_legacy_fund.gd` (Modified)
+- `docs/BACKLOG.md` (Modified)
+- `docs/SCOPE_DECISIONS.md` (Modified)
+- `docs/TEST_PLAN.md` (Modified)
+- `docs/WORKLOG.md` (Modified)
+
+### Next Exact Step
+- Review git diff and git status.
+- Stage only modified files (preserving untracked protected assets).
+- Commit with required message: `fix(legacy): enforce canonical claims and safe persistence`.
+- Push commit to `origin/feat/package-1z-legacy-fund-foundation`.
+- Output comprehensive final completion report.

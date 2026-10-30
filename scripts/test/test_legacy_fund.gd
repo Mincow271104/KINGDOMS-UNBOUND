@@ -6,6 +6,7 @@ extends SceneTree
 
 const LegacyProfileManager = preload("res://scripts/legacy/legacy_profile_manager.gd")
 const VictoryManager = preload("res://scripts/core/victory_manager.gd")
+const SaveManager = preload("res://scripts/persistence/save_manager.gd")
 
 const TEST_PROFILE_PATH: String = "user://test_legacy_profile.json"
 const TEST_PROFILE_BAK: String = "user://test_legacy_profile.json.bak"
@@ -56,6 +57,13 @@ func _init() -> void:
 	var pass_exp9: bool = _test_float_nan_invalid_amount_rejection()
 	var pass_exp10: bool = _test_failed_operations_leave_state_unchanged()
 
+	# Second hardening audit coverage (FIX-1Z-E through FIX-1Z-J)
+	var pass_exp11: bool = _test_canonical_reward_id_enforcement_and_custom_id_bypass_rejection()
+	var pass_exp12: bool = _test_safe_backup_recovery_and_corrupt_primary_protection()
+	var pass_exp13: bool = _test_save_manager_atomic_backup_hardening()
+	var pass_exp14: bool = _test_hud_reward_status_classification()
+	var pass_exp15: bool = _test_integer_overflow_rejection()
+
 	_cleanup_test_files()
 	LegacyProfileManager.reset_instance()
 
@@ -64,8 +72,9 @@ func _init() -> void:
 		pass_tc6 and pass_tc7 and pass_tc8 and pass_tc9 and pass_tc10 and
 		pass_tc11 and pass_tc12 and pass_tc13 and pass_tc14 and pass_tc15 and
 		pass_exp1 and pass_exp2 and pass_exp3 and pass_exp4 and pass_exp5 and
-		pass_exp6 and pass_exp7 and pass_exp8 and pass_exp9 and pass_exp10):
-		print("  ALL 25 PACKAGE 1Z TESTS PASSED SUCCESSFULLY! (Exit Code 0)")
+		pass_exp6 and pass_exp7 and pass_exp8 and pass_exp9 and pass_exp10 and
+		pass_exp11 and pass_exp12 and pass_exp13 and pass_exp14 and pass_exp15):
+		print("  ALL 30 PACKAGE 1Z TESTS PASSED SUCCESSFULLY! (Exit Code 0)")
 		print("--------------------------------------------------------\n")
 		quit(0)
 	else:
@@ -915,4 +924,301 @@ func _test_failed_operations_leave_state_unchanged() -> bool:
 		return false
 
 	print("  [PASS] Profile state strictly invariant across all rejected operations.")
+	return true
+
+func _test_canonical_reward_id_enforcement_and_custom_id_bypass_rejection() -> bool:
+	print("--- FIX-1Z-E: Canonical Reward ID Enforcement & Custom ID Rejection ---")
+	_cleanup_test_files()
+	var profile := LegacyProfileManager.new(TEST_PROFILE_PATH)
+	var vic_mgr := VictoryManager.new()
+	vic_mgr.profile_mgr = profile
+	vic_mgr.world_id = "world_sec_alpha_1"
+	vic_mgr.is_world_id_persisted = true
+	vic_mgr.is_victory_achieved = true
+	vic_mgr.legacy_points_earned = 100
+
+	# Ensure canonical id helper
+	var canon_id := vic_mgr.get_canonical_victory_reward_id()
+	if canon_id != "victory_world_sec_alpha_1":
+		print("  [FAIL] Expected canonical ID 'victory_world_sec_alpha_1', got: '%s'" % canon_id)
+		return false
+
+	# Attempt to bypass using custom reward ID
+	var awarded := vic_mgr.claim_legacy_reward("custom_exploit_id_999")
+	if awarded != 100:
+		print("  [FAIL] Expected 100 points awarded, got: %d" % awarded)
+		return false
+
+	# Verify that the canonical ID was claimed in profile, NOT the custom exploit ID
+	if profile.is_reward_claimed("custom_exploit_id_999"):
+		print("  [FAIL] Custom exploit ID was accepted and registered in profile!")
+		return false
+	if not profile.is_reward_claimed("victory_world_sec_alpha_1"):
+		print("  [FAIL] Canonical ID was not registered in profile!")
+		return false
+
+	# Verify duplicate claim with different custom ID is rejected
+	var duplicate_awarded := vic_mgr.claim_legacy_reward("different_custom_exploit_id")
+	if duplicate_awarded != 0:
+		print("  [FAIL] Duplicate claim with different custom ID awarded points: %d" % duplicate_awarded)
+		return false
+
+	if profile.legacy_balance != 100:
+		print("  [FAIL] Profile balance unexpected: %d (expected 100)" % profile.legacy_balance)
+		return false
+
+	# Simulate reload from an older save before claim was recorded in victory_mgr
+	vic_mgr.is_legacy_claimed = false
+	if vic_mgr.is_reward_claimable():
+		print("  [FAIL] is_reward_claimable returned true after older save reload!")
+		return false
+	var reloaded_claim := vic_mgr.claim_legacy_reward()
+	if reloaded_claim != 0:
+		print("  [FAIL] Reloaded older save was able to claim again!")
+		return false
+	if not vic_mgr.is_legacy_claimed:
+		print("  [FAIL] is_legacy_claimed was not synchronized to true!")
+		return false
+
+	print("  [PASS] Canonical reward ID strictly enforced; arbitrary custom IDs rejected.")
+	return true
+
+func _test_safe_backup_recovery_and_corrupt_primary_protection() -> bool:
+	print("--- FIX-1Z-F & FIX-1Z-H: Safe Backup Recovery & Corrupt Target Protection ---")
+	_cleanup_test_files()
+	# Step 1: Create a valid profile and save it to produce valid primary and backup
+	var profile := LegacyProfileManager.new(TEST_PROFILE_PATH)
+	var claim_res := profile.claim_reward("rew_safe_backup", "victory", 100, "world_safe")
+	if not claim_res.get("success", false):
+		print("  [FAIL] Initial claim failed: %s" % str(claim_res))
+		return false
+
+	# Second save creates the backup
+	profile.save_profile()
+	if not FileAccess.file_exists(TEST_PROFILE_BAK):
+		print("  [FAIL] Backup profile file does not exist after second save.")
+		return false
+
+	# Step 2: Corrupt the primary file
+	var corrupt_file := FileAccess.open(TEST_PROFILE_PATH, FileAccess.WRITE)
+	corrupt_file.store_string("{\n  \"schema_version\": 1,\n  \"broken_json\": [")
+	corrupt_file.close()
+
+	# Step 3: Load profile - should recover from valid backup
+	var recovery_profile := LegacyProfileManager.new(TEST_PROFILE_PATH)
+	if recovery_profile.get_status() != LegacyProfileManager.STATUS_RECOVERED_FROM_BACKUP:
+		print("  [FAIL] Expected status 'recovered_from_backup', got: '%s'" % recovery_profile.get_status())
+		return false
+	if recovery_profile.legacy_balance != 100:
+		print("  [FAIL] Recovered balance mismatch: %d != 100" % recovery_profile.legacy_balance)
+		return false
+
+	# Step 4: Now save_profile() after recovery.
+	# The on-disk primary file is STILL corrupt.
+	# FIX-1Z-H guarantees that the corrupt primary is NOT copied over the valid backup!
+	var save_res := recovery_profile.save_profile()
+	if not save_res:
+		print("  [FAIL] save_profile failed after backup recovery!")
+		return false
+
+	# Check that backup file is still valid JSON and not corrupted!
+	var bak_val := recovery_profile._read_and_validate_json_file(TEST_PROFILE_BAK)
+	if not bak_val.get("valid", false):
+		print("  [FAIL] Backup was overwritten with corrupt primary file! Error: %s" % bak_val.get("error", ""))
+		return false
+
+	# Check that primary file is now valid JSON
+	var primary_val := recovery_profile._read_and_validate_json_file(TEST_PROFILE_PATH)
+	if not primary_val.get("valid", false):
+		print("  [FAIL] Primary file is not valid after save: %s" % primary_val.get("error", ""))
+		return false
+
+	print("  [PASS] Backup recovery succeeded and corrupt primary was never rotated over valid backup.")
+	return true
+
+func _test_save_manager_atomic_backup_hardening() -> bool:
+	print("--- FIX-1Z-G: SaveManager Atomic Writes and Backup Safety ---")
+	_cleanup_test_files()
+	var test_save_path := "user://test_save_atomic.json"
+	var test_bak_path := test_save_path + ".bak"
+	var test_tmp_path := test_save_path + ".tmp"
+
+	var dir := DirAccess.open("user://")
+	if dir != null:
+		if FileAccess.file_exists(test_save_path): dir.remove(test_save_path)
+		if FileAccess.file_exists(test_bak_path): dir.remove(test_bak_path)
+		if FileAccess.file_exists(test_tmp_path): dir.remove(test_tmp_path)
+
+	var dummy_data := {"world": 1, "score": 999}
+	var save_ok1 := SaveManager.save_dict_to_file(dummy_data, test_save_path)
+	if not save_ok1:
+		print("  [FAIL] Initial save_dict_to_file failed.")
+		return false
+	if not FileAccess.file_exists(test_save_path):
+		print("  [FAIL] Target save file missing after write.")
+		return false
+	if FileAccess.file_exists(test_tmp_path):
+		print("  [FAIL] Lingering .tmp file found after save.")
+		return false
+
+	# Second save creates backup
+	dummy_data["score"] = 1000
+	var save_ok2 := SaveManager.save_dict_to_file(dummy_data, test_save_path)
+	if not save_ok2:
+		print("  [FAIL] Second save_dict_to_file failed.")
+		return false
+	if not FileAccess.file_exists(test_bak_path):
+		print("  [FAIL] Backup file missing after second save.")
+		return false
+
+	# Read back backup to ensure it contains previous score (999)
+	var bak_file := FileAccess.open(test_bak_path, FileAccess.READ)
+	var bak_json = JSON.parse_string(bak_file.get_as_text())
+	bak_file.close()
+	if int(bak_json.get("score", 0)) != 999:
+		print("  [FAIL] Backup file does not contain previous state.")
+		return false
+
+	# Clean up
+	if dir != null:
+		if FileAccess.file_exists(test_save_path): dir.remove(test_save_path)
+		if FileAccess.file_exists(test_bak_path): dir.remove(test_bak_path)
+		if FileAccess.file_exists(test_tmp_path): dir.remove(test_tmp_path)
+
+	print("  [PASS] SaveManager writes atomically and rotates backups reliably.")
+	return true
+
+func _test_hud_reward_status_classification() -> bool:
+	print("--- FIX-1Z-I: HUD Reward Status Classification ---")
+	_cleanup_test_files()
+	var HUDScript = load("res://scripts/ui/hud.gd")
+	var hud = HUDScript.new()
+	var test_btn = Button.new()
+	var test_lbl = Label.new()
+	hud.claim_victory_btn = test_btn
+	hud.legacy_status_label = test_lbl
+
+	var profile := LegacyProfileManager.new(TEST_PROFILE_PATH)
+	LegacyProfileManager.set_instance(profile)
+
+	var vic_mgr = VictoryManager.new()
+	var mock_script = GDScript.new()
+	mock_script.source_code = "extends Node\nvar victory_mgr = null\n"
+	mock_script.reload()
+	var mock_world_view = Node.new()
+	mock_world_view.set_script(mock_script)
+	mock_world_view.victory_mgr = vic_mgr
+	hud.world_view_ref = mock_world_view
+
+	vic_mgr.profile_mgr = profile
+	vic_mgr.world_id = "world_hud_test_1"
+	vic_mgr.is_victory_achieved = true
+	vic_mgr.legacy_points_earned = 100
+
+	# Case 1: Unpersisted world ID -> must show "Chưa Lưu Thế Giới", NOT "Đã Nhận Di Sản"
+	vic_mgr.is_world_id_persisted = false
+	vic_mgr.is_legacy_claimed = false
+	hud._refresh_victory_claim_state()
+	if not test_btn.disabled or test_btn.text != "Chưa Lưu Thế Giới":
+		print("  [FAIL] Case 1 (Unpersisted): Expected 'Chưa Lưu Thế Giới' (disabled), got: '%s' (disabled=%s)" % [test_btn.text, str(test_btn.disabled)])
+		mock_world_view.free()
+		hud.free()
+		return false
+
+	# Case 2: Invalid world ID -> must show "ID Thế Giới Không Hợp Lệ"
+	vic_mgr.is_world_id_persisted = true
+	vic_mgr.world_id = "world_1234" # seed-only invalid
+	hud._refresh_victory_claim_state()
+	if not test_btn.disabled or test_btn.text != "ID Thế Giới Không Hợp Lệ":
+		print("  [FAIL] Case 2 (Invalid ID): Expected 'ID Thế Giới Không Hợp Lệ' (disabled), got: '%s'" % test_btn.text)
+		mock_world_view.free()
+		hud.free()
+		return false
+
+	# Case 3: Claimable -> button enabled, "Nhận Di Sản (+100)"
+	vic_mgr.world_id = "world_hud_test_valid_1"
+	hud._refresh_victory_claim_state()
+	if test_btn.disabled or test_btn.text != "Nhận Di Sản (+100)":
+		print("  [FAIL] Case 3 (Claimable): Expected enabled 'Nhận Di Sản (+100)', got disabled=%s text='%s'" % [str(test_btn.disabled), test_btn.text])
+		mock_world_view.free()
+		hud.free()
+		return false
+
+	# Case 4: Profile unavailable -> "Hồ Sơ Lỗi (Không Thể Nhận)"
+	profile.profile_status = LegacyProfileManager.STATUS_UNAVAILABLE
+	hud._refresh_victory_claim_state()
+	if not test_btn.disabled or test_btn.text != "Hồ Sơ Lỗi (Không Thể Nhận)":
+		print("  [FAIL] Case 4 (Unavailable): Expected 'Hồ Sơ Lỗi (Không Thể Nhận)', got: '%s'" % test_btn.text)
+		mock_world_view.free()
+		hud.free()
+		return false
+	profile.profile_status = LegacyProfileManager.STATUS_LOADED
+
+	# Case 5: Genuinely claimed -> "Đã Nhận Di Sản"
+	vic_mgr.is_legacy_claimed = true
+	hud._refresh_victory_claim_state()
+	if not test_btn.disabled or test_btn.text != "Đã Nhận Di Sản":
+		print("  [FAIL] Case 5 (Claimed): Expected 'Đã Nhận Di Sản' (disabled), got: '%s'" % test_btn.text)
+		mock_world_view.free()
+		hud.free()
+		return false
+
+	test_btn.free()
+	test_lbl.free()
+	mock_world_view.free()
+	hud.free()
+	print("  [PASS] HUD accurately distinguishes all gating and claim states.")
+	return true
+
+func _test_integer_overflow_rejection() -> bool:
+	print("--- FIX-1Z-J: Numeric Overflow Protection Fail-Closed ---")
+	_cleanup_test_files()
+	var mgr := LegacyProfileManager.new(TEST_PROFILE_PATH)
+
+	# Valid initial claim
+	var r1 := mgr.claim_reward("r_norm", "victory", 100, "world_overflow_1")
+	if not r1.get("success", false):
+		print("  [FAIL] Valid initial claim failed: %s" % str(r1))
+		return false
+
+	# Claim exceeding MAX_SAFE_INT directly
+	var r_huge := mgr.claim_reward("r_huge", "victory", mgr.MAX_SAFE_INT, "world_overflow_1")
+	if r_huge.get("success", true) or r_huge.get("reason") != "overflow":
+		print("  [FAIL] Overflow claim was not rejected with reason 'overflow': %s" % str(r_huge))
+		return false
+
+	# Balance must remain unchanged at 100
+	if mgr.legacy_balance != 100:
+		print("  [FAIL] Balance changed after rejected overflow claim: %d" % mgr.legacy_balance)
+		return false
+
+	# Profile schema validation rejects overflow values
+	var bad_dict = {
+		"schema_version": 1,
+		"profile_id": "player_profile_test",
+		"legacy_balance": 9223372036854775807,
+		"lifetime_legacy_earned": 9223372036854775807,
+		"lifetime_legacy_spent": 0,
+		"claimed_rewards": {
+			"r1": {
+				"reward_id": "r1",
+				"source": "victory",
+				"amount": 9223372036854775800,
+				"world_id": "w1"
+			},
+			"r2": {
+				"reward_id": "r2",
+				"source": "victory",
+				"amount": 100,
+				"world_id": "w1"
+			}
+		}
+	}
+	# r1 amount + r2 amount overflows MAX_SAFE_INT!
+	var val_res = LegacyProfileManager.validate_profile_data(bad_dict)
+	if val_res.get("valid", true):
+		print("  [FAIL] validate_profile_data accepted sum that overflows 64-bit int!")
+		return false
+
+	print("  [PASS] 64-bit integer overflow bounds strictly enforced fail-closed.")
 	return true

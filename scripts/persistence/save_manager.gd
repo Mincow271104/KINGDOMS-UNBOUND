@@ -289,42 +289,64 @@ static func serialize_world_state(world_view: Node) -> Dictionary:
 
 static func save_dict_to_file(data: Dictionary, filepath: String) -> bool:
 	ensure_save_directory()
+	var dir_path := filepath.get_base_dir()
+	var dir := DirAccess.open(dir_path if not dir_path.is_empty() else "user://")
+	if dir == null:
+		push_error("SaveManager: Failed to access directory: %s" % dir_path)
+		return false
+
 	var json_string := JSON.stringify(data, "\t")
 	var tmp_path := filepath + ".tmp"
 	var bak_path := filepath + ".bak"
 
-	var dir_path := filepath.get_base_dir()
-	var dir := DirAccess.open(dir_path if not dir_path.is_empty() else "user://")
-
 	# Clean up any stale tmp
-	if dir != null and FileAccess.file_exists(tmp_path):
+	if FileAccess.file_exists(tmp_path):
 		dir.remove(tmp_path)
 
 	var file := FileAccess.open(tmp_path, FileAccess.WRITE)
 	if file == null:
+		push_error("SaveManager: Failed to open tmp file for writing: %s (Error: %d)" % [tmp_path, FileAccess.get_open_error()])
 		return false
 
 	file.store_string(json_string)
 	file.flush()
+	var write_err := file.get_error()
 	file.close()
 
-	if dir == null:
+	if write_err != OK:
+		push_error("SaveManager: Write error on tmp file: %s (Error: %d)" % [tmp_path, write_err])
+		if FileAccess.file_exists(tmp_path):
+			dir.remove(tmp_path)
+		return false
+
+	if not FileAccess.file_exists(tmp_path):
+		push_error("SaveManager: Temporary file missing after write: %s" % tmp_path)
 		return false
 
 	# Backup existing target to .bak
 	if FileAccess.file_exists(filepath):
 		if FileAccess.file_exists(bak_path):
 			dir.remove(bak_path)
-		dir.copy(filepath, bak_path)
+		var copy_err := dir.copy(filepath, bak_path)
+		if copy_err != OK:
+			push_error("SaveManager: Failed to backup existing file %s to %s (Error: %d)" % [filepath, bak_path, copy_err])
+			if FileAccess.file_exists(tmp_path):
+				dir.remove(tmp_path)
+			return false
 		dir.remove(filepath)
 
 	var rename_err := dir.rename(tmp_path, filepath)
 	if rename_err != OK:
+		push_error("SaveManager: Failed to rename %s to %s (Error: %d)" % [tmp_path, filepath, rename_err])
 		# Clean tmp and attempt restoring from backup
 		if FileAccess.file_exists(tmp_path):
 			dir.remove(tmp_path)
 		if FileAccess.file_exists(bak_path) and not FileAccess.file_exists(filepath):
 			dir.copy(bak_path, filepath)
+		return false
+
+	if not FileAccess.file_exists(filepath):
+		push_error("SaveManager: Target file %s missing after rename." % filepath)
 		return false
 
 	return true

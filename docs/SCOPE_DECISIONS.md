@@ -432,6 +432,12 @@
   - **UI Reflection:**
     - Main menu (`MainMenu`) displays persistent Legacy balance (`LegacyFundLabel`) updating automatically on profile load or balance changes, displaying `[Lỗi Dữ Liệu]` when profile is unavailable.
     - HUD victory panel (`VictoryPanel`) provides interactive claim button (`ClaimVictoryBtn`) and status label (`LegacyStatusLabel`) reflecting authoritative profile state, disabling claims with error warning if profile is unavailable or unpersisted, and preventing duplicate claims.
+  - **Second Hardening Audit: Canonical IDs, Safe Persistence & Overflow Protection (FIX-1Z-E – FIX-1Z-J):**
+    - *Canonical Victory Reward IDs (FIX-1Z-E):* `VictoryManager.claim_legacy_reward()` strictly enforces canonical reward IDs (`victory_<world_id>`), discarding custom reward ID arguments to prevent exploit cycling. Gated checks synchronize `is_legacy_claimed` directly from profile state.
+    - *Safe Backup Recovery & Corrupt Primary Protection (FIX-1Z-F & FIX-1Z-H):* In `LegacyProfileManager.save_profile()`, directory access is verified fail-closed, write/flush errors are checked, and `.tmp` is validated via schema inspection before replacing target. During backup rotation, `target_path` is only copied to `.bak` if it passes schema validation; corrupted primary files never overwrite valid backups.
+    - *SaveManager Atomic Write Hardening (FIX-1Z-G):* In `SaveManager.save_dict_to_file()`, directory access and write/flush errors are validated; if backup copying fails (`dir.copy != OK`), the operation aborts immediately and preserves the primary file untouched; rename errors trigger backup restoration.
+    - *Accurate HUD Reward Status Classification (FIX-1Z-I):* In `InGameHUD._refresh_victory_claim_state()`, decoupled `is_claimed` from `not is_reward_claimable()`, differentiating 6 independent states: already claimed ("Đã Nhận Di Sản"), profile unavailable ("Hồ Sơ Lỗi (Không Thể Nhận)"), unpersisted world ("Chưa Lưu Thế Giới"), invalid world ID ("ID Thế Giới Không Hợp Lệ"), claimable ("Nhận Di Sản (+100)"), and unmet conditions ("Chưa Đạt Điều Kiện").
+    - *64-Bit Numeric Overflow Protection (FIX-1Z-J):* Enforced `MAX_SAFE_INT = 9223372036854775807` across `_is_valid_integer_val()`, `validate_profile_data()`, `claim_reward()`, and `unlock_achievement()`, rejecting any transaction or state that would overflow 64-bit integer bounds fail-closed.
 
 ---
 

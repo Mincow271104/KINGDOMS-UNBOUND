@@ -13,6 +13,7 @@ const PROFILE_SCHEMA_VERSION: int = 1
 const DEFAULT_PROFILE_PATH: String = "user://legacy_profile.json"
 const BACKUP_PROFILE_PATH: String = "user://legacy_profile.json.bak"
 const TEMP_PROFILE_PATH: String = "user://legacy_profile.json.tmp"
+const MAX_SAFE_INT: int = 9223372036854775807
 
 const VALID_REWARD_SOURCES: Array[String] = [
 	"victory",
@@ -87,7 +88,12 @@ static func _is_valid_integer_val(val: Variant) -> bool:
 	if val is int:
 		return true
 	if val is float:
-		return not is_nan(float(val)) and not is_inf(float(val)) and floor(float(val)) == float(val)
+		var f := float(val)
+		if is_nan(f) or is_inf(f) or floor(f) != f:
+			return false
+		if f < -9223372036854775808.0 or f > 9223372036854775807.0:
+			return false
+		return true
 	return false
 
 # -----------------------------------------------------------------------------
@@ -118,8 +124,11 @@ static func validate_profile_data(data: Variant) -> Dictionary:
 		var val = data[k]
 		if not _is_valid_integer_val(val):
 			return {"valid": false, "error": "Trường '%s' phải là số nguyên hợp lệ." % k}
-		if int(val) < 0:
-			return {"valid": false, "error": "Trường '%s' không được âm (%d)." % [k, int(val)]}
+		var int_val := int(val)
+		if int_val < 0:
+			return {"valid": false, "error": "Trường '%s' không được âm (%d)." % [k, int_val]}
+		if int_val > MAX_SAFE_INT:
+			return {"valid": false, "error": "Trường '%s' vượt quá giới hạn số nguyên 64-bit." % k}
 
 	var bal = int(data["legacy_balance"])
 	var earned = int(data["lifetime_legacy_earned"])
@@ -165,6 +174,10 @@ static func validate_profile_data(data: Variant) -> Dictionary:
 		var amt_int = int(amt)
 		if amt_int <= 0:
 			return {"valid": false, "error": "Số điểm phần thưởng '%s' phải lớn hơn 0 (%d)." % [r_id_str, amt_int]}
+		if amt_int > MAX_SAFE_INT:
+			return {"valid": false, "error": "Số điểm phần thưởng '%s' vượt quá giới hạn số nguyên 64-bit." % r_id_str}
+		if amt_int > MAX_SAFE_INT - total_claimed_points:
+			return {"valid": false, "error": "Tràn số nguyên khi tổng hợp điểm phần thưởng đã nhận."}
 
 		total_claimed_points += amt_int
 
@@ -244,9 +257,12 @@ func save_profile(filepath: String = "") -> bool:
 
 	var dir_path := target_path.get_base_dir()
 	var dir := DirAccess.open(dir_path if not dir_path.is_empty() else "user://")
+	if dir == null:
+		push_error("LegacyProfileManager: Cannot access directory: %s" % dir_path)
+		return false
 
 	# Clean up any leftover temporary file
-	if dir != null and FileAccess.file_exists(tmp_path):
+	if FileAccess.file_exists(tmp_path):
 		dir.remove(tmp_path)
 
 	var json_str = JSON.stringify(state_dict, "  ")
@@ -259,34 +275,63 @@ func save_profile(filepath: String = "") -> bool:
 
 	file.store_string(json_str)
 	file.flush()
+	var write_err := file.get_error()
 	file.close()
+
+	if write_err != OK:
+		push_error("LegacyProfileManager write error on temporary file: %s (Error: %d)" % [tmp_path, write_err])
+		if FileAccess.file_exists(tmp_path):
+			dir.remove(tmp_path)
+		return false
 
 	if not FileAccess.file_exists(tmp_path):
 		push_error("LegacyProfileManager temporary file not found after write: " + tmp_path)
 		return false
 
-	# If existing target file exists, safely copy to backup before replacing
-	if dir != null and FileAccess.file_exists(target_path):
-		if FileAccess.file_exists(bak_path):
-			dir.remove(bak_path)
-		var copy_err := dir.copy(target_path, bak_path)
-		if copy_err != OK:
-			push_error("LegacyProfileManager failed to backup %s to %s (Error: %d)" % [target_path, bak_path, copy_err])
+	# Validate written temporary file before replacing target
+	var tmp_check := _read_and_validate_json_file(tmp_path)
+	if not tmp_check.get("valid", false):
+		push_error("LegacyProfileManager: Temporary file validation failed before rename: " + tmp_check.get("error", ""))
+		if FileAccess.file_exists(tmp_path):
 			dir.remove(tmp_path)
-			return false
-		dir.remove(target_path)
+		return false
 
-	# Rename temporary file to target
-	if dir != null:
-		var err := dir.rename(tmp_path, target_path)
-		if err != OK:
-			push_error("LegacyProfileManager failed to rename %s to %s (Error: %d)" % [tmp_path, target_path, err])
-			# Restore target from backup if possible
-			if FileAccess.file_exists(bak_path) and not FileAccess.file_exists(target_path):
-				dir.copy(bak_path, target_path)
+	# If existing target file exists, only rotate to backup if valid (FIX-1Z-H)
+	if FileAccess.file_exists(target_path):
+		var target_check := _read_and_validate_json_file(target_path)
+		if target_check.get("valid", false):
+			if FileAccess.file_exists(bak_path):
+				dir.remove(bak_path)
+			var copy_err := dir.copy(target_path, bak_path)
+			if copy_err != OK:
+				push_error("LegacyProfileManager failed to backup %s to %s (Error: %d)" % [target_path, bak_path, copy_err])
+				if FileAccess.file_exists(tmp_path):
+					dir.remove(tmp_path)
+				return false
+		else:
+			push_warning("LegacyProfileManager: Existing target %s is corrupt. Preserving existing backup untouched." % target_path)
+
+		var rem_err := dir.remove(target_path)
+		if rem_err != OK:
+			push_error("LegacyProfileManager failed to remove target %s before rename (Error: %d)" % [target_path, rem_err])
 			if FileAccess.file_exists(tmp_path):
 				dir.remove(tmp_path)
 			return false
+
+	# Rename temporary file to target
+	var rename_err := dir.rename(tmp_path, target_path)
+	if rename_err != OK:
+		push_error("LegacyProfileManager failed to rename %s to %s (Error: %d)" % [tmp_path, target_path, rename_err])
+		# Restore target from backup if possible
+		if FileAccess.file_exists(bak_path) and not FileAccess.file_exists(target_path):
+			dir.copy(bak_path, target_path)
+		if FileAccess.file_exists(tmp_path):
+			dir.remove(tmp_path)
+		return false
+
+	if not FileAccess.file_exists(target_path):
+		push_error("LegacyProfileManager: Target file %s missing after rename." % target_path)
+		return false
 
 	profile_saved.emit(target_path)
 	return true
@@ -416,8 +461,18 @@ func claim_reward(
 		return {"success": false, "reason": "invalid_amount", "points_awarded": 0, "balance": legacy_balance}
 
 	var amt_int: int = int(amount)
-	if amt_int <= 0:
+	if amt_int <= 0 or amt_int > MAX_SAFE_INT:
 		return {"success": false, "reason": "invalid_amount", "points_awarded": 0, "balance": legacy_balance}
+
+	# Numeric Overflow Protection (FIX-1Z-J)
+	if amt_int > MAX_SAFE_INT - legacy_balance or amt_int > MAX_SAFE_INT - lifetime_legacy_earned:
+		return {
+			"success": false,
+			"reason": "overflow",
+			"error": "Phần thưởng làm tràn số nguyên 64-bit của số dư hoặc tổng tích lũy.",
+			"points_awarded": 0,
+			"balance": legacy_balance
+		}
 
 	var clean_src = source.strip_edges()
 	if not VALID_REWARD_SOURCES.has(clean_src):
@@ -512,12 +567,19 @@ func unlock_achievement(achievement_id: String, world_id: String = "") -> Dictio
 	var rew_id: String = "ach_%s" % clean_ach
 
 	# If this achievement has a documented positive reward, verify it hasn't been claimed
-	if rew_amount > 0 and claimed_rewards.has(rew_id):
-		return {
-			"success": false,
-			"reason": "already_claimed",
-			"achievement_id": clean_ach
-		}
+	if rew_amount > 0:
+		if claimed_rewards.has(rew_id):
+			return {
+				"success": false,
+				"reason": "already_claimed",
+				"achievement_id": clean_ach
+			}
+		if rew_amount > MAX_SAFE_INT or rew_amount > MAX_SAFE_INT - legacy_balance or rew_amount > MAX_SAFE_INT - lifetime_legacy_earned:
+			return {
+				"success": false,
+				"reason": "overflow",
+				"achievement_id": clean_ach
+			}
 
 	# Stage mutations in memory
 	var ach_record = {

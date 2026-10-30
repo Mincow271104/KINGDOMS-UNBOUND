@@ -1485,30 +1485,71 @@ func _refresh_victory_claim_state(report: Dictionary = {}) -> void:
 	var is_profile_available: bool = bool(profile != null and profile.has_method("is_available") and profile.is_available())
 	var current_bal: int = profile.legacy_balance if (profile and is_profile_available) else 0
 
-	var is_claimed = false
+	var wid: String = ""
 	if vic_mgr != null:
-		is_claimed = not vic_mgr.is_reward_claimable()
-	elif report.has("legacy_claimed"):
-		is_claimed = bool(report["legacy_claimed"])
+		wid = str(vic_mgr.get("world_id")).strip_edges()
+	elif report.has("world_id"):
+		wid = str(report.get("world_id")).strip_edges()
+
+	var canonical_id: String = ("victory_" + wid) if not wid.is_empty() else ""
+
+	var is_claimed: bool = false
+	if vic_mgr != null and bool(vic_mgr.get("is_legacy_claimed")):
+		is_claimed = true
+	elif not canonical_id.is_empty() and profile != null and is_profile_available and profile.has_method("is_reward_claimed") and profile.is_reward_claimed(canonical_id):
+		is_claimed = true
+	elif report.has("legacy_claimed") and bool(report["legacy_claimed"]):
+		is_claimed = true
+
+	var is_persisted: bool = true
+	if vic_mgr != null:
+		is_persisted = bool(vic_mgr.get("is_world_id_persisted"))
+
+	var is_valid_wid: bool = true
+	if not wid.is_empty():
+		var VictoryManagerScript = load("res://scripts/core/victory_manager.gd")
+		if VictoryManagerScript and VictoryManagerScript.has_method("is_valid_world_id"):
+			is_valid_wid = VictoryManagerScript.is_valid_world_id(wid)
+	elif vic_mgr != null:
+		is_valid_wid = false
+
+	var is_claimable: bool = false
+	if vic_mgr != null and vic_mgr.has_method("is_reward_claimable"):
+		is_claimable = vic_mgr.is_reward_claimable()
 
 	if claim_victory_btn:
-		if not is_profile_available:
-			claim_victory_btn.disabled = true
-			claim_victory_btn.text = "Hồ Sơ Lỗi (Không Thể Nhận)"
-		elif is_claimed:
+		if is_claimed:
 			claim_victory_btn.disabled = true
 			claim_victory_btn.text = "Đã Nhận Di Sản"
-		else:
+		elif not is_profile_available:
+			claim_victory_btn.disabled = true
+			claim_victory_btn.text = "Hồ Sơ Lỗi (Không Thể Nhận)"
+		elif not is_persisted:
+			claim_victory_btn.disabled = true
+			claim_victory_btn.text = "Chưa Lưu Thế Giới"
+		elif not is_valid_wid:
+			claim_victory_btn.disabled = true
+			claim_victory_btn.text = "ID Thế Giới Không Hợp Lệ"
+		elif is_claimable:
 			claim_victory_btn.disabled = false
 			claim_victory_btn.text = "Nhận Di Sản (+100)"
+		else:
+			claim_victory_btn.disabled = true
+			claim_victory_btn.text = "Chưa Đạt Điều Kiện"
 
 	if legacy_status_label:
-		if not is_profile_available:
-			legacy_status_label.text = "⚠️ Hồ sơ Quỹ Di Sản bị lỗi hoặc không khả dụng. Không thể nhận thưởng."
-		elif is_claimed:
+		if is_claimed:
 			legacy_status_label.text = "Thưởng chiến thắng đã được ghi nhận vào Quỹ Di Sản. (Số dư: %d điểm)" % current_bal
-		else:
+		elif not is_profile_available:
+			legacy_status_label.text = "⚠️ Hồ sơ Quỹ Di Sản bị lỗi hoặc không khả dụng. Không thể nhận thưởng."
+		elif not is_persisted:
+			legacy_status_label.text = "⚠️ Cần lưu thế giới trước khi nhận phần thưởng Di Sản."
+		elif not is_valid_wid:
+			legacy_status_label.text = "⚠️ ID thế giới không hợp lệ. Không thể nhận thưởng Di Sản."
+		elif is_claimable:
 			legacy_status_label.text = "Sẵn sàng nhận thưởng: +100 điểm Di Sản. (Số dư hiện tại: %d điểm)" % current_bal
+		else:
+			legacy_status_label.text = "Chưa đủ điều kiện nhận thưởng Di Sản."
 
 func _on_claim_victory_btn_pressed() -> void:
 	var vic_mgr = null
