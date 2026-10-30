@@ -339,3 +339,38 @@
   - Validated that `resume_node_id` is an authoritative downstream target connected from the continuation's `delay_node_id`'s `out` port.
   - Preserved complete backward compatibility for normal Delay continuations outside Repeat bodies (which do not require Repeat metadata and accept optional `steps_used`).
   - Added dedicated test suite TC-Y.37 (TC-Y.37.1 to TC-Y.37.9) to `scripts/test/test_automation_graph_delay_repeat.gd`, expanding suite to 179/179 assertions passing with exit code 0.
+
+## Package 1Z — Legacy Fund & Meta-Progression Foundation
+- [x] **TASK-1Z.1:** Authoritative Legacy profile data model outside individual world-save data:
+  - Created `scripts/legacy/legacy_profile_manager.gd` managing persistent profile fields: `profile_id`, `legacy_balance`, `lifetime_legacy_earned`, `lifetime_legacy_spent`, `claimed_rewards`, `unlocked_achievements`, `schema_version = 1`.
+  - Maintained mathematical invariants: `legacy_balance == lifetime_legacy_earned - lifetime_legacy_spent` and `sum(claimed_rewards.amount) == lifetime_legacy_earned`.
+- [x] **TASK-1Z.2:** Dedicated profile persistence path and corruption recovery:
+  - Persisted profile to `user://legacy_profile.json` using atomic temporary writes (`.tmp`) and backup rotation (`.bak`).
+  - Added fail-closed schema validation before mutating memory or writing to disk.
+  - Implemented automatic recovery from `.bak` when primary file is corrupted. If both primary and backup are corrupted, fails closed and preserves live in-memory state without destructive resets.
+  - Allowed isolated custom filepaths for test execution.
+- [x] **TASK-1Z.3:** Centralized authoritative exactly-once reward-claim API:
+  - Implemented `claim_reward(reward_id, source, amount, world_id, extra_details)` in `LegacyProfileManager`.
+  - Rejects duplicate claims by `reward_id`, returning 0 points awarded and leaving balance unchanged.
+  - Validates allowed sources (`victory`, `achievement`) and positive integer amounts fail-closed.
+  - Performs atomic rollback on disk write failure to maintain in-memory and disk symmetry.
+- [x] **TASK-1Z.4:** Victory reward integration:
+  - Extended `VictoryManager` to connect with `LegacyProfileManager` using stable world-scoped reward identifier (`victory_<world_id>`).
+  - Awarded 100 Legacy points exactly once per world upon achieving Prosperity Victory after continuous 5-day hold.
+  - Reloading an earlier save of the same world detects existing claim in profile and awards 0 additional points.
+  - Distinct worlds with different `world_id`s can each legitimately claim victory once.
+  - Preserved fallback behavior for headless tests without profile manager.
+- [x] **TASK-1Z.5:** Achievement reward foundation:
+  - Seeded achievement registry with documented `prosperity_victory` achievement (100 Legacy points).
+  - Unlocked automatically upon victory achieved via `profile_mgr.unlock_achievement("prosperity_victory", world_id)`.
+  - Profile-level achievement can only be awarded once across all worlds and saves.
+  - Documented intentional gap for ungrounded/undocumented achievements.
+- [x] **TASK-1Z.6:** Stable treasury conversion extension point:
+  - Implemented `convert_surplus_treasury()` in `LegacyProfileManager` returning `status: "deferred"`, 0 legacy points awarded, and 0 gold deducted.
+  - Explicitly deferred pending authoritative design decisions for formula, threshold, and conversion rate per GDD §13.2.
+- [x] **TASK-1Z.7:** Minimal UI integration:
+  - Added persistent Legacy balance display (`LegacyFundLabel`) to `MainMenu` (`scenes/ui/main_menu.tscn` / `scripts/ui/main_menu.gd`) reacting dynamically to `balance_changed`.
+  - Added claim button (`ClaimVictoryBtn`) and status label (`LegacyStatusLabel`) to `VictoryPanel` in `InGameHUD` (`scenes/ui/hud.tscn` / `scripts/ui/hud.gd`), accurately reflecting authoritative claim state without double claiming.
+- [x] **TASK-1Z.8:** Automated Test Suite:
+  - Created headless test suite `scripts/test/test_legacy_fund.gd` covering 15 scenarios (15/15 passed, Exit Code 0).
+  - Full regression test run verified across existing packages (Phase 7, Save/Load, Automation Graph, Automation Delay/Repeat, Factions & Battles, Tactical Military, Field Siege) with zero regressions.

@@ -393,6 +393,37 @@
       - *Nested Repeat Validation Rejection:* `AutomationGraphValidator` explicitly traverses body branches to reject nested Repeat structures fail-closed with clear diagnostics.
       - *Step Budget Bounding Across Resumptions:* Preserves `steps_used` across scheduled continuations, enforcing that logical program executions cannot exceed `MAX_STEPS_PER_RUN = 60` across delayed iterations combined.
       - *Deep Validation & Atomic Fail-Closed Deserialization:* Static `AutomationManager.validate_automation_data()` and `validate_pending_continuations()` enforce non-empty unique continuation IDs, valid programs and nodes, due-time consistency (`due_total_hours == (due_day - 1) * 24 + due_hour`), Repeat metadata matching configured node counts, and queue limits. `AutomationManager.deserialize()` validates first and stages all variables, returning `false` on malformed saves without clearing or mutating live programs, logs, or continuations.
+- **1.25 Package 1Z — Legacy Fund & Meta-Progression Foundation (GDD §12.3, §13.1, §13.2):**
+  - **Decoupled Meta-Progression Architecture:**
+    - Ephemeral world states (`user://saves/world_save.json`, schema version 1) remain decoupled from cross-world persistent progression.
+    - Persistent meta-progression is maintained in a dedicated profile file (`user://legacy_profile.json`, `PROFILE_SCHEMA_VERSION = 1`) managed by `LegacyProfileManager` (`scripts/legacy/legacy_profile_manager.gd`).
+  - **Authoritative Profile Data Model & Strict Invariants:**
+    - Profile tracks: `profile_id: String`, `legacy_balance: int`, `lifetime_legacy_earned: int`, `lifetime_legacy_spent: int`, `claimed_rewards: Dictionary`, `unlocked_achievements: Dictionary`.
+    - Enforces two non-negotiable mathematical invariants fail-closed:
+      1. `legacy_balance == lifetime_legacy_earned - lifetime_legacy_spent`.
+      2. `sum(claimed_rewards[r].amount) == lifetime_legacy_earned`.
+    - Rejects negative numbers, floating-point inaccuracies, unknown reward sources, and empty/mismatched reward IDs fail-closed before any mutation.
+  - **Atomic File Persistence & Automatic Corruption Recovery:**
+    - Employs atomic write sequence: writes serialized JSON to `user://legacy_profile.json.tmp`, rotates existing profile to `.bak`, and renames `.tmp` to `.json`.
+    - Automatic `.bak` recovery: if the primary file is corrupted or missing, automatically falls back to `.bak`.
+    - Fail-closed corrupt handling: if both primary and backup files are corrupted, `load_profile()` returns `success: false` and preserves live in-memory state without destructive resets to 0.
+  - **Centralized Exactly-Once Reward-Claim API:**
+    - `claim_reward(reward_id, source, amount, world_id, extra_details)` enforces at-most-once reward grants. Duplicate claim attempts with an already-recorded `reward_id` return `success: false`, award `0` points, and preserve balance.
+    - Atomic rollback: if disk write fails during claim, staged memory mutations are rolled back cleanly to preserve disk-memory symmetry.
+  - **Victory Reward Integration & Multi-World Support:**
+    - `VictoryManager` connects to `LegacyProfileManager` with world-scoped key: `victory_<world_id>`.
+    - Achieving Prosperity Victory after a continuous 5-day hold earns 100 Legacy points.
+    - Loading an earlier world save where victory is reached again checks profile claimed records; duplicate reward claims are strictly rejected with 0 points awarded.
+    - Distinct worlds with unique `world_id`s can each legitimately claim their victory reward once.
+  - **Achievement Foundation:**
+    - Seeded with documented `prosperity_victory` achievement (100 Legacy points). Unlocking is profile-scoped (`ach_prosperity_victory`) and can only be awarded once across the entire profile.
+    - Intentionally deferred ungrounded achievements lacking formal simulation rules in GDD.
+  - **Deferred Surplus Treasury Conversion:**
+    - Extension point `convert_surplus_treasury()` returns `status: "deferred"`, `converted: false`, 0 points awarded, 0 gold deducted.
+    - Explicitly deferred pending authoritative design decisions for conversion formula, stability thresholds, and exchange rates per GDD §13.2.
+  - **UI Reflection:**
+    - Main menu (`MainMenu`) displays persistent Legacy balance (`LegacyFundLabel`) updating automatically on profile load or balance changes.
+    - HUD victory panel (`VictoryPanel`) provides interactive claim button (`ClaimVictoryBtn`) and status label (`LegacyStatusLabel`) reflecting authoritative profile state and preventing duplicate claims.
 
 ---
 
@@ -400,6 +431,8 @@
 | Feature | GDD Section | Status for MVP | Rationale |
 |---|---|---|---|
 | Automation Graph Delay & Repeat Nodes | Phần VII | Implemented | Delivered end-to-end in Package 1Y with bounded simulation clock queues |
+| Persistent Legacy Fund Foundation | Phần XII & XIII | Implemented | Delivered in Package 1Z with decoupled profile, atomic persistence, exactly-once claims, and UI |
+| Surplus treasury conversion to Legacy | Phần XIII | Deferred | Extension point implemented; pending official exchange formula and stability threshold |
 | Complex family trees & genetics | Phần IV | Deferred | Replaced by deterministic immigration system |
 | Real-time physical tactical combat | Phần VII | Implemented | Tactical combat, enemy AI & field siege delivered in Package 1X |
 | Cosmetic Legacy store | Phần IX | Post-MVP | Preserves focus on core simulation and save/load |

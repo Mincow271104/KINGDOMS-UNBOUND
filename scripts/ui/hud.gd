@@ -2,6 +2,8 @@ class_name InGameHUD
 extends CanvasLayer
 ## In-Game HUD for KINGDOMS UNBOUND.
 ## Provides time controls, date/season/clock display, resource summary, building menu, citizen inspector, and pause menu.
+
+const LegacyProfileManagerScript = preload("res://scripts/legacy/legacy_profile_manager.gd")
 signal return_to_menu_requested
 signal build_requested(building_type: String)
 signal citizen_role_changed(citizen_id: String, new_role: String)
@@ -88,6 +90,8 @@ var formation_scatter_btn: Button = null
 @onready var victory_stats_label: Label = $VictoryPanel/MarginContainer/VBoxContainer/VictoryStatsLabel
 @onready var continue_victory_btn: Button = $VictoryPanel/MarginContainer/VBoxContainer/HBoxContainer/ContinueVictoryBtn
 @onready var return_menu_victory_btn: Button = $VictoryPanel/MarginContainer/VBoxContainer/HBoxContainer/ReturnMenuVictoryBtn
+@onready var claim_victory_btn: Button = get_node_or_null("VictoryPanel/MarginContainer/VBoxContainer/HBoxContainer/ClaimVictoryBtn")
+@onready var legacy_status_label: Label = get_node_or_null("VictoryPanel/MarginContainer/VBoxContainer/LegacyStatusLabel")
 
 # Collapse Panel
 @onready var collapse_panel: Control = $CollapsePanel
@@ -247,6 +251,8 @@ func _ready() -> void:
 			if get_node_or_null("/root/TimeManager"):
 				get_node("/root/TimeManager").resume()
 		)
+	if claim_victory_btn:
+		claim_victory_btn.pressed.connect(_on_claim_victory_btn_pressed)
 	if return_menu_victory_btn:
 		return_menu_victory_btn.pressed.connect(func(): return_to_menu_requested.emit())
 	if return_menu_collapse_btn:
@@ -1464,10 +1470,51 @@ func show_victory_panel(report: Dictionary) -> void:
 	var legacy: int = report.get("legacy_points", 100)
 	
 	victory_stats_label.text = "• Thời gian sinh tồn: %d ngày\n• Dân số đạt đỉnh: %d người\n• Lương thực dự trữ: %d | Ngân khố: %d vàng\n• Công nghệ đã mở khóa: %d\n• Điểm di sản Legacy nhận được: +%d điểm" % [days, peak, food, gold, techs, legacy]
+	_refresh_victory_claim_state(report)
 	victory_panel.visible = true
 	var am = get_node_or_null("/root/AudioManager")
 	if am:
 		am.play_fanfare()
+
+func _refresh_victory_claim_state(report: Dictionary = {}) -> void:
+	var vic_mgr = null
+	if world_view_ref:
+		vic_mgr = world_view_ref.get("victory_mgr")
+
+	var profile = LegacyProfileManagerScript.get_instance()
+	var current_bal: int = profile.legacy_balance if profile else 0
+
+	var is_claimed = false
+	if vic_mgr != null:
+		is_claimed = not vic_mgr.is_reward_claimable()
+	elif report.has("legacy_claimed"):
+		is_claimed = bool(report["legacy_claimed"])
+
+	if claim_victory_btn:
+		if is_claimed:
+			claim_victory_btn.disabled = true
+			claim_victory_btn.text = "Đã Nhận Di Sản"
+		else:
+			claim_victory_btn.disabled = false
+			claim_victory_btn.text = "Nhận Di Sản (+100)"
+
+	if legacy_status_label:
+		if is_claimed:
+			legacy_status_label.text = "Thưởng chiến thắng đã được ghi nhận vào Quỹ Di Sản. (Số dư: %d điểm)" % current_bal
+		else:
+			legacy_status_label.text = "Sẵn sàng nhận thưởng: +100 điểm Di Sản. (Số dư hiện tại: %d điểm)" % current_bal
+
+func _on_claim_victory_btn_pressed() -> void:
+	var vic_mgr = null
+	if world_view_ref:
+		vic_mgr = world_view_ref.get("victory_mgr")
+	if vic_mgr != null:
+		var pts = vic_mgr.claim_legacy_reward()
+		if pts > 0:
+			show_event_banner("Nhận Thưởng Di Sản", "Đã cộng +%d điểm vào Quỹ Di Sản thành công!" % pts, true, 4.0)
+			var am = get_node_or_null("/root/AudioManager")
+			if am: am.play_coin()
+		_refresh_victory_claim_state()
 
 func show_collapse_panel(report: Dictionary) -> void:
 	if not collapse_panel:

@@ -3,6 +3,8 @@ extends Control
 ## Main Menu for KINGDOMS UNBOUND.
 ## Features: New World (seed, difficulty), Load World (disabled), Settings, and Quit.
 
+const LegacyProfileManagerScript = preload("res://scripts/legacy/legacy_profile_manager.gd")
+
 @onready var main_buttons: VBoxContainer = $CenterContainer/MainPanel/MarginContainer/VBoxContainer/ActionButtons
 @onready var new_world_dialog: PanelContainer = $NewWorldOverlay/CenterContainer/NewWorldPanel
 @onready var new_world_overlay: Control = $NewWorldOverlay
@@ -23,6 +25,7 @@ extends Control
 
 @onready var close_settings_btn: Button = $SettingsOverlay/CenterContainer/SettingsPanel/MarginContainer/VBoxContainer/CloseSettingsBtn
 @onready var fullscreen_checkbox: CheckBox = $SettingsOverlay/CenterContainer/SettingsPanel/MarginContainer/VBoxContainer/FullscreenCheck
+@onready var legacy_fund_label: Label = get_node_or_null("CenterContainer/MainPanel/MarginContainer/VBoxContainer/TitleBox/LegacyFundLabel")
 
 func _ready() -> void:
 	DisplayServer.window_set_min_size(Vector2i(1024, 576))
@@ -60,6 +63,21 @@ func _ready() -> void:
 	
 	_setup_difficulty_options()
 	_on_randomize_seed()
+	_refresh_legacy_display()
+
+	var profile = LegacyProfileManagerScript.get_instance()
+	if profile and not profile.balance_changed.is_connected(_on_legacy_balance_changed):
+		profile.balance_changed.connect(_on_legacy_balance_changed)
+
+func _refresh_legacy_display() -> void:
+	if legacy_fund_label:
+		var profile = LegacyProfileManagerScript.get_instance()
+		var bal: int = profile.legacy_balance if profile else 0
+		legacy_fund_label.text = "🏛️ Quỹ Di Sản: %d điểm" % bal
+
+func _on_legacy_balance_changed(new_balance: int) -> void:
+	if legacy_fund_label:
+		legacy_fund_label.text = "🏛️ Quỹ Di Sản: %d điểm" % new_balance
 
 func _setup_difficulty_options() -> void:
 	difficulty_options.clear()

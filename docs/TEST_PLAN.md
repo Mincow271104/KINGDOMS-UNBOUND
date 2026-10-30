@@ -802,3 +802,27 @@ When Godot Editor is running with the MCP plugin:
       - **TC-Y.36 (Atomic Staged Deserialization in AutomationManager):** Corrupted or malformed save data fails validation before mutating live state; live programs and pending continuations remain completely intact.
       - **TC-Y.37 (Complete Repeat Continuation Metadata Enforcement):** Enforces all-or-nothing Repeat metadata (`repeat_node_id`, `repeat_iteration`, `repeat_count`, `steps_used`); detects Delay nodes structurally belonging to Repeat bodies via BFS graph reachability; rejects continuations inside Repeat bodies omitting Repeat metadata; rejects continuations referencing unrelated Repeat nodes; rejects continuations whose `resume_node_id` is not an actual downstream target of `delay_node_id`; and preserves compatibility for normal Delay continuations outside Repeat bodies (with or without optional `steps_used`).
   - *Status:* **PASSED** (2026-10-31, Exit Code 0: 179/179 assertions passed across all 37 requirements in Groups 1–8).
+
+---
+
+### Package 1Z: Legacy Fund & Meta-Progression Foundation
+- **TC-1Z.1 to TC-1Z.15: Legacy Profile, Persistence, Exactly-Once Claims & Integration Test Suite**
+  - *Tracked Test Suite:* `res://scripts/test/test_legacy_fund.gd`
+  - *Command:* `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --path "e:\KINGDOMS UNBOUND\kingdoms-unbound" -s res://scripts/test/test_legacy_fund.gd`
+  - *Acceptance Criteria by Scenario:*
+    - **Scenario 1 (Authoritative Profile Initialization):** Clean profile initializes with `profile_id: "legacy_profile_default"`, `legacy_balance: 0`, `lifetime_legacy_earned: 0`, `lifetime_legacy_spent: 0`, empty `claimed_rewards`, and empty `unlocked_achievements`.
+    - **Scenario 2 (Schema Validation — Valid Data):** Successfully validates correct profile structure satisfying both mathematical invariants: `legacy_balance == earned - spent` and `sum(claimed_rewards) == earned`.
+    - **Scenario 3 (Fail-Closed on Negative Balances):** Rejects profile data containing negative `legacy_balance`, `lifetime_legacy_earned`, or `lifetime_legacy_spent`.
+    - **Scenario 4 (Fail-Closed on Balance Invariant Tampering):** Rejects profile data where `legacy_balance != earned - spent`.
+    - **Scenario 5 (Fail-Closed on Claimed Rewards Sum Mismatch):** Rejects profile data where `sum(claimed_rewards.amount) != lifetime_legacy_earned`.
+    - **Scenario 6 (Fail-Closed on Invalid Reward Source):** Rejects profile records containing unapproved sources (e.g. cheat or injection attempts); accepts only `["victory", "achievement"]`.
+    - **Scenario 7 (Fail-Closed on Invalid Reward Amounts):** Rejects non-integer or <= 0 reward amounts.
+    - **Scenario 8 (Atomic Persistence & Backup Recovery):** Saving creates atomic `.tmp` and rotates existing target to `.bak`. When primary `.json` is corrupted, automatically recovers cleanly from `.bak`. When both primary and `.bak` are corrupted, fails closed without zeroing or wiping live in-memory state.
+    - **Scenario 9 (Exactly-Once Reward Claim API):** Valid first claim succeeds, awards points, increments balance & earned, and atomically persists to disk.
+    - **Scenario 10 (Double-Claim Exploit Prevention):** Re-claiming an already claimed `reward_id` is rejected (`already_claimed`), awards 0 points, and preserves balance.
+    - **Scenario 11 (Multi-World Victory Claim):** Distinct worlds with unique `world_id`s (`world_alpha`, `world_beta`) can each claim their victory reward once (+100 points each, balance becomes 200). Duplicate claim attempts for an existing world are rejected.
+    - **Scenario 12 (Older Save Reload Exploit Prevention):** Reloading an older world save where victory is reached again cannot duplicate rewards because `VictoryManager` verifies existing claims with authoritative `LegacyProfileManager`.
+    - **Scenario 13 (Achievement Foundation & Single-Award Invariant):** Seeded `prosperity_victory` achievement can be unlocked once, awarding 100 points. Subsequent unlock attempts across any world are rejected with `already_unlocked`.
+    - **Scenario 14 (Deferred Surplus Treasury Conversion):** Extension point `convert_surplus_treasury()` returns `status: "deferred"`, `converted: false`, 0 points awarded, 0 gold deducted.
+    - **Scenario 15 (UI & Victory Claim Reflection):** Verifies that `VictoryManager.is_reward_claimable()` logic transitions seamlessly from true to false and reflects accurately in HUD and Main Menu displays.
+  - *Status:* **PASSED** (2026-10-31, Exit Code 0: 15/15 test scenarios passed).

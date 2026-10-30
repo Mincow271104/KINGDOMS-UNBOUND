@@ -35,9 +35,11 @@ var total_simulation_hours: float = 0.0
 var primary_collapse_reason: String = ""
 var major_events: Array[String] = []
 
-# Legacy claiming protection (Master Prompt Phase 7 exit gate)
+# Legacy claiming protection (Master Prompt Phase 7 exit gate & Package 1Z)
 var legacy_points_earned: int = 0
 var is_legacy_claimed: bool = false
+var profile_mgr: RefCounted = null
+var world_id: String = ""
 
 func calculate_stability(food_stock: int, treasury_stock: int, pop: int, housing_cap: int, avg_morale: float, town_hall_alive: bool) -> float:
 	var stability: float = 0.0
@@ -154,6 +156,8 @@ func tick_hourly(pop: int, food: int, treasury: int, stability: float, morale: f
 		if hold_hours_elapsed >= TARGET_VICTORY_HOLD_HOURS and not is_victory_achieved:
 			is_victory_achieved = true
 			legacy_points_earned = 100
+			if profile_mgr != null and profile_mgr.has_method("unlock_achievement"):
+				profile_mgr.unlock_achievement("prosperity_victory", world_id)
 			var report := generate_summary_report("VICTORY", pop, food, treasury, stability, morale, techs_unlocked, buildings_count)
 			victory_achieved.emit(report)
 			return {"status": "victory", "report": report}
@@ -218,15 +222,48 @@ func _evaluate_crises(food: int, treasury: int, morale: float, stability: float,
 func record_event(event_description: String) -> void:
 	major_events.append(event_description)
 
-func claim_legacy_reward() -> int:
-	if is_legacy_claimed:
-		return 0 # Prevent duplicate claim
-	is_legacy_claimed = true
-	return legacy_points_earned
+func is_reward_claimable() -> bool:
+	if not is_victory_achieved:
+		return false
+	if legacy_points_earned <= 0:
+		return false
+	if profile_mgr != null:
+		var target_id = "victory_" + world_id if not world_id.is_empty() else "victory_default"
+		if profile_mgr.has_method("is_reward_claimed") and profile_mgr.is_reward_claimed(target_id):
+			return false
+	return not is_legacy_claimed
+
+func claim_legacy_reward(custom_reward_id: String = "") -> int:
+	if not is_victory_achieved:
+		return 0
+	if profile_mgr != null:
+		var target_id = custom_reward_id.strip_edges()
+		if target_id.is_empty():
+			target_id = "victory_" + world_id if not world_id.is_empty() else "victory_default"
+		var res: Dictionary = profile_mgr.claim_reward(target_id, "victory", legacy_points_earned, world_id)
+		if res.get("success", false):
+			is_legacy_claimed = true
+			return int(res.get("points_awarded", 0))
+		else:
+			if res.get("reason", "") == "already_claimed":
+				is_legacy_claimed = true
+			return 0
+	else:
+		# Fallback for headless tests where profile_mgr is null
+		if is_legacy_claimed:
+			return 0 # Prevent duplicate claim
+		is_legacy_claimed = true
+		return legacy_points_earned
 
 func generate_summary_report(outcome: String, pop: int, food: int, treasury: int, stability: float, morale: float, techs_unlocked: int, buildings_count: int) -> Dictionary:
 	var days: int = int(total_simulation_hours / 24.0)
 	var hours: int = int(total_simulation_hours) % 24
+
+	var claimed = is_legacy_claimed
+	if profile_mgr != null and profile_mgr.has_method("is_reward_claimed"):
+		var target_id = "victory_" + world_id if not world_id.is_empty() else "victory_default"
+		if profile_mgr.is_reward_claimed(target_id):
+			claimed = true
 	
 	return {
 		"outcome": outcome,
@@ -243,5 +280,5 @@ func generate_summary_report(outcome: String, pop: int, food: int, treasury: int
 		"primary_cause": primary_collapse_reason if outcome == "COLLAPSE" else "Duy trì thịnh vượng xuất sắc trong 5 ngày liên tục",
 		"major_events": major_events.duplicate(),
 		"legacy_points": legacy_points_earned,
-		"legacy_claimed": is_legacy_claimed
+		"legacy_claimed": claimed
 	}

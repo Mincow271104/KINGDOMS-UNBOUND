@@ -41,8 +41,13 @@ static func serialize_world_state(world_view: Node) -> Dictionary:
 		return data
 		
 	# 1. Metadata
+	var wid_val = world_view.get("world_id")
+	var wid_str: String = str(wid_val).strip_edges() if wid_val != null else ""
+	if wid_str.is_empty():
+		wid_str = "world_%d" % int(world_view.get("world_seed"))
 	data["metadata"] = {
 		"world_seed": world_view.get("world_seed"),
+		"world_id": wid_str,
 		"difficulty": "normal"
 	}
 	
@@ -337,6 +342,12 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 	for sec in required_sections:
 		if not json_dict.has(sec):
 			return {"valid": false, "error": "Bản lưu bị thiếu mục cấu trúc cốt lõi: '%s'." % sec}
+
+	var meta_sec = json_dict.get("metadata")
+	if not (meta_sec is Dictionary):
+		return {"valid": false, "error": "Mục 'metadata' phải là từ điển (Dictionary)."}
+	if meta_sec.has("world_id") and not (meta_sec.get("world_id") is String):
+		return {"valid": false, "error": "Trường 'world_id' trong metadata phải là chuỗi (String)."}
 
 	var res_sec = json_dict.get("resources")
 	if not (res_sec is Dictionary):
@@ -1062,6 +1073,20 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 
 	var CitizenControllerScript = preload("res://scripts/entities/citizen_controller.gd")
 	var citizen_tex = load("res://assets/entities/citizen.png")
+
+	# 0. Restore Metadata (world_id)
+	var meta_data: Dictionary = loaded_data.get("metadata", {})
+	var restored_world_id: String = ""
+	if meta_data.has("world_id") and not str(meta_data["world_id"]).strip_edges().is_empty():
+		restored_world_id = str(meta_data["world_id"]).strip_edges()
+	elif meta_data.has("world_seed"):
+		restored_world_id = "world_%d" % int(meta_data["world_seed"])
+
+	if not restored_world_id.is_empty():
+		world_view.set("world_id", restored_world_id)
+		var vic_mgr = world_view.get("victory_mgr")
+		if vic_mgr != null:
+			vic_mgr.set("world_id", restored_world_id)
 
 	# 1. Restore Game Clock
 	var clock_data: Dictionary = loaded_data.get("game_clock", {})

@@ -6911,3 +6911,81 @@ Address confirmed validation gap:
 - Commit all modified files with `fix(automation): enforce complete repeat continuation metadata`.
 - Push commit to remote branch `origin/feat/package-1y-automation-delay-repeat`.
 - Provide final completion report.
+
+---
+
+## [2026-10-31] Milestone 35: Package 1Z — Legacy Fund & Meta-Progression Foundation (Completed)
+
+### Context & Objective
+Implement Package 1Z: **Legacy Fund & Meta-Progression Foundation** for `Mincow271104/KINGDOMS-UNBOUND` per `MASTER_PROMPT.md` and `docs/GDD.md`:
+1. Authoritative Legacy profile data model decoupled from individual world save files.
+2. Dedicated profile persistence path (`user://legacy_profile.json`) with `.tmp` atomic write and `.bak` backup recovery.
+3. Strict fail-closed schema validation preserving two non-negotiable invariants:
+   - `legacy_balance == lifetime_legacy_earned - lifetime_legacy_spent`
+   - `sum(claimed_rewards[r].amount) == lifetime_legacy_earned`
+4. Centralized authoritative exactly-once reward-claim API rejecting duplicate claims.
+5. Victory reward integration (`VictoryManager` + HUD `VictoryPanel`) awarding 100 points for Prosperity Victory using stable world-scoped ID (`victory_<world_id>`), immune to older-save reload duplication.
+6. Achievement reward foundation seeded with `prosperity_victory` (100 Legacy points, single award per profile).
+7. Documented deferred surplus treasury conversion extension point (`convert_surplus_treasury()`).
+8. Minimal UI integration in `MainMenu` (persistent Legacy balance display) and `InGameHUD` `VictoryPanel` (claim button/status).
+9. Comprehensive test suite `scripts/test/test_legacy_fund.gd` (15 scenarios) and full regression verification.
+
+### Completed Work
+1. **Authoritative Profile Model (`scripts/legacy/legacy_profile_manager.gd`):**
+   - Implemented `LegacyProfileManager` managing `profile_id`, `legacy_balance`, `lifetime_legacy_earned`, `lifetime_legacy_spent`, `claimed_rewards`, `unlocked_achievements`, and `schema_version = 1`.
+   - Implemented `validate_profile_data()` verifying types, bounds, mathematical balance invariant, claimed rewards sum, and valid reward sources (`["victory", "achievement"]`).
+   - Implemented atomic file saving with `.tmp` and `.bak` rotation.
+   - Implemented automatic `.bak` recovery fallback on corrupted primary file, and fail-closed preservation of live in-memory state if both are corrupted.
+   - Implemented `claim_reward()` with duplicate prevention and atomic rollback on disk write failure.
+   - Seeded `ACHIEVEMENTS` with `prosperity_victory` (100 Legacy points) and implemented `unlock_achievement()`.
+   - Implemented `convert_surplus_treasury()` returning `status: "deferred"`.
+   - Implemented static singleton and custom path injection for isolated test execution.
+2. **Victory Manager & World Persistence Integration (`scripts/core/victory_manager.gd`, `scripts/world/world_view.gd`, `scripts/persistence/save_manager.gd`):**
+   - Added `profile_mgr: RefCounted` and `world_id: String` to `VictoryManager`.
+   - Updated `VictoryManager.tick_hourly()` to unlock `prosperity_victory` achievement upon reaching victory.
+   - Implemented `VictoryManager.claim_legacy_reward()` delegating to `profile_mgr.claim_reward("victory_" + world_id, "victory", 100, world_id)`, preventing duplicate awards on reload. Preserved Phase 7 fallback for headless tests without profile manager.
+   - Added `world_id` property to `WorldView` (defaulting to `"world_%d" % world_seed`) and wired `victory_mgr.profile_mgr = LegacyProfileManagerScript.get_instance()`.
+   - Serialized `metadata.world_id` in `SaveManager.serialize_world_state()` and restored it in `apply_loaded_state_to_world()`. Maintained world save schema version 1 compatibility.
+3. **UI Integration (`scenes/ui/hud.tscn`, `scripts/ui/hud.gd`, `scenes/ui/main_menu.tscn`, `scripts/ui/main_menu.gd`):**
+   - Added `ClaimVictoryBtn` and `LegacyStatusLabel` to `VictoryPanel` in `hud.tscn` / `hud.gd`, providing live claim action and reflecting authoritative claimed status.
+   - Added `LegacyFundLabel` to `main_menu.tscn` / `main_menu.gd`, displaying persistent Legacy balance and listening to `balance_changed`.
+4. **Automated Test Suite (`scripts/test/test_legacy_fund.gd`):**
+   - Authored 15 test scenarios validating initialization, schema validation, fail-closed negative numbers, math invariants, claimed sums, invalid sources/amounts, atomic persistence & backup recovery, exactly-once claims, duplicate prevention, multi-world victory, older save reload protection, achievement foundation, deferred treasury conversion, and UI presentation.
+
+### Validations Performed & Results
+- **Package 1Z Dedicated Test Suite:**
+  - `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --path "e:\KINGDOMS UNBOUND\kingdoms-unbound" -s res://scripts/test/test_legacy_fund.gd`: **PASS (Exit Code 0: 15/15 scenarios)**
+- **Regression Test Suites:**
+  - `scripts/test/test_victory_and_collapse.gd`: **PASS (Exit Code 0: 4/4 test groups)**
+  - `scripts/test/test_save_load.gd`: **PASS (Exit Code 0: 129/129 assertions)**
+  - `scripts/test/test_automation_graph.gd`: **PASS (Exit Code 0: 69/69 assertions)**
+  - `scripts/test/test_automation_graph_delay_repeat.gd`: **PASS (Exit Code 0: 179/179 assertions)**
+  - `scripts/test/test_factions_and_battles.gd`: **PASS (Exit Code 0: 48/48 assertions)**
+  - `scripts/test/test_package_1x_gameplay_integration.gd`: **PASS (Exit Code 0: 57/57 assertions)**
+  - `scripts/test/test_field_siege.gd`: **PASS (Exit Code 0: 85/85 assertions)**
+  - `scripts/test/test_tactical_military.gd`: **PASS (Exit Code 0: 385/385 assertions)**
+- **Headless Engine / Project Check:**
+  - `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --editor --quit`: **PASS (Exit Code 0)**
+- **Whitespace / Git Check:**
+  - `git diff --check`: **PASS (Exit Code 0)**
+
+### Files Created or Modified
+- `scripts/legacy/legacy_profile_manager.gd` (Created)
+- `scripts/test/test_legacy_fund.gd` (Created)
+- `scripts/core/victory_manager.gd` (Modified)
+- `scripts/persistence/save_manager.gd` (Modified)
+- `scripts/world/world_view.gd` (Modified)
+- `scripts/ui/hud.gd` (Modified)
+- `scenes/ui/hud.tscn` (Modified)
+- `scripts/ui/main_menu.gd` (Modified)
+- `scenes/ui/main_menu.tscn` (Modified)
+- `docs/BACKLOG.md` (Modified)
+- `docs/SCOPE_DECISIONS.md` (Modified)
+- `docs/TEST_PLAN.md` (Modified)
+- `docs/WORKLOG.md` (Modified)
+
+### Next Exact Step
+- Verify Git working tree cleanliness and stage only Package 1Z files.
+- Commit all changes with `feat(legacy): implement persistent legacy fund foundation`.
+- Push commit to remote branch `origin/feat/package-1z-legacy-fund-foundation`.
+- Provide comprehensive completion report.

@@ -11,8 +11,10 @@ const TacticalMilitaryManagerScript = preload("res://scripts/military/tactical_m
 const ArmyMarkerScript = preload("res://scripts/military/army_marker.gd")
 const EnemyMilitaryManagerScript = preload("res://scripts/military/enemy_military_manager.gd")
 const FieldSiegeManagerScript = preload("res://scripts/combat/field_siege_manager.gd")
+const LegacyProfileManagerScript = preload("res://scripts/legacy/legacy_profile_manager.gd")
 
 @export var world_seed: int = 12345
+@export var world_id: String = ""
 
 @onready var terrain_layer: Node2D = $World/TerrainLayer
 @onready var entity_container: Node2D = $World/Entities
@@ -176,7 +178,11 @@ func _generate_and_build_world() -> void:
 	event_system = WorldEventSystem.new(world_seed)
 	faction_mgr = FactionManager.new()
 	immigration_mgr = ImmigrationManager.new(world_seed + 777)
+	if world_id.strip_edges().is_empty():
+		world_id = "world_%d" % world_seed
 	victory_mgr = VictoryManager.new()
+	victory_mgr.profile_mgr = LegacyProfileManagerScript.get_instance()
+	victory_mgr.world_id = world_id
 	battle_campaign_mgr = BattleCampaignManagerScript.new(self, faction_mgr, world_seed)
 	player_army_mgr = PlayerArmyManagerScript.new(self)
 	tactical_military_mgr = TacticalMilitaryManagerScript.new(self, player_army_mgr)
