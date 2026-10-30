@@ -9,10 +9,15 @@ const DEFAULT_SAVE_PATH: String = "user://saves/world_save.json"
 const BACKUP_SAVE_PATH: String = "user://saves/world_save.json.bak"
 const TEMP_SAVE_PATH: String = "user://saves/world_save.json.tmp"
 
-# Test failure injection seams (FIX-1Z-M)
+const FLOAT_INT64_EXCLUSIVE_UPPER: float = 9223372036854775808.0
+const FLOAT_INT64_INCLUSIVE_LOWER: float = -9223372036854775808.0
+
+# Test failure injection seams (FIX-1Z-M & FIX-1Z-P)
 static var _test_inject_fail_tmp_write: bool = false
 static var _test_inject_fail_backup_create: bool = false
+static var _test_inject_fail_backup_validate: bool = false
 static var _test_inject_fail_backup_replace: bool = false
+static var _test_inject_fail_backup_rename: bool = false
 static var _test_inject_fail_target_remove: bool = false
 static var _test_inject_fail_target_rename: bool = false
 static var _test_inject_fail_backup_restore: bool = false
@@ -20,7 +25,9 @@ static var _test_inject_fail_backup_restore: bool = false
 static func reset_test_injection() -> void:
 	_test_inject_fail_tmp_write = false
 	_test_inject_fail_backup_create = false
+	_test_inject_fail_backup_validate = false
 	_test_inject_fail_backup_replace = false
+	_test_inject_fail_backup_rename = false
 	_test_inject_fail_target_remove = false
 	_test_inject_fail_target_rename = false
 	_test_inject_fail_backup_restore = false
@@ -84,40 +91,39 @@ static func serialize_world_state(world_view: Node) -> Dictionary:
 	}
 	
 	# 2. Game Clock
-	if Engine.has_singleton("TimeManager") or world_view.has_node("/root/TimeManager"):
-		var tm: Node = world_view.get_node("/root/TimeManager")
-		var spd: int = tm.get("current_speed")
-		if spd == 0 and tm.get("previous_speed") != null and tm.get("previous_speed") != 0:
-			spd = tm.get("previous_speed")
-		elif spd == 0:
-			spd = 1
-		data["game_clock"] = {
-			# BUG-01 fix: serialize only fields that exist on TimeManager.
-			# Removed non-existent: total_elapsed_seconds, current_minute, current_season, is_paused.
-			# Added season_index (the real backing field in TimeManager for the calendar season).
-			"current_day": tm.get("current_day"),
-			"current_hour": tm.get("current_hour"),
-			"season_index": tm.get("season_index"),
-			"current_year": tm.get("current_year"),
-			"current_speed": spd
-		}
+	if Engine.has_singleton("TimeManager") or (world_view.is_inside_tree() and world_view.has_node("/root/TimeManager")):
+		var tm: Node = world_view.get_node("/root/TimeManager") if world_view.is_inside_tree() else null
+		if tm != null:
+			var spd: int = tm.get("current_speed")
+			if spd == 0 and tm.get("previous_speed") != null and tm.get("previous_speed") != 0:
+				spd = tm.get("previous_speed")
+			elif spd == 0:
+				spd = 1
+			data["game_clock"] = {
+				"current_day": tm.get("current_day"),
+				"current_hour": tm.get("current_hour"),
+				"season_index": tm.get("season_index"),
+				"current_year": tm.get("current_year"),
+				"current_speed": spd
+			}
 		
 	# 3. Resources
-	if Engine.has_singleton("ResourceManager") or world_view.has_node("/root/ResourceManager"):
-		var rm: Node = world_view.get_node("/root/ResourceManager")
-		var stock_copy: Dictionary = {}
-		var cap_copy: Dictionary = {}
-		for res_id in rm.get("_current_stock"):
-			stock_copy[res_id] = rm.call("get_available_stock", res_id)
-		for res_id in rm.get("_capacities"):
-			cap_copy[res_id] = rm.get("_capacities")[res_id]
-			
-		data["resources"] = {
-			"stock": stock_copy,
-			"capacities": cap_copy,
-			"active_population": rm.get("active_population"),
-			"is_starving": rm.call("is_starving") if rm.has_method("is_starving") else false
-		}
+	if Engine.has_singleton("ResourceManager") or (world_view.is_inside_tree() and world_view.has_node("/root/ResourceManager")):
+		var rm: Node = world_view.get_node("/root/ResourceManager") if world_view.is_inside_tree() else null
+		if rm != null:
+			var stock_copy: Dictionary = {}
+			var cap_copy: Dictionary = {}
+			for res_id in rm.get("_current_stock"):
+				stock_copy[res_id] = rm.call("get_available_stock", res_id)
+			for res_id in rm.get("_capacities"):
+				cap_copy[res_id] = rm.get("_capacities")[res_id]
+
+			data["resources"] = {
+				"stock": stock_copy,
+				"capacities": cap_copy,
+				"active_population": rm.get("active_population"),
+				"is_starving": rm.call("is_starving") if rm.has_method("is_starving") else false
+			}
 		
 	# 4. Buildings
 	var world_data = world_view.get("world_data")
@@ -317,12 +323,15 @@ static func save_dict_to_file(data: Dictionary, filepath: String) -> bool:
 	var tmp_path := filepath + ".tmp"
 	var bak_path := filepath + ".bak"
 	var bak_tmp_path := filepath + ".bak.tmp"
+	var bak_old_path := filepath + ".bak.old"
 
 	# Clean up any stale tmp files
 	if FileAccess.file_exists(tmp_path):
 		dir.remove(tmp_path)
 	if FileAccess.file_exists(bak_tmp_path):
 		dir.remove(bak_tmp_path)
+	if FileAccess.file_exists(bak_old_path):
+		dir.remove(bak_old_path)
 
 	var file := FileAccess.open(tmp_path, FileAccess.WRITE)
 	if file == null:
@@ -377,16 +386,34 @@ static func save_dict_to_file(data: Dictionary, filepath: String) -> bool:
 					dir.remove(tmp_path)
 				return false
 
-			# Remove old backup if present
-			if FileAccess.file_exists(bak_path):
-				var rem_bak_err := OK
-				if _test_inject_fail_backup_replace:
-					rem_bak_err = FAILED
-				else:
-					rem_bak_err = dir.remove(bak_path)
+			# Verify staged backup contents before replacing authoritative backup (FIX-1Z-O)
+			var staged_val := _read_and_validate_save_file(bak_tmp_path)
+			var staged_valid: bool = staged_val.get("valid", false) and not _test_inject_fail_backup_validate
+			if staged_valid and primary_val.has("data") and staged_val.has("data"):
+				if staged_val["data"] != primary_val["data"]:
+					staged_valid = false
+					push_error("SaveManager: Staged backup data mismatch against previous primary data.")
 
-				if rem_bak_err != OK:
-					push_error("SaveManager: Failed to remove old backup %s (Error: %d)" % [bak_path, rem_bak_err])
+			if not staged_valid:
+				push_error("SaveManager: Staged backup validation failed: %s" % staged_val.get("error", "content mismatch or injection"))
+				if FileAccess.file_exists(bak_tmp_path):
+					dir.remove(bak_tmp_path)
+				if FileAccess.file_exists(tmp_path):
+					dir.remove(tmp_path)
+				return false
+
+			# Staged backup passed validation. Safely replace authoritative backup (FIX-1Z-P)
+			if FileAccess.file_exists(bak_path):
+				if FileAccess.file_exists(bak_old_path):
+					dir.remove(bak_old_path)
+				var rot_old_err := OK
+				if _test_inject_fail_backup_replace:
+					rot_old_err = FAILED
+				else:
+					rot_old_err = dir.rename(bak_path, bak_old_path)
+
+				if rot_old_err != OK:
+					push_error("SaveManager: Failed to protect old backup %s before replace (Error: %d)" % [bak_path, rot_old_err])
 					if FileAccess.file_exists(bak_tmp_path):
 						dir.remove(bak_tmp_path)
 					if FileAccess.file_exists(tmp_path):
@@ -394,14 +421,30 @@ static func save_dict_to_file(data: Dictionary, filepath: String) -> bool:
 					return false
 
 			# Rename staged backup to authoritative backup
-			var ren_bak_err := dir.rename(bak_tmp_path, bak_path)
+			var ren_bak_err := OK
+			if _test_inject_fail_backup_rename:
+				ren_bak_err = ERR_CANT_CREATE
+			else:
+				ren_bak_err = dir.rename(bak_tmp_path, bak_path)
+
 			if ren_bak_err != OK:
 				push_error("SaveManager: Failed to rename staged backup %s to %s (Error: %d)" % [bak_tmp_path, bak_path, ren_bak_err])
+				# Rollback: restore old backup from bak_old_path if it was rotated
+				if FileAccess.file_exists(bak_old_path):
+					var rollback_bak_err := dir.rename(bak_old_path, bak_path)
+					if rollback_bak_err != OK:
+						push_error("SaveManager: Failed to rollback old backup from %s to %s (Error: %d)" % [bak_old_path, bak_path, rollback_bak_err])
 				if FileAccess.file_exists(bak_tmp_path):
 					dir.remove(bak_tmp_path)
 				if FileAccess.file_exists(tmp_path):
 					dir.remove(tmp_path)
 				return false
+
+			# Staged backup successfully renamed to bak_path. Clean up bak_old_path
+			if FileAccess.file_exists(bak_old_path):
+				var rem_old_err := dir.remove(bak_old_path)
+				if rem_old_err != OK:
+					push_warning("SaveManager: Failed to remove temporary old backup %s (Error: %d)" % [bak_old_path, rem_old_err])
 		else:
 			push_warning("SaveManager: Existing primary save %s is corrupt. Preserving existing backup untouched." % filepath)
 
@@ -448,6 +491,12 @@ static func save_dict_to_file(data: Dictionary, filepath: String) -> bool:
 	var final_val := _read_and_validate_save_file(filepath)
 	if not final_val.get("valid", false):
 		push_error("SaveManager: Saved file validation failed after write: %s" % final_val.get("error", ""))
+		if FileAccess.file_exists(filepath):
+			dir.remove(filepath)
+		if FileAccess.file_exists(bak_path) and not FileAccess.file_exists(filepath):
+			var res_err := dir.copy(bak_path, filepath)
+			if res_err != OK:
+				push_error("SaveManager: Failed to restore primary from backup after invalid write.")
 		return false
 
 	return true
@@ -475,7 +524,7 @@ static func _is_valid_integer_val(val: Variant) -> bool:
 		var f := float(val)
 		if is_nan(f) or is_inf(f) or floor(f) != f:
 			return false
-		if f < -9223372036854775808.0 or f >= 9223372036854775808.0:
+		if f < FLOAT_INT64_INCLUSIVE_LOWER or f >= FLOAT_INT64_EXCLUSIVE_UPPER:
 			return false
 		return true
 	return false
@@ -518,6 +567,20 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 		return {"valid": false, "error": "Mục 'resources' phải là từ điển (Dictionary)."}
 	if res_sec.has("is_starving") and not (res_sec.get("is_starving") is bool):
 		return {"valid": false, "error": "Trạng thái 'is_starving' trong resources phải là boolean."}
+	for res_k in res_sec:
+		if res_k == "stock" and (res_sec["stock"] is Dictionary):
+			for s_k in res_sec["stock"]:
+				if not _is_valid_integer_val(res_sec["stock"][s_k]):
+					return {"valid": false, "error": "Giá trị tài nguyên 'stock.%s' không phải số nguyên hợp lệ." % str(s_k)}
+		elif res_k == "capacities" and (res_sec["capacities"] is Dictionary):
+			for c_k in res_sec["capacities"]:
+				if not _is_valid_integer_val(res_sec["capacities"][c_k]):
+					return {"valid": false, "error": "Giá trị dung lượng 'capacities.%s' không phải số nguyên hợp lệ." % str(c_k)}
+		elif res_k != "is_starving" and res_k != "active_population":
+			var val = res_sec[res_k]
+			if not (val is Dictionary) and not (val is Array):
+				if not _is_valid_integer_val(val):
+					return {"valid": false, "error": "Giá trị tài nguyên '%s' không phải số nguyên hợp lệ." % str(res_k)}
 
 	# Validate buildings array and construction data
 	var buildings_sec = json_dict.get("buildings")

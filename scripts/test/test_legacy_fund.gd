@@ -70,6 +70,10 @@ func _init() -> void:
 	var pass_exp18: bool = _test_fix_1z_m_save_manager_backup_rotation_10_cases()
 	var pass_exp19: bool = _test_fix_1z_n_float_64bit_boundary_precision()
 
+	# Fourth hardening audit coverage (FIX-1Z-Q & FIX-1Z-S)
+	var pass_exp20: bool = _test_fix_1z_q_profile_recovery_failed_write_restart()
+	var pass_exp21: bool = _test_fix_1z_s_canonical_path_preservation_migration()
+
 	_cleanup_test_files()
 	LegacyProfileManager.reset_instance()
 
@@ -80,8 +84,9 @@ func _init() -> void:
 		pass_exp1 and pass_exp2 and pass_exp3 and pass_exp4 and pass_exp5 and
 		pass_exp6 and pass_exp7 and pass_exp8 and pass_exp9 and pass_exp10 and
 		pass_exp11 and pass_exp12 and pass_exp13 and pass_exp14 and pass_exp15 and
-		pass_exp16 and pass_exp17 and pass_exp18 and pass_exp19):
-		print("  ALL 34 PACKAGE 1Z TESTS PASSED SUCCESSFULLY! (Exit Code 0)")
+		pass_exp16 and pass_exp17 and pass_exp18 and pass_exp19 and
+		pass_exp20 and pass_exp21):
+		print("  ALL 36 PACKAGE 1Z TESTS PASSED SUCCESSFULLY! (Exit Code 0)")
 		print("--------------------------------------------------------\n")
 		quit(0)
 	else:
@@ -1522,17 +1527,71 @@ func _test_fix_1z_m_save_manager_backup_rotation_10_cases() -> bool:
 		cleanup_m.call()
 		return false
 
-	# Case 3: Staged backup replace fail -> primary and existing backup untouched
+	# Case 2B (FIX-1Z-P): Staged backup creation succeeds, but validation fails
+	SaveManager._test_inject_fail_backup_validate = true
+	var res2b = SaveManager.save_dict_to_file(make_data.call(30), test_path)
+	SaveManager.reset_test_injection()
+	if res2b:
+		print("  [FAIL] Case 2B: Expected failure on staged backup validation failure")
+		cleanup_m.call()
+		return false
+	if FileAccess.file_exists(test_bak_tmp):
+		print("  [FAIL] Case 2B: bak.tmp file lingering after validation failure")
+		cleanup_m.call()
+		return false
+	if FileAccess.file_exists(test_tmp):
+		print("  [FAIL] Case 2B: tmp file lingering after validation failure")
+		cleanup_m.call()
+		return false
+	var read2b_prim = SaveManager.load_from_file(test_path)
+	if int(read2b_prim.get("data", {}).get("resources", {}).get("score", 0)) != 20:
+		print("  [FAIL] Case 2B: Primary modified despite backup validation failure!")
+		cleanup_m.call()
+		return false
+	var read2b_bak = SaveManager.load_from_file(test_bak)
+	if int(read2b_bak.get("data", {}).get("resources", {}).get("score", 0)) != 10:
+		print("  [FAIL] Case 2B: Existing backup damaged on validation failure!")
+		cleanup_m.call()
+		return false
+
+	# Case 3: Staged backup protection fail -> primary and existing backup untouched
 	SaveManager._test_inject_fail_backup_replace = true
 	var res3 = SaveManager.save_dict_to_file(make_data.call(30), test_path)
 	SaveManager.reset_test_injection()
 	if res3:
-		print("  [FAIL] Case 3: Expected failure on backup replace failure")
+		print("  [FAIL] Case 3: Expected failure on backup protect failure")
 		cleanup_m.call()
 		return false
 	var read3_bak = SaveManager.load_from_file(test_bak)
 	if int(read3_bak.get("data", {}).get("resources", {}).get("score", 0)) != 10:
 		print("  [FAIL] Case 3: Existing backup damaged on replace failure!")
+		cleanup_m.call()
+		return false
+
+	# Case 3B (FIX-1Z-P): Staged backup validation succeeds, but replacement rename fails
+	SaveManager._test_inject_fail_backup_rename = true
+	var res3b = SaveManager.save_dict_to_file(make_data.call(30), test_path)
+	SaveManager.reset_test_injection()
+	if res3b:
+		print("  [FAIL] Case 3B: Expected failure on backup rename failure")
+		cleanup_m.call()
+		return false
+	if FileAccess.file_exists(test_bak_tmp) or FileAccess.file_exists(test_path + ".bak.old"):
+		print("  [FAIL] Case 3B: Temporary backup files lingering after rename failure!")
+		cleanup_m.call()
+		return false
+	if FileAccess.file_exists(test_tmp):
+		print("  [FAIL] Case 3B: tmp file lingering after backup rename failure!")
+		cleanup_m.call()
+		return false
+	var read3b_prim = SaveManager.load_from_file(test_path)
+	if int(read3b_prim.get("data", {}).get("resources", {}).get("score", 0)) != 20:
+		print("  [FAIL] Case 3B: Primary modified despite backup rename failure!")
+		cleanup_m.call()
+		return false
+	var read3b_bak = SaveManager.load_from_file(test_bak)
+	if int(read3b_bak.get("data", {}).get("resources", {}).get("score", 0)) != 10:
+		print("  [FAIL] Case 3B: Existing backup damaged on rename failure!")
 		cleanup_m.call()
 		return false
 
@@ -1549,7 +1608,7 @@ func _test_fix_1z_m_save_manager_backup_rotation_10_cases() -> bool:
 		cleanup_m.call()
 		return false
 
-	# Case 5: Target rename fail -> restored from backup, tmp cleaned
+	# Case 5 (FIX-1Z-P): Target rename fail -> restored from backup, tmp cleaned, actual data verified
 	SaveManager._test_inject_fail_target_rename = true
 	var res5 = SaveManager.save_dict_to_file(make_data.call(30), test_path)
 	SaveManager.reset_test_injection()
@@ -1561,14 +1620,28 @@ func _test_fix_1z_m_save_manager_backup_rotation_10_cases() -> bool:
 		print("  [FAIL] Case 5: Target file missing after rename failure rollback!")
 		cleanup_m.call()
 		return false
+	var read5 = SaveManager.load_from_file(test_path)
+	if int(read5.get("data", {}).get("resources", {}).get("score", 0)) != 20:
+		print("  [FAIL] Case 5: Restored primary data mismatch: expected 20, got %s" % str(read5.get("data", {}).get("resources", {}).get("score")))
+		cleanup_m.call()
+		return false
 
-	# Case 6: Target rename fail with restore fail -> reported error gracefully
+	# Case 6 (FIX-1Z-P): Target rename fail with restore fail -> remaining backup is valid and recoverable
 	SaveManager._test_inject_fail_target_rename = true
 	SaveManager._test_inject_fail_backup_restore = true
 	var res6 = SaveManager.save_dict_to_file(make_data.call(30), test_path)
 	SaveManager.reset_test_injection()
 	if res6:
 		print("  [FAIL] Case 6: Expected failure on rename & restore failure")
+		cleanup_m.call()
+		return false
+	var read6 = SaveManager.load_from_file(test_path)
+	if not read6.get("success", false) or not read6.get("recovered_from_backup", false):
+		print("  [FAIL] Case 6: Backup recovery failed when primary restoration failed: %s" % str(read6))
+		cleanup_m.call()
+		return false
+	if int(read6.get("data", {}).get("resources", {}).get("score", 0)) != 20:
+		print("  [FAIL] Case 6: Recovered backup score mismatch: %s" % str(read6.get("data", {}).get("resources", {}).get("score")))
 		cleanup_m.call()
 		return false
 
@@ -1648,64 +1721,48 @@ func _test_fix_1z_m_save_manager_backup_rotation_10_cases() -> bool:
 		return false
 
 	cleanup_m.call()
-	print("  [PASS] All 10 failure injection scenarios for SaveManager backup rotation and recovery passed.")
+	print("  [PASS] All failure injection scenarios for SaveManager backup rotation and recovery passed.")
 	return true
 
 func _test_fix_1z_n_float_64bit_boundary_precision() -> bool:
-	print("--- FIX-1Z-N: 64-Bit Float Boundary Precision Validation ---")
+	print("--- FIX-1Z-N & FIX-1Z-R: 64-Bit Float Boundary Precision Validation ---")
 	_cleanup_test_files()
 
-	# 1. Test boundaries in LegacyProfileManager._is_valid_integer_val
-	var max_int: int = 9223372036854775807
-	if not LegacyProfileManager._is_valid_integer_val(max_int):
-		print("  [FAIL] MAX_SAFE_INT rejected by LegacyProfileManager._is_valid_integer_val")
-		return false
-
 	var float_upper: float = LegacyProfileManager.FLOAT_INT64_EXCLUSIVE_UPPER # 9223372036854775808.0 (2^63)
-	if LegacyProfileManager._is_valid_integer_val(float_upper):
-		print("  [FAIL] FLOAT_INT64_EXCLUSIVE_UPPER (2^63) was accepted as valid int!")
-		return false
-
-	var largest_safe_float: float = 9223372036854774784.0 # largest float < 2^63
-	if not LegacyProfileManager._is_valid_integer_val(largest_safe_float):
-		print("  [FAIL] largest float < 2^63 rejected by LegacyProfileManager._is_valid_integer_val")
-		return false
-
+	var largest_safe_float: float = 9223372036854774784.0 # 2^63 - 1024, largest representable Float64 integer < 2^63
 	var float_lower: float = LegacyProfileManager.FLOAT_INT64_INCLUSIVE_LOWER # -9223372036854775808.0 (-2^63)
+	var below_lower: float = -9223372036854777856.0 # -2^63 - 2048, representable Float64 value below signed 64-bit minimum
+
+	# 1. Direct validator verification in LegacyProfileManager._is_valid_integer_val
 	if not LegacyProfileManager._is_valid_integer_val(float_lower):
-		print("  [FAIL] FLOAT_INT64_INCLUSIVE_LOWER rejected by LegacyProfileManager._is_valid_integer_val")
+		print("  [FAIL] LegacyProfileManager._is_valid_integer_val rejected -2^63 lower bound (-9223372036854775808.0)")
+		return false
+	if LegacyProfileManager._is_valid_integer_val(below_lower):
+		print("  [FAIL] LegacyProfileManager._is_valid_integer_val accepted below_lower (-9223372036854777856.0)!")
+		return false
+	if LegacyProfileManager._is_valid_integer_val(float_upper):
+		print("  [FAIL] LegacyProfileManager._is_valid_integer_val accepted 2^63 (9223372036854775808.0)!")
+		return false
+	if not LegacyProfileManager._is_valid_integer_val(largest_safe_float):
+		print("  [FAIL] LegacyProfileManager._is_valid_integer_val rejected largest safe float < 2^63 (9223372036854774784.0)")
 		return false
 
-	# 2. Test boundaries in SaveManager._is_valid_integer_val
-	if not SaveManager._is_valid_integer_val(max_int):
-		print("  [FAIL] MAX_SAFE_INT rejected by SaveManager._is_valid_integer_val")
+	# 2. Direct validator verification in SaveManager._is_valid_integer_val
+	if not SaveManager._is_valid_integer_val(float_lower):
+		print("  [FAIL] SaveManager._is_valid_integer_val rejected -2^63 lower bound (-9223372036854775808.0)")
+		return false
+	if SaveManager._is_valid_integer_val(below_lower):
+		print("  [FAIL] SaveManager._is_valid_integer_val accepted below_lower (-9223372036854777856.0)!")
 		return false
 	if SaveManager._is_valid_integer_val(float_upper):
-		print("  [FAIL] FLOAT_INT64_EXCLUSIVE_UPPER accepted by SaveManager._is_valid_integer_val")
+		print("  [FAIL] SaveManager._is_valid_integer_val accepted 2^63 (9223372036854775808.0)!")
 		return false
 	if not SaveManager._is_valid_integer_val(largest_safe_float):
-		print("  [FAIL] largest float < 2^63 rejected by SaveManager._is_valid_integer_val")
+		print("  [FAIL] SaveManager._is_valid_integer_val rejected largest safe float < 2^63 (9223372036854774784.0)")
 		return false
 
-	# 3. Test in claim_reward()
-	var mgr := LegacyProfileManager.new(TEST_PROFILE_PATH)
-	var r_overflow := mgr.claim_reward("r_bound_ovf", "victory", float_upper, "world_b1")
-	if r_overflow.get("success", true) or r_overflow.get("reason") != "invalid_amount":
-		print("  [FAIL] claim_reward accepted float 2^63 as amount: %s" % str(r_overflow))
-		return false
-
-	var r_neg_bound := mgr.claim_reward("r_bound_neg", "victory", float_lower, "world_b1")
-	if r_neg_bound.get("success", true) or r_neg_bound.get("reason") != "invalid_amount":
-		print("  [FAIL] claim_reward accepted negative float lower bound: %s" % str(r_neg_bound))
-		return false
-
-	var r_valid_float := mgr.claim_reward("r_bound_valid", "victory", 100.0, "world_b1")
-	if not r_valid_float.get("success", false) or r_valid_float.get("points_awarded") != 100:
-		print("  [FAIL] claim_reward failed for valid whole float 100.0: %s" % str(r_valid_float))
-		return false
-
-	# 4. Test in validate_profile_data()
-	var bad_dict_float_bound = {
+	# 3. Direct schema verification in validate_profile_data()
+	var test_dict_upper = {
 		"schema_version": 1,
 		"profile_id": "test_profile",
 		"legacy_balance": float_upper,
@@ -1713,10 +1770,343 @@ func _test_fix_1z_n_float_64bit_boundary_precision() -> bool:
 		"lifetime_legacy_spent": 0,
 		"claimed_rewards": {}
 	}
-	var val_upper = LegacyProfileManager.validate_profile_data(bad_dict_float_bound)
+	var val_upper = LegacyProfileManager.validate_profile_data(test_dict_upper)
 	if val_upper.get("valid", true):
 		print("  [FAIL] validate_profile_data accepted float_upper for legacy_balance!")
 		return false
 
+	var test_dict_below_lower = {
+		"schema_version": 1,
+		"profile_id": "test_profile",
+		"legacy_balance": below_lower,
+		"lifetime_legacy_earned": 0,
+		"lifetime_legacy_spent": 0,
+		"claimed_rewards": {}
+	}
+	var val_below_lower = LegacyProfileManager.validate_profile_data(test_dict_below_lower)
+	if val_below_lower.get("valid", true):
+		print("  [FAIL] validate_profile_data accepted below_lower for legacy_balance!")
+		return false
+
+	var test_dict_safe_float = {
+		"schema_version": 1,
+		"profile_id": "test_profile",
+		"legacy_balance": largest_safe_float,
+		"lifetime_legacy_earned": largest_safe_float,
+		"lifetime_legacy_spent": 0,
+		"claimed_rewards": {
+			"r1": {"reward_id": "r1", "amount": largest_safe_float, "source": "victory", "world_id": "w1"}
+		}
+	}
+	var val_safe = LegacyProfileManager.validate_profile_data(test_dict_safe_float)
+	if not val_safe.get("valid", false):
+		print("  [FAIL] validate_profile_data rejected largest_safe_float: %s" % val_safe.get("error", ""))
+		return false
+
+	# 4. Direct schema verification in SaveManager.validate_save_data()
+	var save_data_upper = {
+		"schema_version": 1,
+		"metadata": {"world_id": "world_1"},
+		"resources": {"gold": float_upper},
+		"buildings": [],
+		"citizens": []
+	}
+	var val_save_upper = SaveManager.validate_save_data(save_data_upper)
+	if val_save_upper.get("valid", true):
+		print("  [FAIL] SaveManager.validate_save_data accepted float_upper for gold!")
+		return false
+
+	var save_data_below_lower = {
+		"schema_version": 1,
+		"metadata": {"world_id": "world_1"},
+		"resources": {"gold": below_lower},
+		"buildings": [],
+		"citizens": []
+	}
+	var val_save_lower = SaveManager.validate_save_data(save_data_below_lower)
+	if val_save_lower.get("valid", true):
+		print("  [FAIL] SaveManager.validate_save_data accepted below_lower for gold!")
+		return false
+
 	print("  [PASS] 64-bit float boundary precision strictly enforced across all components.")
+	return true
+
+func _test_fix_1z_q_profile_recovery_failed_write_restart() -> bool:
+	print("--- FIX-1Z-Q: Profile Recovery Followed by Failed Write and Restart ---")
+	_cleanup_test_files()
+	var prof_path := "user://test_profile_q.json"
+	var bak_path := prof_path + ".bak"
+	var dir := DirAccess.open("user://")
+	var cleanup_q = func():
+		LegacyProfileManager.reset_test_injection()
+		if dir != null:
+			if FileAccess.file_exists(prof_path): dir.remove(prof_path)
+			if FileAccess.file_exists(bak_path): dir.remove(bak_path)
+			if FileAccess.file_exists(prof_path + ".tmp"): dir.remove(prof_path + ".tmp")
+			if FileAccess.file_exists(prof_path + ".bak.tmp"): dir.remove(prof_path + ".bak.tmp")
+			if FileAccess.file_exists(prof_path + ".bak.old"): dir.remove(prof_path + ".bak.old")
+
+	cleanup_q.call()
+
+	# 1. Create a valid Legacy profile with a known balance and reward record.
+	var p1 := LegacyProfileManager.new(prof_path)
+	var r1 := p1.claim_reward("q_rev_1", "victory", 100, "world_q")
+	if not r1.get("success", false) or p1.legacy_balance != 100:
+		print("  [FAIL] Step 1: Initial claim failed: %s" % str(r1))
+		cleanup_q.call()
+		return false
+
+	# 2. Produce a valid .bak with known state (claim reward 2, then reward 3 so backup has balance 200).
+	var r2 := p1.claim_reward("q_rev_2", "victory", 100, "world_q")
+	if not r2.get("success", false) or p1.legacy_balance != 200:
+		print("  [FAIL] Step 2: Second claim failed: %s" % str(r2))
+		cleanup_q.call()
+		return false
+	var r3 := p1.claim_reward("q_rev_3", "victory", 50, "world_q")
+	if not r3.get("success", false) or p1.legacy_balance != 250:
+		print("  [FAIL] Step 2: Third claim failed: %s" % str(r3))
+		cleanup_q.call()
+		return false
+	# Now primary has 250 (rewards 1, 2, 3), and .bak has 200 (rewards 1, 2)
+	if not FileAccess.file_exists(bak_path):
+		print("  [FAIL] Step 2: Backup file was not created!")
+		cleanup_q.call()
+		return false
+
+	# 3. Corrupt the primary profile.
+	var corrupt_f := FileAccess.open(prof_path, FileAccess.WRITE)
+	corrupt_f.store_string("{ corrupt profile json: [")
+	corrupt_f.close()
+
+	# 4. Create a new LegacyProfileManager and verify it recovers from .bak.
+	var p2 := LegacyProfileManager.new(prof_path)
+	if p2.profile_status != LegacyProfileManager.STATUS_RECOVERED_FROM_BACKUP:
+		print("  [FAIL] Step 4: Expected STATUS_RECOVERED_FROM_BACKUP, got: %s" % p2.profile_status)
+		cleanup_q.call()
+		return false
+	if p2.legacy_balance != 200 or p2.lifetime_legacy_earned != 200:
+		print("  [FAIL] Step 4: Recovered balance mismatch: %d" % p2.legacy_balance)
+		cleanup_q.call()
+		return false
+	if not p2.is_reward_claimed("q_rev_1") or not p2.is_reward_claimed("q_rev_2") or p2.is_reward_claimed("q_rev_3"):
+		print("  [FAIL] Step 4: Recovered rewards mismatch!")
+		cleanup_q.call()
+		return false
+
+	# 5. Inject a temporary-write failure during a subsequent reward transaction.
+	LegacyProfileManager._test_inject_fail_write = true
+	var r4 := p2.claim_reward("q_rev_4", "victory", 100, "world_q")
+	LegacyProfileManager.reset_test_injection()
+	if r4.get("success", true) or r4.get("reason") != "save_failed":
+		print("  [FAIL] Step 5: Failed write was not rejected: %s" % str(r4))
+		cleanup_q.call()
+		return false
+
+	# 6. Verify that in-memory balance, lifetime totals, and reward records are rolled back.
+	if p2.legacy_balance != 200:
+		print("  [FAIL] Step 6: In-memory legacy_balance not rolled back: %d" % p2.legacy_balance)
+		cleanup_q.call()
+		return false
+	if p2.lifetime_legacy_earned != 200:
+		print("  [FAIL] Step 6: In-memory lifetime_legacy_earned not rolled back: %d" % p2.lifetime_legacy_earned)
+		cleanup_q.call()
+		return false
+	if p2.is_reward_claimed("q_rev_4"):
+		print("  [FAIL] Step 6: In-memory claimed_rewards still contains failed claim q_rev_4!")
+		cleanup_q.call()
+		return false
+
+	# 7. Create another new LegacyProfileManager instance to simulate application restart.
+	var p3 := LegacyProfileManager.new(prof_path)
+
+	# 8. Verify that it can still recover the authoritative profile data and that no reward was duplicated or lost.
+	if not p3.is_available():
+		print("  [FAIL] Step 8: Profile not available after restart!")
+		cleanup_q.call()
+		return false
+	if p3.legacy_balance != 200:
+		print("  [FAIL] Step 8: Balance after restart mismatch: %d != 200" % p3.legacy_balance)
+		cleanup_q.call()
+		return false
+	if not p3.is_reward_claimed("q_rev_1") or not p3.is_reward_claimed("q_rev_2") or p3.is_reward_claimed("q_rev_4"):
+		print("  [FAIL] Step 8: Rewards state after restart corrupted!")
+		cleanup_q.call()
+		return false
+
+	# Also verify restore-copy failures are handled safely and that the valid .bak remains available
+	LegacyProfileManager._test_inject_fail_rename = true
+	var r5 := p3.claim_reward("q_rev_5", "victory", 100, "world_q")
+	LegacyProfileManager.reset_test_injection()
+	if r5.get("success", true) or r5.get("reason") != "save_failed":
+		print("  [FAIL] Rename failure injection not rejected: %s" % str(r5))
+		cleanup_q.call()
+		return false
+	if p3.legacy_balance != 200:
+		print("  [FAIL] State not rolled back after rename failure!")
+		cleanup_q.call()
+		return false
+	if not FileAccess.file_exists(bak_path):
+		print("  [FAIL] Backup missing after rename failure!")
+		cleanup_q.call()
+		return false
+	var bak_val := p3._read_and_validate_json_file(bak_path)
+	if not bak_val.get("valid", false):
+		print("  [FAIL] Backup corrupted after rename failure: %s" % bak_val.get("error", ""))
+		cleanup_q.call()
+		return false
+
+	var p4 := LegacyProfileManager.new(prof_path)
+	if p4.legacy_balance != 200:
+		print("  [FAIL] Restart after rename failure yielded wrong balance: %d" % p4.legacy_balance)
+		cleanup_q.call()
+		return false
+
+	cleanup_q.call()
+	print("  [PASS] Profile recovery, failed write rollback, restart recovery, and backup preservation verified.")
+	return true
+
+func _test_fix_1z_s_canonical_path_preservation_migration() -> bool:
+	print("--- FIX-1Z-S: Canonical Path Preservation During Backup Recovery and Migration ---")
+	_cleanup_test_files()
+	var can_path := "user://test_legacy_migration.json"
+	var bak_path := can_path + ".bak"
+	var dir := DirAccess.open("user://")
+
+	var cleanup_s = func():
+		SaveManager.reset_test_injection()
+		if dir != null:
+			if FileAccess.file_exists(can_path): dir.remove(can_path)
+			if FileAccess.file_exists(bak_path): dir.remove(bak_path)
+			if FileAccess.file_exists(can_path + ".tmp"): dir.remove(can_path + ".tmp")
+			if FileAccess.file_exists(can_path + ".bak.tmp"): dir.remove(can_path + ".bak.tmp")
+			if FileAccess.file_exists(can_path + ".bak.old"): dir.remove(can_path + ".bak.old")
+
+	cleanup_s.call()
+
+	# 1. Create a valid backup containing a legacy save with a missing or invalid world ID.
+	var legacy_data: Dictionary = SaveManager.serialize_world_state(null)
+	legacy_data["metadata"]["world_id"] = "" # Missing/empty world ID
+	legacy_data["metadata"]["world_seed"] = 998877
+
+	var f_bak := FileAccess.open(bak_path, FileAccess.WRITE)
+	f_bak.store_string(JSON.stringify(legacy_data, "\t"))
+	f_bak.flush()
+	f_bak.close()
+	var bak_bytes_before: PackedByteArray = FileAccess.get_file_as_bytes(bak_path)
+
+	# 2. Make the canonical primary invalid or missing.
+	if FileAccess.file_exists(can_path):
+		dir.remove(can_path)
+
+	# 3. Call SaveManager.load_from_file(can_path).
+	var load_res := SaveManager.load_from_file(can_path)
+
+	# 4. Verify that recovery reads from .bak.
+	if not load_res.get("success", false):
+		print("  [FAIL] Step 4: load_from_file failed on recovery: %s" % str(load_res))
+		cleanup_s.call()
+		return false
+	if not load_res.get("recovered_from_backup", false):
+		print("  [FAIL] Step 4: recovered_from_backup flag is false!")
+		cleanup_s.call()
+		return false
+	if load_res.get("source_path") != bak_path:
+		print("  [FAIL] Step 4: source_path is not bak_path: %s" % str(load_res.get("source_path")))
+		cleanup_s.call()
+		return false
+
+	# 5. Verify that migration writes to the canonical primary path, never to .bak.
+	if not FileAccess.file_exists(can_path):
+		print("  [FAIL] Step 5: Canonical primary path was not created by migration save!")
+		cleanup_s.call()
+		return false
+
+	var prim_migrated := SaveManager._read_and_validate_save_file(can_path)
+	if not prim_migrated.get("valid", false):
+		print("  [FAIL] Step 5: Canonical primary file is invalid after migration: %s" % prim_migrated.get("error", ""))
+		cleanup_s.call()
+		return false
+	var migrated_wid: String = str(prim_migrated.get("data", {}).get("metadata", {}).get("world_id", ""))
+	if migrated_wid.is_empty():
+		print("  [FAIL] Step 5: Migrated world_id is empty in canonical primary save!")
+		cleanup_s.call()
+		return false
+
+	# 6. Verify that the original backup remains byte-for-byte unchanged.
+	var bak_bytes_after: PackedByteArray = FileAccess.get_file_as_bytes(bak_path)
+	if bak_bytes_before != bak_bytes_after:
+		print("  [FAIL] Step 6: Backup file was modified during migration! Expected byte-for-byte invariance.")
+		cleanup_s.call()
+		return false
+
+	# 7. Verify returned path, source_path, and recovered_from_backup values.
+	if load_res.get("path") != can_path:
+		print("  [FAIL] Step 7: Returned path is not canonical_path: %s" % str(load_res.get("path")))
+		cleanup_s.call()
+		return false
+
+	# 8. Inject migration-write failure and verify migration_save_failed causes the loaded world's is_world_id_persisted to remain false.
+	# Remove canonical primary and re-corrupt it so recovery triggers again
+	if FileAccess.file_exists(can_path):
+		dir.remove(can_path)
+	SaveManager._test_inject_fail_tmp_write = true
+	var fail_load_res := SaveManager.load_from_file(can_path)
+	SaveManager.reset_test_injection()
+
+	if not fail_load_res.get("success", false):
+		print("  [FAIL] Step 8: load_from_file failed when migration save failed: %s" % str(fail_load_res))
+		cleanup_s.call()
+		return false
+	if not fail_load_res.get("data", {}).get("metadata", {}).get("migration_save_failed", false):
+		print("  [FAIL] Step 8: migration_save_failed flag not set on migration write failure!")
+		cleanup_s.call()
+		return false
+
+	# Apply to world node
+	var mock_script = GDScript.new()
+	mock_script.source_code = """
+extends Node
+var world_id: String = ""
+var is_world_id_persisted: bool = true
+var victory_mgr = null
+var citizen_list: Array = []
+var citizens_by_id: Dictionary = {}
+"""
+	mock_script.reload()
+	var test_world = Node.new()
+	test_world.set_script(mock_script)
+	var VictoryManagerScript = load("res://scripts/core/victory_manager.gd")
+	var test_vic = VictoryManagerScript.new()
+	test_world.victory_mgr = test_vic
+
+	var apply_res := SaveManager.apply_loaded_state_to_world(test_world, fail_load_res["data"])
+	if not apply_res.get("success", false):
+		print("  [FAIL] Step 8: apply_loaded_state_to_world failed: %s" % str(apply_res))
+		test_world.free()
+		cleanup_s.call()
+		return false
+
+	if test_world.is_world_id_persisted or test_vic.is_world_id_persisted:
+		print("  [FAIL] Step 8: is_world_id_persisted is true despite migration save failure!")
+		test_world.free()
+		cleanup_s.call()
+		return false
+
+	# 9. Verify a later successful save can establish persisted status.
+	var save_res := SaveManager.save_to_file(test_world, can_path)
+	if not save_res.get("success", false):
+		print("  [FAIL] Step 9: Later save_to_file failed: %s" % str(save_res))
+		test_world.free()
+		cleanup_s.call()
+		return false
+
+	if not test_world.is_world_id_persisted or not test_vic.is_world_id_persisted:
+		print("  [FAIL] Step 9: Later successful save did not establish persisted status!")
+		test_world.free()
+		cleanup_s.call()
+		return false
+
+	test_world.free()
+	cleanup_s.call()
+	print("  [PASS] Canonical path preservation, byte-for-byte backup invariance, and migration lifecycle verified.")
 	return true

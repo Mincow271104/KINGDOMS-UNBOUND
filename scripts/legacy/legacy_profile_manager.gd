@@ -316,13 +316,17 @@ func save_profile(filepath: String = "") -> bool:
 			dir.remove(tmp_path)
 		return false
 
-	# If existing target file exists, only rotate to backup if valid using staged backup (FIX-1Z-H & FIX-1Z-M)
+	# If existing target file exists, only rotate to backup if valid using staged backup (FIX-1Z-H, FIX-1Z-M, FIX-1Z-O)
 	if FileAccess.file_exists(target_path):
 		var target_check := _read_and_validate_json_file(target_path)
 		if target_check.get("valid", false):
 			var bak_tmp_path := target_path + ".bak.tmp"
+			var bak_old_path := target_path + ".bak.old"
 			if FileAccess.file_exists(bak_tmp_path):
 				dir.remove(bak_tmp_path)
+			if FileAccess.file_exists(bak_old_path):
+				dir.remove(bak_old_path)
+
 			var copy_err := dir.copy(target_path, bak_tmp_path)
 			if copy_err != OK or not FileAccess.file_exists(bak_tmp_path):
 				push_error("LegacyProfileManager failed to stage backup %s to %s (Error: %d)" % [target_path, bak_tmp_path, copy_err])
@@ -332,10 +336,29 @@ func save_profile(filepath: String = "") -> bool:
 					dir.remove(tmp_path)
 				return false
 
+			# Verify staged backup contents before replacing authoritative backup (FIX-1Z-O)
+			var staged_check := _read_and_validate_json_file(bak_tmp_path)
+			var staged_valid: bool = staged_check.get("valid", false)
+			if staged_valid and target_check.has("data") and staged_check.has("data"):
+				if staged_check["data"] != target_check["data"]:
+					staged_valid = false
+					push_error("LegacyProfileManager: Staged backup data mismatch against previous target.")
+
+			if not staged_valid:
+				push_error("LegacyProfileManager: Staged backup validation failed: %s" % staged_check.get("error", "content mismatch"))
+				if FileAccess.file_exists(bak_tmp_path):
+					dir.remove(bak_tmp_path)
+				if FileAccess.file_exists(tmp_path):
+					dir.remove(tmp_path)
+				return false
+
+			# Safely replace authoritative backup with rollback protection (FIX-1Z-P)
 			if FileAccess.file_exists(bak_path):
-				var rem_bak_err := dir.remove(bak_path)
-				if rem_bak_err != OK:
-					push_error("LegacyProfileManager failed to remove old backup %s (Error: %d)" % [bak_path, rem_bak_err])
+				if FileAccess.file_exists(bak_old_path):
+					dir.remove(bak_old_path)
+				var rot_old_err := dir.rename(bak_path, bak_old_path)
+				if rot_old_err != OK:
+					push_error("LegacyProfileManager failed to protect old backup %s (Error: %d)" % [bak_path, rot_old_err])
 					if FileAccess.file_exists(bak_tmp_path):
 						dir.remove(bak_tmp_path)
 					if FileAccess.file_exists(tmp_path):
@@ -345,11 +368,20 @@ func save_profile(filepath: String = "") -> bool:
 			var ren_bak_err := dir.rename(bak_tmp_path, bak_path)
 			if ren_bak_err != OK:
 				push_error("LegacyProfileManager failed to rename staged backup %s to %s (Error: %d)" % [bak_tmp_path, bak_path, ren_bak_err])
+				if FileAccess.file_exists(bak_old_path):
+					var rollback_err := dir.rename(bak_old_path, bak_path)
+					if rollback_err != OK:
+						push_error("LegacyProfileManager: Failed to rollback old backup from %s to %s" % [bak_old_path, bak_path])
 				if FileAccess.file_exists(bak_tmp_path):
 					dir.remove(bak_tmp_path)
 				if FileAccess.file_exists(tmp_path):
 					dir.remove(tmp_path)
 				return false
+
+			if FileAccess.file_exists(bak_old_path):
+				var rem_old_err := dir.remove(bak_old_path)
+				if rem_old_err != OK:
+					push_warning("LegacyProfileManager: Could not remove old backup %s (Error: %d)" % [bak_old_path, rem_old_err])
 		else:
 			push_warning("LegacyProfileManager: Existing target %s is corrupt. Preserving existing backup untouched." % target_path)
 
@@ -371,13 +403,26 @@ func save_profile(filepath: String = "") -> bool:
 		push_error("LegacyProfileManager failed to rename %s to %s (Error: %d)" % [tmp_path, target_path, rename_err])
 		# Restore target from backup if possible
 		if FileAccess.file_exists(bak_path) and not FileAccess.file_exists(target_path):
-			dir.copy(bak_path, target_path)
+			var restore_err := dir.copy(bak_path, target_path)
+			if restore_err != OK:
+				push_error("LegacyProfileManager: Failed to restore target from backup %s (Error: %d)" % [bak_path, restore_err])
 		if FileAccess.file_exists(tmp_path):
 			dir.remove(tmp_path)
 		return false
 
 	if not FileAccess.file_exists(target_path):
 		push_error("LegacyProfileManager: Target file %s missing after rename." % target_path)
+		return false
+
+	var final_val := _read_and_validate_json_file(target_path)
+	if not final_val.get("valid", false):
+		push_error("LegacyProfileManager: Target file validation failed after rename: %s" % final_val.get("error", ""))
+		if FileAccess.file_exists(target_path):
+			dir.remove(target_path)
+		if FileAccess.file_exists(bak_path) and not FileAccess.file_exists(target_path):
+			var restore_err := dir.copy(bak_path, target_path)
+			if restore_err != OK:
+				push_error("LegacyProfileManager: Failed to restore target from backup after invalid write.")
 		return false
 
 	profile_saved.emit(target_path)

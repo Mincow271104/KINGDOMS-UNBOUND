@@ -7239,3 +7239,73 @@ Execute the Third Hardening Audit for Package 1Z (Legacy Fund & Meta-Progression
 - Commit with required message: `fix(legacy): enforce persistent claims and recovery safety`.
 - Push to `origin/feat/package-1z-legacy-fund-foundation`.
 - Deliver comprehensive final completion report covering all 13 points in Section 10.
+
+---
+
+## [2026-10-31] Milestone 36: Package 1Z Fourth Corrective Audit — Backup Content Verification, Recovery Failure Testing & Float64 Bounds (Completed)
+
+### Context & Objective
+Execute the Fourth Corrective Audit for Package 1Z (Legacy Fund & Meta-Progression Foundation). Address critical findings FIX-1Z-O (verify staged backup contents before replacing authoritative backup), FIX-1Z-P (backup replacement failure injection and rollback safety), FIX-1Z-Q (test profile recovery followed by failed write and application restart), FIX-1Z-R (correct representable Float64 lower-bound tests and assertions), and FIX-1Z-S (test canonical path preservation and migration lifecycle).
+
+### Completed Work
+1. **Staged Backup Content Verification (`scripts/persistence/save_manager.gd`, `scripts/legacy/legacy_profile_manager.gd`):**
+   - Reopened and parsed staged backup copy (`.bak.tmp`) after copying from primary save.
+   - Verified JSON syntax, schema compliance, and data equality against the previous primary save before replacing authoritative `.bak`.
+   - Preserves existing backup untouched and cleans up temporary files if staged backup validation fails.
+   - Guaranteed that saves never report success when the final primary file is invalid.
+2. **Real Backup Replacement Failure Injection & Rollback (`scripts/persistence/save_manager.gd`, `scripts/legacy/legacy_profile_manager.gd`):**
+   - Added `_test_inject_fail_backup_validate` and `_test_inject_fail_backup_rename` failure injection seams.
+   - Implemented temporary rollback staging (`.bak.old`) during backup replacement: if renaming `.bak.tmp` to `.bak` fails, automatically rolls back `.bak.old` to `.bak`, preserving both existing primary and existing backup without corruption or silent data replacement.
+   - Strengthened test assertions in Case 5 (verifying restored primary's actual score data) and Case 6 (verifying that the remaining backup is valid and recoverable when primary restoration fails).
+3. **Profile Recovery, Write Rollback & Application Restart Isolation (`scripts/test/test_legacy_fund.gd`):**
+   - Implemented `_test_fix_1z_q_profile_recovery_failed_write_restart()`:
+     - Established valid profile with known balance and produced a valid `.bak`.
+     - Corrupted primary profile and verified clean recovery from `.bak`.
+     - Injected write failure during reward transaction and verified in-memory rollback of balance, lifetime totals, and claimed records.
+     - Simulated application restart with a fresh manager instance, verifying that exact authoritative data was recovered with zero duplicated or lost rewards.
+     - Verified backup preservation under rename failure.
+4. **Representable Float64 Boundary Precision (`scripts/test/test_legacy_fund.gd`, `scripts/persistence/save_manager.gd`):**
+   - Corrected boundary tests to use `-9223372036854777856.0` ($-2^{63}-2048$, the next representable Float64 value below signed 64-bit minimum).
+   - Directly verified that `_is_valid_integer_val` and schema validators on both `LegacyProfileManager` and `SaveManager` accept inclusive lower boundary ($-2^{63} = -9223372036854775808.0$), reject $-9223372036854777856.0$, reject $2^{63} = 9223372036854775808.0$, and accept the largest representable float below $2^{63}$ ($9223372036854774784.0$).
+   - Eliminated reliance on `claim_reward()` business logic for numeric validator verification.
+5. **Canonical Path Preservation During Backup Recovery & Migration (`scripts/test/test_legacy_fund.gd`, `scripts/persistence/save_manager.gd`):**
+   - Implemented `_test_fix_1z_s_canonical_path_preservation_migration()`:
+     - Loaded legacy save missing world ID from `.bak`.
+     - Verified migration saved exclusively to `canonical_path`, leaving `.bak` byte-for-byte unchanged.
+     - Verified returned `path`, `source_path`, and `recovered_from_backup` values.
+     - Injected migration-write failure, verifying `migration_save_failed` flag set and loaded world's `is_world_id_persisted` remained `false`.
+     - Verified a later successful save established `is_world_id_persisted = true`.
+   - In `SaveManager.serialize_world_state()`, added `world_view.is_inside_tree()` checks before querying `/root/...` paths to prevent tree errors on standalone nodes.
+
+### Validations Performed & Results
+- **Package 1Z Expanded Test Suite (36 tests):**
+  - `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless -s scripts/test/test_legacy_fund.gd`: **PASS (Exit Code 0: 36/36 tests passed)**
+- **Full Project Regression Test Matrix (10 suites):**
+  - `scripts/test/test_victory_and_collapse.gd`: **PASS (Exit Code 0: 4/4 tests passed)**
+  - `scripts/test/test_save_load.gd`: **PASS (Exit Code 0: 129/129 assertions passed)**
+  - `scripts/test/test_automation_graph.gd`: **PASS (Exit Code 0: 69/69 assertions passed)**
+  - `scripts/test/test_automation_graph_delay_repeat.gd`: **PASS (Exit Code 0: 179/179 assertions passed)**
+  - `scripts/test/test_factions_and_battles.gd`: **PASS (Exit Code 0: 48/48 assertions passed)**
+  - `scripts/test/test_package_1x_gameplay_integration.gd`: **PASS (Exit Code 0: 57/57 assertions passed)**
+  - `scripts/test/test_field_siege.gd`: **PASS (Exit Code 0: 85/85 assertions passed)**
+  - `scripts/test/test_tactical_military.gd`: **PASS (Exit Code 0: 385/385 assertions passed)**
+  - `scripts/test/test_enemy_military_ai.gd`: **PASS (Exit Code 0: 54/54 assertions passed)**
+- **Headless Engine / Project Check:**
+  - `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --editor --quit`: **PASS (Exit Code 0, zero compile errors)**
+- **Whitespace / Git Check:**
+  - `git diff --check`: **PASS (Exit Code 0, zero trailing whitespaces)**
+
+### Files Modified
+- `scripts/legacy/legacy_profile_manager.gd` (Modified)
+- `scripts/persistence/save_manager.gd` (Modified)
+- `scripts/test/test_legacy_fund.gd` (Modified)
+- `docs/BACKLOG.md` (Modified)
+- `docs/SCOPE_DECISIONS.md` (Modified)
+- `docs/TEST_PLAN.md` (Modified)
+- `docs/WORKLOG.md` (Modified)
+
+### Next Exact Step
+- Stage modified files (preserving protected untracked files).
+- Commit with required message: `test(legacy): verify staged backup recovery failure paths`.
+- Push to `origin/feat/package-1z-legacy-fund-foundation`.
+- Deliver comprehensive final completion report.
