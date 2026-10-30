@@ -17,12 +17,13 @@ const MAX_SAFE_INT: int = 9223372036854775807
 const FLOAT_INT64_EXCLUSIVE_UPPER: float = 9223372036854775808.0
 const FLOAT_INT64_INCLUSIVE_LOWER: float = -9223372036854775808.0
 
-# Test failure injection seams (FIX-1Z-M, FIX-1Z-V, FIX-1Z-W)
+# Test failure injection seams (FIX-1Z-M, FIX-1Z-V, FIX-1Z-W, FIX-1Z-AA)
 static var _test_inject_fail_write: bool = false
 static var _test_inject_fail_rename: bool = false
 static var _test_inject_fail_restore_copy: bool = false
 static var _test_inject_fail_backup_rollback: bool = false
 static var _test_inject_fail_reset_cleanup: bool = false
+static var _test_inject_fail_reset_cleanup_target: String = ""
 
 static func reset_test_injection() -> void:
 	_test_inject_fail_write = false
@@ -30,6 +31,7 @@ static func reset_test_injection() -> void:
 	_test_inject_fail_restore_copy = false
 	_test_inject_fail_backup_rollback = false
 	_test_inject_fail_reset_cleanup = false
+	_test_inject_fail_reset_cleanup_target = ""
 
 const VALID_REWARD_SOURCES: Array[String] = [
 	"victory",
@@ -442,6 +444,8 @@ func save_profile(filepath: String = "") -> bool:
 		else:
 			push_warning("LegacyProfileManager: Existing target %s is corrupt. Preserving existing backup untouched." % target_path)
 
+	# Remove old primary file before replacing with tmp (guarded, FIX-1Z-Z)
+	if FileAccess.file_exists(target_path):
 		var rem_err := dir.remove(target_path)
 		if rem_err != OK:
 			push_error("LegacyProfileManager failed to remove target %s before rename (Error: %d)" % [target_path, rem_err])
@@ -607,17 +611,33 @@ func reset_profile(filepath: String = "") -> bool:
 		target_path + ".bak.tmp"
 	]
 
-	var cleanup_failed: bool = _test_inject_fail_reset_cleanup
+	var cleanup_failed: bool = false
+	var remaining_files: Array[String] = []
+
 	for path in artifacts:
 		if FileAccess.file_exists(path):
-			var rem_err := dir.remove(path)
+			var inject_fail: bool = false
+			if not _test_inject_fail_reset_cleanup_target.is_empty():
+				if path == _test_inject_fail_reset_cleanup_target or path.ends_with(_test_inject_fail_reset_cleanup_target):
+					inject_fail = true
+			elif _test_inject_fail_reset_cleanup:
+				inject_fail = true
+
+			var rem_err := OK
+			if inject_fail:
+				# FIX-1Z-AA: Simulate real deletion failure by intercepting removal and leaving file intact on disk
+				rem_err = FAILED
+			else:
+				rem_err = dir.remove(path)
+
 			if rem_err != OK or FileAccess.file_exists(path):
 				cleanup_failed = true
+				remaining_files.append(path)
 				push_error("LegacyProfileManager.reset_profile: Failed to delete artifact %s (Error: %d)" % [path, rem_err])
 
-	if cleanup_failed:
+	if cleanup_failed or not remaining_files.is_empty():
 		profile_status = STATUS_UNAVAILABLE
-		initialization_error = "Xóa tệp hồ sơ thất bại; dữ liệu cũ vẫn tồn tại trên đĩa."
+		initialization_error = "Xóa tệp hồ sơ thất bại; dữ liệu cũ vẫn tồn tại trên đĩa: %s" % ", ".join(remaining_files)
 		push_error("LegacyProfileManager.reset_profile: " + initialization_error)
 		return false
 

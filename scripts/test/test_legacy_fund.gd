@@ -2822,21 +2822,82 @@ func _test_fix_1z_w_reset_profile_resurrection_safety() -> bool:
 		cleanup_w.call()
 		return false
 
-	# 10. Test cleanup failure: inject failure seam and verify STATUS_UNAVAILABLE
-	LegacyProfileManager._test_inject_fail_reset_cleanup = true
-	var fail_reset_res := mgr.reset_profile()
+	# 10. FIX-1Z-AA: Test genuine cleanup failure on real existing artifacts
+	# Re-create a real profile with real files on disk
+	var mgr_fail := LegacyProfileManager.new(target_path)
+	mgr_fail.load_profile()
+	var seed_fail_ok: Dictionary = mgr_fail.claim_reward("r_fail_init", "victory", 400, "world_w_fail")
+	if not seed_fail_ok.get("success", false) or mgr_fail.legacy_balance != 400:
+		print("  [FAIL] Step 10: Failed to re-seed real profile for cleanup failure test.")
+		cleanup_w.call()
+		return false
+
+	# Ensure real primary file and valid backup artifacts exist
+	if not FileAccess.file_exists(target_path):
+		print("  [FAIL] Step 10: Primary file %s missing before cleanup failure test." % target_path)
+		cleanup_w.call()
+		return false
+
+	var f_real_bak := FileAccess.open(bak_path, FileAccess.WRITE)
+	if f_real_bak != null:
+		f_real_bak.store_string(JSON.stringify(stale_old_data, "\t"))
+		f_real_bak.close()
+
+	var f_real_old := FileAccess.open(bak_old_path, FileAccess.WRITE)
+	if f_real_old != null:
+		f_real_old.store_string(JSON.stringify(stale_old_data, "\t"))
+		f_real_old.close()
+
+	var bak_old_bytes_before := FileAccess.get_file_as_bytes(bak_old_path)
+	if bak_old_bytes_before.is_empty():
+		print("  [FAIL] Step 10: Failed to read .bak.old bytes before cleanup failure test.")
+		cleanup_w.call()
+		return false
+
+	# Select one existing artifact for injected deletion failure: .bak.old
+	LegacyProfileManager._test_inject_fail_reset_cleanup_target = bak_old_path
+
+	# Call reset_profile()
+	var fail_reset_res := mgr_fail.reset_profile()
+
+	# Verify the function returns false
 	if fail_reset_res:
-		print("  [FAIL] Step 10: reset_profile() returned true despite injected cleanup failure!")
+		print("  [FAIL] Step 10: reset_profile() returned true despite injected deletion failure!")
 		cleanup_w.call()
 		return false
-	if mgr.get_status() != LegacyProfileManager.STATUS_UNAVAILABLE:
-		print("  [FAIL] Step 10: Profile status not STATUS_UNAVAILABLE on reset failure: %s" % mgr.get_status())
+
+	# Verify manager status is STATUS_UNAVAILABLE
+	if mgr_fail.get_status() != LegacyProfileManager.STATUS_UNAVAILABLE:
+		print("  [FAIL] Step 10: Profile status not STATUS_UNAVAILABLE on reset failure: %s" % mgr_fail.get_status())
 		cleanup_w.call()
 		return false
-	if mgr.initialization_error.is_empty():
-		print("  [FAIL] Step 10: initialization_error empty on reset failure.")
+
+	# Verify initialization_error is non-empty and accurate (mentions remaining files)
+	if mgr_fail.initialization_error.is_empty() or not mgr_fail.initialization_error.contains(bak_old_path):
+		print("  [FAIL] Step 10: initialization_error missing or does not name remaining file: '%s'" % mgr_fail.initialization_error)
 		cleanup_w.call()
 		return false
+
+	# Verify specifically targeted artifact still exists and its content remains unchanged
+	if not FileAccess.file_exists(bak_old_path):
+		print("  [FAIL] Step 10: Injected artifact %s was deleted despite failure injection!" % bak_old_path)
+		cleanup_w.call()
+		return false
+	var bak_old_bytes_after := FileAccess.get_file_as_bytes(bak_old_path)
+	if bak_old_bytes_before != bak_old_bytes_after:
+		print("  [FAIL] Step 10: Target artifact content changed during failed deletion!")
+		cleanup_w.call()
+		return false
+
+	# Verify the unavailable manager cannot perform a reward claim
+	var unavail_claim: Dictionary = mgr_fail.claim_reward("r_fail_unavail", "victory", 100, "world_w_fail")
+	if unavail_claim.get("success", false) or unavail_claim.get("reason", "") != "profile_unavailable":
+		print("  [FAIL] Step 10: Unavailable manager was able to claim reward: %s" % str(unavail_claim))
+		cleanup_w.call()
+		return false
+
+	# Reset injection seam
+	LegacyProfileManager.reset_test_injection()
 
 	cleanup_w.call()
 	print("  [PASS] Profile reset resurrection safety and error state verified.")

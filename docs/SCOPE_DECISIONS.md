@@ -459,6 +459,9 @@
       - Case A: Invalid/corrupt `.bak` + valid `.bak.old`: Verifies data recovery from `.bak.old`, promotion of `.bak.old` to `.bak` upon subsequent save, removal of old file, and restart recovery from promoted `.bak`.
       - Case B: Both `.bak` and `.bak.old` valid: Verifies precedence of `.bak` over `.bak.old`, removal of obsolete `.bak.old` upon subsequent save, preservation of `.bak`, and restart recovery.
     - *Byte-for-Byte Exact Backup Preservation (FIX-1Z-Y):* Strengthened profile restore failure test to capture `PackedByteArray` before failure and compare against backup bytes after failure, verifying byte-for-byte exact preservation of `.bak`. Updated test cleanup helpers to purge `.bak.old` and `.bak.tmp`.
+  - **Seventh Corrective Audit: Missing Primary Save Handling & Genuine Reset-Cleanup Failure Injection (FIX-1Z-Z – FIX-1Z-AA):**
+    - *Guarded Primary Save Removal (FIX-1Z-Z):* In `LegacyProfileManager.save_profile()`, isolated `target_path` removal into an explicit block strictly guarded by `if FileAccess.file_exists(target_path):`. When saving after recovering from a backup without an existing primary save, removal is bypassed, allowing the validated `.tmp` file to rename cleanly to `target_path`. When `target_path` exists, verifies `dir.remove()` returns `OK` fail-closed before renaming.
+    - *Genuine Reset-Cleanup Failure Injection (FIX-1Z-AA):* In `LegacyProfileManager.reset_profile()`, enhanced failure injection to intercept file removal for targeted artifacts (e.g. `_test_inject_fail_reset_cleanup_target = bak_old_path`), simulating real filesystem deletion failure (`rem_err = FAILED`) while leaving the file and its data intact on disk. Verified that the manager detects the failure, enters `STATUS_UNAVAILABLE`, reports lingering files in `initialization_error`, returns `false`, and rejects subsequent operations.
 
 ---
 
