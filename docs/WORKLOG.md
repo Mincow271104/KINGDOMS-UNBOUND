@@ -7309,3 +7309,69 @@ Execute the Fourth Corrective Audit for Package 1Z (Legacy Fund & Meta-Progressi
 - Commit with required message: `test(legacy): verify staged backup recovery failure paths`.
 - Push to `origin/feat/package-1z-legacy-fund-foundation`.
 - Deliver comprehensive final completion report.
+
+---
+
+## [2026-10-31] Milestone 33: Package 1Z — Fifth Corrective Audit (Crash-Safe Backup Journal, Strict Save Schema & Profile Restore Failure) ✅ COMPLETED
+
+### Context & Objective
+Execute the Fifth Corrective Audit for Package 1Z:
+1. FIX-1Z-T: Crash-safe `.bak.old` recovery and reconciliation in `SaveManager` and `LegacyProfileManager`.
+2. FIX-1Z-U: Strict and consistent world-save schema validation across `_read_and_validate_save_file()`, `save_dict_to_file()`, and test fixtures.
+3. FIX-1Z-V: Explicit legacy profile restore-copy failure injection seam (`_test_inject_fail_restore_copy`) and comprehensive 11-step verification.
+
+### Completed Work
+1. **Crash-Safe `.bak.old` Recovery and Reconciliation (`scripts/persistence/save_manager.gd`, `scripts/legacy/legacy_profile_manager.gd`):**
+   - Implemented `_reconcile_backups(dir, bak_path, bak_old_path)` in both persistence systems.
+   - Validates `.bak` and `.bak.old` before any file deletion; never destroys the only surviving valid backup.
+   - If `.bak` is missing or invalid but `.bak.old` is valid, promotes `.bak.old` to `.bak`.
+   - If both are valid, deterministically retains `.bak` as the newer authoritative backup and cleans up `.bak.old`.
+   - Extended `SaveManager.load_from_file()` and `LegacyProfileManager.load_profile()` to recover from `.bak.old` when primary and `.bak` are unavailable.
+   - All rename, remove, and copy return codes are validated fail-closed.
+2. **Strict and Consistent World-Save Schema Validation (`scripts/persistence/save_manager.gd`, `scripts/test/test_legacy_fund.gd`):**
+   - In `_read_and_validate_save_file()`, unconditionally enforced complete schema validation via `validate_save_data(data)`. A syntactically valid JSON file missing `schema_version` is rejected with `valid: false`.
+   - In `save_dict_to_file()`, added upfront schema validation on incoming world-save data, aborting immediately without modifying disk files if invalid.
+   - Ensured corrupted or schema-invalid primary files are never rotated into authoritative backups.
+   - Updated `_test_fix_1z_h_atomic_persistence()` fixture to use complete, valid world-save data.
+3. **Explicit Legacy Profile Restore-Copy Failure Injection (`scripts/legacy/legacy_profile_manager.gd`, `scripts/test/test_legacy_fund.gd`):**
+   - Added dedicated `_test_inject_fail_restore_copy` injection seam, distinct from `_test_inject_fail_rename`, reset in `reset_test_injection()`.
+   - Tested 11-step sequence: verified transaction failure (`save_failed`), memory rollback, backup preservation, and subsequent restart recovery.
+4. **Automated Test Expansion (`scripts/test/test_legacy_fund.gd`):**
+   - Implemented `_test_fix_1z_t_save_manager_crash_states()` (5 crash states).
+   - Implemented `_test_fix_1z_t_profile_manager_crash_states()` (5 crash states).
+   - Implemented `_test_fix_1z_u_strict_save_schema_validation()` (6 test cases).
+   - Implemented `_test_fix_1z_v_explicit_profile_restore_copy_failure()` (11 steps).
+   - Expanded test suite from 36 to 40 automated tests, all asserting actual recovered data.
+
+### Validations Performed & Results
+- **Package 1Z Expanded Test Suite (40 tests):**
+  - `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless -s scripts/test/test_legacy_fund.gd`: **PASS (Exit Code 0: 40/40 tests passed)**
+- **Full Project Regression Test Matrix (10 suites):**
+  - `scripts/test/test_victory_and_collapse.gd`: **PASS (Exit Code 0: 4/4 tests passed)**
+  - `scripts/test/test_save_load.gd`: **PASS (Exit Code 0: 129/129 assertions passed)**
+  - `scripts/test/test_automation_graph.gd`: **PASS (Exit Code 0: 69/69 assertions passed)**
+  - `scripts/test/test_automation_graph_delay_repeat.gd`: **PASS (Exit Code 0: 179/179 assertions passed)**
+  - `scripts/test/test_factions_and_battles.gd`: **PASS (Exit Code 0: 48/48 assertions passed)**
+  - `scripts/test/test_package_1x_gameplay_integration.gd`: **PASS (Exit Code 0: 57/57 assertions passed)**
+  - `scripts/test/test_field_siege.gd`: **PASS (Exit Code 0: 85/85 assertions passed)**
+  - `scripts/test/test_tactical_military.gd`: **PASS (Exit Code 0: 385/385 assertions passed)**
+  - `scripts/test/test_enemy_military_ai.gd`: **PASS (Exit Code 0: 54/54 assertions passed)**
+- **Headless Engine / Project Check:**
+  - `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --editor --quit`: **PASS (Exit Code 0, zero compile errors)**
+- **Whitespace / Git Check:**
+  - `git diff --check`: **PASS (Exit Code 0, zero trailing whitespaces)**
+
+### Files Modified
+- `scripts/legacy/legacy_profile_manager.gd` (Modified)
+- `scripts/persistence/save_manager.gd` (Modified)
+- `scripts/test/test_legacy_fund.gd` (Modified)
+- `docs/BACKLOG.md` (Modified)
+- `docs/SCOPE_DECISIONS.md` (Modified)
+- `docs/TEST_PLAN.md` (Modified)
+- `docs/WORKLOG.md` (Modified)
+
+### Next Exact Step
+- Stage modified files (preserving protected untracked files).
+- Commit with required message: `fix(persistence): recover interrupted backup rotations`.
+- Push to `origin/feat/package-1z-legacy-fund-foundation`.
+- Deliver comprehensive final completion report.

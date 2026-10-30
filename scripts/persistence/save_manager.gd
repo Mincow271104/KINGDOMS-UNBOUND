@@ -18,6 +18,7 @@ static var _test_inject_fail_backup_create: bool = false
 static var _test_inject_fail_backup_validate: bool = false
 static var _test_inject_fail_backup_replace: bool = false
 static var _test_inject_fail_backup_rename: bool = false
+static var _test_inject_fail_backup_rollback: bool = false
 static var _test_inject_fail_target_remove: bool = false
 static var _test_inject_fail_target_rename: bool = false
 static var _test_inject_fail_backup_restore: bool = false
@@ -28,6 +29,7 @@ static func reset_test_injection() -> void:
 	_test_inject_fail_backup_validate = false
 	_test_inject_fail_backup_replace = false
 	_test_inject_fail_backup_rename = false
+	_test_inject_fail_backup_rollback = false
 	_test_inject_fail_target_remove = false
 	_test_inject_fail_target_rename = false
 	_test_inject_fail_backup_restore = false
@@ -311,7 +313,49 @@ static func serialize_world_state(world_view: Node) -> Dictionary:
 
 	return data
 
+static func _reconcile_backups(dir: DirAccess, bak_path: String, bak_old_path: String) -> bool:
+	if not FileAccess.file_exists(bak_old_path):
+		return true
+
+	var bak_val := _read_and_validate_save_file(bak_path) if FileAccess.file_exists(bak_path) else {"valid": false}
+	var bak_old_val := _read_and_validate_save_file(bak_old_path)
+
+	if bak_old_val.get("valid", false):
+		if not bak_val.get("valid", false):
+			# bak is missing or invalid, but bak_old is valid. Promote bak_old to bak.
+			if FileAccess.file_exists(bak_path):
+				var rem_bak_err := dir.remove(bak_path)
+				if rem_bak_err != OK:
+					push_error("SaveManager: Failed to remove invalid backup %s during reconciliation (Error: %d)" % [bak_path, rem_bak_err])
+					return false
+			var ren_err := dir.rename(bak_old_path, bak_path)
+			if ren_err != OK:
+				push_error("SaveManager: Failed to promote %s to %s during reconciliation (Error: %d)" % [bak_old_path, bak_path, ren_err])
+				return false
+			print("[SaveManager] Reconciled interrupted rotation: promoted valid %s to %s" % [bak_old_path, bak_path])
+			return true
+		else:
+			# Both bak and bak_old are valid. bak is the newer authoritative backup; remove bak_old.
+			var rem_old_err := dir.remove(bak_old_path)
+			if rem_old_err != OK:
+				push_error("SaveManager: Failed to remove obsolete old backup %s (Error: %d)" % [bak_old_path, rem_old_err])
+				return false
+			return true
+	else:
+		# bak_old is invalid. Remove it safely.
+		var rem_old_err := dir.remove(bak_old_path)
+		if rem_old_err != OK:
+			push_error("SaveManager: Failed to remove invalid old backup %s (Error: %d)" % [bak_old_path, rem_old_err])
+			return false
+		return true
+
 static func save_dict_to_file(data: Dictionary, filepath: String) -> bool:
+	# FIX-1Z-U: Validate incoming production world-save data upfront
+	var incoming_val := validate_save_data(data)
+	if not incoming_val.get("valid", false):
+		push_error("SaveManager.save_dict_to_file: Incoming save data failed schema validation: %s" % incoming_val.get("error", ""))
+		return false
+
 	ensure_save_directory()
 	var dir_path := filepath.get_base_dir()
 	var dir := DirAccess.open(dir_path if not dir_path.is_empty() else "user://")
@@ -325,13 +369,16 @@ static func save_dict_to_file(data: Dictionary, filepath: String) -> bool:
 	var bak_tmp_path := filepath + ".bak.tmp"
 	var bak_old_path := filepath + ".bak.old"
 
+	# FIX-1Z-T: Reconcile any interrupted backup rotation BEFORE cleaning temporary files
+	if not _reconcile_backups(dir, bak_path, bak_old_path):
+		push_error("SaveManager: Aborting save due to failed backup reconciliation.")
+		return false
+
 	# Clean up any stale tmp files
 	if FileAccess.file_exists(tmp_path):
 		dir.remove(tmp_path)
 	if FileAccess.file_exists(bak_tmp_path):
 		dir.remove(bak_tmp_path)
-	if FileAccess.file_exists(bak_old_path):
-		dir.remove(bak_old_path)
 
 	var file := FileAccess.open(tmp_path, FileAccess.WRITE)
 	if file == null:
@@ -405,7 +452,13 @@ static func save_dict_to_file(data: Dictionary, filepath: String) -> bool:
 			# Staged backup passed validation. Safely replace authoritative backup (FIX-1Z-P)
 			if FileAccess.file_exists(bak_path):
 				if FileAccess.file_exists(bak_old_path):
-					dir.remove(bak_old_path)
+					if not _reconcile_backups(dir, bak_path, bak_old_path):
+						push_error("SaveManager: Failed to reconcile lingering old backup before rotation.")
+						if FileAccess.file_exists(bak_tmp_path):
+							dir.remove(bak_tmp_path)
+						if FileAccess.file_exists(tmp_path):
+							dir.remove(tmp_path)
+						return false
 				var rot_old_err := OK
 				if _test_inject_fail_backup_replace:
 					rot_old_err = FAILED
@@ -431,7 +484,11 @@ static func save_dict_to_file(data: Dictionary, filepath: String) -> bool:
 				push_error("SaveManager: Failed to rename staged backup %s to %s (Error: %d)" % [bak_tmp_path, bak_path, ren_bak_err])
 				# Rollback: restore old backup from bak_old_path if it was rotated
 				if FileAccess.file_exists(bak_old_path):
-					var rollback_bak_err := dir.rename(bak_old_path, bak_path)
+					var rollback_bak_err := OK
+					if _test_inject_fail_backup_rollback:
+						rollback_bak_err = ERR_CANT_CREATE
+					else:
+						rollback_bak_err = dir.rename(bak_old_path, bak_path)
 					if rollback_bak_err != OK:
 						push_error("SaveManager: Failed to rollback old backup from %s to %s (Error: %d)" % [bak_old_path, bak_path, rollback_bak_err])
 				if FileAccess.file_exists(bak_tmp_path):
@@ -1283,47 +1340,55 @@ static func _read_and_validate_save_file(path: String) -> Dictionary:
 	if not (data is Dictionary):
 		return {"valid": false, "error": "Dữ liệu JSON không đúng định dạng Dictionary."}
 
-	if data.has("schema_version"):
-		var val_res := validate_save_data(data)
-		if not val_res.get("valid", false):
-			return {"valid": false, "error": val_res.get("error", "Dữ liệu bản lưu không hợp lệ")}
+	# FIX-1Z-U: A production world-save file must unconditionally pass complete schema validation
+	var val_res := validate_save_data(data)
+	if not val_res.get("valid", false):
+		return {"valid": false, "error": val_res.get("error", "Dữ liệu bản lưu không hợp lệ")}
 
 	return {"valid": true, "data": data}
 
 static func load_from_file(filepath: String = DEFAULT_SAVE_PATH) -> Dictionary:
 	var canonical_path := filepath
 	var bak_path := filepath + ".bak"
+	var bak_old_path := filepath + ".bak.old"
 	var read_res: Dictionary = {"valid": false}
 	var source_path := filepath
 	var recovered_from_backup: bool = false
 
 	if FileAccess.file_exists(filepath):
 		read_res = _read_and_validate_save_file(filepath)
-		if read_res.get("valid", false):
-			var val_chk := validate_save_data(read_res.get("data", {}))
-			if not val_chk.get("valid", false):
-				read_res = {"valid": false, "error": val_chk.get("error", "")}
 		if not read_res.get("valid", false):
 			print("[SaveManager] Primary save file invalid or unreadable (%s), attempting backup recovery..." % read_res.get("error", ""))
 	else:
 		print("[SaveManager] Primary save file not found, attempting backup recovery...")
 
 	if not read_res.get("valid", false):
+		var recovered: bool = false
 		if FileAccess.file_exists(bak_path):
 			var bak_res := _read_and_validate_save_file(bak_path)
 			if bak_res.get("valid", false):
-				var val_bak := validate_save_data(bak_res.get("data", {}))
-				if val_bak.get("valid", false):
-					print("[SaveManager] Successfully recovered save from backup: %s" % bak_path)
-					read_res = bak_res
-					source_path = bak_path
-					recovered_from_backup = true
-				else:
-					return {"success": false, "error": "Bản sao lưu không hợp lệ: %s" % val_bak.get("error", "")}
+				print("[SaveManager] Successfully recovered save from backup: %s" % bak_path)
+				read_res = bak_res
+				source_path = bak_path
+				recovered_from_backup = true
+				recovered = true
 			else:
-				return {"success": false, "error": "Bản lưu chính và bản sao lưu đều không hợp lệ. Bản sao lưu: %s" % bak_res.get("error", "")}
-		else:
-			return {"success": false, "error": "Không thể tải bản lưu: %s" % read_res.get("error", "Không tìm thấy tệp bản lưu")}
+				print("[SaveManager] Backup file %s is invalid (%s), attempting old backup recovery..." % [bak_path, bak_res.get("error", "")])
+
+		# FIX-1Z-T: Recover from valid .bak.old if primary and .bak cannot be used
+		if not recovered:
+			if FileAccess.file_exists(bak_old_path):
+				var bak_old_res := _read_and_validate_save_file(bak_old_path)
+				if bak_old_res.get("valid", false):
+					print("[SaveManager] Successfully recovered save from old backup: %s" % bak_old_path)
+					read_res = bak_old_res
+					source_path = bak_old_path
+					recovered_from_backup = true
+					recovered = true
+				else:
+					return {"success": false, "error": "Bản sao lưu và bản sao lưu cũ đều không hợp lệ. Bản sao lưu cũ: %s" % bak_old_res.get("error", "")}
+			else:
+				return {"success": false, "error": "Không thể tải bản lưu: %s" % read_res.get("error", "Không tìm thấy tệp bản lưu")}
 
 	var data: Dictionary = read_res.get("data", {})
 

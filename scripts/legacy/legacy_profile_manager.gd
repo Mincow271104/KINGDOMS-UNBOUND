@@ -17,13 +17,17 @@ const MAX_SAFE_INT: int = 9223372036854775807
 const FLOAT_INT64_EXCLUSIVE_UPPER: float = 9223372036854775808.0
 const FLOAT_INT64_INCLUSIVE_LOWER: float = -9223372036854775808.0
 
-# Test failure injection seams (FIX-1Z-M)
+# Test failure injection seams (FIX-1Z-M, FIX-1Z-V)
 static var _test_inject_fail_write: bool = false
 static var _test_inject_fail_rename: bool = false
+static var _test_inject_fail_restore_copy: bool = false
+static var _test_inject_fail_backup_rollback: bool = false
 
 static func reset_test_injection() -> void:
 	_test_inject_fail_write = false
 	_test_inject_fail_rename = false
+	_test_inject_fail_restore_copy = false
+	_test_inject_fail_backup_rollback = false
 
 const VALID_REWARD_SOURCES: Array[String] = [
 	"victory",
@@ -253,6 +257,42 @@ func deserialize(data: Dictionary) -> bool:
 # Atomic File Persistence & Corrupt Recovery
 # -----------------------------------------------------------------------------
 
+func _reconcile_backups(dir: DirAccess, bak_path: String, bak_old_path: String) -> bool:
+	if not FileAccess.file_exists(bak_old_path):
+		return true
+
+	var bak_val := _read_and_validate_json_file(bak_path) if FileAccess.file_exists(bak_path) else {"valid": false}
+	var bak_old_val := _read_and_validate_json_file(bak_old_path)
+
+	if bak_old_val.get("valid", false):
+		if not bak_val.get("valid", false):
+			# bak is missing or invalid, but bak_old is valid. Promote bak_old to bak.
+			if FileAccess.file_exists(bak_path):
+				var rem_bak_err := dir.remove(bak_path)
+				if rem_bak_err != OK:
+					push_error("LegacyProfileManager: Failed to remove invalid backup %s during reconciliation (Error: %d)" % [bak_path, rem_bak_err])
+					return false
+			var ren_err := dir.rename(bak_old_path, bak_path)
+			if ren_err != OK:
+				push_error("LegacyProfileManager: Failed to promote %s to %s during reconciliation (Error: %d)" % [bak_old_path, bak_path, ren_err])
+				return false
+			print("[LegacyProfileManager] Reconciled interrupted rotation: promoted valid %s to %s" % [bak_old_path, bak_path])
+			return true
+		else:
+			# Both bak and bak_old are valid. bak is the newer authoritative backup; remove bak_old.
+			var rem_old_err := dir.remove(bak_old_path)
+			if rem_old_err != OK:
+				push_error("LegacyProfileManager: Failed to remove obsolete old backup %s (Error: %d)" % [bak_old_path, rem_old_err])
+				return false
+			return true
+	else:
+		# bak_old is invalid. Remove it safely.
+		var rem_old_err := dir.remove(bak_old_path)
+		if rem_old_err != OK:
+			push_error("LegacyProfileManager: Failed to remove invalid old backup %s (Error: %d)" % [bak_old_path, rem_old_err])
+			return false
+		return true
+
 func save_profile(filepath: String = "") -> bool:
 	if not is_available():
 		push_error("LegacyProfileManager: Cannot save while profile is unavailable.")
@@ -261,6 +301,8 @@ func save_profile(filepath: String = "") -> bool:
 	var target_path: String = filepath if not filepath.is_empty() else active_filepath
 	var tmp_path: String = target_path + ".tmp"
 	var bak_path: String = target_path + ".bak"
+	var bak_tmp_path: String = target_path + ".bak.tmp"
+	var bak_old_path: String = target_path + ".bak.old"
 
 	# Validate state before writing
 	var state_dict := serialize()
@@ -275,9 +317,16 @@ func save_profile(filepath: String = "") -> bool:
 		push_error("LegacyProfileManager: Cannot access directory: %s" % dir_path)
 		return false
 
+	# FIX-1Z-T: Reconcile any interrupted backup rotation before touching temporary files
+	if not _reconcile_backups(dir, bak_path, bak_old_path):
+		push_error("LegacyProfileManager: Aborting save due to failed backup reconciliation.")
+		return false
+
 	# Clean up any leftover temporary file
 	if FileAccess.file_exists(tmp_path):
 		dir.remove(tmp_path)
+	if FileAccess.file_exists(bak_tmp_path):
+		dir.remove(bak_tmp_path)
 
 	var json_str = JSON.stringify(state_dict, "  ")
 
@@ -320,12 +369,8 @@ func save_profile(filepath: String = "") -> bool:
 	if FileAccess.file_exists(target_path):
 		var target_check := _read_and_validate_json_file(target_path)
 		if target_check.get("valid", false):
-			var bak_tmp_path := target_path + ".bak.tmp"
-			var bak_old_path := target_path + ".bak.old"
 			if FileAccess.file_exists(bak_tmp_path):
 				dir.remove(bak_tmp_path)
-			if FileAccess.file_exists(bak_old_path):
-				dir.remove(bak_old_path)
 
 			var copy_err := dir.copy(target_path, bak_tmp_path)
 			if copy_err != OK or not FileAccess.file_exists(bak_tmp_path):
@@ -355,7 +400,13 @@ func save_profile(filepath: String = "") -> bool:
 			# Safely replace authoritative backup with rollback protection (FIX-1Z-P)
 			if FileAccess.file_exists(bak_path):
 				if FileAccess.file_exists(bak_old_path):
-					dir.remove(bak_old_path)
+					if not _reconcile_backups(dir, bak_path, bak_old_path):
+						push_error("LegacyProfileManager: Failed to reconcile lingering old backup before rotation.")
+						if FileAccess.file_exists(bak_tmp_path):
+							dir.remove(bak_tmp_path)
+						if FileAccess.file_exists(tmp_path):
+							dir.remove(tmp_path)
+						return false
 				var rot_old_err := dir.rename(bak_path, bak_old_path)
 				if rot_old_err != OK:
 					push_error("LegacyProfileManager failed to protect old backup %s (Error: %d)" % [bak_path, rot_old_err])
@@ -369,7 +420,11 @@ func save_profile(filepath: String = "") -> bool:
 			if ren_bak_err != OK:
 				push_error("LegacyProfileManager failed to rename staged backup %s to %s (Error: %d)" % [bak_tmp_path, bak_path, ren_bak_err])
 				if FileAccess.file_exists(bak_old_path):
-					var rollback_err := dir.rename(bak_old_path, bak_path)
+					var rollback_err := OK
+					if _test_inject_fail_backup_rollback:
+						rollback_err = ERR_CANT_CREATE
+					else:
+						rollback_err = dir.rename(bak_old_path, bak_path)
 					if rollback_err != OK:
 						push_error("LegacyProfileManager: Failed to rollback old backup from %s to %s" % [bak_old_path, bak_path])
 				if FileAccess.file_exists(bak_tmp_path):
@@ -403,7 +458,11 @@ func save_profile(filepath: String = "") -> bool:
 		push_error("LegacyProfileManager failed to rename %s to %s (Error: %d)" % [tmp_path, target_path, rename_err])
 		# Restore target from backup if possible
 		if FileAccess.file_exists(bak_path) and not FileAccess.file_exists(target_path):
-			var restore_err := dir.copy(bak_path, target_path)
+			var restore_err := OK
+			if _test_inject_fail_restore_copy:
+				restore_err = ERR_CANT_CREATE
+			else:
+				restore_err = dir.copy(bak_path, target_path)
 			if restore_err != OK:
 				push_error("LegacyProfileManager: Failed to restore target from backup %s (Error: %d)" % [bak_path, restore_err])
 		if FileAccess.file_exists(tmp_path):
@@ -420,7 +479,11 @@ func save_profile(filepath: String = "") -> bool:
 		if FileAccess.file_exists(target_path):
 			dir.remove(target_path)
 		if FileAccess.file_exists(bak_path) and not FileAccess.file_exists(target_path):
-			var restore_err := dir.copy(bak_path, target_path)
+			var restore_err := OK
+			if _test_inject_fail_restore_copy:
+				restore_err = ERR_CANT_CREATE
+			else:
+				restore_err = dir.copy(bak_path, target_path)
 			if restore_err != OK:
 				push_error("LegacyProfileManager: Failed to restore target from backup after invalid write.")
 		return false
@@ -431,52 +494,67 @@ func save_profile(filepath: String = "") -> bool:
 func load_profile(filepath: String = "") -> Dictionary:
 	var target_path: String = filepath if not filepath.is_empty() else active_filepath
 	var bak_path: String = target_path + ".bak"
+	var bak_old_path: String = target_path + ".bak.old"
 
-	# If neither main nor backup exists -> genuine clean new profile
-	if not FileAccess.file_exists(target_path) and not FileAccess.file_exists(bak_path):
+	# If neither main nor any backup exists -> genuine clean new profile
+	if not FileAccess.file_exists(target_path) and not FileAccess.file_exists(bak_path) and not FileAccess.file_exists(bak_old_path):
 		_initialize_empty_profile()
 		profile_status = STATUS_NEW_PROFILE
 		initialization_error = ""
 		return {"success": true, "status": STATUS_NEW_PROFILE, "balance": legacy_balance}
 
-	var file_to_read: String = target_path
-	var used_backup: bool = false
+	# Check primary first
+	if FileAccess.file_exists(target_path):
+		var loaded_data = _read_and_validate_json_file(target_path)
+		if loaded_data.get("valid", false):
+			var apply_ok = deserialize(loaded_data["data"])
+			if apply_ok:
+				profile_status = STATUS_LOADED
+				initialization_error = ""
+				profile_loaded.emit(target_path)
+				return {"success": true, "status": STATUS_LOADED, "balance": legacy_balance}
+			else:
+				push_error("LegacyProfileManager: Failed to deserialize primary profile.")
+		else:
+			push_warning("LegacyProfileManager: Primary profile %s invalid (%s), attempting backup recovery..." % [target_path, loaded_data.get("error", "")])
+	else:
+		push_warning("LegacyProfileManager: Primary profile %s not found, attempting backup recovery..." % target_path)
 
-	# If main file doesn't exist, try backup
-	if not FileAccess.file_exists(target_path):
-		file_to_read = bak_path
-		used_backup = true
+	# Try authoritative backup
+	if FileAccess.file_exists(bak_path):
+		var bak_data = _read_and_validate_json_file(bak_path)
+		if bak_data.get("valid", false):
+			var apply_bak = deserialize(bak_data["data"])
+			if apply_bak:
+				profile_status = STATUS_RECOVERED_FROM_BACKUP
+				initialization_error = ""
+				profile_loaded.emit(bak_path)
+				return {"success": true, "status": STATUS_RECOVERED_FROM_BACKUP, "balance": legacy_balance}
+			else:
+				push_error("LegacyProfileManager: Failed to deserialize backup profile.")
+		else:
+			push_warning("LegacyProfileManager: Backup profile %s invalid (%s), attempting old backup recovery..." % [bak_path, bak_data.get("error", "")])
 
-	# Read file_to_read
-	var loaded_data = _read_and_validate_json_file(file_to_read)
-	if not loaded_data.get("valid", false):
-		# If primary failed, try backup if available and not yet tried
-		if not used_backup and FileAccess.file_exists(bak_path):
-			var bak_data = _read_and_validate_json_file(bak_path)
-			if bak_data.get("valid", false):
-				var apply_bak = deserialize(bak_data["data"])
-				if apply_bak:
-					profile_status = STATUS_RECOVERED_FROM_BACKUP
-					initialization_error = ""
-					profile_loaded.emit(bak_path)
-					return {"success": true, "status": STATUS_RECOVERED_FROM_BACKUP, "balance": legacy_balance}
+	# FIX-1Z-T: Try temporary protection old backup if authoritative backup unavailable
+	if FileAccess.file_exists(bak_old_path):
+		var bak_old_data = _read_and_validate_json_file(bak_old_path)
+		if bak_old_data.get("valid", false):
+			var apply_old = deserialize(bak_old_data["data"])
+			if apply_old:
+				profile_status = STATUS_RECOVERED_FROM_BACKUP
+				initialization_error = ""
+				profile_loaded.emit(bak_old_path)
+				return {"success": true, "status": STATUS_RECOVERED_FROM_BACKUP, "balance": legacy_balance}
+			else:
+				push_error("LegacyProfileManager: Failed to deserialize old backup profile.")
+		else:
+			push_warning("LegacyProfileManager: Old backup profile %s invalid: %s" % [bak_old_path, bak_old_data.get("error", "")])
 
-		# Fail closed: Do NOT reset corrupt profile to 0; mark UNAVAILABLE
-		profile_status = STATUS_UNAVAILABLE
-		initialization_error = "Không thể tải hồ sơ Legacy do tệp bị lỗi hoặc hỏng cấu trúc và không có bản sao lưu hợp lệ."
-		push_error(initialization_error)
-		return {"success": false, "status": STATUS_UNAVAILABLE, "error": initialization_error, "balance": legacy_balance}
-
-	var apply_ok = deserialize(loaded_data["data"])
-	if not apply_ok:
-		profile_status = STATUS_UNAVAILABLE
-		initialization_error = "Không thể áp dụng dữ liệu hồ sơ Legacy."
-		return {"success": false, "status": STATUS_UNAVAILABLE, "error": initialization_error, "balance": legacy_balance}
-
-	profile_status = STATUS_LOADED if not used_backup else STATUS_RECOVERED_FROM_BACKUP
-	initialization_error = ""
-	profile_loaded.emit(file_to_read)
-	return {"success": true, "status": profile_status, "balance": legacy_balance}
+	# Fail closed: Do NOT reset corrupt profile to 0; mark UNAVAILABLE
+	profile_status = STATUS_UNAVAILABLE
+	initialization_error = "Không thể tải hồ sơ Legacy do tệp bị lỗi hoặc hỏng cấu trúc và không có bản sao lưu hợp lệ."
+	push_error(initialization_error)
+	return {"success": false, "status": STATUS_UNAVAILABLE, "error": initialization_error, "balance": legacy_balance}
 
 func _read_and_validate_json_file(path: String) -> Dictionary:
 	if not FileAccess.file_exists(path):
