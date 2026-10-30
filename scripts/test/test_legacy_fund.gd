@@ -2713,7 +2713,7 @@ func _test_fix_1z_v_explicit_profile_restore_copy_failure() -> bool:
 	return true
 
 func _test_fix_1z_w_reset_profile_resurrection_safety() -> bool:
-	print("--- FIX-1Z-W: Legacy Profile Reset Resurrection Safety ---")
+	print("--- FIX-1Z-W, FIX-1Z-AB, FIX-1Z-AC, FIX-1Z-AD: Complete Profile Reset Artifact Coverage & In-Memory Verification ---")
 	var target_path := "user://test_reset_resurrection.json"
 	var bak_path := target_path + ".bak"
 	var bak_old_path := target_path + ".bak.old"
@@ -2732,16 +2732,69 @@ func _test_fix_1z_w_reset_profile_resurrection_safety() -> bool:
 
 	cleanup_w.call()
 
-	# 1. Initialize a profile with initial data
+	# -------------------------------------------------------------------------
+	# PART 1: Successful Reset Deleting All Five Existing Artifacts (FIX-1Z-AB, FIX-1Z-AC)
+	# -------------------------------------------------------------------------
+
+	# 1. Initialize original manager and seed with valid profile data & unlocked achievement
 	var mgr := LegacyProfileManager.new(target_path)
 	mgr.load_profile()
 	var claim_res: Dictionary = mgr.claim_reward("r_w_init", "victory", 500, "world_w")
 	if not claim_res.get("success", false) or mgr.legacy_balance != 500:
-		print("  [FAIL] Step 1: Failed to seed initial profile data: %s" % str(claim_res))
+		print("  [FAIL] Step 1: Failed to seed initial profile reward: %s" % str(claim_res))
 		cleanup_w.call()
 		return false
 
-	# 2. Write .bak.old with known data (balance 999)
+	var ach_res: Dictionary = mgr.unlock_achievement("prosperity_victory", "world_w")
+	if not ach_res.get("success", false) or not mgr.is_achievement_unlocked("prosperity_victory"):
+		print("  [FAIL] Step 1: Failed to unlock achievement on initial profile: %s" % str(ach_res))
+		cleanup_w.call()
+		return false
+
+	# 2. Create ALL FIVE persistence artifacts simultaneously on disk
+	# 2a. target_path already written by unlock_achievement / save_profile
+	if not FileAccess.file_exists(target_path):
+		print("  [FAIL] Step 2a: Primary profile %s was not written to disk." % target_path)
+		cleanup_w.call()
+		return false
+
+	# 2b. Write valid .bak with valid schema
+	var bak_profile_data := {
+		"schema_version": 1,
+		"profile_id": "player_profile_w_bak",
+		"legacy_balance": 500,
+		"lifetime_legacy_earned": 500,
+		"lifetime_legacy_spent": 0,
+		"claimed_rewards": {
+			"r_w_init": {
+				"reward_id": "r_w_init",
+				"source": "victory",
+				"amount": 500,
+				"world_id": "world_w",
+				"claimed_at_unix": 1000
+			}
+		},
+		"unlocked_achievements": {
+			"prosperity_victory": {
+				"achievement_id": "prosperity_victory",
+				"title": "Thịnh Vượng Toàn Diện",
+				"unlocked_at_unix": 1000,
+				"world_id": "world_w",
+				"reward_legacy": 0
+			}
+		},
+		"created_at_unix": 1000,
+		"last_updated_unix": 1000
+	}
+	var f_bak := FileAccess.open(bak_path, FileAccess.WRITE)
+	if f_bak == null:
+		print("  [FAIL] Step 2b: Failed to open %s for writing (Error: %d)." % [bak_path, FileAccess.get_open_error()])
+		cleanup_w.call()
+		return false
+	f_bak.store_string(JSON.stringify(bak_profile_data, "\t"))
+	f_bak.close()
+
+	# 2c. Write distinguishable valid stale data to .bak.old (with non-empty achievement)
 	var stale_old_data := {
 		"schema_version": 1,
 		"profile_id": "player_profile_w_stale",
@@ -2757,31 +2810,53 @@ func _test_fix_1z_w_reset_profile_resurrection_safety() -> bool:
 				"claimed_at_unix": 9999
 			}
 		},
-		"unlocked_achievements": {},
+		"unlocked_achievements": {
+			"prosperity_victory": {
+				"achievement_id": "prosperity_victory",
+				"title": "Thịnh Vượng Toàn Diện",
+				"unlocked_at_unix": 9999,
+				"world_id": "world_w_stale",
+				"reward_legacy": 0
+			}
+		},
 		"created_at_unix": 9999,
 		"last_updated_unix": 9999
 	}
 	var f_old := FileAccess.open(bak_old_path, FileAccess.WRITE)
 	if f_old == null:
-		print("  [FAIL] Step 2: Failed to open %s for writing." % bak_old_path)
+		print("  [FAIL] Step 2c: Failed to open %s for writing (Error: %d)." % [bak_old_path, FileAccess.get_open_error()])
 		cleanup_w.call()
 		return false
 	f_old.store_string(JSON.stringify(stale_old_data, "\t"))
 	f_old.close()
 
-	# Also write .bak.tmp to ensure all 5 artifacts are tested
+	# 2d. Write .tmp file
+	var f_tmp := FileAccess.open(tmp_path, FileAccess.WRITE)
+	if f_tmp == null:
+		print("  [FAIL] Step 2d: Failed to open %s for writing (Error: %d)." % [tmp_path, FileAccess.get_open_error()])
+		cleanup_w.call()
+		return false
+	f_tmp.store_string("stale temporary profile data awaiting swap")
+	f_tmp.close()
+
+	# 2e. Write .bak.tmp file
 	var f_btmp := FileAccess.open(bak_tmp_path, FileAccess.WRITE)
-	if f_btmp != null:
-		f_btmp.store_string("stale staged bak data")
-		f_btmp.close()
+	if f_btmp == null:
+		print("  [FAIL] Step 2e: Failed to open %s for writing (Error: %d)." % [bak_tmp_path, FileAccess.get_open_error()])
+		cleanup_w.call()
+		return false
+	f_btmp.store_string("stale staged backup profile data")
+	f_btmp.close()
 
-	# 3. Remove primary and .bak to simulate an environment where only .bak.old (and stale tmp) remains
-	if FileAccess.file_exists(target_path):
-		dir.remove(target_path)
-	if FileAccess.file_exists(bak_path):
-		dir.remove(bak_path)
+	# 3. Explicitly assert that ALL FIVE files exist on disk before calling reset_profile()
+	var all_five_artifacts: Array[String] = [target_path, bak_path, bak_old_path, tmp_path, bak_tmp_path]
+	for p in all_five_artifacts:
+		if not FileAccess.file_exists(p):
+			print("  [FAIL] Step 3: Required pre-reset artifact %s does not exist on disk!" % p)
+			cleanup_w.call()
+			return false
 
-	# 4. Call reset_profile()
+	# 4. Call reset_profile() - must delete all 5 files and reset in-memory state
 	var reset_res := mgr.reset_profile()
 	if not reset_res:
 		print("  [FAIL] Step 4: reset_profile() returned false unexpectedly.")
@@ -2789,24 +2864,51 @@ func _test_fix_1z_w_reset_profile_resurrection_safety() -> bool:
 		return false
 
 	# 5. Verify all 5 files are absent from disk
-	var artifacts: Array[String] = [target_path, bak_path, bak_old_path, tmp_path, bak_tmp_path]
-	for p in artifacts:
+	for p in all_five_artifacts:
 		if FileAccess.file_exists(p):
 			print("  [FAIL] Step 5: Artifact %s still exists after reset_profile!" % p)
 			cleanup_w.call()
 			return false
 
-	# 6. Create a fresh LegacyProfileManager instance pointing at the same path
-	var fresh_mgr := LegacyProfileManager.new(target_path)
-	fresh_mgr.load_profile()
-
-	# 7. Verify status is STATUS_NEW_PROFILE
-	if fresh_mgr.get_status() != LegacyProfileManager.STATUS_NEW_PROFILE:
-		print("  [FAIL] Step 7: Fresh profile status not STATUS_NEW_PROFILE: %s" % fresh_mgr.get_status())
+	# 6. Verify in-memory state of the ORIGINAL manager (mgr) is completely cleared
+	if mgr.get_status() != LegacyProfileManager.STATUS_NEW_PROFILE:
+		print("  [FAIL] Step 6: Original manager status not STATUS_NEW_PROFILE: %s" % mgr.get_status())
+		cleanup_w.call()
+		return false
+	if mgr.legacy_balance != 0 or mgr.lifetime_legacy_earned != 0 or mgr.lifetime_legacy_spent != 0:
+		print("  [FAIL] Step 6: Original manager balance non-zero: bal=%d earned=%d spent=%d" % [mgr.legacy_balance, mgr.lifetime_legacy_earned, mgr.lifetime_legacy_spent])
+		cleanup_w.call()
+		return false
+	if not mgr.claimed_rewards.is_empty():
+		print("  [FAIL] Step 6: Original manager claimed_rewards not empty: %s" % str(mgr.claimed_rewards))
+		cleanup_w.call()
+		return false
+	if not mgr.unlocked_achievements.is_empty():
+		print("  [FAIL] Step 6: Original manager unlocked_achievements not empty: %s" % str(mgr.unlocked_achievements))
+		cleanup_w.call()
+		return false
+	if not mgr.initialization_error.is_empty():
+		print("  [FAIL] Step 6: Original manager initialization_error not empty: %s" % mgr.initialization_error)
+		cleanup_w.call()
+		return false
+	if mgr.is_reward_claimed("r_w_init") or mgr.is_reward_claimed("r_stale"):
+		print("  [FAIL] Step 6: Original manager still considers rewards claimed.")
+		cleanup_w.call()
+		return false
+	if mgr.is_achievement_unlocked("prosperity_victory"):
+		print("  [FAIL] Step 6: Original manager still considers achievement unlocked.")
 		cleanup_w.call()
 		return false
 
-	# 8. Verify balance is 0, claimed rewards empty, history empty
+	# 7. Create a fresh LegacyProfileManager instance pointing at the same path
+	var fresh_mgr := LegacyProfileManager.new(target_path)
+	fresh_mgr.load_profile()
+
+	# 8. Verify fresh manager starts in clean new profile state with no resurrected data
+	if fresh_mgr.get_status() != LegacyProfileManager.STATUS_NEW_PROFILE:
+		print("  [FAIL] Step 8: Fresh profile status not STATUS_NEW_PROFILE: %s" % fresh_mgr.get_status())
+		cleanup_w.call()
+		return false
 	if fresh_mgr.legacy_balance != 0 or fresh_mgr.lifetime_legacy_earned != 0 or fresh_mgr.lifetime_legacy_spent != 0:
 		print("  [FAIL] Step 8: Fresh profile has non-zero balances: bal=%d earned=%d spent=%d" % [fresh_mgr.legacy_balance, fresh_mgr.lifetime_legacy_earned, fresh_mgr.lifetime_legacy_spent])
 		cleanup_w.call()
@@ -2815,84 +2917,140 @@ func _test_fix_1z_w_reset_profile_resurrection_safety() -> bool:
 		print("  [FAIL] Step 8: Fresh profile claimed rewards not empty: %s" % str(fresh_mgr.claimed_rewards))
 		cleanup_w.call()
 		return false
-
-	# 9. Verify the old .bak.old data was NOT recovered
-	if fresh_mgr.is_reward_claimed("r_stale") or fresh_mgr.legacy_balance == 999:
-		print("  [FAIL] Step 9: Stale data was resurrected after profile reset!")
+	if not fresh_mgr.unlocked_achievements.is_empty():
+		print("  [FAIL] Step 8: Fresh profile unlocked_achievements not empty: %s" % str(fresh_mgr.unlocked_achievements))
+		cleanup_w.call()
+		return false
+	if not fresh_mgr.initialization_error.is_empty():
+		print("  [FAIL] Step 8: Fresh profile initialization_error not empty: %s" % fresh_mgr.initialization_error)
+		cleanup_w.call()
+		return false
+	if fresh_mgr.is_reward_claimed("r_stale") or fresh_mgr.is_reward_claimed("r_w_init"):
+		print("  [FAIL] Step 8: Stale reward was resurrected after profile reset!")
+		cleanup_w.call()
+		return false
+	if fresh_mgr.is_achievement_unlocked("prosperity_victory"):
+		print("  [FAIL] Step 8: Stale achievement was resurrected after profile reset!")
 		cleanup_w.call()
 		return false
 
-	# 10. FIX-1Z-AA: Test genuine cleanup failure on real existing artifacts
-	# Re-create a real profile with real files on disk
+	# -------------------------------------------------------------------------
+	# PART 2: Partial Cleanup Failure with All Five Files Present (FIX-1Z-AA, FIX-1Z-AD)
+	# -------------------------------------------------------------------------
+
+	# 9. Re-seed a real active profile with claimed reward and unlocked achievement
 	var mgr_fail := LegacyProfileManager.new(target_path)
 	mgr_fail.load_profile()
 	var seed_fail_ok: Dictionary = mgr_fail.claim_reward("r_fail_init", "victory", 400, "world_w_fail")
 	if not seed_fail_ok.get("success", false) or mgr_fail.legacy_balance != 400:
-		print("  [FAIL] Step 10: Failed to re-seed real profile for cleanup failure test.")
+		print("  [FAIL] Step 9: Failed to re-seed real profile for cleanup failure test.")
+		cleanup_w.call()
+		return false
+	var seed_ach_ok: Dictionary = mgr_fail.unlock_achievement("prosperity_victory", "world_w_fail")
+	if not seed_ach_ok.get("success", false) or not mgr_fail.is_achievement_unlocked("prosperity_victory"):
+		print("  [FAIL] Step 9: Failed to re-seed achievement for cleanup failure test.")
 		cleanup_w.call()
 		return false
 
-	# Ensure real primary file and valid backup artifacts exist
+	# 10. Ensure ALL FIVE artifacts exist simultaneously before failure injection
 	if not FileAccess.file_exists(target_path):
 		print("  [FAIL] Step 10: Primary file %s missing before cleanup failure test." % target_path)
 		cleanup_w.call()
 		return false
 
-	var f_real_bak := FileAccess.open(bak_path, FileAccess.WRITE)
-	if f_real_bak != null:
-		f_real_bak.store_string(JSON.stringify(stale_old_data, "\t"))
-		f_real_bak.close()
+	var f_f_bak := FileAccess.open(bak_path, FileAccess.WRITE)
+	if f_f_bak == null:
+		print("  [FAIL] Step 10: Failed to create %s." % bak_path)
+		cleanup_w.call()
+		return false
+	f_f_bak.store_string(JSON.stringify(bak_profile_data, "\t"))
+	f_f_bak.close()
 
-	var f_real_old := FileAccess.open(bak_old_path, FileAccess.WRITE)
-	if f_real_old != null:
-		f_real_old.store_string(JSON.stringify(stale_old_data, "\t"))
-		f_real_old.close()
+	var f_f_old := FileAccess.open(bak_old_path, FileAccess.WRITE)
+	if f_f_old == null:
+		print("  [FAIL] Step 10: Failed to create %s." % bak_old_path)
+		cleanup_w.call()
+		return false
+	f_f_old.store_string(JSON.stringify(stale_old_data, "\t"))
+	f_f_old.close()
 
+	var f_f_tmp := FileAccess.open(tmp_path, FileAccess.WRITE)
+	if f_f_tmp == null:
+		print("  [FAIL] Step 10: Failed to create %s." % tmp_path)
+		cleanup_w.call()
+		return false
+	f_f_tmp.store_string("stale temporary data for fail test")
+	f_f_tmp.close()
+
+	var f_f_btmp := FileAccess.open(bak_tmp_path, FileAccess.WRITE)
+	if f_f_btmp == null:
+		print("  [FAIL] Step 10: Failed to create %s." % bak_tmp_path)
+		cleanup_w.call()
+		return false
+	f_f_btmp.store_string("stale backup staging data for fail test")
+	f_f_btmp.close()
+
+	# Explicitly verify all 5 artifacts exist on disk before enabling injection
+	for p in all_five_artifacts:
+		if not FileAccess.file_exists(p):
+			print("  [FAIL] Step 10: Pre-failure artifact %s missing on disk!" % p)
+			cleanup_w.call()
+			return false
+
+	# Capture pre-failure byte snapshot of .bak.old
 	var bak_old_bytes_before := FileAccess.get_file_as_bytes(bak_old_path)
 	if bak_old_bytes_before.is_empty():
 		print("  [FAIL] Step 10: Failed to read .bak.old bytes before cleanup failure test.")
 		cleanup_w.call()
 		return false
 
-	# Select one existing artifact for injected deletion failure: .bak.old
+	# 11. Select .bak.old for injected deletion failure
 	LegacyProfileManager._test_inject_fail_reset_cleanup_target = bak_old_path
 
-	# Call reset_profile()
+	# Call reset_profile() - should attempt deletion of all files, fail on .bak.old, remove others
 	var fail_reset_res := mgr_fail.reset_profile()
 
-	# Verify the function returns false
+	# Assert reset_profile() returns false
 	if fail_reset_res:
-		print("  [FAIL] Step 10: reset_profile() returned true despite injected deletion failure!")
+		print("  [FAIL] Step 11: reset_profile() returned true despite injected deletion failure!")
 		cleanup_w.call()
 		return false
 
-	# Verify manager status is STATUS_UNAVAILABLE
+	# Assert manager status is STATUS_UNAVAILABLE
 	if mgr_fail.get_status() != LegacyProfileManager.STATUS_UNAVAILABLE:
-		print("  [FAIL] Step 10: Profile status not STATUS_UNAVAILABLE on reset failure: %s" % mgr_fail.get_status())
+		print("  [FAIL] Step 11: Profile status not STATUS_UNAVAILABLE on reset failure: %s" % mgr_fail.get_status())
 		cleanup_w.call()
 		return false
 
-	# Verify initialization_error is non-empty and accurate (mentions remaining files)
+	# Assert initialization_error is non-empty and identifies the failed artifact
 	if mgr_fail.initialization_error.is_empty() or not mgr_fail.initialization_error.contains(bak_old_path):
-		print("  [FAIL] Step 10: initialization_error missing or does not name remaining file: '%s'" % mgr_fail.initialization_error)
+		print("  [FAIL] Step 11: initialization_error missing or does not name remaining file: '%s'" % mgr_fail.initialization_error)
 		cleanup_w.call()
 		return false
 
-	# Verify specifically targeted artifact still exists and its content remains unchanged
+	# Assert specifically targeted artifact (.bak.old) still exists and its content is byte-for-byte unchanged
 	if not FileAccess.file_exists(bak_old_path):
-		print("  [FAIL] Step 10: Injected artifact %s was deleted despite failure injection!" % bak_old_path)
+		print("  [FAIL] Step 11: Injected artifact %s was deleted despite failure injection!" % bak_old_path)
 		cleanup_w.call()
 		return false
 	var bak_old_bytes_after := FileAccess.get_file_as_bytes(bak_old_path)
 	if bak_old_bytes_before != bak_old_bytes_after:
-		print("  [FAIL] Step 10: Target artifact content changed during failed deletion!")
+		print("  [FAIL] Step 11: Target artifact content changed during failed deletion!")
 		cleanup_w.call()
 		return false
 
-	# Verify the unavailable manager cannot perform a reward claim
+	# FIX-1Z-AD: Assert all other 4 artifacts were successfully processed and removed from disk
+	var other_artifacts: Array[String] = [target_path, bak_path, tmp_path, bak_tmp_path]
+	for p in other_artifacts:
+		if FileAccess.file_exists(p):
+			print("  [FAIL] Step 11: Non-injected artifact %s was not deleted during cleanup!" % p)
+			cleanup_w.call()
+			return false
+
+	# Assert unavailable manager rejects subsequent reward claims fail-closed
 	var unavail_claim: Dictionary = mgr_fail.claim_reward("r_fail_unavail", "victory", 100, "world_w_fail")
 	if unavail_claim.get("success", false) or unavail_claim.get("reason", "") != "profile_unavailable":
-		print("  [FAIL] Step 10: Unavailable manager was able to claim reward: %s" % str(unavail_claim))
+		print("  [FAIL] Step 11: Unavailable manager was able to claim reward: %s" % str(unavail_claim))
 		cleanup_w.call()
 		return false
 
@@ -2900,7 +3058,7 @@ func _test_fix_1z_w_reset_profile_resurrection_safety() -> bool:
 	LegacyProfileManager.reset_test_injection()
 
 	cleanup_w.call()
-	print("  [PASS] Profile reset resurrection safety and error state verified.")
+	print("  [PASS] Profile reset resurrection safety, artifact deletion, and in-memory state verified.")
 	return true
 
 func _test_fix_1z_x_save_manager_reconciliation_cases() -> bool:

@@ -7483,7 +7483,66 @@ Execute the Seventh Corrective Audit for Package 1Z:
 - `docs/WORKLOG.md` (Modified)
 
 ### Next Exact Step
+- Milestone 35 completed and committed (`fea01c5093262114d4455d4a392e5579f87d922e`).
+
+## [2026-10-31] Milestone 36: Package 1Z — Eighth Corrective Audit (Complete Profile Reset Artifact Coverage & In-Memory State Verification) ✅ COMPLETED
+
+### Context & Objective
+Execute the Eighth Corrective Audit for Package 1Z:
+1. FIX-1Z-AB: Strengthen `_test_fix_1z_w_reset_profile_resurrection_safety()` so that all five persistence artifacts (`target_path`, `.bak`, `.bak.old`, `.tmp`, `.bak.tmp`) exist simultaneously on disk and are asserted to exist before calling `reset_profile()`. Verify all five are deleted from disk upon successful reset without deleting primary or `.bak` beforehand. Immediately assert that original manager's in-memory state is completely cleared (`STATUS_NEW_PROFILE`, balances 0, empty claimed rewards, empty unlocked achievements, empty initialization error). Verify fresh manager instance confirms clean restart state.
+2. FIX-1Z-AC: Seed the original profile with a valid unlocked achievement (`"prosperity_victory"`) and populate `.bak.old` with a distinguishable schema-valid achievement record. Verify that both original manager and fresh restart manager have `unlocked_achievements.is_empty()`, proving achievements are cleared and not resurrected from stale backups.
+3. FIX-1Z-AD: In the cleanup failure injection scenario, ensure all five artifacts exist on disk before calling `reset_profile()` with failure injected on `.bak.old`. Verify that `reset_profile()` returns `false`, manager transitions to `STATUS_UNAVAILABLE`, `initialization_error` identifies `.bak.old`, `.bak.old` survives byte-for-byte unchanged, all other four artifacts (`target_path`, `.bak`, `.tmp`, `.bak.tmp`) are deleted from disk, and subsequent reward claims are rejected fail-closed.
+4. Execute full verification: syntax check, Package 1Z test suite (43 tests), full 10-suite regression matrix, Godot headless editor check, and `git diff --check`.
+
+### Completed Work
+1. **Successful Reset Artifact Coverage & In-Memory Verification (`scripts/test/test_legacy_fund.gd`):**
+   - Seeded original manager with balance 500, reward `r_w_init`, and achievement `"prosperity_victory"`.
+   - Created all 5 persistence artifacts on disk (`target_path`, `.bak`, `.bak.old`, `.tmp`, `.bak.tmp`) with valid contents and checked file open return codes.
+   - Asserted `FileAccess.file_exists()` for all 5 artifacts before calling `reset_profile()`.
+   - Called `mgr.reset_profile()` and asserted all 5 files were removed from disk.
+   - Asserted in-memory state of `mgr`: `profile_status == STATUS_NEW_PROFILE`, `legacy_balance == 0`, `lifetime_legacy_earned == 0`, `lifetime_legacy_spent == 0`, `claimed_rewards.is_empty()`, `unlocked_achievements.is_empty()`, `initialization_error.is_empty()`, `is_reward_claimed() == false`, and `is_achievement_unlocked() == false`.
+   - Instantiated fresh manager `fresh_mgr` and asserted identical clean zero state without resurrection.
+2. **Achievement Reset & Non-Resurrection Coverage (`scripts/test/test_legacy_fund.gd`):**
+   - Seeded valid `"prosperity_victory"` achievement record in `.bak.old` fixture.
+   - Verified that both original manager and restart manager have `unlocked_achievements.is_empty()`.
+   - Asserted `is_achievement_unlocked("prosperity_victory") == false` on both instances.
+3. **Partial Cleanup Failure Assertions (`scripts/test/test_legacy_fund.gd`):**
+   - Re-seeded profile and ensured all 5 artifacts existed on disk before injecting failure.
+   - Captured pre-failure bytes of `.bak.old` via `FileAccess.get_file_as_bytes()`.
+   - Injected failure targeted at `.bak.old` (`LegacyProfileManager._test_inject_fail_reset_cleanup_target = bak_old_path`).
+   - Called `reset_profile()`: verified returns `false`, manager status is `STATUS_UNAVAILABLE`, `initialization_error` names `.bak.old`.
+   - Asserted `.bak.old` still exists and is byte-for-byte unchanged (`bak_old_bytes_before == bak_old_bytes_after`).
+   - Asserted all other 4 artifacts (`target_path`, `.bak`, `.tmp`, `.bak.tmp`) were deleted from disk.
+   - Asserted unavailable manager rejects subsequent reward claims fail-closed with `profile_unavailable`.
+   - Reset injection seam.
+
+### Validations Performed & Results
+- **Package 1Z Expanded Test Suite (43 tests):**
+  - `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless -s scripts/test/test_legacy_fund.gd`: **PASS (Exit Code 0: 43/43 tests passed)**
+- **Full Project Regression Test Matrix (10 suites):**
+  - `scripts/test/test_victory_and_collapse.gd`: **PASS (Exit Code 0: 4/4 tests passed)**
+  - `scripts/test/test_save_load.gd`: **PASS (Exit Code 0: 129/129 assertions passed)**
+  - `scripts/test/test_automation_graph.gd`: **PASS (Exit Code 0: 69/69 assertions passed)**
+  - `scripts/test/test_automation_graph_delay_repeat.gd`: **PASS (Exit Code 0: 179/179 assertions passed)**
+  - `scripts/test/test_factions_and_battles.gd`: **PASS (Exit Code 0: 48/48 assertions passed)**
+  - `scripts/test/test_package_1x_gameplay_integration.gd`: **PASS (Exit Code 0: 57/57 assertions passed)**
+  - `scripts/test/test_field_siege.gd`: **PASS (Exit Code 0: 85/85 assertions passed)**
+  - `scripts/test/test_tactical_military.gd`: **PASS (Exit Code 0: 385/385 assertions passed)**
+  - `scripts/test/test_enemy_military_ai.gd`: **PASS (Exit Code 0: 54/54 assertions passed)**
+- **Headless Engine / Project Check:**
+  - `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --editor --quit`: **PASS (Exit Code 0, zero compile errors)**
+- **Whitespace / Git Check:**
+  - `git diff --check`: **PASS (Exit Code 0, zero trailing whitespaces)**
+
+### Files Modified
+- `scripts/test/test_legacy_fund.gd` (Modified)
+- `docs/BACKLOG.md` (Modified)
+- `docs/SCOPE_DECISIONS.md` (Modified)
+- `docs/TEST_PLAN.md` (Modified)
+- `docs/WORKLOG.md` (Modified)
+
+### Next Exact Step
 - Stage modified files (preserving protected untracked files).
-- Commit with required message: `fix(persistence): handle missing profile during recovery save`.
+- Commit changes: `test(persistence): strengthen profile reset artifact and memory assertions`.
 - Push to `origin/feat/package-1z-legacy-fund-foundation`.
-- Deliver comprehensive final completion report.
+- Deliver comprehensive final completion report adhering to all audit reporting requirements.
