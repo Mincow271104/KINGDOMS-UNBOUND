@@ -9,6 +9,22 @@ const DEFAULT_SAVE_PATH: String = "user://saves/world_save.json"
 const BACKUP_SAVE_PATH: String = "user://saves/world_save.json.bak"
 const TEMP_SAVE_PATH: String = "user://saves/world_save.json.tmp"
 
+# Test failure injection seams (FIX-1Z-M)
+static var _test_inject_fail_tmp_write: bool = false
+static var _test_inject_fail_backup_create: bool = false
+static var _test_inject_fail_backup_replace: bool = false
+static var _test_inject_fail_target_remove: bool = false
+static var _test_inject_fail_target_rename: bool = false
+static var _test_inject_fail_backup_restore: bool = false
+
+static func reset_test_injection() -> void:
+	_test_inject_fail_tmp_write = false
+	_test_inject_fail_backup_create = false
+	_test_inject_fail_backup_replace = false
+	_test_inject_fail_target_remove = false
+	_test_inject_fail_target_rename = false
+	_test_inject_fail_backup_restore = false
+
 
 static func ensure_save_directory() -> void:
 	var dir := DirAccess.open("user://")
@@ -55,9 +71,11 @@ static func serialize_world_state(world_view: Node) -> Dictionary:
 		else:
 			wid_str = "world_%d_%d_%d" % [s_val, int(Time.get_unix_time_from_system()) if Time else 0, randi() & 0xFFFF]
 		world_view.set("world_id", wid_str)
+		world_view.set("is_world_id_persisted", false)
 		var vic_mgr = world_view.get("victory_mgr")
 		if vic_mgr != null:
 			vic_mgr.set("world_id", wid_str)
+			vic_mgr.set("is_world_id_persisted", false)
 
 	data["metadata"] = {
 		"world_seed": world_view.get("world_seed"),
@@ -127,8 +145,8 @@ static func serialize_world_state(world_view: Node) -> Dictionary:
 		data["buildings"] = b_list
 
 	# 5. Citizens
-	var cit_list: Array = world_view.get("citizen_list")
-	if cit_list != null:
+	var cit_list = world_view.get("citizen_list")
+	if cit_list != null and cit_list is Array:
 		var c_data_list: Array = []
 		for cit in cit_list:
 			if is_instance_valid(cit) and cit.call("is_alive"):
@@ -298,14 +316,23 @@ static func save_dict_to_file(data: Dictionary, filepath: String) -> bool:
 	var json_string := JSON.stringify(data, "\t")
 	var tmp_path := filepath + ".tmp"
 	var bak_path := filepath + ".bak"
+	var bak_tmp_path := filepath + ".bak.tmp"
 
-	# Clean up any stale tmp
+	# Clean up any stale tmp files
 	if FileAccess.file_exists(tmp_path):
 		dir.remove(tmp_path)
+	if FileAccess.file_exists(bak_tmp_path):
+		dir.remove(bak_tmp_path)
 
 	var file := FileAccess.open(tmp_path, FileAccess.WRITE)
 	if file == null:
 		push_error("SaveManager: Failed to open tmp file for writing: %s (Error: %d)" % [tmp_path, FileAccess.get_open_error()])
+		return false
+
+	if _test_inject_fail_tmp_write:
+		file.close()
+		if FileAccess.file_exists(tmp_path):
+			dir.remove(tmp_path)
 		return false
 
 	file.store_string(json_string)
@@ -323,30 +350,104 @@ static func save_dict_to_file(data: Dictionary, filepath: String) -> bool:
 		push_error("SaveManager: Temporary file missing after write: %s" % tmp_path)
 		return false
 
-	# Backup existing target to .bak
+	# Validate written tmp file before proceeding to touch primary or backup
+	var tmp_val := _read_and_validate_save_file(tmp_path)
+	if not tmp_val.get("valid", false):
+		push_error("SaveManager: Temporary save validation failed: %s" % tmp_val.get("error", ""))
+		if FileAccess.file_exists(tmp_path):
+			dir.remove(tmp_path)
+		return false
+
+	# Backup existing target to .bak using staged replacement
 	if FileAccess.file_exists(filepath):
-		if FileAccess.file_exists(bak_path):
-			dir.remove(bak_path)
-		var copy_err := dir.copy(filepath, bak_path)
-		if copy_err != OK:
-			push_error("SaveManager: Failed to backup existing file %s to %s (Error: %d)" % [filepath, bak_path, copy_err])
+		var primary_val := _read_and_validate_save_file(filepath)
+		if primary_val.get("valid", false):
+			# Primary is valid; stage backup copy
+			var copy_err := OK
+			if _test_inject_fail_backup_create:
+				copy_err = ERR_CANT_CREATE
+			else:
+				copy_err = dir.copy(filepath, bak_tmp_path)
+
+			if copy_err != OK or not FileAccess.file_exists(bak_tmp_path):
+				push_error("SaveManager: Failed to stage backup copy from %s to %s (Error: %d)" % [filepath, bak_tmp_path, copy_err])
+				if FileAccess.file_exists(bak_tmp_path):
+					dir.remove(bak_tmp_path)
+				if FileAccess.file_exists(tmp_path):
+					dir.remove(tmp_path)
+				return false
+
+			# Remove old backup if present
+			if FileAccess.file_exists(bak_path):
+				var rem_bak_err := OK
+				if _test_inject_fail_backup_replace:
+					rem_bak_err = FAILED
+				else:
+					rem_bak_err = dir.remove(bak_path)
+
+				if rem_bak_err != OK:
+					push_error("SaveManager: Failed to remove old backup %s (Error: %d)" % [bak_path, rem_bak_err])
+					if FileAccess.file_exists(bak_tmp_path):
+						dir.remove(bak_tmp_path)
+					if FileAccess.file_exists(tmp_path):
+						dir.remove(tmp_path)
+					return false
+
+			# Rename staged backup to authoritative backup
+			var ren_bak_err := dir.rename(bak_tmp_path, bak_path)
+			if ren_bak_err != OK:
+				push_error("SaveManager: Failed to rename staged backup %s to %s (Error: %d)" % [bak_tmp_path, bak_path, ren_bak_err])
+				if FileAccess.file_exists(bak_tmp_path):
+					dir.remove(bak_tmp_path)
+				if FileAccess.file_exists(tmp_path):
+					dir.remove(tmp_path)
+				return false
+		else:
+			push_warning("SaveManager: Existing primary save %s is corrupt. Preserving existing backup untouched." % filepath)
+
+		# Remove old primary file before replacing with tmp
+		var rem_err := OK
+		if _test_inject_fail_target_remove:
+			rem_err = FAILED
+		else:
+			rem_err = dir.remove(filepath)
+
+		if rem_err != OK:
+			push_error("SaveManager: Failed to remove existing primary file %s before rename (Error: %d)" % [filepath, rem_err])
 			if FileAccess.file_exists(tmp_path):
 				dir.remove(tmp_path)
 			return false
-		dir.remove(filepath)
 
-	var rename_err := dir.rename(tmp_path, filepath)
+	# Atomic rename tmp to filepath
+	var rename_err := OK
+	if _test_inject_fail_target_rename:
+		rename_err = ERR_CANT_CREATE
+	else:
+		rename_err = dir.rename(tmp_path, filepath)
+
 	if rename_err != OK:
 		push_error("SaveManager: Failed to rename %s to %s (Error: %d)" % [tmp_path, filepath, rename_err])
-		# Clean tmp and attempt restoring from backup
 		if FileAccess.file_exists(tmp_path):
 			dir.remove(tmp_path)
+		# Restore target from backup if possible
 		if FileAccess.file_exists(bak_path) and not FileAccess.file_exists(filepath):
-			dir.copy(bak_path, filepath)
+			var restore_err := OK
+			if _test_inject_fail_backup_restore:
+				restore_err = ERR_CANT_CREATE
+			else:
+				restore_err = dir.copy(bak_path, filepath)
+
+			if restore_err != OK:
+				push_error("SaveManager: Failed to restore primary from backup %s (Error: %d)" % [bak_path, restore_err])
 		return false
 
 	if not FileAccess.file_exists(filepath):
 		push_error("SaveManager: Target file %s missing after rename." % filepath)
+		return false
+
+	var final_val := _read_and_validate_save_file(filepath)
+	if not final_val.get("valid", false):
+		push_error("SaveManager: Saved file validation failed after write: %s" % final_val.get("error", ""))
 		return false
 
 	return true
@@ -371,7 +472,12 @@ static func _is_valid_integer_val(val: Variant) -> bool:
 	if val is int:
 		return true
 	if val is float:
-		return not is_nan(val) and not is_inf(val) and floor(val) == val
+		var f := float(val)
+		if is_nan(f) or is_inf(f) or floor(f) != f:
+			return false
+		if f < -9223372036854775808.0 or f >= 9223372036854775808.0:
+			return false
+		return true
 	return false
 
 static func _is_valid_coord_arr(arr: Variant) -> bool:
@@ -855,7 +961,7 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 			return {"valid": false, "error": val_auto.get("error", "Dữ liệu automation không hợp lệ.")}
 
 	# Validate optional tactical_military section (Package 1W)
-	if json_dict.has("tactical_military"):
+	if json_dict.has("tactical_military") and not json_dict.get("tactical_military").is_empty():
 		var tac_val = json_dict.get("tactical_military")
 		if not (tac_val is Dictionary):
 			return {"valid": false, "error": "Dữ liệu quân sự chiến thuật 'tactical_military' phải là Dictionary."}
@@ -1091,32 +1197,72 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 
 	return {"valid": true, "error": ""}
 
-static func load_from_file(filepath: String = DEFAULT_SAVE_PATH) -> Dictionary:
-	if not FileAccess.file_exists(filepath):
-		# Check if backup exists
-		var bak_path := filepath + ".bak"
-		if FileAccess.file_exists(bak_path):
-			print("[SaveManager] Main save not found, attempting recovery from backup: %s" % bak_path)
-			filepath = bak_path
-		else:
-			return {"success": false, "error": "Không tìm thấy tệp bản lưu: %s" % filepath}
+static func _read_and_validate_save_file(path: String) -> Dictionary:
+	if not FileAccess.file_exists(path):
+		return {"valid": false, "error": "Tập tin không tồn tại: " + path}
 
-	var file := FileAccess.open(filepath, FileAccess.READ)
+	var file := FileAccess.open(path, FileAccess.READ)
 	if file == null:
-		return {"success": false, "error": "Không thể đọc tệp bản lưu: %s" % filepath}
+		return {"valid": false, "error": "Không thể đọc tệp bản lưu: %s" % path}
 
 	var content := file.get_as_text()
 	file.close()
 
+	if content.strip_edges().is_empty():
+		return {"valid": false, "error": "Tệp bản lưu rỗng: %s" % path}
+
 	var json := JSON.new()
 	var parse_err := json.parse(content)
 	if parse_err != OK:
-		return {"success": false, "error": "Lỗi phân tích cú pháp JSON (Dòng %d: %s)" % [json.get_error_line(), json.get_error_message()]}
+		return {"valid": false, "error": "Lỗi phân tích cú pháp JSON trong %s (Dòng %d: %s)" % [path, json.get_error_line(), json.get_error_message()]}
 
 	var data = json.get_data()
-	var val_res := validate_save_data(data)
-	if not val_res["valid"]:
-		return {"success": false, "error": val_res["error"]}
+	if not (data is Dictionary):
+		return {"valid": false, "error": "Dữ liệu JSON không đúng định dạng Dictionary."}
+
+	if data.has("schema_version"):
+		var val_res := validate_save_data(data)
+		if not val_res.get("valid", false):
+			return {"valid": false, "error": val_res.get("error", "Dữ liệu bản lưu không hợp lệ")}
+
+	return {"valid": true, "data": data}
+
+static func load_from_file(filepath: String = DEFAULT_SAVE_PATH) -> Dictionary:
+	var canonical_path := filepath
+	var bak_path := filepath + ".bak"
+	var read_res: Dictionary = {"valid": false}
+	var source_path := filepath
+	var recovered_from_backup: bool = false
+
+	if FileAccess.file_exists(filepath):
+		read_res = _read_and_validate_save_file(filepath)
+		if read_res.get("valid", false):
+			var val_chk := validate_save_data(read_res.get("data", {}))
+			if not val_chk.get("valid", false):
+				read_res = {"valid": false, "error": val_chk.get("error", "")}
+		if not read_res.get("valid", false):
+			print("[SaveManager] Primary save file invalid or unreadable (%s), attempting backup recovery..." % read_res.get("error", ""))
+	else:
+		print("[SaveManager] Primary save file not found, attempting backup recovery...")
+
+	if not read_res.get("valid", false):
+		if FileAccess.file_exists(bak_path):
+			var bak_res := _read_and_validate_save_file(bak_path)
+			if bak_res.get("valid", false):
+				var val_bak := validate_save_data(bak_res.get("data", {}))
+				if val_bak.get("valid", false):
+					print("[SaveManager] Successfully recovered save from backup: %s" % bak_path)
+					read_res = bak_res
+					source_path = bak_path
+					recovered_from_backup = true
+				else:
+					return {"success": false, "error": "Bản sao lưu không hợp lệ: %s" % val_bak.get("error", "")}
+			else:
+				return {"success": false, "error": "Bản lưu chính và bản sao lưu đều không hợp lệ. Bản sao lưu: %s" % bak_res.get("error", "")}
+		else:
+			return {"success": false, "error": "Không thể tải bản lưu: %s" % read_res.get("error", "Không tìm thấy tệp bản lưu")}
+
+	var data: Dictionary = read_res.get("data", {})
 
 	# World ID verification & migration for legacy saves
 	var meta: Dictionary = data.get("metadata", {})
@@ -1137,13 +1283,13 @@ static func load_from_file(filepath: String = DEFAULT_SAVE_PATH) -> Dictionary:
 			new_id = "world_%d_%d_%d" % [s_val, int(Time.get_unix_time_from_system()) if Time else 0, randi() & 0xFFFF]
 		meta["world_id"] = new_id
 		data["metadata"] = meta
-		# Attempt to persist migrated save to disk immediately
-		var save_migrated_ok: bool = save_dict_to_file(data, filepath)
+		# Attempt to persist migrated save to disk immediately (to canonical_path, NOT bak_path)
+		var save_migrated_ok: bool = save_dict_to_file(data, canonical_path)
 		if not save_migrated_ok:
 			meta["migration_save_failed"] = true
 			data["metadata"] = meta
 
-	return {"success": true, "data": data, "path": filepath}
+	return {"success": true, "data": data, "path": canonical_path, "source_path": source_path, "recovered_from_backup": recovered_from_backup}
 
 static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionary) -> Dictionary:
 	if world_view == null or loaded_data.is_empty():
@@ -1302,8 +1448,10 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 			if child.name == "ArmyMarker":
 				continue
 			child.queue_free()
-	world_view.get("citizens_by_id").clear()
-	world_view.get("citizen_list").clear()
+	if world_view.get("citizens_by_id") != null:
+		world_view.get("citizens_by_id").clear()
+	if world_view.get("citizen_list") != null:
+		world_view.get("citizen_list").clear()
 	if world_view.get("deceased_citizen_ids") != null:
 		world_view.get("deceased_citizen_ids").clear()
 

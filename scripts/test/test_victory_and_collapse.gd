@@ -94,7 +94,19 @@ func _test_tc7_1_immigration() -> bool:
 
 func _test_tc7_2_prosperity_victory_hold() -> bool:
 	print("--- Running TC-7.2: Continuous 5-Day Prosperity Victory Hold & Reset ---")
+	var test_profile_path := "user://test_victory_collapse_profile.json"
+	var dir := DirAccess.open("user://")
+	if dir:
+		if dir.file_exists("test_victory_collapse_profile.json"): dir.remove("test_victory_collapse_profile.json")
+		if dir.file_exists("test_victory_collapse_profile.json.bak"): dir.remove("test_victory_collapse_profile.json.bak")
+		if dir.file_exists("test_victory_collapse_profile.json.tmp"): dir.remove("test_victory_collapse_profile.json.tmp")
+
+	var LegacyProfileManagerScript = load("res://scripts/legacy/legacy_profile_manager.gd")
+	var profile_mgr = LegacyProfileManagerScript.new(test_profile_path)
 	var vm := VictoryManager.new()
+	vm.profile_mgr = profile_mgr
+	vm.world_id = "world_tc7_2_victory_test_12345"
+	vm.is_world_id_persisted = true
 	
 	# Initial conditions meeting all victory thresholds
 	# pop: 30, food: 600, treasury: 1200, stability: 85.0, morale: 80.0, techs: 3, town_hall: true
@@ -156,6 +168,10 @@ func _test_tc7_2_prosperity_victory_hold() -> bool:
 		print("  [FAIL] Duplicate legacy claim permitted! Received %d" % claimed_2)
 		return false
 	print("  [PASS] Double-spend legacy protection verified.")
+	if dir:
+		if dir.file_exists("test_victory_collapse_profile.json"): dir.remove("test_victory_collapse_profile.json")
+		if dir.file_exists("test_victory_collapse_profile.json.bak"): dir.remove("test_victory_collapse_profile.json.bak")
+		if dir.file_exists("test_victory_collapse_profile.json.tmp"): dir.remove("test_victory_collapse_profile.json.tmp")
 	print("  [PASS] TC-7.2 PASSED.\n")
 	return true
 

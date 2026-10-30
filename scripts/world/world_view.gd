@@ -15,7 +15,7 @@ const LegacyProfileManagerScript = preload("res://scripts/legacy/legacy_profile_
 
 @export var world_seed: int = 12345
 @export var world_id: String = ""
-var is_world_id_persisted: bool = true
+var is_world_id_persisted: bool = false
 static var _world_id_counter: int = 0
 
 static func generate_unique_world_id(seed_val: int = 0) -> String:
@@ -189,6 +189,7 @@ func _generate_and_build_world() -> void:
 	immigration_mgr = ImmigrationManager.new(world_seed + 777)
 	if world_id.strip_edges().is_empty():
 		world_id = generate_unique_world_id(world_seed)
+		is_world_id_persisted = false
 	victory_mgr = VictoryManager.new()
 	victory_mgr.profile_mgr = LegacyProfileManagerScript.get_instance()
 	victory_mgr.world_id = world_id

@@ -7164,3 +7164,78 @@ Execute the second hardening audit for Package 1Z (Legacy Fund & Meta-Progressio
 - Commit with required message: `fix(legacy): enforce canonical claims and safe persistence`.
 - Push commit to `origin/feat/package-1z-legacy-fund-foundation`.
 - Output comprehensive final completion report.
+
+---
+
+## [2026-10-31] Milestone 35: Package 1Z Third Hardening Audit — Fail-Closed Rewards, World ID Lifecycle & Backup Recovery Safety (Completed)
+
+### Context & Objective
+Execute the Third Hardening Audit for Package 1Z (Legacy Fund & Meta-Progression Foundation). Address critical findings FIX-1Z-K (removal of unpersisted memory fallback in victory rewards), FIX-1Z-L (world ID persistence lifecycle and unsaved game gating), FIX-1Z-M (atomic staged backup rotation and comprehensive recovery in SaveManager), and FIX-1Z-N (64-bit float boundary precision under IEEE 754 float64). Expand automated tests in `test_legacy_fund.gd` and verify full regression suite.
+
+### Completed Work
+1. **Elimination of Non-Persistent Victory Reward Fallback (`scripts/core/victory_manager.gd`):**
+   - Removed null-profile fallback in `claim_legacy_reward()`, eliminating unpersisted in-memory point awards (`legacy_points_earned += 100`, `is_legacy_claimed = true`).
+   - `profile_mgr` is strictly mandatory for persistent claims. If `profile_mgr == null` or `!profile_mgr.is_available()`, `claim_legacy_reward()` returns `0`, does not mutate `is_legacy_claimed`, and awards 0 memory points.
+   - Gated `is_reward_claimable()` to return `false` when `profile_mgr` is null or unavailable.
+2. **World ID Persistence Lifecycle & Unsaved Game Gating (`scripts/world/world_view.gd`, `scripts/ui/main_menu.gd`, `scripts/persistence/save_manager.gd`, `scripts/core/victory_manager.gd`):**
+   - Initialized `is_world_id_persisted: bool = false` across `VictoryManager` and `WorldView`.
+   - New worlds initialized via `WorldView._ready()` or `MainMenu._on_start_game()` explicitly set `is_world_id_persisted = false`.
+   - `VictoryManager.is_reward_claimable()` verifies `is_world_id_persisted`, gating claims until the world state has been saved to disk at least once.
+   - In `SaveManager.save_world_state()`, `is_world_id_persisted` is set to `true` upon confirmed successful save.
+   - In `SaveManager.serialize_world_state()`, generating a replacement world ID resets `is_world_id_persisted = false` on both `WorldView` and `VictoryManager` until write succeeds.
+3. **Atomic Staged Backup Rotation & Comprehensive Recovery (`scripts/persistence/save_manager.gd`):**
+   - Implemented staged backup rotation via `bak_tmp_path` (`filepath + ".bak.tmp"`).
+   - Validates existing primary save file before rotating; if corrupt or invalid JSON/schema, preserves valid `.bak` untouched.
+   - Replaces `.bak` with staged copy only after verifying the staged file was written and flushed cleanly.
+   - Automates rollback to `.bak` if target file rename fails during save.
+   - In `load_from_file()`, attempts recovery from `.bak` when primary is missing, unopenable, malformed JSON, or fails schema validation. Retains `canonical_path` separate from `source_path` and sets `recovered_from_backup = true`, directing subsequent migrations to `canonical_path` without overwriting the backup file.
+   - Added test failure injection seams (`_test_inject_fail_tmp_write`, `_test_inject_fail_backup_create`, `_test_inject_fail_backup_replace`, `_test_inject_fail_target_remove`, `_test_inject_fail_target_rename`, `_test_inject_fail_backup_restore`, `reset_test_injection()`) to test 10 failure and recovery branches.
+4. **64-Bit Float Boundary Precision Safety (`scripts/legacy/legacy_profile_manager.gd`, `scripts/persistence/save_manager.gd`):**
+   - Resolved IEEE 754 precision bug where $2^{63}-1$ as float64 rounds up to $2^{63} = 9223372036854775808.0$.
+   - Defined strict bounds `FLOAT_INT64_EXCLUSIVE_UPPER = 9223372036854775808.0` and `FLOAT_INT64_INCLUSIVE_LOWER = -9223372036854775808.0`.
+   - Replaced flawed `f > 9223372036854775807.0` with `f < FLOAT_INT64_INCLUSIVE_LOWER or f >= FLOAT_INT64_EXCLUSIVE_UPPER` across `_is_valid_integer_val()`, `validate_profile_data()`, `claim_reward()`, and SaveManager integer validation.
+5. **Automated Test Expansion (`scripts/test/test_legacy_fund.gd`):**
+   - Expanded test suite from 30 to 34 tests:
+     - Scenario 31: `_test_fix_1z_k_fail_closed_rewards()`
+     - Scenario 32: `_test_fix_1z_l_world_id_persistence_lifecycle()`
+     - Scenario 33: `_test_fix_1z_m_save_manager_backup_rotation_10_cases()` (10 distinct failure/recovery test cases)
+     - Scenario 34: `_test_fix_1z_n_float_64bit_boundary_precision()`
+   - Updated existing test scenarios (11, 12, 15, Expanded Test 1) to account for `is_world_id_persisted` lifecycle.
+   - Fixed `test_victory_and_collapse.gd` TC-7.2 to use real `LegacyProfileManager` instance with test cleanup.
+
+### Validations Performed & Results
+- **Package 1Z Expanded Test Suite (34 tests):**
+  - `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless -s scripts/test/test_legacy_fund.gd`: **PASS (Exit Code 0: 34/34 tests passed)**
+- **Full Project Regression Test Matrix (10 suites):**
+  - `scripts/test/test_victory_and_collapse.gd`: **PASS (Exit Code 0: 4/4 tests passed)**
+  - `scripts/test/test_save_load.gd`: **PASS (Exit Code 0: 129/129 assertions passed)**
+  - `scripts/test/test_automation_graph.gd`: **PASS (Exit Code 0: 69/69 assertions passed)**
+  - `scripts/test/test_automation_graph_delay_repeat.gd`: **PASS (Exit Code 0: 179/179 assertions passed)**
+  - `scripts/test/test_factions_and_battles.gd`: **PASS (Exit Code 0: 48/48 assertions passed)**
+  - `scripts/test/test_package_1x_gameplay_integration.gd`: **PASS (Exit Code 0: 57/57 assertions passed)**
+  - `scripts/test/test_field_siege.gd`: **PASS (Exit Code 0: 85/85 assertions passed)**
+  - `scripts/test/test_tactical_military.gd`: **PASS (Exit Code 0: 385/385 assertions passed)**
+  - `scripts/test/test_enemy_military_ai.gd`: **PASS (Exit Code 0: 54/54 assertions passed)**
+- **Headless Engine / Project Check:**
+  - `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --editor --quit`: **PASS (Exit Code 0, zero compile errors)**
+- **Whitespace / Git Check:**
+  - `git diff --check`: **PASS (Exit Code 0, zero trailing whitespaces)**
+
+### Files Modified
+- `scripts/core/victory_manager.gd` (Modified)
+- `scripts/legacy/legacy_profile_manager.gd` (Modified)
+- `scripts/persistence/save_manager.gd` (Modified)
+- `scripts/ui/main_menu.gd` (Modified)
+- `scripts/world/world_view.gd` (Modified)
+- `scripts/test/test_victory_and_collapse.gd` (Modified)
+- `scripts/test/test_legacy_fund.gd` (Modified)
+- `docs/BACKLOG.md` (Modified)
+- `docs/SCOPE_DECISIONS.md` (Modified)
+- `docs/TEST_PLAN.md` (Modified)
+- `docs/WORKLOG.md` (Modified)
+
+### Next Exact Step
+- Stage modified scripts and docs (preserving protected untracked files).
+- Commit with required message: `fix(legacy): enforce persistent claims and recovery safety`.
+- Push to `origin/feat/package-1z-legacy-fund-foundation`.
+- Deliver comprehensive final completion report covering all 13 points in Section 10.

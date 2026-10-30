@@ -40,7 +40,7 @@ var legacy_points_earned: int = 0
 var is_legacy_claimed: bool = false
 var profile_mgr: RefCounted = null
 var world_id: String = ""
-var is_world_id_persisted: bool = true
+var is_world_id_persisted: bool = false
 
 func calculate_stability(food_stock: int, treasury_stock: int, pop: int, housing_cap: int, avg_morale: float, town_hall_alive: bool) -> float:
 	var stability: float = 0.0
@@ -248,18 +248,19 @@ func is_reward_claimable() -> bool:
 		return false
 	if not is_world_id_persisted:
 		return false
-	if profile_mgr != null:
-		if not is_valid_world_id(world_id):
-			return false
-		if profile_mgr.has_method("is_available") and not profile_mgr.is_available():
-			return false
-		var canonical_id := get_canonical_victory_reward_id()
-		if canonical_id.is_empty():
-			return false
-		if profile_mgr.has_method("is_reward_claimed") and profile_mgr.is_reward_claimed(canonical_id):
-			is_legacy_claimed = true
-			return false
-	elif not world_id.is_empty() and not is_valid_world_id(world_id):
+	if profile_mgr == null:
+		return false
+	if not profile_mgr.has_method("is_available") or not profile_mgr.has_method("is_reward_claimed") or not profile_mgr.has_method("claim_reward"):
+		return false
+	if not profile_mgr.is_available():
+		return false
+	if not is_valid_world_id(world_id):
+		return false
+	var canonical_id := get_canonical_victory_reward_id()
+	if canonical_id.is_empty():
+		return false
+	if profile_mgr.is_reward_claimed(canonical_id):
+		is_legacy_claimed = true
 		return false
 	return not is_legacy_claimed
 
@@ -272,32 +273,28 @@ func claim_legacy_reward(_deprecated_custom_reward_id: String = "") -> int:
 		return 0
 	if not is_world_id_persisted:
 		return 0
-
-	if profile_mgr != null:
-		if not is_valid_world_id(world_id):
-			return 0
-		if profile_mgr.has_method("is_available") and not profile_mgr.is_available():
-			return 0
-		var canonical_id := get_canonical_victory_reward_id()
-		if canonical_id.is_empty():
-			return 0
-		if profile_mgr.has_method("is_reward_claimed") and profile_mgr.is_reward_claimed(canonical_id):
-			is_legacy_claimed = true
-			return 0
-		var res: Dictionary = profile_mgr.claim_reward(canonical_id, "victory", legacy_points_earned, world_id.strip_edges())
-		if res.get("success", false):
-			is_legacy_claimed = true
-			return int(res.get("points_awarded", 0))
-		else:
-			if res.get("reason", "") == "already_claimed":
-				is_legacy_claimed = true
-			return 0
-	else:
-		# Fallback for headless tests where profile_mgr is null
-		if not world_id.is_empty() and not is_valid_world_id(world_id):
-			return 0
+	if profile_mgr == null:
+		return 0
+	if not profile_mgr.has_method("is_available") or not profile_mgr.has_method("is_reward_claimed") or not profile_mgr.has_method("claim_reward"):
+		return 0
+	if not profile_mgr.is_available():
+		return 0
+	if not is_valid_world_id(world_id):
+		return 0
+	var canonical_id := get_canonical_victory_reward_id()
+	if canonical_id.is_empty():
+		return 0
+	if profile_mgr.is_reward_claimed(canonical_id):
 		is_legacy_claimed = true
-		return legacy_points_earned
+		return 0
+	var res: Dictionary = profile_mgr.claim_reward(canonical_id, "victory", legacy_points_earned, world_id.strip_edges())
+	if res.get("success", false):
+		is_legacy_claimed = true
+		return int(res.get("points_awarded", 0))
+	else:
+		if res.get("reason", "") == "already_claimed":
+			is_legacy_claimed = true
+		return 0
 
 func generate_summary_report(outcome: String, pop: int, food: int, treasury: int, stability: float, morale: float, techs_unlocked: int, buildings_count: int) -> Dictionary:
 	var days: int = int(total_simulation_hours / 24.0)

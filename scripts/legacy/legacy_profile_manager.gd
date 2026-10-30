@@ -14,6 +14,16 @@ const DEFAULT_PROFILE_PATH: String = "user://legacy_profile.json"
 const BACKUP_PROFILE_PATH: String = "user://legacy_profile.json.bak"
 const TEMP_PROFILE_PATH: String = "user://legacy_profile.json.tmp"
 const MAX_SAFE_INT: int = 9223372036854775807
+const FLOAT_INT64_EXCLUSIVE_UPPER: float = 9223372036854775808.0
+const FLOAT_INT64_INCLUSIVE_LOWER: float = -9223372036854775808.0
+
+# Test failure injection seams (FIX-1Z-M)
+static var _test_inject_fail_write: bool = false
+static var _test_inject_fail_rename: bool = false
+
+static func reset_test_injection() -> void:
+	_test_inject_fail_write = false
+	_test_inject_fail_rename = false
 
 const VALID_REWARD_SOURCES: Array[String] = [
 	"victory",
@@ -91,7 +101,7 @@ static func _is_valid_integer_val(val: Variant) -> bool:
 		var f := float(val)
 		if is_nan(f) or is_inf(f) or floor(f) != f:
 			return false
-		if f < -9223372036854775808.0 or f > 9223372036854775807.0:
+		if f < FLOAT_INT64_INCLUSIVE_LOWER or f >= FLOAT_INT64_EXCLUSIVE_UPPER:
 			return false
 		return true
 	return false
@@ -124,6 +134,8 @@ static func validate_profile_data(data: Variant) -> Dictionary:
 		var val = data[k]
 		if not _is_valid_integer_val(val):
 			return {"valid": false, "error": "Trường '%s' phải là số nguyên hợp lệ." % k}
+		if val is float and (val < 0.0 or val >= FLOAT_INT64_EXCLUSIVE_UPPER):
+			return {"valid": false, "error": "Trường '%s' vượt quá giới hạn số nguyên 64-bit." % k}
 		var int_val := int(val)
 		if int_val < 0:
 			return {"valid": false, "error": "Trường '%s' không được âm (%d)." % [k, int_val]}
@@ -171,6 +183,8 @@ static func validate_profile_data(data: Variant) -> Dictionary:
 		var amt = r_entry["amount"]
 		if not _is_valid_integer_val(amt):
 			return {"valid": false, "error": "Số điểm phần thưởng '%s' không phải số nguyên." % r_id_str}
+		if amt is float and (amt <= 0.0 or amt >= FLOAT_INT64_EXCLUSIVE_UPPER):
+			return {"valid": false, "error": "Số điểm phần thưởng '%s' vượt quá giới hạn số nguyên 64-bit." % r_id_str}
 		var amt_int = int(amt)
 		if amt_int <= 0:
 			return {"valid": false, "error": "Số điểm phần thưởng '%s' phải lớn hơn 0 (%d)." % [r_id_str, amt_int]}
@@ -244,9 +258,9 @@ func save_profile(filepath: String = "") -> bool:
 		push_error("LegacyProfileManager: Cannot save while profile is unavailable.")
 		return false
 
-	var target_path = filepath if not filepath.is_empty() else active_filepath
-	var tmp_path = target_path + ".tmp"
-	var bak_path = target_path + ".bak"
+	var target_path: String = filepath if not filepath.is_empty() else active_filepath
+	var tmp_path: String = target_path + ".tmp"
+	var bak_path: String = target_path + ".bak"
 
 	# Validate state before writing
 	var state_dict := serialize()
@@ -273,6 +287,12 @@ func save_profile(filepath: String = "") -> bool:
 		push_error("LegacyProfileManager failed to open temporary file for writing: %s (Error: %d)" % [tmp_path, FileAccess.get_open_error()])
 		return false
 
+	if _test_inject_fail_write:
+		file.close()
+		if FileAccess.file_exists(tmp_path):
+			dir.remove(tmp_path)
+		return false
+
 	file.store_string(json_str)
 	file.flush()
 	var write_err := file.get_error()
@@ -296,15 +316,37 @@ func save_profile(filepath: String = "") -> bool:
 			dir.remove(tmp_path)
 		return false
 
-	# If existing target file exists, only rotate to backup if valid (FIX-1Z-H)
+	# If existing target file exists, only rotate to backup if valid using staged backup (FIX-1Z-H & FIX-1Z-M)
 	if FileAccess.file_exists(target_path):
 		var target_check := _read_and_validate_json_file(target_path)
 		if target_check.get("valid", false):
+			var bak_tmp_path := target_path + ".bak.tmp"
+			if FileAccess.file_exists(bak_tmp_path):
+				dir.remove(bak_tmp_path)
+			var copy_err := dir.copy(target_path, bak_tmp_path)
+			if copy_err != OK or not FileAccess.file_exists(bak_tmp_path):
+				push_error("LegacyProfileManager failed to stage backup %s to %s (Error: %d)" % [target_path, bak_tmp_path, copy_err])
+				if FileAccess.file_exists(bak_tmp_path):
+					dir.remove(bak_tmp_path)
+				if FileAccess.file_exists(tmp_path):
+					dir.remove(tmp_path)
+				return false
+
 			if FileAccess.file_exists(bak_path):
-				dir.remove(bak_path)
-			var copy_err := dir.copy(target_path, bak_path)
-			if copy_err != OK:
-				push_error("LegacyProfileManager failed to backup %s to %s (Error: %d)" % [target_path, bak_path, copy_err])
+				var rem_bak_err := dir.remove(bak_path)
+				if rem_bak_err != OK:
+					push_error("LegacyProfileManager failed to remove old backup %s (Error: %d)" % [bak_path, rem_bak_err])
+					if FileAccess.file_exists(bak_tmp_path):
+						dir.remove(bak_tmp_path)
+					if FileAccess.file_exists(tmp_path):
+						dir.remove(tmp_path)
+					return false
+
+			var ren_bak_err := dir.rename(bak_tmp_path, bak_path)
+			if ren_bak_err != OK:
+				push_error("LegacyProfileManager failed to rename staged backup %s to %s (Error: %d)" % [bak_tmp_path, bak_path, ren_bak_err])
+				if FileAccess.file_exists(bak_tmp_path):
+					dir.remove(bak_tmp_path)
 				if FileAccess.file_exists(tmp_path):
 					dir.remove(tmp_path)
 				return false
@@ -319,7 +361,12 @@ func save_profile(filepath: String = "") -> bool:
 			return false
 
 	# Rename temporary file to target
-	var rename_err := dir.rename(tmp_path, target_path)
+	var rename_err := OK
+	if _test_inject_fail_rename:
+		rename_err = ERR_CANT_CREATE
+	else:
+		rename_err = dir.rename(tmp_path, target_path)
+
 	if rename_err != OK:
 		push_error("LegacyProfileManager failed to rename %s to %s (Error: %d)" % [tmp_path, target_path, rename_err])
 		# Restore target from backup if possible
@@ -337,8 +384,8 @@ func save_profile(filepath: String = "") -> bool:
 	return true
 
 func load_profile(filepath: String = "") -> Dictionary:
-	var target_path = filepath if not filepath.is_empty() else active_filepath
-	var bak_path = target_path + ".bak"
+	var target_path: String = filepath if not filepath.is_empty() else active_filepath
+	var bak_path: String = target_path + ".bak"
 
 	# If neither main nor backup exists -> genuine clean new profile
 	if not FileAccess.file_exists(target_path) and not FileAccess.file_exists(bak_path):
@@ -347,8 +394,8 @@ func load_profile(filepath: String = "") -> Dictionary:
 		initialization_error = ""
 		return {"success": true, "status": STATUS_NEW_PROFILE, "balance": legacy_balance}
 
-	var file_to_read = target_path
-	var used_backup = false
+	var file_to_read: String = target_path
+	var used_backup: bool = false
 
 	# If main file doesn't exist, try backup
 	if not FileAccess.file_exists(target_path):
@@ -458,6 +505,9 @@ func claim_reward(
 		return {"success": false, "reason": "empty_reward_id", "points_awarded": 0, "balance": legacy_balance}
 
 	if not _is_valid_integer_val(amount):
+		return {"success": false, "reason": "invalid_amount", "points_awarded": 0, "balance": legacy_balance}
+
+	if amount is float and (amount <= 0.0 or amount >= FLOAT_INT64_EXCLUSIVE_UPPER):
 		return {"success": false, "reason": "invalid_amount", "points_awarded": 0, "balance": legacy_balance}
 
 	var amt_int: int = int(amount)

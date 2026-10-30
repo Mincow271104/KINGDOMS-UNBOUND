@@ -64,6 +64,12 @@ func _init() -> void:
 	var pass_exp14: bool = _test_hud_reward_status_classification()
 	var pass_exp15: bool = _test_integer_overflow_rejection()
 
+	# Third hardening audit coverage (FIX-1Z-K through FIX-1Z-N)
+	var pass_exp16: bool = _test_fix_1z_k_fail_closed_rewards()
+	var pass_exp17: bool = _test_fix_1z_l_world_id_persistence_lifecycle()
+	var pass_exp18: bool = _test_fix_1z_m_save_manager_backup_rotation_10_cases()
+	var pass_exp19: bool = _test_fix_1z_n_float_64bit_boundary_precision()
+
 	_cleanup_test_files()
 	LegacyProfileManager.reset_instance()
 
@@ -73,8 +79,9 @@ func _init() -> void:
 		pass_tc11 and pass_tc12 and pass_tc13 and pass_tc14 and pass_tc15 and
 		pass_exp1 and pass_exp2 and pass_exp3 and pass_exp4 and pass_exp5 and
 		pass_exp6 and pass_exp7 and pass_exp8 and pass_exp9 and pass_exp10 and
-		pass_exp11 and pass_exp12 and pass_exp13 and pass_exp14 and pass_exp15):
-		print("  ALL 30 PACKAGE 1Z TESTS PASSED SUCCESSFULLY! (Exit Code 0)")
+		pass_exp11 and pass_exp12 and pass_exp13 and pass_exp14 and pass_exp15 and
+		pass_exp16 and pass_exp17 and pass_exp18 and pass_exp19):
+		print("  ALL 34 PACKAGE 1Z TESTS PASSED SUCCESSFULLY! (Exit Code 0)")
 		print("--------------------------------------------------------\n")
 		quit(0)
 	else:
@@ -320,6 +327,7 @@ func _test_multi_world_victory_claim() -> bool:
 	var vic1 := VictoryManager.new()
 	vic1.profile_mgr = mgr
 	vic1.world_id = "world_alpha_unique_1"
+	vic1.is_world_id_persisted = true
 	vic1.is_victory_achieved = true
 	vic1.legacy_points_earned = 100
 
@@ -332,6 +340,7 @@ func _test_multi_world_victory_claim() -> bool:
 	var vic2 := VictoryManager.new()
 	vic2.profile_mgr = mgr
 	vic2.world_id = "world_beta_unique_2"
+	vic2.is_world_id_persisted = true
 	vic2.is_victory_achieved = true
 	vic2.legacy_points_earned = 100
 
@@ -344,6 +353,7 @@ func _test_multi_world_victory_claim() -> bool:
 	var vic1_dup := VictoryManager.new()
 	vic1_dup.profile_mgr = mgr
 	vic1_dup.world_id = "world_alpha_unique_1"
+	vic1_dup.is_world_id_persisted = true
 	vic1_dup.is_victory_achieved = true
 	vic1_dup.legacy_points_earned = 100
 
@@ -364,6 +374,7 @@ func _test_older_save_reload_exploit_prevention() -> bool:
 	var vic := VictoryManager.new()
 	vic.profile_mgr = mgr
 	vic.world_id = "world_gamma_unique_3"
+	vic.is_world_id_persisted = true
 	vic.is_victory_achieved = true
 	vic.legacy_points_earned = 100
 	var first_pts := vic.claim_legacy_reward()
@@ -375,6 +386,7 @@ func _test_older_save_reload_exploit_prevention() -> bool:
 	var loaded_vic := VictoryManager.new()
 	loaded_vic.profile_mgr = mgr
 	loaded_vic.world_id = "world_gamma_unique_3"
+	loaded_vic.is_world_id_persisted = true
 	loaded_vic.is_victory_achieved = true
 	loaded_vic.is_legacy_claimed = false
 	loaded_vic.legacy_points_earned = 100
@@ -460,6 +472,7 @@ func _test_ui_and_victory_claim_reflection() -> bool:
 	var vic := VictoryManager.new()
 	vic.profile_mgr = mgr
 	vic.world_id = "world_ui_test_unique_6"
+	vic.is_world_id_persisted = true
 	vic.is_victory_achieved = true
 	vic.legacy_points_earned = 100
 
@@ -500,6 +513,7 @@ func _test_double_reward_elimination() -> bool:
 	var vic := VictoryManager.new()
 	vic.profile_mgr = mgr
 	vic.world_id = "world_double_elim_unique_7"
+	vic.is_world_id_persisted = true
 	vic.is_victory_achieved = true
 	vic.legacy_points_earned = 100
 
@@ -1163,6 +1177,16 @@ func _test_hud_reward_status_classification() -> bool:
 		hud.free()
 		return false
 
+	# Case 6: Victory not yet achieved -> "Chưa Đạt Điều Kiện"
+	vic_mgr.is_victory_achieved = false
+	vic_mgr.is_legacy_claimed = false
+	hud._refresh_victory_claim_state()
+	if not test_btn.disabled or test_btn.text != "Chưa Đạt Điều Kiện":
+		print("  [FAIL] Case 6 (Unachieved): Expected 'Chưa Đạt Điều Kiện' (disabled), got: '%s'" % test_btn.text)
+		mock_world_view.free()
+		hud.free()
+		return false
+
 	test_btn.free()
 	test_lbl.free()
 	mock_world_view.free()
@@ -1221,4 +1245,478 @@ func _test_integer_overflow_rejection() -> bool:
 		return false
 
 	print("  [PASS] 64-bit integer overflow bounds strictly enforced fail-closed.")
+	return true
+
+func _test_fix_1z_k_fail_closed_rewards() -> bool:
+	print("--- FIX-1Z-K: Fail-Closed Rewards (No Null-Profile Fallback) ---")
+	_cleanup_test_files()
+	var vic := VictoryManager.new()
+	vic.world_id = "world_k_test_12345"
+	vic.is_world_id_persisted = true
+	vic.is_victory_achieved = true
+	vic.legacy_points_earned = 100
+
+	# 1. Null profile: claims must be rejected, return 0, is_legacy_claimed must remain false
+	vic.profile_mgr = null
+	if vic.is_reward_claimable():
+		print("  [FAIL] is_reward_claimable returned true with profile_mgr == null")
+		return false
+	var pts_null := vic.claim_legacy_reward()
+	if pts_null != 0:
+		print("  [FAIL] claim_legacy_reward awarded points (%d) with profile_mgr == null" % pts_null)
+		return false
+	if vic.is_legacy_claimed:
+		print("  [FAIL] is_legacy_claimed was set to true on failed null-profile claim")
+		return false
+
+	# 2. Mock profile with missing methods
+	var mock_incomplete = RefCounted.new()
+	vic.profile_mgr = mock_incomplete
+	if vic.is_reward_claimable():
+		print("  [FAIL] is_reward_claimable returned true with incomplete profile object")
+		return false
+	var pts_incomplete := vic.claim_legacy_reward()
+	if pts_incomplete != 0 or vic.is_legacy_claimed:
+		print("  [FAIL] claim_legacy_reward succeeded with incomplete profile object")
+		return false
+
+	# 3. Profile manager unavailable
+	var profile := LegacyProfileManager.new(TEST_PROFILE_PATH)
+	profile.profile_status = LegacyProfileManager.STATUS_UNAVAILABLE
+	vic.profile_mgr = profile
+	if vic.is_reward_claimable():
+		print("  [FAIL] is_reward_claimable returned true with unavailable profile")
+		return false
+	var pts_unavail := vic.claim_legacy_reward()
+	if pts_unavail != 0 or vic.is_legacy_claimed:
+		print("  [FAIL] claim_legacy_reward succeeded with unavailable profile")
+		return false
+
+	# 4. Valid profile: normal claim succeeds
+	profile.profile_status = LegacyProfileManager.STATUS_LOADED
+	if not vic.is_reward_claimable():
+		print("  [FAIL] is_reward_claimable returned false with valid available profile")
+		return false
+	var pts_valid := vic.claim_legacy_reward()
+	if pts_valid != 100:
+		print("  [FAIL] Expected 100 points, got: %d" % pts_valid)
+		return false
+	if not vic.is_legacy_claimed:
+		print("  [FAIL] is_legacy_claimed was not set to true after successful claim")
+		return false
+	if profile.legacy_balance != 100:
+		print("  [FAIL] Profile legacy balance not updated: %d" % profile.legacy_balance)
+		return false
+
+	# 5. Duplicate claim rejected
+	if vic.is_reward_claimable():
+		print("  [FAIL] is_reward_claimable returned true after claim")
+		return false
+	var pts_dup := vic.claim_legacy_reward()
+	if pts_dup != 0:
+		print("  [FAIL] Duplicate claim awarded points: %d" % pts_dup)
+		return false
+
+	print("  [PASS] Non-persistent fallback eliminated; claims fail closed when profile is missing or unavailable.")
+	return true
+
+func _test_fix_1z_l_world_id_persistence_lifecycle() -> bool:
+	print("--- FIX-1Z-L: World ID Persistence Lifecycle & Gating ---")
+	_cleanup_test_files()
+	var test_save_path := "user://test_lifecycle_save.json"
+	var dir := DirAccess.open("user://")
+	if dir != null:
+		if FileAccess.file_exists(test_save_path): dir.remove(test_save_path)
+		if FileAccess.file_exists(test_save_path + ".bak"): dir.remove(test_save_path + ".bak")
+		if FileAccess.file_exists(test_save_path + ".tmp"): dir.remove(test_save_path + ".tmp")
+
+	# 1. New world starts unpersisted
+	var WorldViewScript = load("res://scripts/world/world_view.gd")
+	var generated_id: String = WorldViewScript.generate_unique_world_id(12345)
+
+	var vic := VictoryManager.new()
+	var profile := LegacyProfileManager.new(TEST_PROFILE_PATH)
+	vic.profile_mgr = profile
+	vic.world_id = generated_id
+	# Initial state must be false
+	if vic.is_world_id_persisted:
+		print("  [FAIL] VictoryManager.is_world_id_persisted did not default to false!")
+		return false
+
+	vic.is_victory_achieved = true
+	vic.legacy_points_earned = 100
+
+	# 2. Victory claims blocked while unpersisted
+	if vic.is_reward_claimable():
+		print("  [FAIL] is_reward_claimable returned true on unpersisted world ID!")
+		return false
+	var pts_unpersisted := vic.claim_legacy_reward()
+	if pts_unpersisted != 0 or vic.is_legacy_claimed:
+		print("  [FAIL] claim_legacy_reward granted points before world save!")
+		return false
+
+	# Create mock world view
+	var mock_script = GDScript.new()
+	mock_script.source_code = "extends Node\nvar world_id = \"\"\nvar world_seed = 12345\nvar is_world_id_persisted = false\nvar victory_mgr = null\n"
+	mock_script.reload()
+	var world_node = Node.new()
+	world_node.set_script(mock_script)
+	world_node.world_id = generated_id
+	world_node.is_world_id_persisted = false
+	world_node.victory_mgr = vic
+
+	# 3. Failed first save keeps is_world_id_persisted == false
+	SaveManager.reset_test_injection()
+	SaveManager._test_inject_fail_tmp_write = true
+	var fail_save_res := SaveManager.save_to_file(world_node, test_save_path)
+	SaveManager.reset_test_injection()
+	if fail_save_res.get("success", true):
+		print("  [FAIL] Injected save failure reported success!")
+		world_node.free()
+		return false
+	if world_node.is_world_id_persisted or vic.is_world_id_persisted:
+		print("  [FAIL] Failed save incorrectly marked world ID as persisted!")
+		world_node.free()
+		return false
+	if vic.claim_legacy_reward() != 0:
+		print("  [FAIL] Claim succeeded after failed save attempt!")
+		world_node.free()
+		return false
+
+	# 4. Successful save sets is_world_id_persisted = true
+	var ok_save_res := SaveManager.save_to_file(world_node, test_save_path)
+	if not ok_save_res.get("success", false):
+		print("  [FAIL] SaveManager.save_to_file failed: %s" % ok_save_res.get("error", ""))
+		world_node.free()
+		return false
+	if not world_node.is_world_id_persisted or not vic.is_world_id_persisted:
+		print("  [FAIL] Successful save failed to set is_world_id_persisted = true!")
+		world_node.free()
+		return false
+
+	# 5. Claims now allowed
+	if not vic.is_reward_claimable():
+		print("  [FAIL] Reward not claimable after successful save!")
+		world_node.free()
+		return false
+	var pts_ok := vic.claim_legacy_reward()
+	if pts_ok != 100:
+		print("  [FAIL] Claim failed after successful save: %d" % pts_ok)
+		world_node.free()
+		return false
+
+	# 6. Load preserves world ID and persisted status
+	var load_res := SaveManager.load_from_file(test_save_path)
+	if not load_res.get("success", false):
+		print("  [FAIL] SaveManager.load_from_file failed: %s" % load_res.get("error", ""))
+		world_node.free()
+		return false
+
+	var reloaded_world = Node.new()
+	reloaded_world.set_script(mock_script)
+	var reloaded_vic = VictoryManager.new()
+	reloaded_world.victory_mgr = reloaded_vic
+
+	var apply_res := SaveManager.apply_loaded_state_to_world(reloaded_world, load_res["data"])
+	if not apply_res.get("success", false):
+		print("  [FAIL] apply_loaded_state_to_world failed: %s" % apply_res.get("error", ""))
+		reloaded_world.free()
+		world_node.free()
+		return false
+	if reloaded_world.world_id != generated_id:
+		print("  [FAIL] Reloaded world ID mismatch: %s != %s" % [reloaded_world.world_id, generated_id])
+		reloaded_world.free()
+		world_node.free()
+		return false
+	if not reloaded_world.is_world_id_persisted or not reloaded_vic.is_world_id_persisted:
+		print("  [FAIL] Reloaded world ID not marked as persisted!")
+		reloaded_world.free()
+		world_node.free()
+		return false
+
+	# 7. Unrelated subsequent write failure does NOT reset is_world_id_persisted on an already-persisted world
+	SaveManager._test_inject_fail_tmp_write = true
+	var fail_second_save := SaveManager.save_to_file(reloaded_world, test_save_path)
+	SaveManager.reset_test_injection()
+	if fail_second_save.get("success", true):
+		print("  [FAIL] Second save injection unexpectedly reported success!")
+		reloaded_world.free()
+		world_node.free()
+		return false
+	if not reloaded_world.is_world_id_persisted or not reloaded_vic.is_world_id_persisted:
+		print("  [FAIL] Unrelated write failure reset already-persisted identity status!")
+		reloaded_world.free()
+		world_node.free()
+		return false
+
+	reloaded_world.free()
+	world_node.free()
+	if dir != null:
+		if FileAccess.file_exists(test_save_path): dir.remove(test_save_path)
+		if FileAccess.file_exists(test_save_path + ".bak"): dir.remove(test_save_path + ".bak")
+		if FileAccess.file_exists(test_save_path + ".tmp"): dir.remove(test_save_path + ".tmp")
+
+	print("  [PASS] World ID persistence lifecycle and gating verified across creation, save, load, and errors.")
+	return true
+
+func _test_fix_1z_m_save_manager_backup_rotation_10_cases() -> bool:
+	print("--- FIX-1Z-M: SaveManager 10 Failure Injection & Backup Rotation Cases ---")
+	_cleanup_test_files()
+	var test_path := "user://test_m_hardening.json"
+	var test_bak := test_path + ".bak"
+	var test_tmp := test_path + ".tmp"
+	var test_bak_tmp := test_path + ".bak.tmp"
+	var dir := DirAccess.open("user://")
+
+	var cleanup_m = func():
+		SaveManager.reset_test_injection()
+		LegacyProfileManager.reset_test_injection()
+		if dir != null:
+			if FileAccess.file_exists(test_path): dir.remove(test_path)
+			if FileAccess.file_exists(test_bak): dir.remove(test_bak)
+			if FileAccess.file_exists(test_tmp): dir.remove(test_tmp)
+			if FileAccess.file_exists(test_bak_tmp): dir.remove(test_bak_tmp)
+
+	var make_data = func(score: int) -> Dictionary:
+		return {
+			"schema_version": 1,
+			"timestamp": "2026-10-31",
+			"metadata": {"world_id": "world_m_hard_1", "world_seed": 100},
+			"resources": {"score": score},
+			"buildings": [],
+			"citizens": []
+		}
+
+	cleanup_m.call()
+
+	# Establish initial valid save
+	SaveManager.save_dict_to_file(make_data.call(10), test_path)
+	SaveManager.save_dict_to_file(make_data.call(20), test_path)
+	# Now primary has 20, backup has 10
+
+	# Case 1: Primary write interrupted (tmp write fail) -> original primary and backup untouched
+	SaveManager._test_inject_fail_tmp_write = true
+	var res1 = SaveManager.save_dict_to_file(make_data.call(30), test_path)
+	SaveManager.reset_test_injection()
+	if res1:
+		print("  [FAIL] Case 1: Expected save_dict_to_file to fail with tmp write failure")
+		cleanup_m.call()
+		return false
+	var read1 = SaveManager.load_from_file(test_path)
+	if int(read1.get("data", {}).get("resources", {}).get("score", 0)) != 20:
+		print("  [FAIL] Case 1: Primary file modified despite tmp write failure!")
+		cleanup_m.call()
+		return false
+
+	# Case 2: Staged backup creation fail -> primary and existing backup untouched
+	SaveManager._test_inject_fail_backup_create = true
+	var res2 = SaveManager.save_dict_to_file(make_data.call(30), test_path)
+	SaveManager.reset_test_injection()
+	if res2:
+		print("  [FAIL] Case 2: Expected failure on staged backup creation failure")
+		cleanup_m.call()
+		return false
+	var read2_bak = SaveManager.load_from_file(test_bak)
+	if int(read2_bak.get("data", {}).get("resources", {}).get("score", 0)) != 10:
+		print("  [FAIL] Case 2: Existing backup damaged on staged backup create failure!")
+		cleanup_m.call()
+		return false
+
+	# Case 3: Staged backup replace fail -> primary and existing backup untouched
+	SaveManager._test_inject_fail_backup_replace = true
+	var res3 = SaveManager.save_dict_to_file(make_data.call(30), test_path)
+	SaveManager.reset_test_injection()
+	if res3:
+		print("  [FAIL] Case 3: Expected failure on backup replace failure")
+		cleanup_m.call()
+		return false
+	var read3_bak = SaveManager.load_from_file(test_bak)
+	if int(read3_bak.get("data", {}).get("resources", {}).get("score", 0)) != 10:
+		print("  [FAIL] Case 3: Existing backup damaged on replace failure!")
+		cleanup_m.call()
+		return false
+
+	# Case 4: Target removal fail -> tmp cleaned, backup untouched
+	SaveManager._test_inject_fail_target_remove = true
+	var res4 = SaveManager.save_dict_to_file(make_data.call(30), test_path)
+	SaveManager.reset_test_injection()
+	if res4:
+		print("  [FAIL] Case 4: Expected failure on target removal failure")
+		cleanup_m.call()
+		return false
+	if FileAccess.file_exists(test_tmp):
+		print("  [FAIL] Case 4: tmp file lingering after removal failure")
+		cleanup_m.call()
+		return false
+
+	# Case 5: Target rename fail -> restored from backup, tmp cleaned
+	SaveManager._test_inject_fail_target_rename = true
+	var res5 = SaveManager.save_dict_to_file(make_data.call(30), test_path)
+	SaveManager.reset_test_injection()
+	if res5:
+		print("  [FAIL] Case 5: Expected failure on target rename failure")
+		cleanup_m.call()
+		return false
+	if not FileAccess.file_exists(test_path):
+		print("  [FAIL] Case 5: Target file missing after rename failure rollback!")
+		cleanup_m.call()
+		return false
+
+	# Case 6: Target rename fail with restore fail -> reported error gracefully
+	SaveManager._test_inject_fail_target_rename = true
+	SaveManager._test_inject_fail_backup_restore = true
+	var res6 = SaveManager.save_dict_to_file(make_data.call(30), test_path)
+	SaveManager.reset_test_injection()
+	if res6:
+		print("  [FAIL] Case 6: Expected failure on rename & restore failure")
+		cleanup_m.call()
+		return false
+
+	# Case 7: Corrupt primary on save -> backup NOT overwritten by bad primary
+	cleanup_m.call()
+	SaveManager.save_dict_to_file(make_data.call(100), test_path)
+	SaveManager.save_dict_to_file(make_data.call(200), test_path) # Now backup has 100
+	# Corrupt the primary
+	var corrupt_f := FileAccess.open(test_path, FileAccess.WRITE)
+	corrupt_f.store_string("{ corrupt json: [")
+	corrupt_f.close()
+	# Save new data (300)
+	var res7 = SaveManager.save_dict_to_file(make_data.call(300), test_path)
+	if not res7:
+		print("  [FAIL] Case 7: save_dict_to_file failed when overwriting corrupt primary")
+		cleanup_m.call()
+		return false
+	# Verify backup still has 100 and was NOT overwritten by corrupt primary
+	var read7_bak = SaveManager.load_from_file(test_bak)
+	if int(read7_bak.get("data", {}).get("resources", {}).get("score", 0)) != 100:
+		print("  [FAIL] Case 7: Backup was overwritten by corrupt primary!")
+		cleanup_m.call()
+		return false
+
+	# Case 8: Corrupt primary on load -> recovers from good backup
+	var corrupt_f2 := FileAccess.open(test_path, FileAccess.WRITE)
+	corrupt_f2.store_string("{ corrupt json again: [")
+	corrupt_f2.close()
+	var res8 = SaveManager.load_from_file(test_path)
+	if not res8.get("success", false) or not res8.get("recovered_from_backup", false):
+		print("  [FAIL] Case 8: Did not recover from backup when primary corrupt: %s" % str(res8))
+		cleanup_m.call()
+		return false
+	if int(res8.get("data", {}).get("resources", {}).get("score", 0)) != 100:
+		print("  [FAIL] Case 8: Recovered data score mismatch!")
+		cleanup_m.call()
+		return false
+
+	# Case 9: Missing primary on load -> recovers from good backup
+	dir.remove(test_path)
+	var res9 = SaveManager.load_from_file(test_path)
+	if not res9.get("success", false) or not res9.get("recovered_from_backup", false):
+		print("  [FAIL] Case 9: Did not recover from backup when primary missing: %s" % str(res9))
+		cleanup_m.call()
+		return false
+
+	# Case 10: Unopenable / empty primary on load -> recovers from good backup
+	var empty_f := FileAccess.open(test_path, FileAccess.WRITE)
+	empty_f.store_string("")
+	empty_f.close()
+	var res10 = SaveManager.load_from_file(test_path)
+	if not res10.get("success", false) or not res10.get("recovered_from_backup", false):
+		print("  [FAIL] Case 10: Did not recover from backup when primary empty: %s" % str(res10))
+		cleanup_m.call()
+		return false
+
+	# ProfileManager failure injection test
+	var prof := LegacyProfileManager.new(TEST_PROFILE_PATH)
+	LegacyProfileManager._test_inject_fail_write = true
+	var r_p1 = prof.claim_reward("prof_inj_1", "victory", 100, "w1")
+	LegacyProfileManager.reset_test_injection()
+	if r_p1.get("success", true) or r_p1.get("reason") != "save_failed":
+		print("  [FAIL] LegacyProfileManager._test_inject_fail_write was not rejected")
+		cleanup_m.call()
+		return false
+	if prof.is_reward_claimed("prof_inj_1") or prof.legacy_balance != 0:
+		print("  [FAIL] LegacyProfileManager failed write did not roll back state")
+		cleanup_m.call()
+		return false
+
+	LegacyProfileManager._test_inject_fail_rename = true
+	var r_p2 = prof.claim_reward("prof_inj_2", "victory", 100, "w1")
+	LegacyProfileManager.reset_test_injection()
+	if r_p2.get("success", true) or r_p2.get("reason") != "save_failed":
+		print("  [FAIL] LegacyProfileManager._test_inject_fail_rename was not rejected")
+		cleanup_m.call()
+		return false
+
+	cleanup_m.call()
+	print("  [PASS] All 10 failure injection scenarios for SaveManager backup rotation and recovery passed.")
+	return true
+
+func _test_fix_1z_n_float_64bit_boundary_precision() -> bool:
+	print("--- FIX-1Z-N: 64-Bit Float Boundary Precision Validation ---")
+	_cleanup_test_files()
+
+	# 1. Test boundaries in LegacyProfileManager._is_valid_integer_val
+	var max_int: int = 9223372036854775807
+	if not LegacyProfileManager._is_valid_integer_val(max_int):
+		print("  [FAIL] MAX_SAFE_INT rejected by LegacyProfileManager._is_valid_integer_val")
+		return false
+
+	var float_upper: float = LegacyProfileManager.FLOAT_INT64_EXCLUSIVE_UPPER # 9223372036854775808.0 (2^63)
+	if LegacyProfileManager._is_valid_integer_val(float_upper):
+		print("  [FAIL] FLOAT_INT64_EXCLUSIVE_UPPER (2^63) was accepted as valid int!")
+		return false
+
+	var largest_safe_float: float = 9223372036854774784.0 # largest float < 2^63
+	if not LegacyProfileManager._is_valid_integer_val(largest_safe_float):
+		print("  [FAIL] largest float < 2^63 rejected by LegacyProfileManager._is_valid_integer_val")
+		return false
+
+	var float_lower: float = LegacyProfileManager.FLOAT_INT64_INCLUSIVE_LOWER # -9223372036854775808.0 (-2^63)
+	if not LegacyProfileManager._is_valid_integer_val(float_lower):
+		print("  [FAIL] FLOAT_INT64_INCLUSIVE_LOWER rejected by LegacyProfileManager._is_valid_integer_val")
+		return false
+
+	# 2. Test boundaries in SaveManager._is_valid_integer_val
+	if not SaveManager._is_valid_integer_val(max_int):
+		print("  [FAIL] MAX_SAFE_INT rejected by SaveManager._is_valid_integer_val")
+		return false
+	if SaveManager._is_valid_integer_val(float_upper):
+		print("  [FAIL] FLOAT_INT64_EXCLUSIVE_UPPER accepted by SaveManager._is_valid_integer_val")
+		return false
+	if not SaveManager._is_valid_integer_val(largest_safe_float):
+		print("  [FAIL] largest float < 2^63 rejected by SaveManager._is_valid_integer_val")
+		return false
+
+	# 3. Test in claim_reward()
+	var mgr := LegacyProfileManager.new(TEST_PROFILE_PATH)
+	var r_overflow := mgr.claim_reward("r_bound_ovf", "victory", float_upper, "world_b1")
+	if r_overflow.get("success", true) or r_overflow.get("reason") != "invalid_amount":
+		print("  [FAIL] claim_reward accepted float 2^63 as amount: %s" % str(r_overflow))
+		return false
+
+	var r_neg_bound := mgr.claim_reward("r_bound_neg", "victory", float_lower, "world_b1")
+	if r_neg_bound.get("success", true) or r_neg_bound.get("reason") != "invalid_amount":
+		print("  [FAIL] claim_reward accepted negative float lower bound: %s" % str(r_neg_bound))
+		return false
+
+	var r_valid_float := mgr.claim_reward("r_bound_valid", "victory", 100.0, "world_b1")
+	if not r_valid_float.get("success", false) or r_valid_float.get("points_awarded") != 100:
+		print("  [FAIL] claim_reward failed for valid whole float 100.0: %s" % str(r_valid_float))
+		return false
+
+	# 4. Test in validate_profile_data()
+	var bad_dict_float_bound = {
+		"schema_version": 1,
+		"profile_id": "test_profile",
+		"legacy_balance": float_upper,
+		"lifetime_legacy_earned": float_upper,
+		"lifetime_legacy_spent": 0,
+		"claimed_rewards": {}
+	}
+	var val_upper = LegacyProfileManager.validate_profile_data(bad_dict_float_bound)
+	if val_upper.get("valid", true):
+		print("  [FAIL] validate_profile_data accepted float_upper for legacy_balance!")
+		return false
+
+	print("  [PASS] 64-bit float boundary precision strictly enforced across all components.")
 	return true

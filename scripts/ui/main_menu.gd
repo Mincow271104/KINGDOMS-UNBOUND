@@ -142,6 +142,7 @@ func _on_start_game() -> void:
 	var WorldViewScript = load("res://scripts/world/world_view.gd")
 	if WorldViewScript != null and WorldViewScript.has_method("generate_unique_world_id"):
 		world_scene.set("world_id", WorldViewScript.generate_unique_world_id(s_val))
+	world_scene.set("is_world_id_persisted", false)
 	
 	var root := get_tree().root
 	root.add_child(world_scene)
@@ -169,6 +170,7 @@ func _on_load_world() -> void:
 	var WorldViewScript = load("res://scripts/world/world_view.gd")
 	if WorldViewScript != null and WorldViewScript.has_method("generate_unique_world_id"):
 		world_scene.set("world_id", WorldViewScript.generate_unique_world_id(s_val))
+	world_scene.set("is_world_id_persisted", false)
 	
 	var root := get_tree().root
 	root.add_child(world_scene)
