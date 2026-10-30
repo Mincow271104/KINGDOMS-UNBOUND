@@ -19,13 +19,20 @@ const VALID_REWARD_SOURCES: Array[String] = [
 	"achievement"
 ]
 
-const ACHIEVEMENTS: Dictionary = {
+const STATUS_UNINITIALIZED: String = "uninitialized"
+const STATUS_NEW_PROFILE: String = "new_profile"
+const STATUS_LOADED: String = "loaded"
+const STATUS_RECOVERED_FROM_BACKUP: String = "recovered_from_backup"
+const STATUS_UNAVAILABLE: String = "unavailable"
+
+static var ACHIEVEMENTS: Dictionary = {
 	"prosperity_victory": {
 		"id": "prosperity_victory",
 		"title": "Thịnh Vượng Toàn Diện",
 		"description": "Duy trì thịnh vượng xuất sắc trong 5 ngày liên tục.",
-		"reward_legacy": 100,
-		"reward_source": "achievement"
+		"reward_legacy": 0,
+		"reward_source": "achievement",
+		"reward_status": "deferred"
 	}
 }
 
@@ -36,6 +43,8 @@ var lifetime_legacy_spent: int = 0
 var claimed_rewards: Dictionary = {} # reward_id (String) -> Dictionary
 var unlocked_achievements: Dictionary = {} # achievement_id (String) -> Dictionary
 var active_filepath: String = DEFAULT_PROFILE_PATH
+var profile_status: String = STATUS_UNINITIALIZED
+var initialization_error: String = ""
 
 static var _instance = null
 
@@ -47,7 +56,6 @@ static func get_instance(filepath: String = "") -> RefCounted:
 	if _instance == null:
 		var script = load("res://scripts/legacy/legacy_profile_manager.gd")
 		_instance = script.new(filepath)
-		_instance.load_profile()
 	elif not filepath.is_empty() and _instance.active_filepath != filepath:
 		_instance.active_filepath = filepath
 		_instance.load_profile()
@@ -64,6 +72,23 @@ func _init(filepath: String = "") -> void:
 		active_filepath = filepath
 	else:
 		active_filepath = DEFAULT_PROFILE_PATH
+	load_profile()
+
+func is_available() -> bool:
+	return profile_status in [STATUS_NEW_PROFILE, STATUS_LOADED, STATUS_RECOVERED_FROM_BACKUP]
+
+func get_status() -> String:
+	return profile_status
+
+func get_initialization_error() -> String:
+	return initialization_error
+
+static func _is_valid_integer_val(val: Variant) -> bool:
+	if val is int:
+		return true
+	if val is float:
+		return not is_nan(float(val)) and not is_inf(float(val)) and floor(float(val)) == float(val)
+	return false
 
 # -----------------------------------------------------------------------------
 # Fail-Closed Data Validation
@@ -76,7 +101,7 @@ static func validate_profile_data(data: Variant) -> Dictionary:
 	if not data.has("schema_version"):
 		return {"valid": false, "error": "Thiếu trường 'schema_version' trong hồ sơ Legacy."}
 	var sv = data["schema_version"]
-	if not (sv is int or (sv is float and floor(float(sv)) == float(sv))):
+	if not _is_valid_integer_val(sv):
 		return {"valid": false, "error": "Trường 'schema_version' không phải số nguyên."}
 	if int(sv) != PROFILE_SCHEMA_VERSION:
 		return {"valid": false, "error": "Phiên bản hồ sơ không tương thích (Đọc được %d, yêu cầu %d)." % [int(sv), PROFILE_SCHEMA_VERSION]}
@@ -91,7 +116,7 @@ static func validate_profile_data(data: Variant) -> Dictionary:
 		if not data.has(k):
 			return {"valid": false, "error": "Thiếu trường '%s' trong hồ sơ Legacy." % k}
 		var val = data[k]
-		if not (val is int or (val is float and not is_nan(float(val)) and not is_inf(float(val)) and floor(float(val)) == float(val))):
+		if not _is_valid_integer_val(val):
 			return {"valid": false, "error": "Trường '%s' phải là số nguyên hợp lệ." % k}
 		if int(val) < 0:
 			return {"valid": false, "error": "Trường '%s' không được âm (%d)." % [k, int(val)]}
@@ -135,7 +160,7 @@ static func validate_profile_data(data: Variant) -> Dictionary:
 		if not r_entry.has("amount"):
 			return {"valid": false, "error": "Phần thưởng '%s' thiếu trường 'amount'." % r_id_str}
 		var amt = r_entry["amount"]
-		if not (amt is int or (amt is float and not is_nan(float(amt)) and not is_inf(float(amt)) and floor(float(amt)) == float(amt))):
+		if not _is_valid_integer_val(amt):
 			return {"valid": false, "error": "Số điểm phần thưởng '%s' không phải số nguyên." % r_id_str}
 		var amt_int = int(amt)
 		if amt_int <= 0:
@@ -202,6 +227,10 @@ func deserialize(data: Dictionary) -> bool:
 # -----------------------------------------------------------------------------
 
 func save_profile(filepath: String = "") -> bool:
+	if not is_available():
+		push_error("LegacyProfileManager: Cannot save while profile is unavailable.")
+		return false
+
 	var target_path = filepath if not filepath.is_empty() else active_filepath
 	var tmp_path = target_path + ".tmp"
 	var bak_path = target_path + ".bak"
@@ -213,6 +242,13 @@ func save_profile(filepath: String = "") -> bool:
 		push_error("LegacyProfileManager.save_profile validation failed: " + val_res.get("error", ""))
 		return false
 
+	var dir_path := target_path.get_base_dir()
+	var dir := DirAccess.open(dir_path if not dir_path.is_empty() else "user://")
+
+	# Clean up any leftover temporary file
+	if dir != null and FileAccess.file_exists(tmp_path):
+		dir.remove(tmp_path)
+
 	var json_str = JSON.stringify(state_dict, "  ")
 
 	# Write to temporary file
@@ -222,22 +258,34 @@ func save_profile(filepath: String = "") -> bool:
 		return false
 
 	file.store_string(json_str)
+	file.flush()
 	file.close()
 
-	# Rotate existing profile to backup
-	if FileAccess.file_exists(target_path):
-		var dir := DirAccess.open("user://")
-		if dir != null:
-			if FileAccess.file_exists(bak_path):
-				dir.remove(bak_path)
-			dir.rename(target_path, bak_path)
+	if not FileAccess.file_exists(tmp_path):
+		push_error("LegacyProfileManager temporary file not found after write: " + tmp_path)
+		return false
+
+	# If existing target file exists, safely copy to backup before replacing
+	if dir != null and FileAccess.file_exists(target_path):
+		if FileAccess.file_exists(bak_path):
+			dir.remove(bak_path)
+		var copy_err := dir.copy(target_path, bak_path)
+		if copy_err != OK:
+			push_error("LegacyProfileManager failed to backup %s to %s (Error: %d)" % [target_path, bak_path, copy_err])
+			dir.remove(tmp_path)
+			return false
+		dir.remove(target_path)
 
 	# Rename temporary file to target
-	var rename_dir := DirAccess.open("user://")
-	if rename_dir != null:
-		var err := rename_dir.rename(tmp_path, target_path)
+	if dir != null:
+		var err := dir.rename(tmp_path, target_path)
 		if err != OK:
 			push_error("LegacyProfileManager failed to rename %s to %s (Error: %d)" % [tmp_path, target_path, err])
+			# Restore target from backup if possible
+			if FileAccess.file_exists(bak_path) and not FileAccess.file_exists(target_path):
+				dir.copy(bak_path, target_path)
+			if FileAccess.file_exists(tmp_path):
+				dir.remove(tmp_path)
 			return false
 
 	profile_saved.emit(target_path)
@@ -247,41 +295,51 @@ func load_profile(filepath: String = "") -> Dictionary:
 	var target_path = filepath if not filepath.is_empty() else active_filepath
 	var bak_path = target_path + ".bak"
 
+	# If neither main nor backup exists -> genuine clean new profile
+	if not FileAccess.file_exists(target_path) and not FileAccess.file_exists(bak_path):
+		_initialize_empty_profile()
+		profile_status = STATUS_NEW_PROFILE
+		initialization_error = ""
+		return {"success": true, "status": STATUS_NEW_PROFILE, "balance": legacy_balance}
+
 	var file_to_read = target_path
 	var used_backup = false
 
+	# If main file doesn't exist, try backup
 	if not FileAccess.file_exists(target_path):
-		if FileAccess.file_exists(bak_path):
-			file_to_read = bak_path
-			used_backup = true
-		else:
-			# Neither main nor backup exists -> initialize clean new profile
-			_initialize_empty_profile()
-			return {"success": true, "status": "new_profile", "balance": legacy_balance}
+		file_to_read = bak_path
+		used_backup = true
 
-	# Read main file or backup
+	# Read file_to_read
 	var loaded_data = _read_and_validate_json_file(file_to_read)
 	if not loaded_data.get("valid", false):
-		# If primary failed, try backup
+		# If primary failed, try backup if available and not yet tried
 		if not used_backup and FileAccess.file_exists(bak_path):
 			var bak_data = _read_and_validate_json_file(bak_path)
 			if bak_data.get("valid", false):
 				var apply_bak = deserialize(bak_data["data"])
 				if apply_bak:
+					profile_status = STATUS_RECOVERED_FROM_BACKUP
+					initialization_error = ""
 					profile_loaded.emit(bak_path)
-					return {"success": true, "status": "recovered_from_backup", "balance": legacy_balance}
+					return {"success": true, "status": STATUS_RECOVERED_FROM_BACKUP, "balance": legacy_balance}
 
-		# Fail closed: Do NOT reset corrupt profile to 0; preserve live state
-		var err_msg = "Không thể tải hồ sơ Legacy do dữ liệu bị lỗi và không có bản sao lưu hợp lệ."
-		push_error(err_msg)
-		return {"success": false, "error": err_msg, "balance": legacy_balance}
+		# Fail closed: Do NOT reset corrupt profile to 0; mark UNAVAILABLE
+		profile_status = STATUS_UNAVAILABLE
+		initialization_error = "Không thể tải hồ sơ Legacy do tệp bị lỗi hoặc hỏng cấu trúc và không có bản sao lưu hợp lệ."
+		push_error(initialization_error)
+		return {"success": false, "status": STATUS_UNAVAILABLE, "error": initialization_error, "balance": legacy_balance}
 
 	var apply_ok = deserialize(loaded_data["data"])
 	if not apply_ok:
-		return {"success": false, "error": "Không thể áp dụng dữ liệu hồ sơ Legacy.", "balance": legacy_balance}
+		profile_status = STATUS_UNAVAILABLE
+		initialization_error = "Không thể áp dụng dữ liệu hồ sơ Legacy."
+		return {"success": false, "status": STATUS_UNAVAILABLE, "error": initialization_error, "balance": legacy_balance}
 
-	profile_loaded.emit(target_path)
-	return {"success": true, "status": "loaded" if not used_backup else "recovered_from_backup", "balance": legacy_balance}
+	profile_status = STATUS_LOADED if not used_backup else STATUS_RECOVERED_FROM_BACKUP
+	initialization_error = ""
+	profile_loaded.emit(file_to_read)
+	return {"success": true, "status": profile_status, "balance": legacy_balance}
 
 func _read_and_validate_json_file(path: String) -> Dictionary:
 	if not FileAccess.file_exists(path):
@@ -316,8 +374,11 @@ func _initialize_empty_profile() -> void:
 
 func reset_profile(filepath: String = "") -> void:
 	_initialize_empty_profile()
+	profile_status = STATUS_NEW_PROFILE
+	initialization_error = ""
 	var target_path = filepath if not filepath.is_empty() else active_filepath
-	var dir := DirAccess.open("user://")
+	var dir_path := target_path.get_base_dir()
+	var dir := DirAccess.open(dir_path if not dir_path.is_empty() else "user://")
 	if dir != null:
 		if FileAccess.file_exists(target_path):
 			dir.remove(target_path)
@@ -334,15 +395,28 @@ func reset_profile(filepath: String = "") -> void:
 func claim_reward(
 	reward_id: String,
 	source: String,
-	amount: int,
+	amount: Variant,
 	world_id: String = "",
 	extra_details: Dictionary = {}
 ) -> Dictionary:
+	if not is_available():
+		return {
+			"success": false,
+			"reason": "profile_unavailable",
+			"error": initialization_error,
+			"points_awarded": 0,
+			"balance": legacy_balance
+		}
+
 	var clean_id = reward_id.strip_edges()
 	if clean_id.is_empty():
 		return {"success": false, "reason": "empty_reward_id", "points_awarded": 0, "balance": legacy_balance}
 
-	if amount <= 0:
+	if not _is_valid_integer_val(amount):
+		return {"success": false, "reason": "invalid_amount", "points_awarded": 0, "balance": legacy_balance}
+
+	var amt_int: int = int(amount)
+	if amt_int <= 0:
 		return {"success": false, "reason": "invalid_amount", "points_awarded": 0, "balance": legacy_balance}
 
 	var clean_src = source.strip_edges()
@@ -362,7 +436,7 @@ func claim_reward(
 	var record: Dictionary = {
 		"reward_id": clean_id,
 		"source": clean_src,
-		"amount": amount,
+		"amount": amt_int,
 		"world_id": world_id.strip_edges(),
 		"claimed_at_unix": int(Time.get_unix_time_from_system()) if Time else 0
 	}
@@ -371,24 +445,24 @@ func claim_reward(
 
 	# Stage mutation
 	claimed_rewards[clean_id] = record
-	legacy_balance += amount
-	lifetime_legacy_earned += amount
+	legacy_balance += amt_int
+	lifetime_legacy_earned += amt_int
 
 	# Atomically persist to disk
 	var save_ok = save_profile()
 	if not save_ok:
 		# Rollback on disk failure to preserve atomic in-memory/disk symmetry
 		claimed_rewards.erase(clean_id)
-		legacy_balance -= amount
-		lifetime_legacy_earned -= amount
+		legacy_balance -= amt_int
+		lifetime_legacy_earned -= amt_int
 		return {"success": false, "reason": "save_failed", "points_awarded": 0, "balance": legacy_balance}
 
-	reward_claimed.emit(clean_id, amount, clean_src, legacy_balance)
+	reward_claimed.emit(clean_id, amt_int, clean_src, legacy_balance)
 	balance_changed.emit(legacy_balance)
 
 	return {
 		"success": true,
-		"points_awarded": amount,
+		"points_awarded": amt_int,
 		"balance": legacy_balance,
 		"record": record
 	}
@@ -403,7 +477,7 @@ func get_claimed_reward(reward_id: String) -> Dictionary:
 	return {}
 
 # -----------------------------------------------------------------------------
-# Achievement Foundation (TASK-1Z.5)
+# Achievement Foundation (TASK-1Z.5 & FIX-1Z-B)
 # -----------------------------------------------------------------------------
 
 func get_achievement_definitions() -> Dictionary:
@@ -413,6 +487,14 @@ func is_achievement_unlocked(achievement_id: String) -> bool:
 	return unlocked_achievements.has(achievement_id.strip_edges())
 
 func unlock_achievement(achievement_id: String, world_id: String = "") -> Dictionary:
+	if not is_available():
+		return {
+			"success": false,
+			"reason": "profile_unavailable",
+			"error": initialization_error,
+			"achievement_id": achievement_id
+		}
+
 	var clean_ach = achievement_id.strip_edges()
 	if not ACHIEVEMENTS.has(clean_ach):
 		return {"success": false, "reason": "unknown_achievement", "achievement_id": clean_ach}
@@ -429,21 +511,64 @@ func unlock_achievement(achievement_id: String, world_id: String = "") -> Dictio
 	var rew_amount: int = int(def.get("reward_legacy", 0))
 	var rew_id: String = "ach_%s" % clean_ach
 
-	var claim_res := claim_reward(rew_id, "achievement", rew_amount, world_id, {"achievement_id": clean_ach})
+	# If this achievement has a documented positive reward, verify it hasn't been claimed
+	if rew_amount > 0 and claimed_rewards.has(rew_id):
+		return {
+			"success": false,
+			"reason": "already_claimed",
+			"achievement_id": clean_ach
+		}
 
-	unlocked_achievements[clean_ach] = {
+	# Stage mutations in memory
+	var ach_record = {
 		"achievement_id": clean_ach,
 		"unlocked_at_unix": int(Time.get_unix_time_from_system()) if Time else 0,
-		"reward_id": rew_id,
-		"world_id": world_id.strip_edges()
+		"reward_id": rew_id if rew_amount > 0 else "",
+		"world_id": world_id.strip_edges(),
+		"reward_status": def.get("reward_status", "awarded" if rew_amount > 0 else "deferred")
 	}
 
-	save_profile()
+	var claim_record = {}
+	if rew_amount > 0:
+		claim_record = {
+			"reward_id": rew_id,
+			"source": "achievement",
+			"amount": rew_amount,
+			"world_id": world_id.strip_edges(),
+			"claimed_at_unix": ach_record["unlocked_at_unix"],
+			"achievement_id": clean_ach
+		}
+		claimed_rewards[rew_id] = claim_record
+		legacy_balance += rew_amount
+		lifetime_legacy_earned += rew_amount
+
+	unlocked_achievements[clean_ach] = ach_record
+
+	# Save atomically to disk
+	var save_ok = save_profile()
+	if not save_ok:
+		# Rollback staged in-memory mutations completely
+		unlocked_achievements.erase(clean_ach)
+		if rew_amount > 0:
+			claimed_rewards.erase(rew_id)
+			legacy_balance -= rew_amount
+			lifetime_legacy_earned -= rew_amount
+		return {
+			"success": false,
+			"reason": "save_failed",
+			"achievement_id": clean_ach
+		}
+
+	if rew_amount > 0:
+		reward_claimed.emit(rew_id, rew_amount, "achievement", legacy_balance)
+		balance_changed.emit(legacy_balance)
 
 	return {
 		"success": true,
 		"achievement_id": clean_ach,
-		"claim_result": claim_res
+		"record": ach_record,
+		"points_awarded": rew_amount,
+		"balance": legacy_balance
 	}
 
 # -----------------------------------------------------------------------------

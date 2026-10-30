@@ -410,20 +410,28 @@
   - **Centralized Exactly-Once Reward-Claim API:**
     - `claim_reward(reward_id, source, amount, world_id, extra_details)` enforces at-most-once reward grants. Duplicate claim attempts with an already-recorded `reward_id` return `success: false`, award `0` points, and preserve balance.
     - Atomic rollback: if disk write fails during claim, staged memory mutations are rolled back cleanly to preserve disk-memory symmetry.
-  - **Victory Reward Integration & Multi-World Support:**
+  - **Victory Reward Integration & Single-Source Invariant (FIX-1Z-A):**
     - `VictoryManager` connects to `LegacyProfileManager` with world-scoped key: `victory_<world_id>`.
-    - Achieving Prosperity Victory after a continuous 5-day hold earns 100 Legacy points.
+    - Achieving Prosperity Victory after a continuous 5-day hold qualifies for exactly 100 Legacy points via the authoritative victory claim.
+    - To eliminate double-award exploits (200 points instead of 100), the `prosperity_victory` achievement awards 0 direct points (`reward_legacy: 0`, `reward_status: "deferred"`), ensuring that 1 victory grants exactly 100 Legacy Fund total across victory claim and achievement unlock.
     - Loading an earlier world save where victory is reached again checks profile claimed records; duplicate reward claims are strictly rejected with 0 points awarded.
-    - Distinct worlds with unique `world_id`s can each legitimately claim their victory reward once.
-  - **Achievement Foundation:**
-    - Seeded with documented `prosperity_victory` achievement (100 Legacy points). Unlocking is profile-scoped (`ach_prosperity_victory`) and can only be awarded once across the entire profile.
-    - Intentionally deferred ungrounded achievements lacking formal simulation rules in GDD.
+  - **Transactional Achievement Foundation & Memory Rollback (FIX-1Z-B):**
+    - `unlock_achievement()` validates achievement ID against registry, stages unlock and claim records, and saves atomically.
+    - If `save_profile()` fails on disk, in-memory state (unlocked dictionary, claimed rewards, balances) is rolled back completely.
+    - Never fabricates unnecessary `claim_reward` records when `reward_legacy == 0`.
+  - **Unique Persistent World IDs & Save Migration (FIX-1Z-C):**
+    - Eliminated seed-only ID collisions (`world_<seed>`) by introducing `WorldView.generate_unique_world_id()` (timestamp + microsecond + seed + counter + salt).
+    - Distinct playthroughs sharing the same seed receive unique world IDs, allowing legitimate victory claims across each world.
+    - Legacy saves lacking `world_id` are automatically migrated on load and immediately persisted to disk. If migration persistence fails, victory claims are gated fail-closed (`is_world_id_persisted == false`).
+  - **Fail-Closed Profile Initialization & UI State Propagation (FIX-1Z-D):**
+    - Explicit profile states: `STATUS_UNINITIALIZED`, `STATUS_NEW_PROFILE`, `STATUS_LOADED`, `STATUS_RECOVERED_FROM_BACKUP`, `STATUS_UNAVAILABLE`.
+    - If both primary and backup files are corrupted, `load_profile()` marks status `STATUS_UNAVAILABLE`, preserves corrupt files on disk without wiping to 0, blocks all reward claims and unlocks, and propagates the error state to `MainMenu` and `InGameHUD`.
   - **Deferred Surplus Treasury Conversion:**
     - Extension point `convert_surplus_treasury()` returns `status: "deferred"`, `converted: false`, 0 points awarded, 0 gold deducted.
     - Explicitly deferred pending authoritative design decisions for conversion formula, stability thresholds, and exchange rates per GDD §13.2.
   - **UI Reflection:**
-    - Main menu (`MainMenu`) displays persistent Legacy balance (`LegacyFundLabel`) updating automatically on profile load or balance changes.
-    - HUD victory panel (`VictoryPanel`) provides interactive claim button (`ClaimVictoryBtn`) and status label (`LegacyStatusLabel`) reflecting authoritative profile state and preventing duplicate claims.
+    - Main menu (`MainMenu`) displays persistent Legacy balance (`LegacyFundLabel`) updating automatically on profile load or balance changes, displaying `[Lỗi Dữ Liệu]` when profile is unavailable.
+    - HUD victory panel (`VictoryPanel`) provides interactive claim button (`ClaimVictoryBtn`) and status label (`LegacyStatusLabel`) reflecting authoritative profile state, disabling claims with error warning if profile is unavailable or unpersisted, and preventing duplicate claims.
 
 ---
 

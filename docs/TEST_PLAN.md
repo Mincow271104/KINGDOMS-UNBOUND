@@ -822,7 +822,17 @@ When Godot Editor is running with the MCP plugin:
     - **Scenario 10 (Double-Claim Exploit Prevention):** Re-claiming an already claimed `reward_id` is rejected (`already_claimed`), awards 0 points, and preserves balance.
     - **Scenario 11 (Multi-World Victory Claim):** Distinct worlds with unique `world_id`s (`world_alpha`, `world_beta`) can each claim their victory reward once (+100 points each, balance becomes 200). Duplicate claim attempts for an existing world are rejected.
     - **Scenario 12 (Older Save Reload Exploit Prevention):** Reloading an older world save where victory is reached again cannot duplicate rewards because `VictoryManager` verifies existing claims with authoritative `LegacyProfileManager`.
-    - **Scenario 13 (Achievement Foundation & Single-Award Invariant):** Seeded `prosperity_victory` achievement can be unlocked once, awarding 100 points. Subsequent unlock attempts across any world are rejected with `already_unlocked`.
+    - **Scenario 13 (Achievement Foundation & Single-Award Invariant):** Seeded `prosperity_victory` achievement can be unlocked once without direct points (`reward_legacy: 0`, deferred to victory claim per FIX-1Z-A). Subsequent unlock attempts across any world are rejected with `already_unlocked`.
     - **Scenario 14 (Deferred Surplus Treasury Conversion):** Extension point `convert_surplus_treasury()` returns `status: "deferred"`, `converted: false`, 0 points awarded, 0 gold deducted.
     - **Scenario 15 (UI & Victory Claim Reflection):** Verifies that `VictoryManager.is_reward_claimable()` logic transitions seamlessly from true to false and reflects accurately in HUD and Main Menu displays.
-  - *Status:* **PASSED** (2026-10-31, Exit Code 0: 15/15 test scenarios passed).
+    - **Expanded Test 1 (Double Reward Elimination — FIX-1Z-A):** Complete prosperity victory grants exactly 100 Legacy Fund total across victory claim and achievement unlock (not 200).
+    - **Expanded Test 2 (Achievement Persistence Failure Rollback — FIX-1Z-B):** Simulates disk save failure during `unlock_achievement()`; verifies complete in-memory rollback of achievement unlock, claimed rewards, and balances.
+    - **Expanded Test 3 (Profile Initialization Failure Unavailable — FIX-1Z-D):** Corrupted profile + corrupted backup leaves profile unavailable (`is_available() == false`, status `STATUS_UNAVAILABLE`) and does not delete or wipe corrupt files to 0.
+    - **Expanded Test 4 (Claims Rejected While Profile Unavailable — FIX-1Z-D):** Both `claim_reward` and `unlock_achievement` return clear `profile_unavailable` errors when profile is unavailable without mutating balances.
+    - **Expanded Test 5 (Identical Seeds Have Distinct World IDs — FIX-1Z-C):** Successive calls to `WorldView.generate_unique_world_id()` with identical seed values produce distinct IDs, eliminating seed-based claim collision.
+    - **Expanded Test 6 (World ID Persistence on Save / Load — FIX-1Z-C):** World ID is serialized in save file metadata, verified on load, and legacy saves lacking `world_id` are automatically migrated and persisted to disk.
+    - **Expanded Test 7 (Unpersisted Migration Prevents Unsafe Claims — FIX-1Z-C):** When world ID migration fails to persist to disk (`is_world_id_persisted == false`), victory claims are strictly gated fail-closed.
+    - **Expanded Test 8 (Atomic Write Failure and Rollback):** Disk save failure during `claim_reward` triggers complete rollback of claimed reward records and balances.
+    - **Expanded Test 9 (Float / NaN / Inf Rejection Fail-Closed):** Rejects NaN, Inf, non-integer floats, and negative reward amounts fail-closed in both `claim_reward()` and `validate_profile_data()`.
+    - **Expanded Test 10 (Failed Operations Leave State Unchanged):** Balance, earned points, spent points, and claimed records remain strictly invariant after rejected claim attempts.
+  - *Status:* **PASSED** (2026-10-31, Exit Code 0: 25/25 tests passed).

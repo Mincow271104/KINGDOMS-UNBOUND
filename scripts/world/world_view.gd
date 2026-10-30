@@ -15,6 +15,15 @@ const LegacyProfileManagerScript = preload("res://scripts/legacy/legacy_profile_
 
 @export var world_seed: int = 12345
 @export var world_id: String = ""
+var is_world_id_persisted: bool = true
+static var _world_id_counter: int = 0
+
+static func generate_unique_world_id(seed_val: int = 0) -> String:
+	_world_id_counter += 1
+	var unix_t: int = int(Time.get_unix_time_from_system()) if Time else 0
+	var ticks_usec: int = Time.get_ticks_usec() if Time else 0
+	var rand_val: int = randi() & 0xFFFFFFFF
+	return "world_%d_%d_%d_%d_%x" % [seed_val, unix_t, ticks_usec, _world_id_counter, rand_val]
 
 @onready var terrain_layer: Node2D = $World/TerrainLayer
 @onready var entity_container: Node2D = $World/Entities
@@ -179,10 +188,11 @@ func _generate_and_build_world() -> void:
 	faction_mgr = FactionManager.new()
 	immigration_mgr = ImmigrationManager.new(world_seed + 777)
 	if world_id.strip_edges().is_empty():
-		world_id = "world_%d" % world_seed
+		world_id = generate_unique_world_id(world_seed)
 	victory_mgr = VictoryManager.new()
 	victory_mgr.profile_mgr = LegacyProfileManagerScript.get_instance()
 	victory_mgr.world_id = world_id
+	victory_mgr.is_world_id_persisted = is_world_id_persisted
 	battle_campaign_mgr = BattleCampaignManagerScript.new(self, faction_mgr, world_seed)
 	player_army_mgr = PlayerArmyManagerScript.new(self)
 	tactical_military_mgr = TacticalMilitaryManagerScript.new(self, player_army_mgr)
@@ -518,7 +528,7 @@ func _setup_army_marker() -> void:
 	if citizens_container == null:
 		return
 	if army_marker != null and is_instance_valid(army_marker):
-		if not army_marker.is_inside_tree():
+		if not army_marker.is_inside_tree() and army_marker.get_parent() == null:
 			citizens_container.add_child(army_marker)
 		army_marker.set_player_army_manager(player_army_mgr)
 		army_marker.update_display()

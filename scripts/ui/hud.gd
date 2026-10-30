@@ -1482,7 +1482,8 @@ func _refresh_victory_claim_state(report: Dictionary = {}) -> void:
 		vic_mgr = world_view_ref.get("victory_mgr")
 
 	var profile = LegacyProfileManagerScript.get_instance()
-	var current_bal: int = profile.legacy_balance if profile else 0
+	var is_profile_available: bool = bool(profile != null and profile.has_method("is_available") and profile.is_available())
+	var current_bal: int = profile.legacy_balance if (profile and is_profile_available) else 0
 
 	var is_claimed = false
 	if vic_mgr != null:
@@ -1491,7 +1492,10 @@ func _refresh_victory_claim_state(report: Dictionary = {}) -> void:
 		is_claimed = bool(report["legacy_claimed"])
 
 	if claim_victory_btn:
-		if is_claimed:
+		if not is_profile_available:
+			claim_victory_btn.disabled = true
+			claim_victory_btn.text = "Hồ Sơ Lỗi (Không Thể Nhận)"
+		elif is_claimed:
 			claim_victory_btn.disabled = true
 			claim_victory_btn.text = "Đã Nhận Di Sản"
 		else:
@@ -1499,7 +1503,9 @@ func _refresh_victory_claim_state(report: Dictionary = {}) -> void:
 			claim_victory_btn.text = "Nhận Di Sản (+100)"
 
 	if legacy_status_label:
-		if is_claimed:
+		if not is_profile_available:
+			legacy_status_label.text = "⚠️ Hồ sơ Quỹ Di Sản bị lỗi hoặc không khả dụng. Không thể nhận thưởng."
+		elif is_claimed:
 			legacy_status_label.text = "Thưởng chiến thắng đã được ghi nhận vào Quỹ Di Sản. (Số dư: %d điểm)" % current_bal
 		else:
 			legacy_status_label.text = "Sẵn sàng nhận thưởng: +100 điểm Di Sản. (Số dư hiện tại: %d điểm)" % current_bal
@@ -1514,6 +1520,12 @@ func _on_claim_victory_btn_pressed() -> void:
 			show_event_banner("Nhận Thưởng Di Sản", "Đã cộng +%d điểm vào Quỹ Di Sản thành công!" % pts, true, 4.0)
 			var am = get_node_or_null("/root/AudioManager")
 			if am: am.play_coin()
+		else:
+			var profile = LegacyProfileManagerScript.get_instance()
+			if profile != null and profile.has_method("is_available") and not profile.is_available():
+				show_event_banner("Lỗi Hồ Sơ Di Sản", "Không thể nhận thưởng: Hồ sơ di sản bị hỏng hoặc không thể ghi đĩa.", false, 4.0)
+			elif vic_mgr.has_method("is_reward_claimable") and not vic_mgr.is_reward_claimable():
+				show_event_banner("Không Thể Nhận", "Phần thưởng chiến thắng không hợp lệ hoặc thế giới chưa được lưu an toàn.", false, 4.0)
 		_refresh_victory_claim_state()
 
 func show_collapse_panel(report: Dictionary) -> void:

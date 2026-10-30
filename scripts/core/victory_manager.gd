@@ -40,6 +40,7 @@ var legacy_points_earned: int = 0
 var is_legacy_claimed: bool = false
 var profile_mgr: RefCounted = null
 var world_id: String = ""
+var is_world_id_persisted: bool = true
 
 func calculate_stability(food_stock: int, treasury_stock: int, pop: int, housing_cap: int, avg_morale: float, town_hall_alive: bool) -> float:
 	var stability: float = 0.0
@@ -222,25 +223,49 @@ func _evaluate_crises(food: int, treasury: int, morale: float, stability: float,
 func record_event(event_description: String) -> void:
 	major_events.append(event_description)
 
+static func is_valid_world_id(wid: String) -> bool:
+	var clean := wid.strip_edges()
+	if clean.is_empty():
+		return false
+	var parts := clean.split("_")
+	# Legacy seed-only format: "world_<integer>"
+	if parts.size() == 2 and parts[0] == "world" and parts[1].is_valid_int():
+		return false
+	return true
+
 func is_reward_claimable() -> bool:
 	if not is_victory_achieved:
 		return false
 	if legacy_points_earned <= 0:
 		return false
+	if not is_world_id_persisted:
+		return false
 	if profile_mgr != null:
-		var target_id = "victory_" + world_id if not world_id.is_empty() else "victory_default"
+		if not is_valid_world_id(world_id):
+			return false
+		if profile_mgr.has_method("is_available") and not profile_mgr.is_available():
+			return false
+		var target_id = "victory_" + world_id.strip_edges()
 		if profile_mgr.has_method("is_reward_claimed") and profile_mgr.is_reward_claimed(target_id):
 			return false
+	elif not world_id.is_empty() and not is_valid_world_id(world_id):
+		return false
 	return not is_legacy_claimed
 
 func claim_legacy_reward(custom_reward_id: String = "") -> int:
 	if not is_victory_achieved:
 		return 0
+	if not is_world_id_persisted:
+		return 0
 	if profile_mgr != null:
+		if not is_valid_world_id(world_id):
+			return 0
+		if profile_mgr.has_method("is_available") and not profile_mgr.is_available():
+			return 0
 		var target_id = custom_reward_id.strip_edges()
 		if target_id.is_empty():
-			target_id = "victory_" + world_id if not world_id.is_empty() else "victory_default"
-		var res: Dictionary = profile_mgr.claim_reward(target_id, "victory", legacy_points_earned, world_id)
+			target_id = "victory_" + world_id.strip_edges()
+		var res: Dictionary = profile_mgr.claim_reward(target_id, "victory", legacy_points_earned, world_id.strip_edges())
 		if res.get("success", false):
 			is_legacy_claimed = true
 			return int(res.get("points_awarded", 0))
@@ -250,6 +275,8 @@ func claim_legacy_reward(custom_reward_id: String = "") -> int:
 			return 0
 	else:
 		# Fallback for headless tests where profile_mgr is null
+		if not world_id.is_empty() and not is_valid_world_id(world_id):
+			return 0
 		if is_legacy_claimed:
 			return 0 # Prevent duplicate claim
 		is_legacy_claimed = true
@@ -261,7 +288,7 @@ func generate_summary_report(outcome: String, pop: int, food: int, treasury: int
 
 	var claimed = is_legacy_claimed
 	if profile_mgr != null and profile_mgr.has_method("is_reward_claimed"):
-		var target_id = "victory_" + world_id if not world_id.is_empty() else "victory_default"
+		var target_id = "victory_" + world_id.strip_edges() if not world_id.strip_edges().is_empty() else "victory_default"
 		if profile_mgr.is_reward_claimed(target_id):
 			claimed = true
 	

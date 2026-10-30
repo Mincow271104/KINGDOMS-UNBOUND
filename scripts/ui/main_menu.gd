@@ -72,12 +72,22 @@ func _ready() -> void:
 func _refresh_legacy_display() -> void:
 	if legacy_fund_label:
 		var profile = LegacyProfileManagerScript.get_instance()
-		var bal: int = profile.legacy_balance if profile else 0
+		if profile == null:
+			legacy_fund_label.text = "🏛️ Quỹ Di Sản: Không khả dụng"
+			return
+		if profile.has_method("is_available") and not profile.is_available():
+			legacy_fund_label.text = "🏛️ Quỹ Di Sản: [Lỗi Dữ Liệu]"
+			return
+		var bal: int = profile.legacy_balance
 		legacy_fund_label.text = "🏛️ Quỹ Di Sản: %d điểm" % bal
 
 func _on_legacy_balance_changed(new_balance: int) -> void:
 	if legacy_fund_label:
-		legacy_fund_label.text = "🏛️ Quỹ Di Sản: %d điểm" % new_balance
+		var profile = LegacyProfileManagerScript.get_instance()
+		if profile != null and profile.has_method("is_available") and not profile.is_available():
+			legacy_fund_label.text = "🏛️ Quỹ Di Sản: [Lỗi Dữ Liệu]"
+		else:
+			legacy_fund_label.text = "🏛️ Quỹ Di Sản: %d điểm" % new_balance
 
 func _setup_difficulty_options() -> void:
 	difficulty_options.clear()
@@ -129,6 +139,9 @@ func _on_start_game() -> void:
 	# Instantiates WorldView scene
 	var world_scene: Node = load("res://scenes/world/world_view.tscn").instantiate()
 	world_scene.set("world_seed", s_val)
+	var WorldViewScript = load("res://scripts/world/world_view.gd")
+	if WorldViewScript != null and WorldViewScript.has_method("generate_unique_world_id"):
+		world_scene.set("world_id", WorldViewScript.generate_unique_world_id(s_val))
 	
 	var root := get_tree().root
 	root.add_child(world_scene)
@@ -153,6 +166,9 @@ func _on_load_world() -> void:
 	# Instantiates WorldView scene
 	var world_scene: Node = load("res://scenes/world/world_view.tscn").instantiate()
 	world_scene.set("world_seed", s_val)
+	var WorldViewScript = load("res://scripts/world/world_view.gd")
+	if WorldViewScript != null and WorldViewScript.has_method("generate_unique_world_id"):
+		world_scene.set("world_id", WorldViewScript.generate_unique_world_id(s_val))
 	
 	var root := get_tree().root
 	root.add_child(world_scene)

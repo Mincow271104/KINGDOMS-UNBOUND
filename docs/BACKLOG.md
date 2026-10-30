@@ -374,3 +374,9 @@
 - [x] **TASK-1Z.8:** Automated Test Suite:
   - Created headless test suite `scripts/test/test_legacy_fund.gd` covering 15 scenarios (15/15 passed, Exit Code 0).
   - Full regression test run verified across existing packages (Phase 7, Save/Load, Automation Graph, Automation Delay/Repeat, Factions & Battles, Tactical Military, Field Siege) with zero regressions.
+- [x] **TASK-1Z.AUDIT:** Post-Implementation Audit & Critical Hardening Fixes:
+  - **FIX-1Z-A (Double Legacy Reward Elimination):** Deferred direct points from `prosperity_victory` achievement (`reward_legacy: 0`, `reward_status: "deferred"`), keeping `claim_reward("victory_" + world_id, "victory", 100, world_id)` as the authoritative single source of victory points (ensuring 1 victory = exactly 100 Legacy points total).
+  - **FIX-1Z-B (Transactional Achievement Unlock & Memory Rollback):** Added achievement ID validation against registry, staged memory mutations, and implemented atomic in-memory rollback if disk write fails. Never creates fabricated claim records when `reward_legacy == 0`.
+  - **FIX-1Z-C (Unique Persistent World IDs & Legacy Save Migration):** Eliminated `world_<seed>` collision bug by implementing `WorldView.generate_unique_world_id()`; updated `SaveManager` to migrate legacy saves missing `world_id` and persist them immediately; gated claims via `is_world_id_persisted` to block unsafe claims if disk persistence fails.
+  - **FIX-1Z-D (Fail-Closed Profile Initialization & Error Propagation):** Added explicit status tracking (`STATUS_UNINITIALIZED`, `STATUS_NEW_PROFILE`, `STATUS_LOADED`, `STATUS_RECOVERED_FROM_BACKUP`, `STATUS_UNAVAILABLE`); when corrupted, preserves files without wiping to 0, blocks claims, and propagates unavailable state to UI.
+  - **Expanded Testing:** Expanded `scripts/test/test_legacy_fund.gd` to 25 automated tests covering all 10 explicit audit requirements with 0 failures.

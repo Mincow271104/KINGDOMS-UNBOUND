@@ -43,8 +43,22 @@ static func serialize_world_state(world_view: Node) -> Dictionary:
 	# 1. Metadata
 	var wid_val = world_view.get("world_id")
 	var wid_str: String = str(wid_val).strip_edges() if wid_val != null else ""
-	if wid_str.is_empty():
-		wid_str = "world_%d" % int(world_view.get("world_seed"))
+	var VictoryManagerScript = load("res://scripts/core/victory_manager.gd")
+	var needs_new_id: bool = wid_str.is_empty()
+	if not needs_new_id and VictoryManagerScript != null and VictoryManagerScript.has_method("is_valid_world_id"):
+		needs_new_id = not VictoryManagerScript.is_valid_world_id(wid_str)
+	if needs_new_id:
+		var s_val: int = int(world_view.get("world_seed")) if world_view.get("world_seed") != null else 0
+		var WorldViewScript = load("res://scripts/world/world_view.gd")
+		if WorldViewScript != null and WorldViewScript.has_method("generate_unique_world_id"):
+			wid_str = WorldViewScript.generate_unique_world_id(s_val)
+		else:
+			wid_str = "world_%d_%d_%d" % [s_val, int(Time.get_unix_time_from_system()) if Time else 0, randi() & 0xFFFF]
+		world_view.set("world_id", wid_str)
+		var vic_mgr = world_view.get("victory_mgr")
+		if vic_mgr != null:
+			vic_mgr.set("world_id", wid_str)
+
 	data["metadata"] = {
 		"world_seed": world_view.get("world_seed"),
 		"world_id": wid_str,
@@ -273,40 +287,62 @@ static func serialize_world_state(world_view: Node) -> Dictionary:
 
 	return data
 
-static func save_to_file(world_view: Node, filepath: String = DEFAULT_SAVE_PATH) -> Dictionary:
+static func save_dict_to_file(data: Dictionary, filepath: String) -> bool:
 	ensure_save_directory()
-	var state_dict := serialize_world_state(world_view)
-	var json_string := JSON.stringify(state_dict, "\t")
-	
-	# Atomic write pattern: write to .tmp first
+	var json_string := JSON.stringify(data, "\t")
 	var tmp_path := filepath + ".tmp"
 	var bak_path := filepath + ".bak"
-	
+
+	var dir_path := filepath.get_base_dir()
+	var dir := DirAccess.open(dir_path if not dir_path.is_empty() else "user://")
+
+	# Clean up any stale tmp
+	if dir != null and FileAccess.file_exists(tmp_path):
+		dir.remove(tmp_path)
+
 	var file := FileAccess.open(tmp_path, FileAccess.WRITE)
 	if file == null:
-		var err_msg := "Không thể mở tệp tạm để ghi: %s (Mã lỗi: %d)" % [tmp_path, FileAccess.get_open_error()]
-		return {"success": false, "error": err_msg}
-		
+		return false
+
 	file.store_string(json_string)
 	file.flush()
 	file.close()
-	
-	# If main save exists, backup to .bak
+
+	if dir == null:
+		return false
+
+	# Backup existing target to .bak
 	if FileAccess.file_exists(filepath):
-		var dir := DirAccess.open("user://")
-		if dir != null:
-			if FileAccess.file_exists(bak_path):
-				dir.remove(bak_path)
-			dir.copy(filepath, bak_path)
-			dir.remove(filepath)
-			
-	# Move .tmp to target filepath
-	var rename_dir := DirAccess.open("user://")
-	if rename_dir != null:
-		var rename_err := rename_dir.rename(tmp_path, filepath)
-		if rename_err != OK:
-			return {"success": false, "error": "Không thể hoàn tất tệp lưu trữ (Lỗi đổi tên: %d)" % rename_err}
-			
+		if FileAccess.file_exists(bak_path):
+			dir.remove(bak_path)
+		dir.copy(filepath, bak_path)
+		dir.remove(filepath)
+
+	var rename_err := dir.rename(tmp_path, filepath)
+	if rename_err != OK:
+		# Clean tmp and attempt restoring from backup
+		if FileAccess.file_exists(tmp_path):
+			dir.remove(tmp_path)
+		if FileAccess.file_exists(bak_path) and not FileAccess.file_exists(filepath):
+			dir.copy(bak_path, filepath)
+		return false
+
+	return true
+
+static func save_to_file(world_view: Node, filepath: String = DEFAULT_SAVE_PATH) -> Dictionary:
+	ensure_save_directory()
+	var state_dict := serialize_world_state(world_view)
+	var save_ok := save_dict_to_file(state_dict, filepath)
+	if not save_ok:
+		return {"success": false, "error": "Không thể ghi bản lưu vào tệp: %s" % filepath}
+
+	if world_view != null:
+		world_view.set("is_world_id_persisted", true)
+		var vic_mgr = world_view.get("victory_mgr")
+		if vic_mgr != null:
+			vic_mgr.set("is_world_id_persisted", true)
+
+	var json_string := JSON.stringify(state_dict, "\t")
 	return {"success": true, "path": filepath, "bytes": json_string.length()}
 
 static func _is_valid_integer_val(val: Variant) -> bool:
@@ -1060,6 +1096,31 @@ static func load_from_file(filepath: String = DEFAULT_SAVE_PATH) -> Dictionary:
 	if not val_res["valid"]:
 		return {"success": false, "error": val_res["error"]}
 
+	# World ID verification & migration for legacy saves
+	var meta: Dictionary = data.get("metadata", {})
+	var raw_wid = meta.get("world_id")
+	var wid_str: String = str(raw_wid).strip_edges() if raw_wid != null else ""
+	var VictoryManagerScript = load("res://scripts/core/victory_manager.gd")
+	var is_legacy: bool = wid_str.is_empty()
+	if not is_legacy and VictoryManagerScript != null and VictoryManagerScript.has_method("is_valid_world_id"):
+		is_legacy = not VictoryManagerScript.is_valid_world_id(wid_str)
+
+	if is_legacy:
+		var s_val: int = int(meta.get("world_seed", 0))
+		var WorldViewScript = load("res://scripts/world/world_view.gd")
+		var new_id: String = ""
+		if WorldViewScript != null and WorldViewScript.has_method("generate_unique_world_id"):
+			new_id = WorldViewScript.generate_unique_world_id(s_val)
+		else:
+			new_id = "world_%d_%d_%d" % [s_val, int(Time.get_unix_time_from_system()) if Time else 0, randi() & 0xFFFF]
+		meta["world_id"] = new_id
+		data["metadata"] = meta
+		# Attempt to persist migrated save to disk immediately
+		var save_migrated_ok: bool = save_dict_to_file(data, filepath)
+		if not save_migrated_ok:
+			meta["migration_save_failed"] = true
+			data["metadata"] = meta
+
 	return {"success": true, "data": data, "path": filepath}
 
 static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionary) -> Dictionary:
@@ -1079,14 +1140,21 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 	var restored_world_id: String = ""
 	if meta_data.has("world_id") and not str(meta_data["world_id"]).strip_edges().is_empty():
 		restored_world_id = str(meta_data["world_id"]).strip_edges()
-	elif meta_data.has("world_seed"):
-		restored_world_id = "world_%d" % int(meta_data["world_seed"])
+
+	var migration_failed: bool = meta_data.get("migration_save_failed", false)
+	var is_persisted: bool = not migration_failed and not restored_world_id.is_empty()
+	var VictoryManagerScript = load("res://scripts/core/victory_manager.gd")
+	if is_persisted and VictoryManagerScript != null and VictoryManagerScript.has_method("is_valid_world_id"):
+		if not VictoryManagerScript.is_valid_world_id(restored_world_id):
+			is_persisted = false
 
 	if not restored_world_id.is_empty():
 		world_view.set("world_id", restored_world_id)
+		world_view.set("is_world_id_persisted", is_persisted)
 		var vic_mgr = world_view.get("victory_mgr")
 		if vic_mgr != null:
 			vic_mgr.set("world_id", restored_world_id)
+			vic_mgr.set("is_world_id_persisted", is_persisted)
 
 	# 1. Restore Game Clock
 	var clock_data: Dictionary = loaded_data.get("game_clock", {})
@@ -1151,7 +1219,8 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 		for child in buildings_container.get_children():
 			buildings_container.remove_child(child)
 			child.queue_free()
-	world_view.get("buildings_by_cell").clear()
+	if world_view.get("buildings_by_cell") != null:
+		world_view.get("buildings_by_cell").clear()
 	
 	if world_data != null:
 		world_data.buildings.clear()
@@ -1481,5 +1550,7 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 		if not fs_ok:
 			return {"success": false, "error": "Khôi phục dữ liệu công thành 'field_siege' thất bại."}
 
-	print("[SaveManager] Loaded world state restored successfully (%d citizens, %d buildings)" % [world_view.get("citizen_list").size(), world_data.buildings.size()])
+	var cit_count: int = world_view.get("citizen_list").size() if world_view.get("citizen_list") != null else 0
+	var bld_count: int = world_data.buildings.size() if world_data != null and world_data.get("buildings") != null else 0
+	print("[SaveManager] Loaded world state restored successfully (%d citizens, %d buildings)" % [cit_count, bld_count])
 	return {"success": true}

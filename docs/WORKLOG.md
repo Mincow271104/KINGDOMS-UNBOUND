@@ -6989,3 +6989,94 @@ Implement Package 1Z: **Legacy Fund & Meta-Progression Foundation** for `Mincow2
 - Commit all changes with `feat(legacy): implement persistent legacy fund foundation`.
 - Push commit to remote branch `origin/feat/package-1z-legacy-fund-foundation`.
 - Provide comprehensive completion report.
+
+---
+
+## [2026-10-31] Milestone 36: Package 1Z — Post-Implementation Audit & Critical Hardening Fixes (Completed)
+
+### Context & Objective
+Execute the corrective post-implementation audit of Package 1Z: **Legacy Fund & Meta-Progression Foundation** on branch `feat/package-1z-legacy-fund-foundation`:
+1. **FIX-1Z-A:** Eliminate double legacy reward on Prosperity Victory (previously 100 via achievement + 100 via victory claim = 200 total; must be exactly 100 total).
+2. **FIX-1Z-B:** Atomic achievement unlock with transactional rollback upon disk save failure.
+3. **FIX-1Z-C:** Unique persistent world IDs (`generate_unique_world_id()`), eliminating deterministic `world_<seed>` collision across playthroughs, and migrating legacy saves with fail-closed claim gating if disk migration fails.
+4. **FIX-1Z-D:** Fail-closed profile initialization with explicit status tracking (`STATUS_UNINITIALIZED`, `STATUS_NEW_PROFILE`, `STATUS_LOADED`, `STATUS_RECOVERED_FROM_BACKUP`, `STATUS_UNAVAILABLE`), file corruption preservation without zeroing, and error propagation to UI.
+5. **Persistence Hardening:** Robust atomic write pattern in `save_profile()` and `SaveManager.save_dict_to_file()`, cleaning stale `.tmp` files and restoring targets from `.bak` if rename fails.
+6. **Expanded Automated Test Suite:** 25 total tests in `scripts/test/test_legacy_fund.gd` covering all 10 explicit audit requirements with zero regressions.
+
+### Completed Work
+1. **Double Reward Elimination (`scripts/legacy/legacy_profile_manager.gd`, `scripts/core/victory_manager.gd`):**
+   - Updated `ACHIEVEMENTS["prosperity_victory"]` to specify `reward_legacy: 0`, `reward_status: "deferred"`.
+   - Maintained `claim_reward("victory_" + world_id, "victory", 100, world_id)` as the sole authorized award of victory Legacy points.
+   - Guaranteed that achieving prosperity victory grants exactly 100 Legacy Fund total across victory claim and achievement unlock.
+2. **Transactional Achievement Unlock & Memory Rollback (`scripts/legacy/legacy_profile_manager.gd`):**
+   - `unlock_achievement()` validates `achievement_id` against registry.
+   - For achievements with `reward_legacy > 0`, verifies reward hasn't been claimed yet.
+   - Stages in-memory mutations for achievement unlock and reward records.
+   - If `save_profile()` fails on disk, rolls back all staged in-memory mutations (`unlocked_achievements`, `claimed_rewards`, `legacy_balance`, `lifetime_legacy_earned`) and returns `{"success": false, "reason": "save_failed"}`.
+   - Omits fabricated `claim_reward` records when `reward_legacy == 0`.
+   - Returns clear `profile_unavailable` failure without memory mutation if profile is unavailable.
+3. **Unique Persistent World IDs & Save Migration (`scripts/world/world_view.gd`, `scripts/persistence/save_manager.gd`, `scripts/core/victory_manager.gd`, `scripts/ui/main_menu.gd`, `scripts/ui/hud.gd`):**
+   - Implemented `WorldView.generate_unique_world_id(seed_val)` utilizing timestamp, microsecond ticks, counter, and random salt.
+   - `WorldView` initializes `world_id` with this generator on new world generation; `MainMenu._on_start_game()` sets this unique ID before instantiating the world scene.
+   - `SaveManager` always persists `world_id` in metadata. On loading legacy saves missing `world_id` or using legacy `world_<seed>` format, automatically migrates to a unique ID and persists to disk immediately via `save_dict_to_file()`.
+   - If migration persistence fails, sets `migration_save_failed = true` and `is_world_id_persisted = false`.
+   - `VictoryManager.is_reward_claimable()` and `claim_legacy_reward()` verify `is_world_id_persisted == true` and `is_valid_world_id(world_id) == true`, gating claims fail-closed on unpersisted or seed-only IDs.
+4. **Fail-Closed Profile Initialization (`scripts/legacy/legacy_profile_manager.gd`, `scripts/ui/main_menu.gd`, `scripts/ui/hud.gd`):**
+   - Added profile status constants: `STATUS_UNINITIALIZED`, `STATUS_NEW_PROFILE`, `STATUS_LOADED`, `STATUS_RECOVERED_FROM_BACKUP`, `STATUS_UNAVAILABLE`.
+   - `is_available()` returns `true` only for loaded/recovered/new profiles.
+   - If both primary and backup files are corrupted, `load_profile()` marks status `STATUS_UNAVAILABLE`, records `initialization_error`, preserves corrupt files on disk without wiping to 0 bytes, and blocks all reward claims and unlocks.
+   - `MainMenu` displays `[Lỗi Dữ Liệu]` when profile is unavailable.
+   - `InGameHUD` disables `ClaimVictoryBtn` with `Hồ Sơ Lỗi (Không Thể Nhận)` and displays a warning status banner if profile is unavailable.
+5. **Persistence Hardening (`scripts/legacy/legacy_profile_manager.gd`, `scripts/persistence/save_manager.gd`):**
+   - In `LegacyProfileManager.save_profile()` and `SaveManager.save_dict_to_file()`: cleans stale `.tmp` files, backs up existing targets to `.bak`, flushes buffers, and restores targets from `.bak` if renaming fails.
+   - Rejects non-integer, NaN, Inf, and non-numeric amounts fail-closed using `_is_valid_integer_val()`.
+6. **Expanded Automated Test Suite (`scripts/test/test_legacy_fund.gd`):**
+   - Authored 10 expanded test functions covering all requirements:
+     - Expanded Test 1: Double reward elimination (exactly 100 points total).
+     - Expanded Test 2: Achievement persistence failure complete memory rollback.
+     - Expanded Test 3: Corrupted profile + backup leaves profile unavailable without file deletion/zeroing.
+     - Expanded Test 4: Reward claims and unlocks rejected while profile is unavailable.
+     - Expanded Test 5: Identical seeds produce distinct world IDs across successive generations.
+     - Expanded Test 6: World ID persistence on save/load and legacy migration persistence.
+     - Expanded Test 7: Unpersisted world ID migration gates victory claims fail-closed.
+     - Expanded Test 8: Disk write failure during claim triggers complete atomic rollback.
+     - Expanded Test 9: Float, NaN, Inf, and non-integer amounts strictly rejected fail-closed.
+     - Expanded Test 10: Failed operations leave profile state strictly invariant.
+
+### Validations Performed & Results
+- **Package 1Z Expanded Test Suite:**
+  - `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --script scripts/test/test_legacy_fund.gd`: **PASS (Exit Code 0: 25/25 tests passed)**
+- **Regression Test Suites:**
+  - `scripts/test/test_victory_and_collapse.gd`: **PASS (Exit Code 0: 4/4 test groups)**
+  - `scripts/test/test_save_load.gd`: **PASS (Exit Code 0: 129/129 assertions)**
+  - `scripts/test/test_automation_graph.gd`: **PASS (Exit Code 0: 69/69 assertions)**
+  - `scripts/test/test_automation_graph_delay_repeat.gd`: **PASS (Exit Code 0: 179/179 assertions)**
+  - `scripts/test/test_factions_and_battles.gd`: **PASS (Exit Code 0: 48/48 assertions)**
+  - `scripts/test/test_package_1x_gameplay_integration.gd`: **PASS (Exit Code 0: 57/57 assertions)**
+  - `scripts/test/test_field_siege.gd`: **PASS (Exit Code 0: 85/85 assertions)**
+  - `scripts/test/test_tactical_military.gd`: **PASS (Exit Code 0: 385/385 assertions)**
+  - `scripts/test/test_enemy_military_ai.gd`: **PASS (Exit Code 0: 54/54 assertions)**
+- **Headless Engine / Project Check:**
+  - `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --editor --quit`: **PASS (Exit Code 0, zero compile errors)**
+- **Whitespace / Git Check:**
+  - `git diff --check`: **PASS (Exit Code 0, zero trailing whitespaces)**
+
+### Files Modified
+- `scripts/legacy/legacy_profile_manager.gd` (Modified)
+- `scripts/core/victory_manager.gd` (Modified)
+- `scripts/world/world_view.gd` (Modified)
+- `scripts/persistence/save_manager.gd` (Modified)
+- `scripts/ui/main_menu.gd` (Modified)
+- `scripts/ui/hud.gd` (Modified)
+- `scripts/test/test_legacy_fund.gd` (Modified)
+- `docs/BACKLOG.md` (Modified)
+- `docs/SCOPE_DECISIONS.md` (Modified)
+- `docs/TEST_PLAN.md` (Modified)
+- `docs/WORKLOG.md` (Modified)
+
+### Next Exact Step
+- Verify git status.
+- Stage only Package 1Z audit files.
+- Commit all changes with `fix(legacy): harden rewards and profile integrity`.
+- Push commit to remote branch `origin/feat/package-1z-legacy-fund-foundation`.
+- Deliver comprehensive completion report.
