@@ -17,17 +17,19 @@ const MAX_SAFE_INT: int = 9223372036854775807
 const FLOAT_INT64_EXCLUSIVE_UPPER: float = 9223372036854775808.0
 const FLOAT_INT64_INCLUSIVE_LOWER: float = -9223372036854775808.0
 
-# Test failure injection seams (FIX-1Z-M, FIX-1Z-V)
+# Test failure injection seams (FIX-1Z-M, FIX-1Z-V, FIX-1Z-W)
 static var _test_inject_fail_write: bool = false
 static var _test_inject_fail_rename: bool = false
 static var _test_inject_fail_restore_copy: bool = false
 static var _test_inject_fail_backup_rollback: bool = false
+static var _test_inject_fail_reset_cleanup: bool = false
 
 static func reset_test_injection() -> void:
 	_test_inject_fail_write = false
 	_test_inject_fail_rename = false
 	_test_inject_fail_restore_copy = false
 	_test_inject_fail_backup_rollback = false
+	_test_inject_fail_reset_cleanup = false
 
 const VALID_REWARD_SOURCES: Array[String] = [
 	"victory",
@@ -587,21 +589,43 @@ func _initialize_empty_profile() -> void:
 	claimed_rewards.clear()
 	unlocked_achievements.clear()
 
-func reset_profile(filepath: String = "") -> void:
-	_initialize_empty_profile()
-	profile_status = STATUS_NEW_PROFILE
-	initialization_error = ""
+func reset_profile(filepath: String = "") -> bool:
 	var target_path = filepath if not filepath.is_empty() else active_filepath
 	var dir_path := target_path.get_base_dir()
 	var dir := DirAccess.open(dir_path if not dir_path.is_empty() else "user://")
-	if dir != null:
-		if FileAccess.file_exists(target_path):
-			dir.remove(target_path)
-		if FileAccess.file_exists(target_path + ".bak"):
-			dir.remove(target_path + ".bak")
-		if FileAccess.file_exists(target_path + ".tmp"):
-			dir.remove(target_path + ".tmp")
+	if dir == null:
+		profile_status = STATUS_UNAVAILABLE
+		initialization_error = "Không thể truy cập thư mục để xóa dữ liệu hồ sơ: %s" % dir_path
+		push_error("LegacyProfileManager.reset_profile: " + initialization_error)
+		return false
+
+	var artifacts: Array[String] = [
+		target_path,
+		target_path + ".bak",
+		target_path + ".bak.old",
+		target_path + ".tmp",
+		target_path + ".bak.tmp"
+	]
+
+	var cleanup_failed: bool = _test_inject_fail_reset_cleanup
+	for path in artifacts:
+		if FileAccess.file_exists(path):
+			var rem_err := dir.remove(path)
+			if rem_err != OK or FileAccess.file_exists(path):
+				cleanup_failed = true
+				push_error("LegacyProfileManager.reset_profile: Failed to delete artifact %s (Error: %d)" % [path, rem_err])
+
+	if cleanup_failed:
+		profile_status = STATUS_UNAVAILABLE
+		initialization_error = "Xóa tệp hồ sơ thất bại; dữ liệu cũ vẫn tồn tại trên đĩa."
+		push_error("LegacyProfileManager.reset_profile: " + initialization_error)
+		return false
+
+	_initialize_empty_profile()
+	profile_status = STATUS_NEW_PROFILE
+	initialization_error = ""
 	balance_changed.emit(legacy_balance)
+	return true
 
 # -----------------------------------------------------------------------------
 # Exactly-Once Reward Claim API (TASK-1Z.3)
