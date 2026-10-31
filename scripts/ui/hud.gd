@@ -88,6 +88,7 @@ var formation_scatter_btn: Button = null
 # Victory Panel
 @onready var victory_panel: Control = $VictoryPanel
 @onready var victory_stats_label: Label = $VictoryPanel/MarginContainer/VBoxContainer/VictoryStatsLabel
+@onready var treasury_conversion_label: Label = get_node_or_null("VictoryPanel/MarginContainer/VBoxContainer/TreasuryConversionLabel")
 @onready var continue_victory_btn: Button = $VictoryPanel/MarginContainer/VBoxContainer/HBoxContainer/ContinueVictoryBtn
 @onready var return_menu_victory_btn: Button = $VictoryPanel/MarginContainer/VBoxContainer/HBoxContainer/ReturnMenuVictoryBtn
 @onready var claim_victory_btn: Button = get_node_or_null("VictoryPanel/MarginContainer/VBoxContainer/HBoxContainer/ClaimVictoryBtn")
@@ -382,7 +383,7 @@ func _refresh_research_ui() -> void:
 				btn.text = " 🔬 %s (%s) — Chi phí: %s(%.0f giờ)" % [def.get("name"), def.get("branch"), cost_str, def.get("duration_hours", 12.0)]
 				btn.pressed.connect(func():
 					var ok: bool = research_mgr.call("start_research", cur_tech, rm)
-					var am = get_node_or_null("/root/AudioManager")
+					var am = get_node_or_null("/root/AudioManager") if is_inside_tree() else null
 					if ok and am:
 						am.play_click()
 					_refresh_research_ui()
@@ -848,7 +849,7 @@ func _on_attack_campaign_btn_pressed() -> void:
 			hostile_factions.append(fac)
 
 	if hostile_factions.is_empty():
-		var am = get_node_or_null("/root/AudioManager")
+		var am = get_node_or_null("/root/AudioManager") if is_inside_tree() else null
 		if am and am.has_method("play_error"): am.play_error()
 		show_event_banner("Chưa Có Chiến Tranh", "Hiện không có thế lực thù địch nào đang giao chiến với vương quốc.", false, 3.0)
 		return
@@ -862,7 +863,7 @@ func _on_attack_campaign_btn_pressed() -> void:
 
 func attack_faction(faction_id: String) -> Dictionary:
 	if battle_campaign_mgr == null:
-		var am = get_node_or_null("/root/AudioManager")
+		var am = get_node_or_null("/root/AudioManager") if is_inside_tree() else null
 		if am and am.has_method("play_error"): am.play_error()
 		show_event_banner("Không Thể Tấn Công", "Hệ thống chiến dịch chưa sẵn sàng.", false, 4.0)
 		_show_diplomacy_feedback("❌ Hệ thống chiến dịch chưa sẵn sàng.", true)
@@ -870,12 +871,12 @@ func attack_faction(faction_id: String) -> Dictionary:
 
 	var res: Dictionary = battle_campaign_mgr.call("launch_offensive_campaign", faction_id)
 	if not res.get("success", false):
-		var am = get_node_or_null("/root/AudioManager")
+		var am = get_node_or_null("/root/AudioManager") if is_inside_tree() else null
 		if am and am.has_method("play_error"): am.play_error()
 		show_event_banner("Không Thể Tấn Công", res.get("reason", "Chiến dịch thất bại."), false, 4.0)
 		_show_diplomacy_feedback("❌ %s" % res.get("reason", "Không thể tấn công."), true)
 	else:
-		var am = get_node_or_null("/root/AudioManager")
+		var am = get_node_or_null("/root/AudioManager") if is_inside_tree() else null
 		if am and am.has_method("play_click"): am.play_click()
 		_show_diplomacy_feedback("⚔️ Đã hoàn thành chiến dịch tấn công!", false)
 	_refresh_diplomacy_ui()
@@ -887,11 +888,11 @@ func _on_recruit_btn_pressed() -> void:
 		return
 	var res: Dictionary = player_army_mgr.call("recruit", 1)
 	if res.get("success", false):
-		var am = get_node_or_null("/root/AudioManager")
+		var am = get_node_or_null("/root/AudioManager") if is_inside_tree() else null
 		if am: am.play_coin()
 		show_event_banner("Tuyển Binh Thành Công!", "Đã chiêu mộ thành công 1 binh sĩ vào quân đội hoàng gia.", true, 4.0)
 	else:
-		var am = get_node_or_null("/root/AudioManager")
+		var am = get_node_or_null("/root/AudioManager") if is_inside_tree() else null
 		if am: am.play_error()
 		show_event_banner("Chiêu Mộ Thất Bại", res.get("reason", "Không thể chiêu mộ binh sĩ"), false, 4.0)
 	_refresh_army_panel()
@@ -939,11 +940,11 @@ func execute_army_move_target(target_cell: Vector2i) -> void:
 	if res.get("success", false):
 		_army_move_targeting = false
 		var steps: int = int(res.get("steps", 0))
-		var am = get_node_or_null("/root/AudioManager")
+		var am = get_node_or_null("/root/AudioManager") if is_inside_tree() else null
 		if am and am.has_method("play_click"): am.play_click()
 		show_event_banner("Hành Quân!", "Quân đội bắt đầu hành quân đến ô (%d, %d) (%d bước)." % [target_cell.x, target_cell.y, steps], true, 3.0)
 	else:
-		var am = get_node_or_null("/root/AudioManager")
+		var am = get_node_or_null("/root/AudioManager") if is_inside_tree() else null
 		if am and am.has_method("play_error"): am.play_error()
 		show_event_banner("Không Thể Di Chuyển", res.get("reason", "Vị trí đích không hợp lệ."), false, 3.0)
 
@@ -952,7 +953,7 @@ func _on_return_home_btn_pressed() -> void:
 		return
 	var res: Dictionary = player_army_mgr.call("order_return_home")
 	if res.get("success", false):
-		var am = get_node_or_null("/root/AudioManager")
+		var am = get_node_or_null("/root/AudioManager") if is_inside_tree() else null
 		if am and am.has_method("play_click"): am.play_click()
 		var action: String = String(res.get("action", ""))
 		var reason: String = String(res.get("reason", ""))
@@ -963,7 +964,7 @@ func _on_return_home_btn_pressed() -> void:
 		else:
 			show_event_banner("Rút Về Căn Cứ", "Quân đội đang hành quân trở về căn cứ doanh trại.", true, 3.0)
 	else:
-		var am = get_node_or_null("/root/AudioManager")
+		var am = get_node_or_null("/root/AudioManager") if is_inside_tree() else null
 		if am and am.has_method("play_error"): am.play_error()
 		show_event_banner("Lệnh Thất Bại", res.get("reason", "Không thể ra lệnh rút về."), false, 3.0)
 	_refresh_army_panel()
@@ -974,7 +975,7 @@ var _diplomacy_feedback_is_error: bool = false
 func _show_diplomacy_feedback(message: String, is_error: bool = false) -> void:
 	_diplomacy_feedback_message = message
 	_diplomacy_feedback_is_error = is_error
-	var am = get_node_or_null("/root/AudioManager")
+	var am = get_node_or_null("/root/AudioManager") if is_inside_tree() else null
 	if am:
 		if is_error:
 			am.play_sfx("error")
@@ -1366,7 +1367,7 @@ func _on_role_option_selected(idx: int) -> void:
 		6: new_role = "smith"
 		7:
 			if not is_barracks_active():
-				var am = get_node_or_null("/root/AudioManager")
+				var am = get_node_or_null("/root/AudioManager") if is_inside_tree() else null
 				if am:
 					am.play_error()
 				_reselect_current_citizen_role()
@@ -1375,7 +1376,7 @@ func _on_role_option_selected(idx: int) -> void:
 
 	var success = inspected_citizen.call("set_role", new_role)
 	if success is bool and not success:
-		var am = get_node_or_null("/root/AudioManager")
+		var am = get_node_or_null("/root/AudioManager") if is_inside_tree() else null
 		if am:
 			am.play_error()
 		_reselect_current_citizen_role()
@@ -1415,13 +1416,13 @@ func _on_save_game_pressed() -> void:
 		
 	var res: Dictionary = SaveManager.save_to_file(world_view_ref)
 	if res.get("success", false):
-		var am = get_node_or_null("/root/AudioManager")
+		var am = get_node_or_null("/root/AudioManager") if is_inside_tree() else null
 		if am: am.play_coin()
 		if save_status_label:
 			save_status_label.text = "✅ Đã lưu thế giới thành công!"
 			save_status_label.modulate = Color(0.5, 1.0, 0.5)
 	else:
-		var am = get_node_or_null("/root/AudioManager")
+		var am = get_node_or_null("/root/AudioManager") if is_inside_tree() else null
 		if am: am.play_error()
 		if save_status_label:
 			save_status_label.text = "❌ Lỗi: " + res.get("error", "Không thể lưu tệp")
@@ -1435,7 +1436,7 @@ func _on_load_game_pressed() -> void:
 		
 	var load_res: Dictionary = SaveManager.load_from_file()
 	if not load_res.get("success", false):
-		var am = get_node_or_null("/root/AudioManager")
+		var am = get_node_or_null("/root/AudioManager") if is_inside_tree() else null
 		if am: am.play_error()
 		if save_status_label:
 			save_status_label.text = "❌ Lỗi đọc bản lưu: " + load_res.get("error", "")
@@ -1444,14 +1445,14 @@ func _on_load_game_pressed() -> void:
 		
 	var apply_res: Dictionary = SaveManager.apply_loaded_state_to_world(world_view_ref, load_res["data"])
 	if apply_res.get("success", false):
-		var am = get_node_or_null("/root/AudioManager")
+		var am = get_node_or_null("/root/AudioManager") if is_inside_tree() else null
 		if am: am.play_coin()
 		if save_status_label:
 			save_status_label.text = "✅ Đã tải thế giới thành công!"
 			save_status_label.modulate = Color(0.5, 1.0, 0.5)
 		_close_pause_menu()
 	else:
-		var am = get_node_or_null("/root/AudioManager")
+		var am = get_node_or_null("/root/AudioManager") if is_inside_tree() else null
 		if am: am.play_error()
 		if save_status_label:
 			save_status_label.text = "❌ Lỗi áp dụng bản lưu: " + apply_res.get("error", "")
@@ -1525,8 +1526,19 @@ func hide_crisis_warning() -> void:
 
 func show_victory_panel(report: Dictionary) -> void:
 	if not victory_panel:
+		victory_panel = get_node_or_null("VictoryPanel")
+	if not victory_panel:
 		return
-	if get_node_or_null("/root/TimeManager"):
+	if not victory_stats_label:
+		victory_stats_label = get_node_or_null("VictoryPanel/MarginContainer/VBoxContainer/VictoryStatsLabel")
+	if not treasury_conversion_label:
+		treasury_conversion_label = get_node_or_null("VictoryPanel/MarginContainer/VBoxContainer/TreasuryConversionLabel")
+	if not claim_victory_btn:
+		claim_victory_btn = get_node_or_null("VictoryPanel/MarginContainer/VBoxContainer/HBoxContainer/ClaimVictoryBtn")
+	if not legacy_status_label:
+		legacy_status_label = get_node_or_null("VictoryPanel/MarginContainer/VBoxContainer/LegacyStatusLabel")
+
+	if is_inside_tree() and get_node_or_null("/root/TimeManager"):
 		get_node("/root/TimeManager").pause()
 	var days: int = report.get("days_survived", 0)
 	var peak: int = report.get("peak_population", 30)
@@ -1535,14 +1547,22 @@ func show_victory_panel(report: Dictionary) -> void:
 	var techs: int = report.get("technologies_unlocked", 0)
 	var legacy: int = report.get("legacy_points", 100)
 	
-	victory_stats_label.text = "• Thời gian sinh tồn: %d ngày\n• Dân số đạt đỉnh: %d người\n• Lương thực dự trữ: %d | Ngân khố: %d vàng\n• Công nghệ đã mở khóa: %d\n• Điểm di sản Legacy nhận được: +%d điểm" % [days, peak, food, gold, techs, legacy]
+	if victory_stats_label:
+		victory_stats_label.text = "• Thời gian sinh tồn: %d ngày\n• Dân số đạt đỉnh: %d người\n• Lương thực dự trữ: %d | Ngân khố: %d vàng\n• Công nghệ đã mở khóa: %d\n• Điểm di sản chiến thắng: +%d điểm" % [days, peak, food, gold, techs, legacy]
 	_refresh_victory_claim_state(report)
 	victory_panel.visible = true
-	var am = get_node_or_null("/root/AudioManager")
+	var am = get_node_or_null("/root/AudioManager") if is_inside_tree() else null
 	if am:
 		am.play_fanfare()
 
 func _refresh_victory_claim_state(report: Dictionary = {}) -> void:
+	if not treasury_conversion_label:
+		treasury_conversion_label = get_node_or_null("VictoryPanel/MarginContainer/VBoxContainer/TreasuryConversionLabel")
+	if not claim_victory_btn:
+		claim_victory_btn = get_node_or_null("VictoryPanel/MarginContainer/VBoxContainer/HBoxContainer/ClaimVictoryBtn")
+	if not legacy_status_label:
+		legacy_status_label = get_node_or_null("VictoryPanel/MarginContainer/VBoxContainer/LegacyStatusLabel")
+
 	var vic_mgr = null
 	if world_view_ref:
 		vic_mgr = world_view_ref.get("victory_mgr")
@@ -1570,6 +1590,8 @@ func _refresh_victory_claim_state(report: Dictionary = {}) -> void:
 	var is_persisted: bool = true
 	if vic_mgr != null:
 		is_persisted = bool(vic_mgr.get("is_world_id_persisted"))
+	elif report.has("is_world_id_persisted"):
+		is_persisted = bool(report["is_world_id_persisted"])
 
 	var is_valid_wid: bool = true
 	if not wid.is_empty():
@@ -1582,9 +1604,69 @@ func _refresh_victory_claim_state(report: Dictionary = {}) -> void:
 	var is_claimable: bool = false
 	if vic_mgr != null and vic_mgr.has_method("is_reward_claimable"):
 		is_claimable = vic_mgr.is_reward_claimable()
+	elif not is_claimed and is_valid_wid and is_persisted:
+		is_claimable = true
+
+	# Treasury Conversion Status & Preview
+	var is_tc_done: bool = false
+	if vic_mgr != null and vic_mgr.has_method("is_treasury_converted_or_settled"):
+		is_tc_done = vic_mgr.is_treasury_converted_or_settled()
+	elif report.get("is_treasury_converted", false):
+		is_tc_done = true
+
+	var tc: Dictionary = {}
+	var gold_val: int = report.get("treasury", 0)
+	var stab_val: float = report.get("stability", 85.0)
+
+	if is_tc_done:
+		if vic_mgr != null and vic_mgr.has_method("get_active_treasury_conversion_record"):
+			tc = vic_mgr.get_active_treasury_conversion_record()
+		elif report.has("treasury_conversion") and report["treasury_conversion"] is Dictionary:
+			tc = report["treasury_conversion"]
+	else:
+		if vic_mgr != null and vic_mgr.has_method("preview_treasury_conversion"):
+			tc = vic_mgr.preview_treasury_conversion(gold_val, stab_val)
+		elif report.has("treasury_conversion") and report["treasury_conversion"] is Dictionary:
+			tc = report["treasury_conversion"]
+
+	var orig_gold: int = int(tc.get("original_gold", gold_val))
+	var conv_gold: int = int(tc.get("gold_deducted", 0))
+	var aw_legacy: int = int(tc.get("legacy_awarded", 0))
+	var kept_gold: int = int(tc.get("remaining_gold", orig_gold - conv_gold))
+	var is_eligible: bool = bool(tc.get("eligible", false))
+	var tc_status: String = str(tc.get("status", ""))
+	var tc_expl: String = str(tc.get("explanation", ""))
+
+	if treasury_conversion_label:
+		var lines: Array[String] = []
+		lines.append("💰 QUY ĐỔI NGÂN KHỐ THẶNG DƯ (Tỷ lệ: 100 Vàng = 1 Legacy | Bảo lưu: 1.000 Vàng):")
+		lines.append("• Ngân khố trước chuyển đổi: %d Vàng" % orig_gold)
+		lines.append("• Vàng được giữ lại: %d Vàng | Vàng đã chuyển đổi: %d Vàng" % [kept_gold, conv_gold])
+		lines.append("• Legacy nhận được từ ngân khố: +%d điểm" % aw_legacy)
+
+		if is_tc_done:
+			lines.append("• Kết quả giao dịch: ✅ Đã quyết toán thành công vào Quỹ Di Sản (%d Vàng → +%d Legacy)." % [conv_gold, aw_legacy])
+		elif is_eligible and aw_legacy > 0:
+			lines.append("• Kết quả giao dịch: Sẵn sàng quyết toán (Vàng thặng dư: %d Gold → +%d Legacy)." % [conv_gold, aw_legacy])
+		elif tc_status == "ineligible_stability" or (not is_eligible and tc.get("reason", "") == "stability_too_low"):
+			lines.append("• Kết quả giao dịch: ⚠️ Không đủ điều kiện (%s)." % (tc_expl if not tc_expl.is_empty() else "Độ ổn định chưa đạt 80.0%"))
+		elif tc_status == "zero_surplus" or tc.get("reason", "") == "no_surplus":
+			lines.append("• Kết quả giao dịch: ⚠️ Không có thặng dư quy đổi (Ngân khố không vượt quá mức bảo lưu 1.000 Vàng).")
+		elif not tc_expl.is_empty():
+			lines.append("• Kết quả giao dịch: ⚠️ %s" % tc_expl)
+		else:
+			lines.append("• Kết quả giao dịch: Chưa đủ điều kiện quyết toán ngân khố.")
+
+		treasury_conversion_label.text = "\n".join(lines)
+
+	var total_settlement_points: int = (100 if not is_claimed else 0) + (aw_legacy if not is_tc_done else 0)
+	var is_settled: bool = is_claimed and is_tc_done
 
 	if claim_victory_btn:
-		if is_claimed:
+		if is_claimed and (is_tc_done or aw_legacy == 0):
+			claim_victory_btn.disabled = true
+			claim_victory_btn.text = "Đã Nhận Di Sản"
+		elif is_settled:
 			claim_victory_btn.disabled = true
 			claim_victory_btn.text = "Đã Nhận Di Sản"
 		elif not is_profile_available:
@@ -1598,47 +1680,72 @@ func _refresh_victory_claim_state(report: Dictionary = {}) -> void:
 			claim_victory_btn.text = "ID Thế Giới Không Hợp Lệ"
 		elif is_claimable:
 			claim_victory_btn.disabled = false
-			claim_victory_btn.text = "Nhận Di Sản (+100)"
+			if total_settlement_points > 0:
+				claim_victory_btn.text = "Nhận Di Sản (+%d)" % total_settlement_points
+			else:
+				claim_victory_btn.text = "Nhận Di Sản"
 		else:
 			claim_victory_btn.disabled = true
 			claim_victory_btn.text = "Chưa Đạt Điều Kiện"
 
 	if legacy_status_label:
-		if is_claimed:
-			legacy_status_label.text = "Thưởng chiến thắng đã được ghi nhận vào Quỹ Di Sản. (Số dư: %d điểm)" % current_bal
+		if is_settled:
+			legacy_status_label.text = "Toàn bộ quyền lợi di sản và ngân khố đã được quyết toán. (Số dư Quỹ Di Sản: %d điểm)" % current_bal
 		elif not is_profile_available:
-			legacy_status_label.text = "⚠️ Hồ sơ Quỹ Di Sản bị lỗi hoặc không khả dụng. Không thể nhận thưởng."
+			legacy_status_label.text = "⚠️ Hồ sơ Quỹ Di Sản bị lỗi hoặc không khả dụng. Không thể quyết toán."
 		elif not is_persisted:
-			legacy_status_label.text = "⚠️ Cần lưu thế giới trước khi nhận phần thưởng Di Sản."
+			legacy_status_label.text = "⚠️ Cần lưu thế giới trước khi thực hiện quyết toán Di Sản."
 		elif not is_valid_wid:
-			legacy_status_label.text = "⚠️ ID thế giới không hợp lệ. Không thể nhận thưởng Di Sản."
+			legacy_status_label.text = "⚠️ ID thế giới không hợp lệ. Không thể quyết toán Di Sản."
 		elif is_claimable:
-			legacy_status_label.text = "Sẵn sàng nhận thưởng: +100 điểm Di Sản. (Số dư hiện tại: %d điểm)" % current_bal
+			legacy_status_label.text = "Sẵn sàng quyết toán: +%d điểm Di Sản (+100 chiến thắng + %d thặng dư). (Số dư hiện tại: %d điểm)" % [total_settlement_points, (aw_legacy if not is_tc_done else 0), current_bal]
 		else:
-			legacy_status_label.text = "Chưa đủ điều kiện nhận thưởng Di Sản."
+			legacy_status_label.text = "Chưa đủ điều kiện quyết toán Di Sản."
 
 func _on_claim_victory_btn_pressed() -> void:
 	var vic_mgr = null
 	if world_view_ref:
 		vic_mgr = world_view_ref.get("victory_mgr")
 	if vic_mgr != null:
-		var pts = vic_mgr.claim_legacy_reward()
-		if pts > 0:
-			show_event_banner("Nhận Thưởng Di Sản", "Đã cộng +%d điểm vào Quỹ Di Sản thành công!" % pts, true, 4.0)
-			var am = get_node_or_null("/root/AudioManager")
+		var res: Dictionary = {}
+		if vic_mgr.has_method("finalize_victory_settlement"):
+			var rm = world_view_ref.get("resource_mgr") if world_view_ref else null
+			res = vic_mgr.finalize_victory_settlement(rm)
+		else:
+			var pts: int = vic_mgr.claim_legacy_reward()
+			res = {"success": pts > 0, "total_legacy_awarded": pts, "victory_points_awarded": pts, "treasury_points_awarded": 0}
+
+		if res.get("success", false) == true:
+			var total_pts: int = int(res.get("total_legacy_awarded", 0))
+			var v_pts: int = int(res.get("victory_points_awarded", 0))
+			var t_pts: int = int(res.get("treasury_points_awarded", 0))
+			var msg: String = "Quyết toán thành công! Nhận +%d điểm Di Sản" % total_pts
+			if t_pts > 0:
+				msg += " (+%d chiến thắng, +%d thặng dư ngân khố)." % [v_pts, t_pts]
+			else:
+				msg += " vào Quỹ Di Sản."
+			show_event_banner("Quyết Toán Chiến Thắng", msg, true, 5.0)
+			var am = get_node_or_null("/root/AudioManager") if is_inside_tree() else null
 			if am: am.play_coin()
+
+			# Persist world state changes immediately
+			if world_view_ref != null:
+				SaveManager.save_to_file(world_view_ref)
 		else:
 			var profile = LegacyProfileManagerScript.get_instance()
 			if profile != null and profile.has_method("is_available") and not profile.is_available():
 				show_event_banner("Lỗi Hồ Sơ Di Sản", "Không thể nhận thưởng: Hồ sơ di sản bị hỏng hoặc không thể ghi đĩa.", false, 4.0)
 			elif vic_mgr.has_method("is_reward_claimable") and not vic_mgr.is_reward_claimable():
 				show_event_banner("Không Thể Nhận", "Phần thưởng chiến thắng không hợp lệ hoặc thế giới chưa được lưu an toàn.", false, 4.0)
+			else:
+				var err_reason: String = res.get("reason", "")
+				show_event_banner("Quyết Toán Thất Bại", "Không thể hoàn tất quyết toán: %s" % err_reason, false, 4.0)
 		_refresh_victory_claim_state()
 
 func show_collapse_panel(report: Dictionary) -> void:
 	if not collapse_panel:
 		return
-	if get_node_or_null("/root/TimeManager"):
+	if is_inside_tree() and get_node_or_null("/root/TimeManager"):
 		get_node("/root/TimeManager").pause()
 	var days: int = report.get("days_survived", 0)
 	var hours: int = report.get("hours_survived", 0)
@@ -1650,7 +1757,7 @@ func show_collapse_panel(report: Dictionary) -> void:
 	collapse_reason_label.text = "Nguyên nhân chính: %s" % cause
 	collapse_stats_label.text = "• Thời gian duy trì: %d ngày %d giờ\n• Dân số cao nhất: %d người\n• Công trình đã xây: %d\n• Công nghệ hoàn thành: %d\n\n(Lưu ý: Dữ liệu thế giới được bảo toàn nguyên vẹn, bạn có thể xem lại hoặc tải bản lưu bất kỳ lúc nào)" % [days, hours, peak, buildings, techs]
 	collapse_panel.visible = true
-	var am = get_node_or_null("/root/AudioManager")
+	var am = get_node_or_null("/root/AudioManager") if is_inside_tree() else null
 	if am:
 		am.play_alarm()
 

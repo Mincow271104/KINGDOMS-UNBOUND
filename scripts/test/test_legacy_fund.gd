@@ -483,16 +483,27 @@ func _test_achievement_foundation() -> bool:
 	return true
 
 func _test_deferred_surplus_treasury_conversion() -> bool:
-	print("--- Scenario 14: Deferred Surplus Treasury Conversion Extension Point ---")
-	var mgr := LegacyProfileManager.new()
-	var conv_res := mgr.convert_surplus_treasury(5000, 95.0, "world_test")
-	if conv_res.get("status") != "deferred" or conv_res.get("converted") != false:
+	print("--- Scenario 14: Package 2C Authoritative Surplus Treasury Conversion ---")
+	_cleanup_test_files()
+	var mgr := LegacyProfileManager.new(TEST_PROFILE_PATH)
+	var conv_res := mgr.convert_surplus_treasury(5000, 95.0, "world_test_unique_sec14", true)
+	if conv_res.get("status") != "completed" or conv_res.get("converted") != true:
 		print("  [FAIL] Treasury conversion status unexpected: %s" % str(conv_res))
 		return false
-	if conv_res.get("legacy_awarded", -1) != 0 or conv_res.get("gold_deducted", -1) != 0:
+	if conv_res.get("legacy_awarded", -1) != 40 or conv_res.get("gold_deducted", -1) != 4000:
 		print("  [FAIL] Treasury conversion awarded or deducted values: %s" % str(conv_res))
 		return false
-	print("  [PASS] Surplus treasury conversion correctly documented and deferred.")
+	if conv_res.get("remaining_gold", -1) != 1000:
+		print("  [FAIL] Treasury remaining gold unexpected: %s" % str(conv_res))
+		return false
+
+	# Exactly-once rejection check on repeated conversion
+	var dup_res := mgr.convert_surplus_treasury(5000, 95.0, "world_test_unique_sec14", true)
+	if dup_res.get("converted") != false or dup_res.get("reason") != "already_converted":
+		print("  [FAIL] Duplicate treasury conversion allowed: %s" % str(dup_res))
+		return false
+
+	print("  [PASS] Surplus treasury conversion correctly executed per Package 2C rules.")
 	return true
 
 func _test_ui_and_victory_claim_reflection() -> bool:

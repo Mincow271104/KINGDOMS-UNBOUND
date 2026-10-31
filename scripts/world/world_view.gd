@@ -203,6 +203,7 @@ func _generate_and_build_world() -> void:
 	victory_mgr.profile_mgr = LegacyProfileManagerScript.get_instance()
 	victory_mgr.world_id = world_id
 	victory_mgr.is_world_id_persisted = is_world_id_persisted
+	victory_mgr.resource_mgr = get_node_or_null("/root/ResourceManager")
 	battle_campaign_mgr = BattleCampaignManagerScript.new(self, faction_mgr, world_seed)
 	player_army_mgr = PlayerArmyManagerScript.new(self)
 	tactical_military_mgr = TacticalMilitaryManagerScript.new(self, player_army_mgr)

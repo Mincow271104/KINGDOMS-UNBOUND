@@ -518,6 +518,40 @@
 - **UI Reflection:**
   - Enhanced `CitizenInspectPanel` in `scenes/ui/hud.tscn` and `scripts/ui/hud.gd` with dynamic vocational skill name, level badge (`Nông nghiệp — Cấp 3 (Thợ lành nghề)`), visual XP progress bar, and efficiency percentage readout (`+16%`), with dedicated maximum state for Level 5 and clean neutral status for idle/guard citizens.
 
+### 1.30 Package 2C — Surplus Treasury Conversion & Victory Settlement Integration (GDD §13.2)
+- **Problem:** When achieving a Prosperity Victory, players earned a flat +100 Legacy Points regardless of economic prosperity or accumulated wealth. GDD §13.2 specified that surplus treasury could convert to persistent Legacy Points, but deferred the exact conversion formula, reserve threshold, eligibility requirements, and recovery policies.
+- **Approved & Authoritative Gameplay Rules:**
+  - *Conversion Formula:*
+    - Protected Gold reserve: 1,000 Gold.
+    - Conversion rate: 100 surplus Gold = 1 Legacy Point.
+    - Mathematical calculation:
+      $$\text{surplus\_gold} = \max(0, \text{treasury\_gold} - 1000)$$
+      $$\text{legacy\_awarded} = \lfloor \text{surplus\_gold} / 100 \rfloor$$
+      $$\text{gold\_deducted} = \text{legacy\_awarded} \times 100$$
+    - The conversion deducts only the converted gold; the 1,000 Gold reserve and unconvertible remainder are strictly preserved. Treasury balance can never become negative.
+  - *Eligibility Conditions:*
+    - All 5 conditions must be satisfied:
+      1. Prosperity Victory achieved (`is_victory_achieved == true`).
+      2. Finalized through actual victory-ending settlement flow (`finalize_victory_settlement()`).
+      3. Kingdom Stability at settlement $\ge 80.0\%$.
+      4. Valid, persisted unique World ID.
+      5. World has not already completed treasury conversion.
+  - *Collapse & Defeat Policy:*
+    - Collapsed, ruined, or defeated settlements receive strictly 0 Legacy from surplus treasury conversion (`legacy_awarded = 0`, `gold_deducted = 0`).
+  - *Exactly-Once Protection & Interruption Safety:*
+    - Treasury conversion is strictly one-time per World ID. Reopening the summary, reloading pre-settlement save files, or calling settlement repeatedly cannot re-convert or duplicate points.
+    - Transaction records are committed to persistent disk storage in `LegacyProfileManager` under `treasury_conversions` with schema: `{ world_id, original_gold, stability, gold_deducted, legacy_awarded, status, converted_at_unix }`.
+    - Profile balance invariants strictly enforced: `legacy_balance == lifetime_legacy_earned - lifetime_legacy_spent`, with conversion earnings audited under `claimed_rewards` (`source = "treasury_conversion"`).
+    - If disk writing or atomic validation fails, the in-memory transaction rolls back and gold is not deducted.
+  - *UI Presentation:*
+    - Victory panel displays Vietnamese summary:
+      - Ngân khố trước chuyển đổi: `[X] Vàng`
+      - Vàng được giữ lại: `[Y] Vàng` | Vàng đã chuyển đổi: `[Z] Vàng`
+      - Legacy nhận được từ ngân khố: `+[N] điểm`
+      - Tỷ lệ quy đổi: `100 Vàng = 1 Legacy` (Bảo lưu: `1.000 Vàng`)
+      - Kết quả giao dịch: Detailed status including explicit explanations for zero surplus or stability $< 80.0\%$.
+      - Settlement button updates dynamically: `Nhận Di Sản (+100)` $\to$ `Nhận Di Sản (+140)` $\to$ `Đã Nhận Di Sản`.
+
 ---
 
 ## 2. Deferred & Excluded Scope for MVP
@@ -527,7 +561,7 @@
 | Market Infrastructure & Physical Caravan Integration | Phần VII & XI | Implemented | Delivered end-to-end in Package 2A with 3x3 Market, deterministic docking, Town Hall fallback, and CaravanMarker actor |
 | Automation Graph Delay & Repeat Nodes | Phần VII | Implemented | Delivered end-to-end in Package 1Y with bounded simulation clock queues |
 | Persistent Legacy Fund Foundation | Phần XII & XIII | Implemented | Delivered in Package 1Z with decoupled profile, atomic persistence, exactly-once claims, and UI |
-| Surplus treasury conversion to Legacy | Phần XIII | Deferred | Extension point implemented; pending official exchange formula and stability threshold |
+| Surplus treasury conversion to Legacy | Phần XIII | Implemented | Delivered end-to-end in Package 2C with 1,000 reserve, 100:1 rate, 80% stability gate, and exactly-once persistence |
 | Complex family trees & genetics | Phần IV | Deferred | Replaced by deterministic immigration system |
 | Real-time physical tactical combat | Phần VII | Implemented | Tactical combat, enemy AI & field siege delivered in Package 1X |
 | Cosmetic Legacy store | Phần IX | Post-MVP | Preserves focus on core simulation and save/load |

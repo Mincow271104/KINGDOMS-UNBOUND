@@ -7765,3 +7765,154 @@ Execute targeted independent code audit of Package 2B (Citizen Skill Progression
 
 ### Next Exact Step
 - Present final audit report to owner for checkpoint authorization.
+
+---
+
+## [2026-10-31] Simulation Integration Baseline: One-Day Diagnostic Pilot Implementation (Completed)
+
+### Context & Objective
+Implement a strictly measurement-only, headless diagnostic test runner (`scripts/test/test_simulation_baseline_runner.gd`) and execute two isolated one-day pilot runs on Seed `12345` to empirically baseline the real simulation loop and establish rigorous multi-year telemetry acceptance gates:
+- Run A: Speed NORMAL ($1\times$), fixed 60 FPS, exactly 1,440 simulation frames, 24 game hours.
+- Run B: Speed VERY_FAST ($3\times$), fixed 60 FPS, exactly 480 simulation frames, 24 game hours.
+
+### Completed Work
+1. **Save Isolation Architecture & Redirection:**
+   - Enforced process-level APPDATA redirection (`$env:APPDATA = $iso_dir`) outside the repository tree (`C:\temp\sim_isolation\pilot_run_a_1x` and `pilot_run_b_3x`).
+   - Implemented a fail-closed preflight assertion verifying that `OS.get_user_data_dir()` resolves strictly inside the isolated test APPDATA path and terminates with exit code 1 if isolation fails.
+   - Armed `SaveManager.set_test_default_save_path("user://pilot_scratch_save.json")` and isolated `LegacyProfileManager` instance as defense-in-depth against real user save mutation.
+2. **Diagnostic Test Runner Implementation (`scripts/test/test_simulation_baseline_runner.gd`):**
+   - Implemented standalone `SceneTree` headless diagnostic runner parsing user arguments `--seed`, `--speed`, and `--target_hours`.
+   - Guaranteed dynamic mounting of essential autoload singletons (`TimeManager`, `ResourceManager`, `EventManager`, `AudioManager`) on the root tree.
+   - Connected post-initialization listeners on the first frame of `_process(delta)` to guarantee `WorldView._ready()` has executed before subscribing to `WorkplaceManager.buffer_changed` and `CitizenController.citizen_died`.
+   - Bounded engine execution to process all child simulation nodes across exact frame budgets ($1,440$ frames for $1\times$ and $480$ frames for $3\times$) before finalizing telemetry.
+   - Captured midnight food accounting rollover by recording central stock immediately at Day 2 Hour 0 before daily accounting deduction, and recording the resulting balance immediately on the next frame to measure the exact midnight deduction.
+   - Recorded discrete buffer saturation durations (in virtual game hours), partial cycle occurrences, hauler pickups, citizen eating transitions, and hourly living state samples.
+   - Wrote comprehensive raw telemetry to `user://raw_telemetry.json` strictly inside isolated external APPDATA folders.
+3. **Execution of Isolated One-Day Pilot Runs:**
+   - **Run A ($1\times$ Speed, Seed 12345):**
+     - Target frames: 1,440 | Completed frames: 1,440 | Elapsed game hours: 24.0.
+     - Research hours accrued: 0.00 | Construction progress hours: 0.00.
+     - Pop at rollover: 24 | Food before rollover: 180 | Food after rollover: 160 | Deducted at midnight: 20 ($\lceil 24 \times 0.8 \rceil = 20$).
+     - Eating transitions: 9 | Citizen deaths: 0.
+     - Farm buffer: 16 production cycles, 80 units produced, 5 hauler pickups, 0 partial cycles, 6.00 hrs saturation duration.
+     - Woodcutter buffer: 18 production cycles, 70 units produced, 4 hauler pickups, 1 partial cycle, 1.22 hrs saturation duration.
+     - Final central economy: Food 170, Wood 160, Stone 60, Ore 0, Metal 20, Tools 15, Gold 200.
+     - Immigration waves: 0 (unseeded RNG not exercised).
+   - **Run B ($3\times$ Speed, Seed 12345):**
+     - Target frames: 480 | Completed frames: 480 | Elapsed game hours: 24.0.
+     - Research hours accrued: 0.00 | Construction progress hours: 0.00.
+     - Pop at rollover: 24 | Food before rollover: 170 | Food after rollover: 150 | Deducted at midnight: 20 ($\lceil 24 \times 0.8 \rceil = 20$).
+     - Eating transitions: 7 | Citizen deaths: 0.
+     - Farm buffer: 16 production cycles, 80 units produced, 4 hauler pickups, 0 partial cycles, 8.75 hrs saturation duration.
+     - Woodcutter buffer: 18 production cycles, 70 units produced, 4 hauler pickups, 1 partial cycle, 2.15 hrs saturation duration.
+     - Final central economy: Food 160, Wood 160, Stone 60, Ore 0, Metal 20, Tools 15, Gold 200.
+     - Immigration waves: 0 (unseeded RNG not exercised).
+
+### Invariant & Divergence Analysis
+- **Fixed-FPS Time Multiplier Equivalence:** Exactly 24 game hours elapsed across both runs ($1,440 / 60 = 24.0$ and $480 / 20 = 24.0$).
+- **Central Food Consumption Determinism:** Exactly 20 food deducted at midnight in both runs matching the formula $\lceil \text{active\_population} \times 0.8 \rceil = \lceil 24 \times 0.8 \rceil = 20$.
+- **Passive Accrual Invariance:** Active research and construction remained exactly 0.00 hours across both runs.
+- **Quantization Effect:** $1\times$ and $3\times$ yielded identical total cycle counts (Farm 16 cycles / 80 qty; Woodcutter 18 cycles / 70 qty), while discrete hauler travel delta per frame ($3\times$ larger at $3\times$ speed) produced minor sub-tile arrival offsets affecting buffer pickup timing and saturation durations.
+
+### Files Created / Modified
+- `scripts/test/test_simulation_baseline_runner.gd` (Created diagnostic runner)
+- `docs/WORKLOG.md` (Appended pilot execution entry)
+
+### Protected Assets & User Files
+- `project.godot`: Pre-existing user-owned modification strictly preserved and untouched.
+- Production gameplay logic: Zero changes made to gameplay scripts, GDD, or `GAME_RULES.md`.
+- Historical untracked entries: All preserved byte-for-byte.
+- Real user saves: 100% untouched; all test persistence isolated to `C:\temp\sim_isolation\`.
+- Git operations: Zero commits or pushes performed.
+
+#### Telemetry Hardening Addendum (2026-10-31)
+- Connected `ResourceManager.resource_changed` and `EventManager.event_triggered` before frame 1.
+- Captured frame-0 authoritative initial resource snapshot: Food 150, Wood 120, Stone 60, Ore 0, Metal 20, Tools 15, Crystal 5, Herbs 10, Gold 200.
+- Implemented `_safe_teardown()` explicitly disconnecting signals and freeing `world_view`.
+- Re-executed two isolated runs in dedicated unique test directories:
+  - Run A (`pilot_run_a_1x_hardened`): 9 resource events; Initial 150 + Deliveries 40 - Upkeep 20 = Final 170 (100% reconciled).
+  - Run B (`pilot_run_b_3x_hardened`): 8 resource events; Initial 150 + Deliveries 30 - Upkeep 20 = Final 160 (100% reconciled).
+
+#### Runner Finalization Addendum (2026-10-31)
+- Stripped heuristic source deduction (clock time / citizen state matching) from `_on_resource_changed` in accordance with zero-heuristic rules; strictly tagged `source = "unknown"` for all resource delta callbacks lacking direct signal caller identity.
+- Investigated `WARNING: 23 ObjectDB instances were leaked at exit`: Confirmed 0 runner-owned leaks; all 23 leaked instances originate from 15 engine-managed autoload nodes (`/root/MCPRuntime`, `/root/TimeManager`, `/root/ResourceManager`, `/root/EventManager`, `/root/AudioManager` + 9 AudioStreamPlayer children) and 8 cached texture resources retained in Godot's C++ `ResourceCache`.
+- Re-executed two isolated 24-hour pilots in unique directories (`pilot_run_a_1x_final` and `pilot_run_b_3x_final`): Both executed 24.0 hours with exit code 0, and all ledgers 100% reconciled.
+
+### Next Exact Step
+- Proceed to Package 2C: Surplus Treasury Conversion & Victory Settlement Integration.
+
+---
+
+## [2026-11-01] Package 2C: Surplus Treasury Conversion & Victory Settlement Integration (Completed)
+
+### Context & Mission
+Implement Package 2C as a complete player-facing gameplay feature: convert eligible surplus treasury Gold into persistent Legacy Points when a kingdom successfully completes its victory settlement flow.
+Enforce all authoritative design rules:
+- Protected Gold reserve: 1,000 Gold.
+- Conversion rate: 100 surplus Gold = 1 Legacy Point.
+- Mathematical invariants: $\text{surplus} = \max(0, \text{gold} - 1000)$, $\text{awarded} = \lfloor \text{surplus} / 100 \rfloor$, $\text{deducted} = \text{awarded} \times 100$.
+- Preserves the 1,000 reserve and non-convertible remainder; gold can never become negative.
+- Eligibility requires ALL 5 conditions: Prosperity Victory achieved, finalized through victory settlement flow, stability at settlement $\ge 80.0\%$, valid unique World ID, and world has not already completed conversion.
+- Defeated or collapsed kingdoms receive strictly 0 Legacy from conversion.
+- Exactly-once persistence per World ID; interrupted transactions cannot duplicate Legacy or lose Gold.
+- Full Vietnamese UI integration in Victory World Summary panel with dynamic settlement button.
+
+### Completed Work
+1. **Core Conversion Logic & Persistence Invariants (`scripts/legacy/legacy_profile_manager.gd`):**
+   - Added `"treasury_conversion"` to `VALID_REWARD_SOURCES`.
+   - Defined constants: `PROTECTED_GOLD_RESERVE = 1000`, `GOLD_PER_LEGACY_POINT = 100`, `MIN_CONVERSION_STABILITY = 80.0`.
+   - Implemented `convert_surplus_treasury(treasury_amount, stability, world_id, is_prosperity_victory)`.
+   - Integrated `treasury_conversions` dictionary schema to profile with serialization/deserialization, backward compatibility, and atomic staging.
+   - Enforced strict mathematical invariant: `legacy_balance == lifetime_legacy_earned - lifetime_legacy_spent` by recording conversion claims under `claimed_rewards` (`source = "treasury_conversion"`).
+2. **Victory Settlement Integration (`scripts/core/victory_manager.gd`):**
+   - Added `finalize_victory_settlement(resource_mgr_override, stability_override)` executing both base victory claim (+100) and surplus treasury conversion atomically.
+   - Added `calculate_treasury_conversion()`, `preview_treasury_conversion()`, `is_treasury_converted_or_settled()`, and `get_active_treasury_conversion_record()`.
+   - Updated `generate_summary_report()` to embed treasury conversion record and status.
+3. **WorldView & Save Persistence (`scripts/world/world_view.gd`, `scripts/persistence/save_manager.gd`):**
+   - Connected `victory_mgr.resource_mgr = ResourceManager`.
+   - Serialized `is_treasury_converted` and `treasury_conversion_record` in `victory` save payload.
+   - Reconciled loaded state against profile records to prevent pre-settlement save re-exploitation.
+4. **Victory Panel UI Integration (`scenes/ui/hud.tscn`, `scripts/ui/hud.gd`):**
+   - Added `TreasuryConversionLabel` into `VictoryPanel` layout.
+   - Formatted Vietnamese UI strings displaying the 6 required fields: original gold, preserved reserve, converted gold, legacy awarded, exchange rate, and transaction result (including zero-surplus and low-stability explanations).
+   - Dynamically updated settlement button text (`Nhận Di Sản (+100)` / `Nhận Di Sản (+140)` / `Đã Nhận Di Sản`).
+5. **Regression Test Suites & Project Verification:**
+   - Created `scripts/test/test_surplus_treasury_conversion.gd` covering all 14 authoritative requirements across 97 assertions (97/97 PASS, Exit Code 0).
+   - Updated `scripts/test/test_legacy_fund.gd` Scenario 14 to validate Package 2C conversion (43/43 PASS, Exit Code 0).
+   - Ran complete repository test suites (`test_citizen_skills.gd`, `test_save_load.gd`, `test_package_1x_gameplay_integration.gd`, `test_live_battle_loop.gd`, `test_market.gd`, `test_palisade.gd`, `test_barracks.gd`, `test_workshop.gd`, `test_research_hall.gd`, `test_mine.gd`, `test_quarry.gd`, `test_tactical_military.gd`, `test_field_siege.gd`) with 100% pass rate and 0 regressions.
+6. **Documentation Updates:**
+   - Added §1.30 to `docs/SCOPE_DECISIONS.md` detailing approved Package 2C specifications.
+   - Updated `docs/BACKLOG.md` marking Package 2C complete.
+
+### Validation Results
+- `scripts/test/test_surplus_treasury_conversion.gd`: 124/124 tests passed across 15 requirement groups including cross-file crash recovery (Exit Code 0).
+- `scripts/test/test_legacy_fund.gd`: 43/43 tests passed (Exit Code 0).
+- `scripts/test/test_victory_and_collapse.gd`: All Phase 7 tests passed (Exit Code 0).
+- `scripts/test/test_save_load.gd`: 182/182 assertions passed (Exit Code 0).
+- Full Repository Regression Matrix (48 suites discovered):
+  - Total Discovered: 48
+  - Total Executed: 47 (100% executable test suites)
+  - PASS: 47 / FAIL: 0
+  - SKIP: 1 (`test_simulation_baseline_runner.gd` — measurement-only diagnostic runner requiring CLI arguments)
+- Live Visual Validation (1280x720 display):
+  - Captured `docs/visual_validation/p2c_01_victory_summary_preview.png` (5,000 Gold, 85% stability, +140 settlement preview).
+  - Captured `docs/visual_validation/p2c_02_victory_summary_settled.png` (Settled state, 1,000 Gold retained, "Đã Nhận Di Sản" disabled button).
+  - Captured `docs/visual_validation/p2c_03_zero_surplus_explanation.png` (Zero-surplus explanation when treasury <= 1,000 Gold).
+
+#### Cross-File Crash Recovery Addendum (2026-11-01)
+- Addressed cross-file crash desync between `LegacyProfileManager` transaction commit and `SaveManager` world save commit:
+  - When loading an unupdated world save (`is_treasury_converted == false`), `SaveManager.apply_loaded_state_to_world()` queries `vic_mgr.is_treasury_converted_or_settled()` which inspects `LegacyProfileManager.has_treasury_conversion(world_id)`.
+  - Upon detecting a committed transaction in the profile ledger, it deducts `gold_deducted` (4,000) from `ResourceManager`, sets `is_treasury_converted = true`, and restores `treasury_conversion_record`.
+  - Re-settlement calls in this recovered state award 0 duplicate Legacy and deduct 0 duplicate Gold.
+  - Saving the recovered state to disk and subsequently reloading it verifies anti-double-deduction: Gold remains 1,000 and is never deducted twice.
+  - World save write failure simulation after profile commit preserves profile on disk, and subsequent reload recovers cleanly.
+- Added Test 15 covering 26 assertions in `scripts/test/test_surplus_treasury_conversion.gd` (total 124/124 PASS, Exit Code 0).
+
+### Protected Assets & User Files
+- `project.godot`: Pre-existing user-owned modification (`-window/size/resizable=true`) strictly preserved and untouched.
+- Untracked files: All 92 historical untracked files + diagnostic runners preserved byte-for-byte.
+- User saves: Isolated test paths strictly used; real user profile and saves completely untouched.
+- Git operations: 0 commits, 0 pushes.
+
+### Next Exact Step
+- Package 2C final acceptance and crash-recovery verification complete. Await owner checkpoint review.

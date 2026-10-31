@@ -454,3 +454,29 @@
 - [x] **TASK-2B.5:** CitizenInspectPanel UI enhancements in `scenes/ui/hud.tscn` and `scripts/ui/hud.gd`: dynamic vocational title, level badge, XP progress bar, efficiency bonus percentage, and Level 5 maximum indicator.
 - [x] **TASK-2B.6:** SaveManager backward-compatible persistence: serializing `skills` dictionary per citizen, fail-closed bounds validation, and clean fallback to Level 1 / 0 XP on legacy saves.
 - [x] **TASK-2B.7:** Automated test suite `scripts/test/test_citizen_skills.gd` covering TC-SKL-01 through TC-SKL-22 with 100% pass rate (Exit Code 0).
+
+---
+
+## Package 2C: Surplus Treasury Conversion & Victory Settlement Integration (Completed)
+- [x] **TASK-2C.1:** Core Conversion Formula & Invariants in `LegacyProfileManager`:
+  - Implemented authoritative `convert_surplus_treasury(treasury_amount, stability, world_id, is_prosperity_victory)`.
+  - Enforced 1,000 Gold protected reserve, 100 Gold : 1 Legacy Point conversion rate, and $\ge 80.0\%$ stability requirement.
+  - Safeguarded reserve and remainder; gold deduction strictly equals `legacy_awarded * 100`.
+- [x] **TASK-2C.2:** Persistent Profile Storage & Exactly-Once Semantics:
+  - Added `treasury_conversions` dictionary schema to profile with serialization/deserialization and backward compatibility.
+  - Linked surplus conversions to `claimed_rewards` under source `"treasury_conversion"` to conserve math invariants (`legacy_balance == lifetime_legacy_earned - lifetime_legacy_spent`).
+  - Implemented transactional atomic disk saving with staging, error rollback, and recovery.
+- [x] **TASK-2C.3:** Victory Settlement Flow & Lifecycle Integration in `VictoryManager`:
+  - Implemented `finalize_victory_settlement(resource_mgr, stability_override)` combining base victory claim (+100) with surplus treasury conversion.
+  - Added `calculate_treasury_conversion()`, `preview_treasury_conversion()`, `is_treasury_converted_or_settled()`, and `get_active_treasury_conversion_record()`.
+  - Updated `generate_summary_report()` to embed treasury conversion record and status.
+- [x] **TASK-2C.4:** Save/Load Persistence & Reconciliation in `SaveManager`:
+  - Serialized `is_treasury_converted` and `treasury_conversion_record` inside `victory` payload.
+  - Reconciled loaded state against profile records to prevent pre-settlement save re-exploitation.
+- [x] **TASK-2C.5:** Victory Panel UI Integration in `hud.tscn` and `hud.gd`:
+  - Added `TreasuryConversionLabel` to `VictoryPanel` displaying 6 required Vietnamese fields (original gold, preserved reserve, converted gold, legacy points, exchange rate, transaction result).
+  - Dynamically updated settlement button text (`Nhận Di Sản (+100)` / `Nhận Di Sản (+140)` / `Đã Nhận Di Sản`) and feedback banners.
+- [x] **TASK-2C.6:** Comprehensive Regression Test Suite:
+  - Created `scripts/test/test_surplus_treasury_conversion.gd` covering all 14 authoritative requirements across 97 assertions (100% pass rate, Exit Code 0).
+  - Updated `scripts/test/test_legacy_fund.gd` Scenario 14 to validate Package 2C conversion (43/43 pass, Exit Code 0).
+  - Re-verified full project regression test matrix across all 12 test suites with 0 regressions.

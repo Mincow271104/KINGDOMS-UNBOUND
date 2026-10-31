@@ -254,6 +254,8 @@ static func serialize_world_state(world_view: Node) -> Dictionary:
 			"total_simulation_hours": vic_mgr.get("total_simulation_hours"),
 			"legacy_points_earned": vic_mgr.get("legacy_points_earned"),
 			"is_legacy_claimed": vic_mgr.get("is_legacy_claimed"),
+			"is_treasury_converted": bool(vic_mgr.get("is_treasury_converted")),
+			"treasury_conversion_record": vic_mgr.get("treasury_conversion_record") if vic_mgr.get("treasury_conversion_record") is Dictionary else {},
 			"major_events": raw_ev.duplicate(true) if raw_ev is Array else [],
 			"townhall_ruin_hours": vic_mgr.get("townhall_ruin_hours"),
 			"anarchy_hours": vic_mgr.get("anarchy_hours"),
@@ -1823,6 +1825,11 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 	var vic_data: Dictionary = loaded_data.get("victory", {}) if loaded_data.get("victory") is Dictionary else {}
 	var vic_mgr = world_view.get("victory_mgr")
 	if vic_mgr != null:
+		var LegacyProfileManagerScript = load("res://scripts/legacy/legacy_profile_manager.gd")
+		if LegacyProfileManagerScript != null and LegacyProfileManagerScript.has_method("get_instance"):
+			var active_inst = LegacyProfileManagerScript.get_instance()
+			if active_inst != null:
+				vic_mgr.set("profile_mgr", active_inst)
 		vic_mgr.set("hold_hours_elapsed", float(vic_data.get("hold_hours_elapsed", 0.0)))
 		vic_mgr.set("is_victory_achieved", bool(vic_data.get("is_victory_achieved", false)))
 		vic_mgr.set("is_collapse_triggered", bool(vic_data.get("is_collapse_triggered", false)))
@@ -1830,6 +1837,33 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 		vic_mgr.set("total_simulation_hours", float(vic_data.get("total_simulation_hours", 0.0)))
 		vic_mgr.set("legacy_points_earned", int(vic_data.get("legacy_points_earned", 0)))
 		vic_mgr.set("is_legacy_claimed", bool(vic_data.get("is_legacy_claimed", false)))
+		var was_save_converted: bool = bool(vic_data.get("is_treasury_converted", false))
+		vic_mgr.set("is_treasury_converted", was_save_converted)
+		var tc_rec = vic_data.get("treasury_conversion_record", {})
+		if tc_rec is Dictionary:
+			vic_mgr.set("treasury_conversion_record", tc_rec.duplicate(true))
+		if vic_mgr.has_method("is_treasury_converted_or_settled"):
+			var is_now_settled: bool = vic_mgr.is_treasury_converted_or_settled()
+			# Cross-File Crash Recovery: Profile committed transaction, but world save was not updated before crash
+			if not was_save_converted and is_now_settled:
+				var active_rec: Dictionary = vic_mgr.get_active_treasury_conversion_record() if vic_mgr.has_method("get_active_treasury_conversion_record") else {}
+				var gold_to_deduct: int = int(active_rec.get("gold_deducted", 0))
+				if gold_to_deduct > 0:
+					var rm_node = world_view.get_node_or_null("/root/ResourceManager") if world_view.is_inside_tree() else null
+					if rm_node == null and world_view.get("resource_mgr") != null:
+						rm_node = world_view.get("resource_mgr")
+					if rm_node != null:
+						if rm_node.has_method("consume_resource"):
+							var did_consume: bool = rm_node.consume_resource("gold", gold_to_deduct)
+							if not did_consume and rm_node.get("_current_stock") is Dictionary:
+								rm_node.get("_current_stock")["gold"] = max(0, int(rm_node.get("_current_stock").get("gold", 0)) - gold_to_deduct)
+								if rm_node.has_signal("resource_changed"):
+									rm_node.resource_changed.emit("gold", rm_node.call("get_available_stock", "gold"), rm_node.call("get_total_stock", "gold"))
+						elif rm_node.get("_current_stock") is Dictionary:
+							var cur_g: int = int(rm_node.get("_current_stock").get("gold", 0))
+							rm_node.get("_current_stock")["gold"] = max(0, cur_g - gold_to_deduct)
+							if rm_node.has_signal("resource_changed"):
+								rm_node.resource_changed.emit("gold", rm_node.call("get_available_stock", "gold"), rm_node.call("get_total_stock", "gold"))
 		vic_mgr.set("townhall_ruin_hours", float(vic_data.get("townhall_ruin_hours", 0.0)))
 		vic_mgr.set("anarchy_hours", float(vic_data.get("anarchy_hours", 0.0)))
 		vic_mgr.set("primary_collapse_reason", String(vic_data.get("primary_collapse_reason", "")))

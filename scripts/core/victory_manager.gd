@@ -13,6 +13,10 @@ const TARGET_VICTORY_HOLD_HOURS: float = 120.0 # 5 game days * 24 hours
 const MAX_TOWNHALL_RUIN_HOURS: float = 72.0    # 3 game days * 24 hours
 const MAX_ANARCHY_HOURS: float = 72.0          # 3 game days * 24 hours
 
+const PROTECTED_GOLD_RESERVE: int = 1000
+const GOLD_PER_LEGACY_POINT: int = 100
+const MIN_CONVERSION_STABILITY: float = 80.0
+
 # Victory condition thresholds (GDD 12.3 & GAME_RULES 7.1)
 var min_population: int = 30
 var min_food: int = 500
@@ -38,9 +42,12 @@ var major_events: Array[String] = []
 # Legacy claiming protection (Master Prompt Phase 7 exit gate & Package 1Z)
 var legacy_points_earned: int = 0
 var is_legacy_claimed: bool = false
+var is_treasury_converted: bool = false
+var treasury_conversion_record: Dictionary = {}
 var profile_mgr: RefCounted = null
 var world_id: String = ""
 var is_world_id_persisted: bool = false
+var resource_mgr: Node = null
 
 func calculate_stability(food_stock: int, treasury_stock: int, pop: int, housing_cap: int, avg_morale: float, town_hall_alive: bool) -> float:
 	var stability: float = 0.0
@@ -296,6 +303,234 @@ func claim_legacy_reward(_deprecated_custom_reward_id: String = "") -> int:
 			is_legacy_claimed = true
 		return 0
 
+# -----------------------------------------------------------------------------
+# Package 2C — Surplus Treasury Conversion & Victory Settlement Integration
+# -----------------------------------------------------------------------------
+
+static func calculate_treasury_conversion(treasury_gold: int, stability: float) -> Dictionary:
+	if stability < MIN_CONVERSION_STABILITY:
+		return {
+			"eligible": false,
+			"reason": "stability_too_low",
+			"explanation": "Độ ổn định khi quyết toán chưa đạt mức tối thiểu (%.2f%% < %.1f%%)." % [stability, MIN_CONVERSION_STABILITY],
+			"original_gold": treasury_gold,
+			"protected_reserve": PROTECTED_GOLD_RESERVE,
+			"surplus_gold": 0,
+			"legacy_awarded": 0,
+			"gold_deducted": 0,
+			"remaining_gold": treasury_gold,
+			"status": "ineligible_stability"
+		}
+
+	var surplus_gold: int = maxi(0, treasury_gold - PROTECTED_GOLD_RESERVE)
+	var legacy_awarded: int = surplus_gold / GOLD_PER_LEGACY_POINT
+	var gold_deducted: int = legacy_awarded * GOLD_PER_LEGACY_POINT
+	var remaining_gold: int = treasury_gold - gold_deducted
+
+	var is_eligible: bool = true
+	var reason: String = "ok"
+	var explanation: String = ""
+	var status: String = "ready"
+
+	if surplus_gold <= 0:
+		is_eligible = false
+		reason = "no_surplus"
+		explanation = "Ngân khố không vượt quá mức dự trữ an toàn (1.000 Vàng)."
+		status = "zero_surplus"
+	elif legacy_awarded <= 0:
+		is_eligible = false
+		reason = "surplus_below_conversion_threshold"
+		explanation = "Vàng thặng dư (%d) chưa đủ mức quy đổi tối thiểu (100 Vàng)." % surplus_gold
+		status = "zero_surplus"
+	else:
+		explanation = "Quy đổi %d Vàng thặng dư thành +%d điểm Di Sản (Tỷ lệ 100:1)." % [gold_deducted, legacy_awarded]
+
+	return {
+		"eligible": is_eligible,
+		"reason": reason,
+		"explanation": explanation,
+		"original_gold": treasury_gold,
+		"protected_reserve": PROTECTED_GOLD_RESERVE,
+		"surplus_gold": surplus_gold,
+		"legacy_awarded": legacy_awarded,
+		"gold_deducted": gold_deducted,
+		"remaining_gold": remaining_gold,
+		"status": status
+	}
+
+func is_treasury_converted_or_settled() -> bool:
+	if is_treasury_converted:
+		return true
+	var mgr = profile_mgr
+	if mgr == null:
+		var LegacyProfileManagerScript = load("res://scripts/legacy/legacy_profile_manager.gd")
+		if LegacyProfileManagerScript != null and LegacyProfileManagerScript.has_method("get_instance"):
+			mgr = LegacyProfileManagerScript.get_instance()
+	if mgr != null and mgr.has_method("has_treasury_conversion"):
+		if mgr.has_treasury_conversion(world_id):
+			is_treasury_converted = true
+			if treasury_conversion_record.is_empty() and mgr.has_method("get_treasury_conversion"):
+				treasury_conversion_record = mgr.get_treasury_conversion(world_id)
+			return true
+	return false
+
+func get_active_treasury_conversion_record() -> Dictionary:
+	if not treasury_conversion_record.is_empty():
+		return treasury_conversion_record.duplicate(true)
+	var mgr = profile_mgr
+	if mgr == null:
+		var LegacyProfileManagerScript = load("res://scripts/legacy/legacy_profile_manager.gd")
+		if LegacyProfileManagerScript != null and LegacyProfileManagerScript.has_method("get_instance"):
+			mgr = LegacyProfileManagerScript.get_instance()
+	if mgr != null and mgr.has_method("get_treasury_conversion"):
+		var rec: Dictionary = mgr.get_treasury_conversion(world_id)
+		if not rec.is_empty():
+			treasury_conversion_record = rec
+			return rec.duplicate(true)
+	return {}
+
+func preview_treasury_conversion(treasury_gold: int, stability: float) -> Dictionary:
+	if is_treasury_converted_or_settled():
+		var rec := get_active_treasury_conversion_record()
+		rec["already_converted"] = true
+		return rec
+
+	if not is_victory_achieved:
+		return {
+			"eligible": false,
+			"reason": "victory_not_achieved",
+			"explanation": "Chưa đạt Chiến Thắng Thịnh Vượng.",
+			"original_gold": treasury_gold,
+			"protected_reserve": PROTECTED_GOLD_RESERVE,
+			"surplus_gold": 0,
+			"legacy_awarded": 0,
+			"gold_deducted": 0,
+			"remaining_gold": treasury_gold,
+			"status": "victory_not_achieved"
+		}
+
+	if is_collapse_triggered:
+		return {
+			"eligible": false,
+			"reason": "collapsed",
+			"explanation": "Vương quốc đã sụp đổ, không áp dụng quy đổi ngân khố.",
+			"original_gold": treasury_gold,
+			"protected_reserve": PROTECTED_GOLD_RESERVE,
+			"surplus_gold": 0,
+			"legacy_awarded": 0,
+			"gold_deducted": 0,
+			"remaining_gold": treasury_gold,
+			"status": "collapsed"
+		}
+
+	return calculate_treasury_conversion(treasury_gold, stability)
+
+func finalize_victory_settlement(resource_mgr_override = null, stability_override: float = -1.0) -> Dictionary:
+	var rm = resource_mgr_override if resource_mgr_override != null else resource_mgr
+	if rm == null and Engine.get_main_loop() != null:
+		var root_node = Engine.get_main_loop().root
+		if root_node != null:
+			rm = root_node.get_node_or_null("ResourceManager")
+
+	var res_dict: Dictionary = {
+		"success": false,
+		"victory_claimed": is_legacy_claimed,
+		"victory_points_awarded": 0,
+		"treasury_converted": is_treasury_converted_or_settled(),
+		"treasury_points_awarded": 0,
+		"total_legacy_awarded": 0,
+		"gold_deducted": 0,
+		"treasury_conversion": {},
+		"reason": ""
+	}
+
+	if not is_victory_achieved:
+		res_dict["reason"] = "victory_not_achieved"
+		return res_dict
+
+	if is_collapse_triggered:
+		res_dict["reason"] = "collapse_triggered"
+		return res_dict
+
+	if not is_world_id_persisted:
+		res_dict["reason"] = "world_not_persisted"
+		return res_dict
+
+	if not is_valid_world_id(world_id):
+		res_dict["reason"] = "invalid_world_id"
+		return res_dict
+
+	if profile_mgr == null or not profile_mgr.has_method("is_available") or not profile_mgr.is_available():
+		res_dict["reason"] = "profile_unavailable"
+		return res_dict
+
+	# 1. Claim base victory reward (100 LP) if not already claimed
+	var vic_pts: int = 0
+	if not is_legacy_claimed:
+		vic_pts = claim_legacy_reward()
+		res_dict["victory_points_awarded"] = vic_pts
+		res_dict["victory_claimed"] = is_legacy_claimed
+
+	# 2. Process Surplus Treasury Conversion
+	if is_treasury_converted_or_settled():
+		res_dict["treasury_converted"] = true
+		res_dict["treasury_conversion"] = get_active_treasury_conversion_record()
+		res_dict["success"] = (vic_pts > 0)
+		res_dict["total_legacy_awarded"] = vic_pts
+		if vic_pts == 0:
+			res_dict["reason"] = "already_settled"
+		return res_dict
+
+	# Determine treasury gold and stability
+	var treasury_gold: int = 0
+	if rm != null and rm.has_method("get_available_stock"):
+		treasury_gold = rm.get_available_stock("gold")
+	elif rm != null and rm.get("available_resources") is Dictionary:
+		treasury_gold = rm.available_resources.get("gold", 0)
+
+	var current_stab: float = 85.0
+	if stability_override >= 0.0:
+		current_stab = stability_override
+
+	var conv_res: Dictionary = profile_mgr.convert_surplus_treasury(
+		treasury_gold,
+		current_stab,
+		world_id.strip_edges(),
+		is_victory_achieved
+	)
+
+	res_dict["treasury_conversion"] = conv_res
+
+	if conv_res.get("converted", false) == true:
+		var gold_to_deduct: int = int(conv_res.get("gold_deducted", 0))
+		var pts_awarded: int = int(conv_res.get("legacy_awarded", 0))
+		res_dict["treasury_points_awarded"] = pts_awarded
+		res_dict["gold_deducted"] = gold_to_deduct
+		res_dict["treasury_converted"] = true
+		is_treasury_converted = true
+		treasury_conversion_record = conv_res.get("record", {})
+
+		# Deduct gold actually converted
+		if gold_to_deduct > 0 and rm != null and rm.has_method("consume_resource"):
+			rm.consume_resource("gold", gold_to_deduct)
+
+		res_dict["success"] = true
+		res_dict["total_legacy_awarded"] = vic_pts + pts_awarded
+	else:
+		if conv_res.get("success", false) == true:
+			# Clean zero-surplus transaction recorded in profile
+			is_treasury_converted = true
+			treasury_conversion_record = conv_res.get("record", {})
+			res_dict["treasury_converted"] = true
+			res_dict["success"] = true
+			res_dict["total_legacy_awarded"] = vic_pts
+		else:
+			res_dict["success"] = (vic_pts > 0)
+			res_dict["total_legacy_awarded"] = vic_pts
+			res_dict["reason"] = conv_res.get("reason", "conversion_failed")
+
+	return res_dict
+
 func generate_summary_report(outcome: String, pop: int, food: int, treasury: int, stability: float, morale: float, techs_unlocked: int, buildings_count: int) -> Dictionary:
 	var days: int = int(total_simulation_hours / 24.0)
 	var hours: int = int(total_simulation_hours) % 24
@@ -306,6 +541,9 @@ func generate_summary_report(outcome: String, pop: int, food: int, treasury: int
 		if profile_mgr.is_reward_claimed(canonical_id):
 			claimed = true
 			is_legacy_claimed = true
+
+	var tc_preview = preview_treasury_conversion(treasury, stability)
+	var tc_done = is_treasury_converted_or_settled()
 	
 	return {
 		"outcome": outcome,
@@ -322,5 +560,8 @@ func generate_summary_report(outcome: String, pop: int, food: int, treasury: int
 		"primary_cause": primary_collapse_reason if outcome == "COLLAPSE" else "Duy trì thịnh vượng xuất sắc trong 5 ngày liên tục",
 		"major_events": major_events.duplicate(),
 		"legacy_points": legacy_points_earned,
-		"legacy_claimed": claimed
+		"legacy_claimed": claimed,
+		"world_id": world_id,
+		"is_treasury_converted": tc_done,
+		"treasury_conversion": tc_preview
 	}

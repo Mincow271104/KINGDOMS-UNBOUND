@@ -35,8 +35,13 @@ static func reset_test_injection() -> void:
 
 const VALID_REWARD_SOURCES: Array[String] = [
 	"victory",
-	"achievement"
+	"achievement",
+	"treasury_conversion"
 ]
+
+const PROTECTED_GOLD_RESERVE: int = 1000
+const GOLD_PER_LEGACY_POINT: int = 100
+const MIN_CONVERSION_STABILITY: float = 80.0
 
 const STATUS_UNINITIALIZED: String = "uninitialized"
 const STATUS_NEW_PROFILE: String = "new_profile"
@@ -61,6 +66,7 @@ var lifetime_legacy_earned: int = 0
 var lifetime_legacy_spent: int = 0
 var claimed_rewards: Dictionary = {} # reward_id (String) -> Dictionary
 var unlocked_achievements: Dictionary = {} # achievement_id (String) -> Dictionary
+var treasury_conversions: Dictionary = {} # world_id (String) -> Dictionary
 var active_filepath: String = DEFAULT_PROFILE_PATH
 var profile_status: String = STATUS_UNINITIALIZED
 var initialization_error: String = ""
@@ -223,6 +229,30 @@ static func validate_profile_data(data: Variant) -> Dictionary:
 			if str(ach_entry["achievement_id"]).strip_edges() != ach_id_str:
 				return {"valid": false, "error": "Khóa thành tích '%s' không khớp achievement_id '%s'." % [ach_id_str, str(ach_entry["achievement_id"])]}
 
+	if data.has("treasury_conversions"):
+		var tc_val = data["treasury_conversions"]
+		if not (tc_val is Dictionary):
+			return {"valid": false, "error": "Mục 'treasury_conversions' phải là Dictionary."}
+		for wid_key in tc_val:
+			var wid_str = str(wid_key).strip_edges()
+			if wid_str.is_empty():
+				return {"valid": false, "error": "Khóa thế giới trong 'treasury_conversions' không được rỗng."}
+			var tc_entry = tc_val[wid_key]
+			if not (tc_entry is Dictionary):
+				return {"valid": false, "error": "Bản ghi chuyển đổi ngân khố '%s' không phải Dictionary." % wid_str}
+			if not tc_entry.has("world_id"):
+				return {"valid": false, "error": "Bản ghi chuyển đổi ngân khố '%s' thiếu trường 'world_id'." % wid_str}
+			if str(tc_entry["world_id"]).strip_edges() != wid_str:
+				return {"valid": false, "error": "Khóa thế giới '%s' không khớp world_id nội tại '%s'." % [wid_str, str(tc_entry["world_id"])]}
+			if not tc_entry.has("original_gold") or not _is_valid_integer_val(tc_entry["original_gold"]):
+				return {"valid": false, "error": "Bản ghi chuyển đổi ngân khố '%s' thiếu hoặc sai định dạng 'original_gold'." % wid_str}
+			if not tc_entry.has("gold_deducted") or not _is_valid_integer_val(tc_entry["gold_deducted"]):
+				return {"valid": false, "error": "Bản ghi chuyển đổi ngân khố '%s' thiếu hoặc sai định dạng 'gold_deducted'." % wid_str}
+			if not tc_entry.has("legacy_awarded") or not _is_valid_integer_val(tc_entry["legacy_awarded"]):
+				return {"valid": false, "error": "Bản ghi chuyển đổi ngân khố '%s' thiếu hoặc sai định dạng 'legacy_awarded'." % wid_str}
+			if not tc_entry.has("status"):
+				return {"valid": false, "error": "Bản ghi chuyển đổi ngân khố '%s' thiếu trường 'status'." % wid_str}
+
 	return {"valid": true}
 
 # -----------------------------------------------------------------------------
@@ -237,7 +267,8 @@ func serialize() -> Dictionary:
 		"lifetime_legacy_earned": lifetime_legacy_earned,
 		"lifetime_legacy_spent": lifetime_legacy_spent,
 		"claimed_rewards": claimed_rewards.duplicate(true),
-		"unlocked_achievements": unlocked_achievements.duplicate(true)
+		"unlocked_achievements": unlocked_achievements.duplicate(true),
+		"treasury_conversions": treasury_conversions.duplicate(true)
 	}
 
 func deserialize(data: Dictionary) -> bool:
@@ -253,6 +284,7 @@ func deserialize(data: Dictionary) -> bool:
 	lifetime_legacy_spent = int(data["lifetime_legacy_spent"])
 	claimed_rewards = data["claimed_rewards"].duplicate(true)
 	unlocked_achievements = data.get("unlocked_achievements", {}).duplicate(true)
+	treasury_conversions = data.get("treasury_conversions", {}).duplicate(true)
 
 	balance_changed.emit(legacy_balance)
 	return true
@@ -592,6 +624,7 @@ func _initialize_empty_profile() -> void:
 	lifetime_legacy_spent = 0
 	claimed_rewards.clear()
 	unlocked_achievements.clear()
+	treasury_conversions.clear()
 
 func reset_profile(filepath: String = "") -> bool:
 	var target_path = filepath if not filepath.is_empty() else active_filepath
@@ -851,20 +884,288 @@ func unlock_achievement(achievement_id: String, world_id: String = "") -> Dictio
 	}
 
 # -----------------------------------------------------------------------------
-# Stable Treasury Conversion Extension Point (TASK-1Z.6)
+# Surplus Treasury Conversion (Package 2C — GDD §13.2 & SCOPE_DECISIONS §1.30)
 # -----------------------------------------------------------------------------
 
+func has_treasury_conversion(world_id: String) -> bool:
+	return treasury_conversions.has(world_id.strip_edges())
+
+func get_treasury_conversion(world_id: String) -> Dictionary:
+	var clean_id := world_id.strip_edges()
+	if treasury_conversions.has(clean_id):
+		return treasury_conversions[clean_id].duplicate(true)
+	return {}
+
+func get_all_treasury_conversions() -> Dictionary:
+	return treasury_conversions.duplicate(true)
+
 func convert_surplus_treasury(
-	_treasury_amount: int,
-	_stability: float,
-	_world_id: String = ""
+	treasury_amount: Variant,
+	stability: Variant,
+	world_id: String = "",
+	is_prosperity_victory: bool = true
 ) -> Dictionary:
-	## Extension point for surplus treasury conversion per GDD §13.2.
-	## Explicitly deferred pending authoritative game rules formula and conversion rate design decision.
+	if not is_available():
+		return {
+			"success": false,
+			"converted": false,
+			"reason": "profile_unavailable",
+			"error": initialization_error,
+			"legacy_awarded": 0,
+			"gold_deducted": 0,
+			"status": "profile_unavailable",
+			"balance": legacy_balance
+		}
+
+	var clean_wid := world_id.strip_edges()
+	if clean_wid.is_empty():
+		return {
+			"success": false,
+			"converted": false,
+			"reason": "empty_world_id",
+			"error": "ID thế giới không được để trống.",
+			"legacy_awarded": 0,
+			"gold_deducted": 0,
+			"status": "invalid_world_id",
+			"balance": legacy_balance
+		}
+
+	var VictoryManagerScript = load("res://scripts/core/victory_manager.gd")
+	if VictoryManagerScript != null and VictoryManagerScript.has_method("is_valid_world_id"):
+		if not VictoryManagerScript.is_valid_world_id(clean_wid):
+			return {
+				"success": false,
+				"converted": false,
+				"reason": "invalid_world_id",
+				"error": "ID thế giới không hợp lệ.",
+				"legacy_awarded": 0,
+				"gold_deducted": 0,
+				"status": "invalid_world_id",
+				"balance": legacy_balance
+			}
+
+	# Exactly-Once Protection: Each unique World ID can produce at most one treasury conversion
+	if treasury_conversions.has(clean_wid):
+		return {
+			"success": false,
+			"converted": false,
+			"reason": "already_converted",
+			"error": "Thế giới này đã thực hiện quyết toán chuyển đổi ngân khố trước đó.",
+			"legacy_awarded": 0,
+			"gold_deducted": 0,
+			"status": "already_converted",
+			"balance": legacy_balance,
+			"record": treasury_conversions[clean_wid].duplicate(true)
+		}
+
+	# Numeric & Type Validation
+	if not _is_valid_integer_val(treasury_amount):
+		return {
+			"success": false,
+			"converted": false,
+			"reason": "invalid_treasury",
+			"error": "Số lượng vàng ngân khố không hợp lệ.",
+			"legacy_awarded": 0,
+			"gold_deducted": 0,
+			"status": "invalid_treasury",
+			"balance": legacy_balance
+		}
+
+	var t_gold := int(treasury_amount)
+	if t_gold < 0:
+		return {
+			"success": false,
+			"converted": false,
+			"reason": "negative_treasury",
+			"error": "Số lượng vàng ngân khố không được âm.",
+			"legacy_awarded": 0,
+			"gold_deducted": 0,
+			"status": "negative_treasury",
+			"balance": legacy_balance
+		}
+
+	if not (stability is float or stability is int):
+		return {
+			"success": false,
+			"converted": false,
+			"reason": "invalid_stability",
+			"error": "Chỉ số độ ổn định không hợp lệ.",
+			"legacy_awarded": 0,
+			"gold_deducted": 0,
+			"status": "invalid_stability",
+			"balance": legacy_balance
+		}
+
+	var stab := float(stability)
+	if is_nan(stab) or is_inf(stab):
+		return {
+			"success": false,
+			"converted": false,
+			"reason": "invalid_stability",
+			"error": "Chỉ số độ ổn định là NaN hoặc vô cực.",
+			"legacy_awarded": 0,
+			"gold_deducted": 0,
+			"status": "invalid_stability",
+			"balance": legacy_balance
+		}
+
+	# Rule 2.3: Collapse Policy - Collapsed or defeated kingdoms receive zero Legacy from conversion
+	if not is_prosperity_victory:
+		return {
+			"success": false,
+			"converted": false,
+			"reason": "not_prosperity_victory",
+			"error": "Chuyển đổi ngân khố chỉ áp dụng khi đạt Chiến Thắng Thịnh Vượng hợp lệ.",
+			"legacy_awarded": 0,
+			"gold_deducted": 0,
+			"status": "not_prosperity_victory",
+			"balance": legacy_balance
+		}
+
+	# Rule 2.2: Stability at settlement must be at least 80.0%
+	if stab < MIN_CONVERSION_STABILITY:
+		var inelig_record: Dictionary = {
+			"world_id": clean_wid,
+			"original_gold": t_gold,
+			"stability": stab,
+			"surplus_gold": 0,
+			"gold_deducted": 0,
+			"legacy_awarded": 0,
+			"status": "ineligible_stability",
+			"converted_at_unix": int(Time.get_unix_time_from_system()) if Time else 0,
+			"reward_id": ""
+		}
+		treasury_conversions[clean_wid] = inelig_record
+		save_profile()
+		return {
+			"success": false,
+			"converted": false,
+			"reason": "stability_too_low",
+			"error": "Độ ổn định khi quyết toán chưa đạt mức tối thiểu (%.2f%% < %.1f%%)." % [stab, MIN_CONVERSION_STABILITY],
+			"legacy_awarded": 0,
+			"gold_deducted": 0,
+			"status": "ineligible_stability",
+			"remaining_gold": t_gold,
+			"balance": legacy_balance,
+			"record": inelig_record
+		}
+
+	# Rule 2.1: Conversion Formula
+	var surplus_gold: int = maxi(0, t_gold - PROTECTED_GOLD_RESERVE)
+	var legacy_awarded: int = surplus_gold / GOLD_PER_LEGACY_POINT
+	var gold_deducted: int = legacy_awarded * GOLD_PER_LEGACY_POINT
+
+	# Zero Surplus Case (Treasury <= 1000 Gold or surplus < 100 Gold)
+	if legacy_awarded <= 0:
+		var zero_record: Dictionary = {
+			"world_id": clean_wid,
+			"original_gold": t_gold,
+			"stability": stab,
+			"surplus_gold": surplus_gold,
+			"gold_deducted": 0,
+			"legacy_awarded": 0,
+			"status": "zero_surplus",
+			"converted_at_unix": int(Time.get_unix_time_from_system()) if Time else 0,
+			"reward_id": ""
+		}
+		treasury_conversions[clean_wid] = zero_record
+		save_profile()
+		return {
+			"success": true,
+			"converted": false,
+			"reason": "no_surplus",
+			"message": "Ngân khố không vượt quá mức dự trữ an toàn 1.000 Vàng để quy đổi.",
+			"legacy_awarded": 0,
+			"gold_deducted": 0,
+			"status": "zero_surplus",
+			"remaining_gold": t_gold,
+			"balance": legacy_balance,
+			"record": zero_record
+		}
+
+	# Numeric Overflow Protection
+	if legacy_awarded > MAX_SAFE_INT - legacy_balance or legacy_awarded > MAX_SAFE_INT - lifetime_legacy_earned:
+		return {
+			"success": false,
+			"converted": false,
+			"reason": "overflow",
+			"error": "Điểm thưởng quy đổi làm tràn số nguyên 64-bit của số dư hoặc tổng tích lũy.",
+			"legacy_awarded": 0,
+			"gold_deducted": 0,
+			"status": "overflow",
+			"balance": legacy_balance
+		}
+
+	var rew_id := "treasury_conv_" + clean_wid
+	if claimed_rewards.has(rew_id):
+		return {
+			"success": false,
+			"converted": false,
+			"reason": "already_claimed",
+			"error": "Phần thưởng quy đổi ngân khố cho thế giới này đã được ghi nhận.",
+			"legacy_awarded": 0,
+			"gold_deducted": 0,
+			"status": "already_claimed",
+			"balance": legacy_balance
+		}
+
+	var now_unix: int = int(Time.get_unix_time_from_system()) if Time else 0
+	var claim_rec: Dictionary = {
+		"reward_id": rew_id,
+		"source": "treasury_conversion",
+		"amount": legacy_awarded,
+		"world_id": clean_wid,
+		"claimed_at_unix": now_unix
+	}
+
+	var trans_rec: Dictionary = {
+		"world_id": clean_wid,
+		"original_gold": t_gold,
+		"stability": stab,
+		"surplus_gold": surplus_gold,
+		"gold_deducted": gold_deducted,
+		"legacy_awarded": legacy_awarded,
+		"status": "completed",
+		"converted_at_unix": now_unix,
+		"reward_id": rew_id
+	}
+
+	# Stage mutations in memory
+	claimed_rewards[rew_id] = claim_rec
+	treasury_conversions[clean_wid] = trans_rec
+	legacy_balance += legacy_awarded
+	lifetime_legacy_earned += legacy_awarded
+
+	# Atomic disk save
+	var save_ok := save_profile()
+	if not save_ok:
+		# Rollback staged in-memory mutations
+		claimed_rewards.erase(rew_id)
+		treasury_conversions.erase(clean_wid)
+		legacy_balance -= legacy_awarded
+		lifetime_legacy_earned -= legacy_awarded
+		return {
+			"success": false,
+			"converted": false,
+			"reason": "save_failed",
+			"error": "Ghi hồ sơ Legacy xuống đĩa thất bại; đã hủy bỏ thao tác quy đổi để bảo toàn.",
+			"legacy_awarded": 0,
+			"gold_deducted": 0,
+			"status": "save_failed",
+			"balance": legacy_balance
+		}
+
+	reward_claimed.emit(rew_id, legacy_awarded, "treasury_conversion", legacy_balance)
+	balance_changed.emit(legacy_balance)
+
 	return {
-		"converted": false,
-		"legacy_awarded": 0,
-		"gold_deducted": 0,
-		"status": "deferred",
-		"reason": "Chức năng chuyển đổi ngân khố thặng dư sang Legacy tạm hoãn do chưa có công thức và tỷ lệ quy đổi chính thức trong tài liệu thiết kế."
+		"success": true,
+		"converted": true,
+		"reason": "completed",
+		"legacy_awarded": legacy_awarded,
+		"gold_deducted": gold_deducted,
+		"remaining_gold": t_gold - gold_deducted,
+		"status": "completed",
+		"balance": legacy_balance,
+		"record": trans_rec
 	}
