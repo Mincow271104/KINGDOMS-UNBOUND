@@ -197,6 +197,7 @@ To achieve Prosperity Victory, the settlement must simultaneously satisfy all of
 3. **Treasury:** $\ge 1000$ Gold in treasury.
 4. **Settlement Stability:** $\ge 80\%$.
 5. **Average Morale:** $\ge 75\%$.
+6. **Technologies Unlocked:** $\ge 3$ completed technologies.
 
 If any condition lapses, the hold timer immediately resets to 0.
 

@@ -738,12 +738,26 @@ func disengage_targets_of_faction(faction_id: String) -> void:
 	for u in units.values():
 		if u != null and is_instance_valid(u) and u.order_state == TacticalUnit.OrderState.ATTACKING:
 			var tgt = u.target_actor
+			if tgt == null and not u.target_actor_id.is_empty() and u.has_method("resolve_target_actor"):
+				u.resolve_target_actor()
+				tgt = u.target_actor
 			if tgt != null and is_instance_valid(tgt):
 				var tf = tgt.get("faction_id")
 				if tf == null:
 					tf = tgt.get("owning_faction_id")
 				if str(tf) == faction_id:
-					u.order_hold()
+					if u.has_method("clear_combat_and_pursuit_to_idle"):
+						u.clear_combat_and_pursuit_to_idle()
+					else:
+						u.order_hold()
+	tactical_state_updated.emit()
+
+func resolve_all_combat_targets() -> void:
+	for uid in units.keys():
+		var u = units[uid]
+		if u != null and is_instance_valid(u) and u.order_state == TacticalUnitScript.OrderState.ATTACKING:
+			u.set_world_view(world_view)
+			u.resolve_target_actor()
 	tactical_state_updated.emit()
 
 # -----------------------------------------------------------------------------
@@ -1007,8 +1021,16 @@ func deserialize(data: Dictionary) -> bool:
 		if not IsoMath.is_in_bounds(cell):
 			return false
 
-		var o_state_str: String = String(u_data.get("order_state", "idle")).to_lower()
-		if not (o_state_str in ["idle", "moving", "holding"]):
+		var raw_o_state = u_data.get("order_state", "idle")
+		var o_state_str: String = "idle"
+		if raw_o_state is int or raw_o_state is float:
+			var o_int := int(raw_o_state)
+			if o_int < 0 or o_int > 3:
+				return false
+			o_state_str = TacticalUnitScript.order_state_to_string(o_int)
+		else:
+			o_state_str = String(raw_o_state).to_lower()
+		if not (o_state_str in ["idle", "moving", "holding", "attacking"]):
 			return false
 
 		var tgt_c := cell
@@ -1045,6 +1067,27 @@ func deserialize(data: Dictionary) -> bool:
 				last_pt = last_pt_raw
 			if last_pt != tgt_c:
 				return false
+		elif o_state_str == "attacking":
+			if u_path != null:
+				if not (u_path is Array):
+					return false
+				for step in u_path:
+					var s_pt := Vector2i(-1, -1)
+					if step is Array and step.size() >= 2:
+						s_pt = Vector2i(int(step[0]), int(step[1]))
+					elif step is Vector2i:
+						s_pt = step
+					if not IsoMath.is_in_bounds(s_pt):
+						return false
+				if not u_path.is_empty() and u_data.has("target_cell"):
+					var last_pt_raw = u_path[-1]
+					var last_pt := Vector2i(-1, -1)
+					if last_pt_raw is Array and last_pt_raw.size() >= 2:
+						last_pt = Vector2i(int(last_pt_raw[0]), int(last_pt_raw[1]))
+					elif last_pt_raw is Vector2i:
+						last_pt = last_pt_raw
+					if last_pt != tgt_c:
+						return false
 		elif o_state_str in ["idle", "holding"]:
 			if u_path != null and (not (u_path is Array) or not u_path.is_empty()):
 				return false
@@ -1052,6 +1095,27 @@ func deserialize(data: Dictionary) -> bool:
 	var raw_cg = data.get("control_groups")
 	if raw_cg != null and not (raw_cg is Dictionary):
 		return false
+
+	# Stage and validate unit instances before mutating live state
+	var staged_units: Array = []
+	for u_data in raw_units:
+		var uid: String = String(u_data.get("unit_id", "")).strip_edges()
+		var raw_cell = u_data.get("current_cell")
+		var cell: Vector2i = Vector2i(int(raw_cell[0]), int(raw_cell[1])) if raw_cell is Array else raw_cell
+		var probe_unit := TacticalUnitScript.new()
+		probe_unit.unit_id = uid
+		probe_unit.unit_name = "Chiến Binh (%s)" % uid
+		probe_unit.current_cell = cell
+		probe_unit.target_cell = cell
+		if not probe_unit.deserialize(u_data):
+			probe_unit.free()
+			for item in staged_units:
+				item["probe"].free()
+			return false
+		staged_units.append({"uid": uid, "cell": cell, "data": u_data, "probe": probe_unit})
+
+	for item in staged_units:
+		item["probe"].free()
 
 	# All validation passed! Safe to mutate state
 	clear_all_units()

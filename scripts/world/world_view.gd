@@ -163,6 +163,9 @@ func _setup_ghost_preview() -> void:
 	$World.add_child(ghost_building_node)
 
 func _generate_and_build_world() -> void:
+	var rm_init = get_node_or_null("/root/ResourceManager")
+	if rm_init != null and rm_init.has_method("reset_economy"):
+		rm_init.reset_economy()
 	world_data = WorldGenerator.generate(world_seed)
 	nav = GridNavigation.new(world_data)
 	job_mgr = JobManager.new()
@@ -505,9 +508,13 @@ func _on_citizen_died(died_id: String) -> void:
 	var rm = get_node_or_null("/root/ResourceManager")
 	var em = get_node_or_null("/root/EventManager")
 	var is_combat_death: bool = false
-	var status_reason: String = String(cit.get("status_reason"))
-	if status_reason.contains("bảo vệ định cư") or status_reason.contains("Tử trận") or status_reason.contains("trận chiến"):
+	var explicit_cause: String = String(cit.get("death_cause")) if cit.get("death_cause") != null else ""
+	if explicit_cause == "combat":
 		is_combat_death = true
+	elif explicit_cause.is_empty():
+		var status_reason: String = String(cit.get("status_reason"))
+		if status_reason.contains("Tử trận"):
+			is_combat_death = true
 
 	citizen_list.erase(cit)
 	citizens_by_id.erase(died_id)
@@ -1644,6 +1651,44 @@ func _get_building_display_name(key: String) -> String:
 func _on_return_to_menu() -> void:
 	get_tree().change_scene_to_file("res://scenes/ui/main_menu.tscn")
 
+func refresh_world_vision() -> void:
+	if fog_of_war == null:
+		return
+
+	# Degrade all currently VISIBLE cells to EXPLORED before recomputing active sightlines
+	for x in range(fog_of_war.map_size):
+		for y in range(fog_of_war.map_size):
+			if fog_of_war._grid[x][y] == FogOfWar.State.VISIBLE:
+				fog_of_war._grid[x][y] = FogOfWar.State.EXPLORED
+
+	# 1. Core settlement vision around Town Hall / starting center
+	if world_data == null or world_data.get("buildings") == null or world_data.buildings.is_empty() or BuildingSystem.is_town_hall_active(world_data):
+		fog_of_war.reveal_circle(Vector2i(32, 32), 10)
+
+	# 2. Living citizens vision
+	for cit in citizen_list:
+		if cit != null and is_instance_valid(cit):
+			var c_cell = cit.get("current_cell")
+			if c_cell is Vector2i:
+				fog_of_war.reveal_circle(c_cell, 4)
+
+	# 3. Active watchtowers vision
+	if world_data != null and world_data.get("buildings") != null:
+		for b in world_data.buildings:
+			if b.get("type") == "watchtower" and b.get("state", "active") == "active":
+				var b_cell: Vector2i = b.get("cell", Vector2i.ZERO)
+				var bp: Dictionary = EconomyConfig.BLUEPRINTS.get("watchtower", {})
+				var v_rad: int = bp.get("vision_radius", 15)
+				fog_of_war.reveal_circle(b_cell, v_rad)
+
+	# 4. Living player tactical units vision
+	if tactical_military_mgr != null and tactical_military_mgr.has_method("get_all_units"):
+		for u in tactical_military_mgr.get_all_units():
+			if u != null and is_instance_valid(u) and bool(u.get("is_alive")):
+				var u_cell = u.get("current_cell")
+				if u_cell is Vector2i:
+					fog_of_war.reveal_circle(u_cell, 4)
+
 func _on_simulation_hour_passed(hour: int, day: int) -> void:
 	var rm = get_node_or_null("/root/ResourceManager")
 	
@@ -1651,20 +1696,8 @@ func _on_simulation_hour_passed(hour: int, day: int) -> void:
 	if research_mgr != null:
 		research_mgr.progress_research(1.0, rm)
 		
-	# Update citizen vision and fog of war
-	if fog_of_war != null:
-		for cit in citizen_list:
-			var c_cell: Vector2i = cit.get("current_cell")
-			fog_of_war.reveal_circle(c_cell, 4)
-			
-		# Maintain active watchtowers vision
-		if world_data != null and world_data.get("buildings") != null:
-			for b in world_data.buildings:
-				if b.get("type") == "watchtower" and b.get("state", "active") == "active":
-					var b_cell: Vector2i = b.get("cell", Vector2i.ZERO)
-					var bp: Dictionary = EconomyConfig.BLUEPRINTS.get("watchtower", {})
-					var v_rad: int = bp.get("vision_radius", 15)
-					fog_of_war.reveal_circle(b_cell, v_rad)
+	# Update citizen/building/unit vision and fog of war
+	refresh_world_vision()
 
 	# Update POI discovery
 	if poi_mgr != null and fog_of_war != null:

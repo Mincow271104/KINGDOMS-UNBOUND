@@ -36,8 +36,8 @@ func _ready() -> void:
 	btn_new_world.pressed.connect(_on_open_new_world)
 	
 	# Check if save file exists to enable Load World
-	var save_file := "user://saves/world_save.json"
-	var bak_file := "user://saves/world_save.json.bak"
+	var save_file := SaveManager._resolve_filepath(SaveManager.DEFAULT_SAVE_PATH)
+	var bak_file := save_file + ".bak"
 	if FileAccess.file_exists(save_file) or FileAccess.file_exists(bak_file):
 		btn_load_world.disabled = false
 		btn_load_world.tooltip_text = "Tải thế giới đã lưu gần nhất"
@@ -157,31 +157,45 @@ func _on_load_world() -> void:
 		print("[MainMenu] Failed to load save file: %s" % load_res.get("error", ""))
 		if am: am.play_error()
 		return
-		
-	if am: am.play_coin()
-		
+
 	var save_data: Dictionary = load_res.get("data", {})
+	var val_res: Dictionary = SaveManager.validate_save_data(save_data)
+	if not val_res.get("valid", false):
+		print("[MainMenu] Save data failed preflight validation: %s" % val_res.get("error", ""))
+		if am: am.play_error()
+		return
+
 	var meta: Dictionary = save_data.get("metadata", {})
 	var s_val: int = meta.get("world_seed", 12345)
-	
-	# Instantiates WorldView scene
+
+	# Instantiates WorldView scene in staged recovery mode before retiring MainMenu
 	var world_scene: Node = load("res://scenes/world/world_view.tscn").instantiate()
 	world_scene.set("world_seed", s_val)
 	var WorldViewScript = load("res://scripts/world/world_view.gd")
 	if WorldViewScript != null and WorldViewScript.has_method("generate_unique_world_id"):
 		world_scene.set("world_id", WorldViewScript.generate_unique_world_id(s_val))
 	world_scene.set("is_world_id_persisted", false)
-	
+
 	var root := get_tree().root
 	root.add_child(world_scene)
-	get_tree().current_scene = world_scene
-	queue_free()
-	
+
 	# Wait for child nodes to complete _ready()
 	await get_tree().process_frame
-	
-	# Apply loaded state to world
-	SaveManager.apply_loaded_state_to_world(world_scene, save_data)
+
+	# Apply loaded state to world and verify restoration succeeded before switching scenes
+	var apply_res: Dictionary = SaveManager.apply_loaded_state_to_world(world_scene, save_data)
+	if not apply_res.get("success", false):
+		print("[MainMenu] Failed to apply loaded state to world: %s" % apply_res.get("error", ""))
+		if is_instance_valid(world_scene):
+			if world_scene.get_parent() == root:
+				root.remove_child(world_scene)
+			world_scene.queue_free()
+		if am: am.play_error()
+		return
+
+	if am: am.play_coin()
+	get_tree().current_scene = world_scene
+	queue_free()
 
 func _on_fullscreen_toggled(is_fullscreen: bool) -> void:
 	if is_fullscreen:

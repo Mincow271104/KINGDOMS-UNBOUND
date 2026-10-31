@@ -676,7 +676,7 @@ func test_tc_fdip_13_hud_vietnamese_notifications() -> void:
 	var banner: Control = hud.get("event_banner")
 	_assert_true(banner != null and banner.visible, "TC-FDIP.13-WAR-BANNER-VISIBLE")
 	if title_lbl != null and desc_lbl != null:
-		_assert_eq(title_lbl.text, "Chiến Tranh!", "TC-FDIP.13-WAR-BANNER-TITLE")
+		_assert_eq(title_lbl.text, "Chiến Sự Bùng Nổ!", "TC-FDIP.13-WAR-BANNER-TITLE")
 		_assert_true(desc_lbl.text.find("Cổ Thành Thiết Giáp") != -1, "TC-FDIP.13-WAR-BANNER-FACTION-NAME")
 
 	# Trigger autonomous peace on Day 3

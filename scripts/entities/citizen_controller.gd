@@ -39,6 +39,9 @@ var morale: float = 70.0
 var current_path: Array[Vector2i] = []
 var active_job: JobManager.JobData = null
 var _death_processed: bool = false
+var death_cause: String = ""
+var _custom_resource_mgr: Object = null
+var _custom_time_mgr: Object = null
 
 var nav: GridNavigation = null
 var job_mgr: JobManager = null
@@ -138,9 +141,45 @@ func is_barracks_active(barracks_id: String = "") -> bool:
 func select() -> void:
 	citizen_selected.emit(self)
 
-func _get_time_manager() -> Node:
+func set_custom_resource_manager(rm: Object) -> void:
+	_custom_resource_mgr = rm
+
+func set_custom_time_manager(tm: Object) -> void:
+	_custom_time_mgr = tm
+
+func _get_resource_manager() -> Object:
+	if _custom_resource_mgr != null and is_instance_valid(_custom_resource_mgr):
+		return _custom_resource_mgr
+	if is_inside_tree() and has_node("/root/ResourceManager"):
+		return get_node("/root/ResourceManager")
+	var ml = Engine.get_main_loop()
+	if ml is SceneTree and ml.root != null:
+		var rm = ml.root.get_node_or_null("ResourceManager")
+		if rm != null:
+			return rm
+	return null
+
+func _is_central_food_available() -> bool:
+	var rm := _get_resource_manager()
+	if rm == null:
+		return true
+	if rm.has_method("get_available_stock"):
+		if int(rm.call("get_available_stock", EconomyConfig.RES_FOOD)) <= 0:
+			return false
+	if rm.has_method("is_starving") and bool(rm.call("is_starving")):
+		return false
+	return true
+
+func _get_time_manager() -> Object:
+	if _custom_time_mgr != null and is_instance_valid(_custom_time_mgr):
+		return _custom_time_mgr
 	if is_inside_tree() and has_node("/root/TimeManager"):
 		return get_node("/root/TimeManager")
+	var ml = Engine.get_main_loop()
+	if ml is SceneTree and ml.root != null:
+		var tm = ml.root.get_node_or_null("TimeManager")
+		if tm != null:
+			return tm
 	return null
 
 func _process(delta: float) -> void:
@@ -168,7 +207,7 @@ func _process_idle() -> void:
 		return
 
 	# Check urgent needs first
-	if hunger >= 70.0:
+	if hunger >= 70.0 and _is_central_food_available():
 		_seek_food()
 		return
 	if fatigue >= 85.0:
@@ -181,7 +220,7 @@ func _process_idle() -> void:
 			status_reason = "Cần Doanh Trại đang hoạt động"
 			return
 
-		var rm_node: Node = get_node_or_null("/root/ResourceManager") if (is_inside_tree() and has_node("/root/ResourceManager")) else null
+		var rm_node: Node = _get_resource_manager() if (_get_resource_manager() is Node) else null
 		var filter_cb := func(b_id: String) -> bool:
 			if role == "guard":
 				return is_barracks_active(b_id)
@@ -202,7 +241,9 @@ func _process_idle() -> void:
 				active_job = null
 				status_reason = "Không thể tiếp cận nơi làm việc (bị chặn đường)"
 		else:
-			if role == "smith":
+			if hunger >= 70.0 and not _is_central_food_available():
+				status_reason = "Kho lương thực trống rỗng (Đang đói)"
+			elif role == "smith":
 				status_reason = "Chờ nguyên liệu chế tác hoặc kho đệm xưởng giải phóng"
 			elif role == "guard":
 				if not is_barracks_active():
@@ -214,7 +255,10 @@ func _process_idle() -> void:
 			else:
 				status_reason = "Chờ công việc phù hợp với vai trò: " + role
 	else:
-		status_reason = "Dân tự do (Chưa được phân công việc)"
+		if hunger >= 70.0 and not _is_central_food_available():
+			status_reason = "Kho lương thực trống rỗng (Đang đói)"
+		else:
+			status_reason = "Dân tự do (Chưa được phân công việc)"
 
 func _process_movement(delta: float) -> void:
 	if current_path.is_empty():
@@ -225,15 +269,23 @@ func _process_movement(delta: float) -> void:
 	var target_local := IsoMath.map_to_local(target_cell)
 	var dir := target_local - position
 	var dist := dir.length()
-	
-	if dist <= move_speed_px * delta:
+
+	var speed_mult: float = 1.0
+	var tm := _get_time_manager()
+	if tm != null and tm.get("current_speed") != null:
+		speed_mult = float(tm.get("current_speed"))
+	if speed_mult <= 0.0:
+		return
+	var step_dist: float = move_speed_px * delta * speed_mult
+
+	if dist <= step_dist:
 		position = target_local
 		current_cell = target_cell
 		current_path.remove_at(0)
 		if current_path.is_empty():
 			_arrive_at_destination()
 	else:
-		position += dir.normalized() * move_speed_px * delta
+		position += dir.normalized() * step_dist
 
 func _arrive_at_destination() -> void:
 	match current_state:
@@ -366,7 +418,7 @@ func _process_building_work(delta_hours: float) -> void:
 		return
 
 	# Urgent needs interrupt work
-	if hunger >= 70.0:
+	if hunger >= 70.0 and _is_central_food_available():
 		job_mgr.release_job(active_job)
 		active_job = null
 		_seek_food()
@@ -443,7 +495,7 @@ func _process_guarding(delta: float) -> void:
 		return
 
 	# Check urgent needs
-	if hunger >= 70.0:
+	if hunger >= 70.0 and _is_central_food_available():
 		job_mgr.release_job(active_job)
 		active_job = null
 		_seek_food()
@@ -484,6 +536,10 @@ func _seek_food() -> void:
 		current_path = nav.find_path(current_cell, Vector2i(32, 32))
 
 func _eat_food() -> void:
+	if not _is_central_food_available():
+		current_state = State.IDLE
+		status_reason = "Kho lương thực trống rỗng (Đang đói)"
+		return
 	hunger = maxf(0.0, hunger - 50.0)
 	current_state = State.IDLE
 	status_reason = "Đã ăn no, sẵn sàng làm việc"
@@ -517,11 +573,11 @@ func _on_hour_passed(_hour: int, _day: int) -> void:
 
 	# Starvation escalation logic
 	var is_starving: bool = (hunger >= 100.0)
-	if is_inside_tree() and has_node("/root/ResourceManager"):
-		var rm: Node = get_node("/root/ResourceManager")
-		if rm.has_method("is_starving") and rm.is_starving():
+	var rm_check := _get_resource_manager()
+	if rm_check != null:
+		if rm_check.has_method("is_starving") and bool(rm_check.call("is_starving")):
 			is_starving = true
-		elif rm.call("get_available_stock", "food") <= 0:
+		elif rm_check.has_method("get_available_stock") and int(rm_check.call("get_available_stock", "food")) <= 0:
 			is_starving = true
 			
 	if is_starving:
@@ -531,13 +587,13 @@ func _on_hour_passed(_hour: int, _day: int) -> void:
 		# Stage 2: Health drops by ~5%/day (-0.208/hr)
 		health = maxf(0.0, health - 0.208)
 		if health <= 0.0:
-			die("Đã qua đời vì suy kiệt")
+			die("Đã qua đời vì suy kiệt", "starvation_or_exhaustion")
 	else:
 		# Recovery: when well-fed and not starving, health recovers by ~10%/day (+0.417/hr)
 		if hunger < 50.0 and health < 100.0:
 			health = minf(100.0, health + 0.417)
 
-func die(reason: String = "Đã qua đời vì suy kiệt") -> void:
+func die(reason: String = "Đã qua đời vì suy kiệt", cause: String = "") -> void:
 	var cleanup_complete := (
 		health <= 0.0
 		and active_job == null
@@ -546,6 +602,14 @@ func die(reason: String = "Đã qua đời vì suy kiệt") -> void:
 	)
 	if _death_processed and cleanup_complete:
 		return
+
+	if not cause.is_empty():
+		death_cause = cause
+	elif death_cause.is_empty():
+		if reason.contains("Tử trận"):
+			death_cause = "combat"
+		else:
+			death_cause = "starvation_or_exhaustion"
 
 	health = 0.0
 	status_reason = reason

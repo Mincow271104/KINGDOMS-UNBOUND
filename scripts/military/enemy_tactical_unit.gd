@@ -67,11 +67,9 @@ func update_ai(delta: float, speed_mult: float, nav: GridNavigation, player_unit
 			at_war = faction_mgr.are_factions_at_war(owning_faction_id, "player")
 		
 		if not at_war:
-			# Peace declared: immediately cease hostility
+			# Peace declared: immediately cease hostility and clear stale pursuit paths
 			if order_state == OrderState.ATTACKING:
-				target_actor = null
-				target_actor_id = ""
-				order_state = OrderState.IDLE
+				clear_combat_and_pursuit_to_idle()
 			if ai_state != AIState.RECOVER_RETREAT:
 				set_ai_state(AIState.RECOVER_RETREAT)
 
@@ -130,8 +128,7 @@ func _ai_tick_acquire(player_units: Array) -> void:
 
 func _ai_tick_pursue(_delta: float, _speed_mult: float, _nav: GridNavigation) -> void:
 	if not _is_target_valid():
-		target_actor = null
-		target_actor_id = ""
+		clear_combat_and_pursuit_to_idle()
 		set_ai_state(AIState.ACQUIRE_TARGET)
 		return
 
@@ -142,8 +139,7 @@ func _ai_tick_pursue(_delta: float, _speed_mult: float, _nav: GridNavigation) ->
 
 func _ai_tick_attack() -> void:
 	if not _is_target_valid():
-		target_actor = null
-		target_actor_id = ""
+		clear_combat_and_pursuit_to_idle()
 		set_ai_state(AIState.ACQUIRE_TARGET)
 		return
 
@@ -289,11 +285,26 @@ func deserialize(data: Dictionary) -> bool:
 
 	faction_id = owning_faction_id
 	if order_state == OrderState.ATTACKING:
-		resolve_target_actor()
-		if target_actor == null:
-			order_state = OrderState.IDLE
+		if target_actor_id.is_empty():
+			clear_combat_and_pursuit_to_idle()
 			ai_state = AIState.ACQUIRE_TARGET
+		elif world_view != null:
+			var saved_tid: String = target_actor_id
+			resolve_target_actor()
+			if target_actor == null:
+				# Defer clearing target_actor_id if tactical_military_mgr has not been restored yet
+				var tac_mgr = world_view.get("tactical_military_mgr")
+				if tac_mgr != null:
+					ai_state = AIState.ACQUIRE_TARGET
+				else:
+					target_actor_id = saved_tid
 
 	if sprite != null:
 		sprite.modulate = CRIMSON_MODULATE
 	return true
+
+func resolve_target_actor() -> void:
+	super.resolve_target_actor()
+	if order_state == OrderState.IDLE and target_actor == null:
+		if ai_state in [AIState.PURSUE, AIState.ATTACK]:
+			ai_state = AIState.ACQUIRE_TARGET

@@ -49,11 +49,24 @@ func _process(delta: float) -> void:
 
 func _advance_one_hour() -> void:
 	current_hour += 1
+	var rolled_over_day: bool = false
+	var prev_season_idx: int = season_index
+	var prev_year: int = current_year
 	if current_hour >= HOURS_PER_DAY:
 		current_hour = 0
-		_advance_one_day()
-		
+		rolled_over_day = true
+		current_day += 1
+		season_index = int(float(current_day - 1) / float(DAYS_PER_SEASON)) % SEASONS_PER_YEAR
+		current_year = 1 + int(float(current_day - 1) / float(DAYS_PER_YEAR))
+
 	hour_passed.emit(current_hour, current_day)
+
+	if rolled_over_day:
+		if season_index != prev_season_idx:
+			season_changed.emit(get_current_season_key(), current_year)
+		if current_year != prev_year:
+			year_passed.emit(current_year)
+		day_passed.emit(current_day, get_current_season_key(), current_year)
 
 func _advance_one_day() -> void:
 	current_day += 1

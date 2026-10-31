@@ -3,6 +3,9 @@ extends RefCounted
 ## Shared Job System for KINGDOMS UNBOUND.
 ## Manages job lifecycles (Available -> Reserved -> InProgress -> Completed/Cancelled).
 
+const MIN_JOB_PRIORITY: int = 1
+const MAX_JOB_PRIORITY: int = 20
+
 enum JobState {
 	AVAILABLE = 0,
 	RESERVED = 1,
@@ -55,7 +58,7 @@ func create_job(
 	job.work_hours_required = duration_hours
 	job.work_hours_done = 0.0
 	job.state = JobState.AVAILABLE
-	job.priority = priority
+	job.priority = clampi(priority, MIN_JOB_PRIORITY, MAX_JOB_PRIORITY)
 	job.is_recurring = recurring
 	job.recipe_id = recipe
 	job.workplace_channel_id = channel_id
@@ -77,7 +80,7 @@ func create_hauling_job(workplace_id: String, source: Vector2i, dest: Vector2i, 
 	job.work_hours_required = 0.5 # Fast pickup
 	job.work_hours_done = 0.0
 	job.state = JobState.AVAILABLE
-	job.priority = priority
+	job.priority = clampi(priority, MIN_JOB_PRIORITY, MAX_JOB_PRIORITY)
 	_jobs.append(job)
 	return job
 
@@ -210,7 +213,8 @@ func boost_jobs_priority(job_type: String, boost_delta: int) -> int:
 	var modified := 0
 	for job in _jobs:
 		if job.type == job_type and job.state == JobState.AVAILABLE:
-			job.priority += boost_delta
+			var next_prio := clampi(job.priority + boost_delta, MIN_JOB_PRIORITY, MAX_JOB_PRIORITY)
+			job.priority = next_prio
 			modified += 1
 	return modified
 

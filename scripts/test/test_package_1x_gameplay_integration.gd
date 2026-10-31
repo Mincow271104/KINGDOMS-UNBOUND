@@ -201,34 +201,74 @@ func _test_peace_treaty_disengagement() -> void:
 	var merch_fac = fm.get_faction("rival_merchant")
 	merch_fac.is_at_war = true
 	var army_mgr = world_instance.get("player_army_mgr")
+	var nav = world_instance.get("nav")
 	army_mgr.current_cell = merch_obj.current_cell + Vector2i(1, 1)
 	army_mgr.destination_cell = army_mgr.current_cell
 	army_mgr.movement_state = PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD
-	for u in tac_mgr.get_all_units():
-		u.current_cell = army_mgr.current_cell
+	var p_units: Array = tac_mgr.get_all_units()
+	for idx in range(p_units.size()):
+		var u = p_units[idx]
+		# Place first unit 3 tiles away so it has a non-empty pursuit path when ordered to attack
+		if idx == 0:
+			u.current_cell = merch_obj.current_cell + Vector2i(3, 0)
+			u.target_cell = u.current_cell
+		else:
+			u.current_cell = army_mgr.current_cell
+			u.target_cell = u.current_cell
 
 	var launch_res = sm.launch_field_siege("rival_merchant", "outpost_rival_merchant")
 	_assert(launch_res["success"] == true, "TC-INT.5: Launched siege against rival_merchant")
 	tac_mgr.select_all()
-	tac_mgr.issue_attack_order(merch_obj)
+	tac_mgr.issue_attack_order(merch_obj, nav)
+	if not p_units.is_empty():
+		var p0_path: Array[Vector2i] = [
+			merch_obj.current_cell + Vector2i(2, 0),
+			merch_obj.current_cell + Vector2i(1, 0),
+			merch_obj.current_cell
+		]
+		p_units[0].current_path = p0_path
+		p_units[0].target_cell = merch_obj.current_cell
 
-	# Verify units are attacking
+	# Also put a rival_merchant enemy unit into active pursuit of a player unit (keeping its valid walkable spawn cell)
+	var merch_enemies: Array = em.get_enemies_by_faction("rival_merchant")
+	var pursuing_enemy = null
+	if not merch_enemies.is_empty() and not p_units.is_empty():
+		pursuing_enemy = merch_enemies[0]
+		pursuing_enemy.order_attack(p_units[0])
+		var pe_path: Array[Vector2i] = [
+			p_units[0].current_cell + Vector2i(1, 0),
+			p_units[0].current_cell
+		]
+		pursuing_enemy.current_path = pe_path
+		pursuing_enemy.target_cell = p_units[0].current_cell
+		pursuing_enemy.ai_state = EnemyTacticalUnitScript.AIState.PURSUE
+
+	# Verify units are attacking and first player unit has an active pursuit path
 	var attacking_count: int = 0
 	for u in tac_mgr.get_selected_units():
 		if u.order_state == TacticalUnitScript.OrderState.ATTACKING:
 			attacking_count += 1
 	_assert(attacking_count > 0, "TC-INT.5: Player units in ATTACKING order state")
+	_assert(not p_units[0].current_path.is_empty(), "TC-INT.5: Pursuing player unit has non-empty pursuit path before peace")
 
 	# Sign peace with rival_merchant
 	merch_fac.is_at_war = false
 	fm.peace_signed.emit("rival_merchant")
 
-	# Verify player units disengaged
+	# Verify player units disengaged and cleared pursuit paths
 	var attacking_after: int = 0
+	var stale_player_paths: int = 0
 	for u in tac_mgr.get_selected_units():
 		if u.order_state == TacticalUnitScript.OrderState.ATTACKING:
 			attacking_after += 1
+		if not u.current_path.is_empty() or u.target_cell != u.current_cell or u.target_actor != null or not u.target_actor_id.is_empty():
+			stale_player_paths += 1
 	_assert(attacking_after == 0, "TC-INT.5: All player units disengaged upon peace treaty")
+	_assert(stale_player_paths == 0, "TC-INT.5: All player units cleared target references and pursuit paths upon peace")
+	if pursuing_enemy != null and is_instance_valid(pursuing_enemy):
+		_assert(pursuing_enemy.order_state != TacticalUnitScript.OrderState.ATTACKING, "TC-INT.5: Enemy unit disengaged from ATTACKING upon peace")
+		_assert(pursuing_enemy.target_actor == null and pursuing_enemy.target_actor_id == "", "TC-INT.5: Enemy unit cleared target_actor and target_actor_id upon peace")
+		_assert(pursuing_enemy.ai_state == EnemyTacticalUnitScript.AIState.RECOVER_RETREAT, "TC-INT.5: Enemy unit transitioned to RECOVER_RETREAT upon peace")
 	_assert(sm.is_siege_active_for_objective("outpost_rival_merchant") == false, "TC-INT.5: Active siege cancelled upon peace")
 	_assert(merch_obj.is_under_active_siege == false, "TC-INT.5: Outpost is_under_active_siege reset to false")
 
@@ -369,6 +409,10 @@ func _test_end_to_end_siege_retry_and_anti_inflation() -> void:
 	_assert(after_launch1.size() == tribe_obj.garrison_count, "TC-INT.8: Total units remains exactly garrison_count after launch (%d, not doubled)" % tribe_obj.garrison_count)
 
 	# Simulate player withdrawal
+	for u in tac_mgr.get_all_units():
+		u.current_cell = Vector2i(32, 33)
+		u.target_cell = Vector2i(32, 33)
+		u.order_state = TacticalUnitScript.OrderState.IDLE
 	army_mgr.current_cell = Vector2i(32, 33)
 	army_mgr.movement_state = PlayerArmyManagerScript.MovementState.GARRISONED
 	var s_id1 = launch_res1["siege_id"]
@@ -377,6 +421,10 @@ func _test_end_to_end_siege_retry_and_anti_inflation() -> void:
 	_assert(tribe_obj.is_under_active_siege == false, "TC-INT.8: Outpost active siege flag cleared")
 
 	# Return to outpost and launch siege retry
+	for u in tac_mgr.get_all_units():
+		u.current_cell = near_cell
+		u.target_cell = near_cell
+		u.order_state = TacticalUnitScript.OrderState.IDLE
 	army_mgr.current_cell = near_cell
 	army_mgr.movement_state = PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD
 	var launch_res2 = sm.launch_field_siege("neutral_tribe", "outpost_neutral_tribe")

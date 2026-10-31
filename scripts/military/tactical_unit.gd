@@ -304,10 +304,7 @@ func advance_combat(delta: float, speed_mult: float = 1.0, nav: GridNavigation =
 
 	# Target soft-reference validation
 	if target_actor == null or not is_instance_valid(target_actor):
-		target_actor = null
-		target_actor_id = ""
-		order_state = OrderState.IDLE
-		queue_redraw()
+		clear_combat_and_pursuit_to_idle()
 		return
 
 	var tgt_alive_val = target_actor.get("is_alive")
@@ -315,19 +312,13 @@ func advance_combat(delta: float, speed_mult: float = 1.0, nav: GridNavigation =
 	var tgt_hp_val = target_actor.get("health")
 	var tgt_hp: float = float(tgt_hp_val) if tgt_hp_val != null else 1.0
 	if not tgt_alive or tgt_hp <= 0.0:
-		target_actor = null
-		target_actor_id = ""
-		order_state = OrderState.IDLE
-		queue_redraw()
+		clear_combat_and_pursuit_to_idle()
 		return
 
 	var raw_tgt_cell = target_actor.get("current_cell")
 	var tgt_cell: Vector2i = raw_tgt_cell if (raw_tgt_cell is Vector2i) else Vector2i(-1, -1)
 	if not IsoMath.is_in_bounds(tgt_cell):
-		target_actor = null
-		target_actor_id = ""
-		order_state = OrderState.IDLE
-		queue_redraw()
+		clear_combat_and_pursuit_to_idle()
 		return
 
 	var dist: int = IsoMath.grid_distance(current_cell, tgt_cell)
@@ -386,12 +377,21 @@ func _advance_pursuit(tgt_cell: Vector2i, delta: float, speed_mult: float, nav: 
 			step_accumulator = 0.0
 			break
 
+func clear_combat_and_pursuit_to_idle() -> void:
+	target_actor = null
+	target_actor_id = ""
+	order_state = OrderState.IDLE
+	current_path.clear()
+	target_cell = current_cell
+	step_accumulator = 0.0
+	queue_redraw()
+
 func resolve_target_actor() -> void:
 	if target_actor != null and is_instance_valid(target_actor):
 		return
 	if target_actor_id.is_empty():
 		if order_state == OrderState.ATTACKING:
-			order_state = OrderState.IDLE
+			clear_combat_and_pursuit_to_idle()
 		return
 	if is_instance_valid(world_view):
 		var em = world_view.get("enemy_military_mgr")
@@ -413,9 +413,7 @@ func resolve_target_actor() -> void:
 				target_actor = u
 				return
 	if order_state == OrderState.ATTACKING:
-		order_state = OrderState.IDLE
-		target_actor_id = ""
-		target_actor = null
+		clear_combat_and_pursuit_to_idle()
 
 func _process(delta: float) -> void:
 	# Continuous visual interpolation towards authoritative current_cell local position
@@ -502,13 +500,24 @@ func deserialize(data: Dictionary) -> bool:
 	if not IsoMath.is_in_bounds(cur_c):
 		return false
 
-	var o_state_str = String(data.get("order_state", "idle")).to_lower()
+	var raw_os = data.get("order_state", "idle")
+	var o_state_str: String = ""
+	if raw_os is String:
+		o_state_str = raw_os.to_lower()
+	elif typeof(raw_os) == TYPE_INT or typeof(raw_os) == TYPE_FLOAT:
+		var os_int: int = int(raw_os)
+		if float(raw_os) != float(os_int) or os_int < 0 or os_int > 3:
+			return false
+		o_state_str = order_state_to_string(os_int)
+	else:
+		return false
 	if not (o_state_str in ["idle", "moving", "holding", "attacking"]):
 		return false
 	var o_state_val = string_to_order_state(o_state_str)
 
+	var has_explicit_tgt: bool = data.has("target_cell")
 	var tgt_c := cur_c
-	if data.has("target_cell"):
+	if has_explicit_tgt:
 		var raw_tgt = data.get("target_cell")
 		if raw_tgt is Array and raw_tgt.size() >= 2:
 			tgt_c = Vector2i(int(raw_tgt[0]), int(raw_tgt[1]))
@@ -546,6 +555,12 @@ func deserialize(data: Dictionary) -> bool:
 	elif o_state_val == OrderState.HOLDING or o_state_val == OrderState.IDLE:
 		if not parsed_path.is_empty():
 			return false
+	elif o_state_val == OrderState.ATTACKING:
+		if not parsed_path.is_empty():
+			if not has_explicit_tgt:
+				tgt_c = parsed_path[-1]
+			elif parsed_path[-1] != tgt_c:
+				return false
 
 	# All validation passed! Mutate state
 	unit_id = String(raw_id).strip_edges()
@@ -572,6 +587,6 @@ func deserialize(data: Dictionary) -> bool:
 	target_actor_id = String(data.get("target_actor_id", ""))
 	target_actor = null
 	if order_state == OrderState.ATTACKING and target_actor_id.is_empty():
-		order_state = OrderState.IDLE
+		clear_combat_and_pursuit_to_idle()
 	damage_flash_timer = 0.0
 	return true

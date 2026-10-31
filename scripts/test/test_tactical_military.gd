@@ -482,6 +482,11 @@ func _run_all_tests() -> void:
 	var apply_res_2 = SaveManagerScript.apply_loaded_state_to_world(world_instance, load_res.get("data", {}))
 	_assert(apply_res_2.get("success", false), "TC-TAC.28: Second consecutive load succeeded")
 	_assert(live_tac_mgr.get_unit_count() == live_army.get_army_count(), "TC-TAC.28: Second load produced zero duplicate units")
+	var cleanup_dir := DirAccess.open("user://")
+	if cleanup_dir:
+		for sfx in ["", ".bak", ".bak.old", ".tmp", ".bak.tmp"]:
+			if FileAccess.file_exists(test_save_path + sfx):
+				cleanup_dir.remove(test_save_path + sfx)
 
 	# TC-TAC.29: Legacy save lacking tactical_military reconstructs valid roster from soldier_count
 	var legacy_dict: Dictionary = SaveManagerScript.serialize_world_state(world_instance)
@@ -993,12 +998,30 @@ func _run_all_tests() -> void:
 	_assert(not des_res, "FH-CASE.8: TacticalMilitaryManager.deserialize returns false for corrupted data")
 	_assert(fu_tac.get_unit_count() == pre_units_count, "FH-CASE.8: Live unit roster was NOT wiped or mutated by failed deserialize (%d == %d)" % [fu_tac.get_unit_count(), pre_units_count])
 
-	# FH-CASE.8b: SaveManager.apply_loaded_state_to_world fails closed on corrupted tactical data without corrupting world state
+	# FH-CASE.8b: SaveManager.apply_loaded_state_to_world fails closed during preflight subsystem deserialize() without mutating live world state
+	var live_tm_node: Node = world_instance.get_node_or_null("/root/TimeManager")
+	var live_rm_node: Node = world_instance.get_node_or_null("/root/ResourceManager")
+	var pre_8b_day: int = int(live_tm_node.get("current_day")) if live_tm_node else 1
+	var pre_8b_gold: int = int(live_rm_node.call("get_available_stock", "gold")) if live_rm_node else 0
+	var pre_8b_cits: int = (world_instance.get("citizen_list") as Array).size()
+	var pre_8b_soldiers: int = fu_army.get_army_count()
+
 	var bad_world_save: Dictionary = base_valid_save.duplicate(true)
-	bad_world_save["tactical_military"] = corrupted_restore_dict
+	bad_world_save["game_clock"]["current_day"] = pre_8b_day + 25
+	bad_world_save["resources"]["stock"]["gold"] = pre_8b_gold + 7777
+	bad_world_save["tactical_military"]["units"][0]["order_state"] = "idle"
+	bad_world_save["tactical_military"]["units"][0]["current_path"] = null
+
+	var preflight_schema_check := SaveManagerScript.validate_save_data(bad_world_save)
+	_assert(preflight_schema_check.get("valid", false) == true, "FH-CASE.8b: Payload passes SaveManager.validate_save_data() schema check (Step 0a)")
 	var bad_apply_res := SaveManagerScript.apply_loaded_state_to_world(world_instance, bad_world_save)
-	_assert(not bad_apply_res.get("success", true), "FH-CASE.8b: SaveManager.apply_loaded_state_to_world reports failure on corrupted tactical military data")
-	_assert(fu_tac.get_unit_count() == pre_units_count, "FH-CASE.8b: Live tactical roster in world_instance preserved untouched after failed apply (%d == %d)" % [fu_tac.get_unit_count(), pre_units_count])
+	_assert(not bad_apply_res.get("success", true), "FH-CASE.8b: SaveManager.apply_loaded_state_to_world rejects payload during preflight subsystem deserialize() probe (Step 0b)")
+	_assert(fu_tac.get_unit_count() == pre_units_count and fu_army.get_army_count() == pre_8b_soldiers, "FH-CASE.8b: Live tactical and strategic military state preserved untouched after failed preflight (%d == %d)" % [fu_tac.get_unit_count(), pre_units_count])
+	if live_tm_node != null:
+		_assert(int(live_tm_node.get("current_day")) == pre_8b_day, "FH-CASE.8b: Live TimeManager.current_day untouched after failed preflight")
+	if live_rm_node != null:
+		_assert(int(live_rm_node.call("get_available_stock", "gold")) == pre_8b_gold, "FH-CASE.8b: Live ResourceManager gold untouched after failed preflight")
+	_assert((world_instance.get("citizen_list") as Array).size() == pre_8b_cits, "FH-CASE.8b: Live citizen count untouched after failed preflight")
 
 	# FH-CASE.9: Army march advances tactical units step-by-step without snapping
 	fu_tac.clear_all_units()
@@ -2217,4 +2240,133 @@ func _run_all_tests() -> void:
 	_assert(fu_army.get_settled_state_for_cell(fu_army.get_rally_cell()) == PlayerArmyManagerScript.MovementState.GARRISONED, "GTA-CASE.15D: Genuine empty roster allows GARRISONED")
 	fu_army.sync_state_from_tactical()
 	_assert(fu_army.movement_state == PlayerArmyManagerScript.MovementState.GARRISONED, "GTA-CASE.15D: sync_state_from_tactical normalizes clean 0-soldier army to GARRISONED")
+
+	# =========================================================================
+	# GROUP 11: Pre-Package-2A Hardening Gates (CANON-002 & CANON-003 / WEAK-TEST-02)
+	# =========================================================================
+	print("\n--- Group 11: Pre-Package-2A Hardening Gates (CANON-002 & CANON-003) ---")
+
+	# --- Gate C1 (CANON-002): Target death clears pursuit path and stops movement ---
+	var EnemyTacticalUnitScript = preload("res://scripts/military/enemy_tactical_unit.gd")
+	var pursue_player = TacticalUnitScript.new()
+	pursue_player.unit_id = "tac_pursue_1"
+	pursue_player.unit_name = "Chiến Binh"
+	pursue_player.current_cell = Vector2i(10, 10)
+	pursue_player.target_cell = Vector2i(10, 10)
+	var pursue_enemy = EnemyTacticalUnitScript.new()
+	pursue_enemy.unit_id = "enemy_pursue_1"
+	pursue_enemy.current_cell = Vector2i(10, 14)
+	pursue_enemy.health = 20.0
+
+	pursue_player.order_attack(pursue_enemy)
+	pursue_player.advance_combat(0.1, 1.0, live_nav)
+	_assert(pursue_player.order_state == TacticalUnitScript.OrderState.ATTACKING, "GATE-C1.1: Player unit is ATTACKING out-of-range target")
+	_assert(not pursue_player.current_path.is_empty(), "GATE-C1.2: Player unit has active pursuit path toward target")
+	_assert(pursue_player.target_cell == pursue_player.current_path.back() and pursue_player.target_cell != pursue_player.current_cell, "GATE-C1.3: Player unit target_cell is pursuit path destination")
+
+	# Kill target while player unit is mid-pursuit
+	pursue_enemy.take_damage(100.0, "archer")
+	_assert(not pursue_enemy.is_alive, "GATE-C1.4: Target is dead")
+
+	var cell_at_death: Vector2i = pursue_player.current_cell
+	pursue_player.advance_combat(0.1, 1.0, live_nav)
+	_assert(pursue_player.order_state == TacticalUnitScript.OrderState.IDLE, "GATE-C1.5: Player unit transitioned to IDLE on target death")
+	_assert(pursue_player.target_actor == null and pursue_player.target_actor_id == "", "GATE-C1.6: Target references cleared on target death")
+	_assert(pursue_player.current_path.is_empty(), "GATE-C1.7: Pursuit current_path cleared on target death")
+	_assert(pursue_player.target_cell == cell_at_death, "GATE-C1.8: target_cell reset to current_cell on target death")
+
+	pursue_player.advance_movement(1.0, 1.0, live_nav)
+	_assert(pursue_player.current_cell == cell_at_death, "GATE-C1.9: Unit does not continue marching along stale path after target death")
+	pursue_player.free()
+	pursue_enemy.free()
+
+	# --- Gate C2 (CANON-003 & WEAK-TEST-02): Field-to-Field Movement & Re-Sync ---
+	fu_tac.clear_all_units()
+	fu_army.soldier_count = 0
+	fu_army.set_tactical_military_manager(fu_tac)
+	fu_rm.stock["gold"] = 500
+	fu_rm.stock["metal"] = 500
+	fu_rm.stock["food"] = 500
+	var rec_c2 = fu_army.recruit(2)
+	_assert(rec_c2.get("success", false) and fu_tac.get_unit_count() == 2, "GATE-C2.1: Recruited 2 units at garrison")
+
+	# Move from garrison to field point A (22, 22)
+	var field_a := Vector2i(22, 22)
+	var move_a = fu_tac.order_move_all(field_a, live_nav)
+	_assert(move_a.get("success", false), "GATE-C2.2: Issued move order from garrison to field point A")
+	_assert(fu_army.get_movement_state() == PlayerArmyManagerScript.MovementState.MARCHING, "GATE-C2.3: Strategic army state is MARCHING during transit to A")
+
+	for _step in range(80):
+		fu_tac.advance_movement(0.5, 1.0, live_nav)
+	fu_army.sync_state_from_tactical()
+	var cell_after_a: Vector2i = fu_army.get_current_cell()
+	_assert(fu_army.get_movement_state() == PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD, "GATE-C2.4: Strategic army settled to IDLE_AT_FIELD at point A")
+	_assert(IsoMath.grid_distance(cell_after_a, field_a) <= 2, "GATE-C2.5: Strategic army current_cell updated to point A (%s)" % str(cell_after_a))
+
+	# Move from field point A (22, 22) to field point B (27, 28)
+	var field_b := Vector2i(27, 28)
+	var move_b = fu_tac.order_move_all(field_b, live_nav)
+	_assert(move_b.get("success", false), "GATE-C2.6: Issued second field move order from point A to point B")
+	fu_army.sync_state_from_tactical()
+	_assert(fu_army.get_movement_state() == PlayerArmyManagerScript.MovementState.MARCHING, "GATE-C2.7: Strategic army transitioned from IDLE_AT_FIELD to MARCHING when all field units move")
+
+	for _step in range(80):
+		fu_tac.advance_movement(0.5, 1.0, live_nav)
+	fu_army.sync_state_from_tactical()
+	var cell_after_b: Vector2i = fu_army.get_current_cell()
+	_assert(fu_army.get_movement_state() == PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD, "GATE-C2.8: Strategic army settled to IDLE_AT_FIELD at point B")
+	_assert(cell_after_b != cell_after_a and IsoMath.grid_distance(cell_after_b, field_b) <= 2, "GATE-C2.9: Strategic army current_cell updated from A (%s) to B (%s)" % [str(cell_after_a), str(cell_after_b)])
+
+	# Partial selection move in field: move only first unit back to point A (22, 22) while second unit holds point B
+	var all_c2_units: Array = fu_tac.get_all_units()
+	var first_u = all_c2_units[0]
+	var second_u = all_c2_units[1]
+	var field_c := field_a
+	fu_tac.select_unit(first_u.unit_id, false)
+	var move_c = fu_tac.issue_move_order(field_c, live_nav)
+	_assert(move_c.get("success", false), "GATE-C2.10: Issued partial selection move order for unit 0 to point C")
+	for _step in range(60):
+		fu_tac.advance_movement(0.5, 1.0, live_nav)
+	fu_army.sync_state_from_tactical()
+	_assert(fu_army.get_current_cell() == cell_after_b, "GATE-C2.11: Strategic army preserves coordinate B (%s) while stationary unit 1 remains at B" % str(cell_after_b))
+
+	# Move remaining unit 1 from point B to point C (22, 22) -> formation has now genuinely moved away from B to C
+	fu_tac.select_unit(second_u.unit_id, false)
+	var move_c_rest = fu_tac.issue_move_order(field_c, live_nav)
+	_assert(move_c_rest.get("success", false), "GATE-C2.12: Issued move order for remaining unit 1 to point C")
+	for _step in range(60):
+		fu_tac.advance_movement(0.5, 1.0, live_nav)
+	fu_army.sync_state_from_tactical()
+	_assert(IsoMath.grid_distance(fu_army.get_current_cell(), field_c) <= 2 and fu_army.get_current_cell() != cell_after_b, "GATE-C2.13: Strategic army re-synced to point C (%s) once entire formation left B" % str(fu_army.get_current_cell()))
+
+	# DEF-1 regression checks: Strategic move to (40, 33) preserves (40, 33) across formation placement, casualties, and return home
+	var ret_garrison = fu_army.order_return_home()
+	_assert(ret_garrison.get("success", false), "GATE-C2.14: Ordered return to garrison")
+	while not fu_army.get_current_path().is_empty() or fu_army.has_moving_tactical_units():
+		fu_army.advance_movement(0.5, 1.0)
+	_assert(fu_army.get_movement_state() == PlayerArmyManagerScript.MovementState.GARRISONED and fu_army.get_current_cell() == fu_army.get_rally_cell(), "GATE-C2.15: Return to garrison restored GARRISONED at rally_cell")
+
+	fu_rm.stock["gold"] = 1000
+	fu_rm.stock["metal"] = 1000
+	fu_rm.stock["food"] = 1000
+	fu_army.recruit(3) # Total 5 soldiers
+	_assert(fu_army.get_army_count() == 5 and fu_tac.get_unit_count() == 5, "GATE-C2.16: 5 soldiers recruited for strategic formation test")
+
+	var strat_target := Vector2i(fu_army.get_rally_cell().x + 8, fu_army.get_rally_cell().y)
+	if not live_nav.is_cell_walkable(strat_target):
+		strat_target = Vector2i(fu_army.get_rally_cell().x, fu_army.get_rally_cell().y + 8)
+	var strat_move = fu_army.order_move(strat_target)
+	_assert(strat_move.get("success", false), "GATE-C2.17: Ordered strategic move to %s" % str(strat_target))
+	while not fu_army.get_current_path().is_empty() or fu_army.has_moving_tactical_units():
+		fu_army.advance_movement(0.5, 1.0)
+	_assert(fu_army.get_movement_state() == PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD, "GATE-C2.18: Strategic move arrived in IDLE_AT_FIELD")
+	_assert(fu_army.get_current_cell() == strat_target, "GATE-C2.19: Strategic center %s preserved after 5-unit tactical formation placement (got %s)" % [str(strat_target), str(fu_army.get_current_cell())])
+
+	# Remove casualties from field (including killing first unit) -> strategic coordinate must NOT shift to formation offset
+	var first_tac_unit = fu_tac.get_all_units()[0]
+	first_tac_unit.take_damage(500.0, "enemy_test")
+	fu_army.remove_casualties(1, true)
+	fu_army.sync_state_from_tactical()
+	_assert(fu_army.get_army_count() == 3, "GATE-C2.20: 3 surviving field soldiers remain after casualties")
+	_assert(fu_army.get_current_cell() == strat_target, "GATE-C2.21: Casualties did NOT shift strategic coordinate from %s (got %s)" % [str(strat_target), str(fu_army.get_current_cell())])
 

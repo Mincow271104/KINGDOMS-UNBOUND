@@ -13,26 +13,25 @@ const TEST_PROFILE_BAK: String = "user://test_legacy_profile.json.bak"
 const TEST_PROFILE_TMP: String = "user://test_legacy_profile.json.tmp"
 const TEST_PROFILE_BAK_OLD: String = "user://test_legacy_profile.json.bak.old"
 const TEST_PROFILE_BAK_TMP: String = "user://test_legacy_profile.json.bak.tmp"
+const TEST_DEFAULT_SAVE_OVERRIDE: String = "user://saves/test_legacy_isolated_default_save.json"
 
 func _cleanup_test_files() -> void:
 	var dir := DirAccess.open("user://")
 	if dir != null:
-		if FileAccess.file_exists(TEST_PROFILE_PATH):
-			dir.remove(TEST_PROFILE_PATH)
-		if FileAccess.file_exists(TEST_PROFILE_BAK):
-			dir.remove(TEST_PROFILE_BAK)
-		if FileAccess.file_exists(TEST_PROFILE_TMP):
-			dir.remove(TEST_PROFILE_TMP)
-		if FileAccess.file_exists(TEST_PROFILE_BAK_OLD):
-			dir.remove(TEST_PROFILE_BAK_OLD)
-		if FileAccess.file_exists(TEST_PROFILE_BAK_TMP):
-			dir.remove(TEST_PROFILE_BAK_TMP)
+		for p in [
+			TEST_PROFILE_PATH, TEST_PROFILE_BAK, TEST_PROFILE_TMP, TEST_PROFILE_BAK_OLD, TEST_PROFILE_BAK_TMP,
+			TEST_DEFAULT_SAVE_OVERRIDE, TEST_DEFAULT_SAVE_OVERRIDE + ".bak", TEST_DEFAULT_SAVE_OVERRIDE + ".tmp",
+			TEST_DEFAULT_SAVE_OVERRIDE + ".bak.old", TEST_DEFAULT_SAVE_OVERRIDE + ".bak.tmp"
+		]:
+			if FileAccess.file_exists(p):
+				dir.remove(p)
 
 func _init() -> void:
 	print("\n========================================================")
 	print("  TEST SUITE: Package 1Z — Legacy Fund & Meta-Progression")
 	print("========================================================\n")
 
+	SaveManager.set_test_default_save_path(TEST_DEFAULT_SAVE_OVERRIDE)
 	_cleanup_test_files()
 
 	var pass_tc1: bool = _test_profile_initialization()
@@ -91,7 +90,9 @@ func _init() -> void:
 	var pass_exp27: bool = _test_fix_1z_x_save_manager_reconciliation_cases()
 	var pass_exp28: bool = _test_fix_1z_x_profile_manager_reconciliation_cases()
 
+	SaveManager.set_test_default_save_path(TEST_DEFAULT_SAVE_OVERRIDE)
 	_cleanup_test_files()
+	SaveManager.set_test_default_save_path("")
 	LegacyProfileManager.reset_instance()
 
 	print("\n--------------------------------------------------------")
@@ -115,6 +116,7 @@ func _init() -> void:
 
 func _test_profile_initialization() -> bool:
 	print("--- Scenario 1: Authoritative Profile Initialization ---")
+	SaveManager.set_test_default_save_path(TEST_DEFAULT_SAVE_OVERRIDE)
 	_cleanup_test_files()
 	var mgr := LegacyProfileManager.new(TEST_PROFILE_PATH)
 	var load_res := mgr.load_profile()
@@ -258,6 +260,7 @@ func _test_schema_validation_invalid_reward_amount() -> bool:
 
 func _test_atomic_persistence_and_backup_recovery() -> bool:
 	print("--- Scenario 8: Atomic Persistence & Backup Recovery ---")
+	SaveManager.set_test_default_save_path(TEST_DEFAULT_SAVE_OVERRIDE)
 	_cleanup_test_files()
 	var mgr := LegacyProfileManager.new(TEST_PROFILE_PATH)
 	mgr.claim_reward("first_reward", "victory", 100, "world_test")
@@ -307,6 +310,7 @@ func _test_atomic_persistence_and_backup_recovery() -> bool:
 
 func _test_exactly_once_reward_claim() -> bool:
 	print("--- Scenario 9: Exactly-Once Reward Claim API ---")
+	SaveManager.set_test_default_save_path(TEST_DEFAULT_SAVE_OVERRIDE)
 	_cleanup_test_files()
 	var mgr := LegacyProfileManager.new(TEST_PROFILE_PATH)
 	var res := mgr.claim_reward("vic_world_1", "victory", 100, "world_1", {"details": "win"})
@@ -324,6 +328,7 @@ func _test_exactly_once_reward_claim() -> bool:
 
 func _test_double_claim_exploit_prevention() -> bool:
 	print("--- Scenario 10: Double-Claim Exploit Prevention ---")
+	SaveManager.set_test_default_save_path(TEST_DEFAULT_SAVE_OVERRIDE)
 	_cleanup_test_files()
 	var mgr := LegacyProfileManager.new(TEST_PROFILE_PATH)
 	mgr.claim_reward("vic_world_1", "victory", 100, "world_1")
@@ -344,6 +349,7 @@ func _test_double_claim_exploit_prevention() -> bool:
 
 func _test_multi_world_victory_claim() -> bool:
 	print("--- Scenario 11: Multi-World Victory Claim ---")
+	SaveManager.set_test_default_save_path(TEST_DEFAULT_SAVE_OVERRIDE)
 	_cleanup_test_files()
 	var mgr := LegacyProfileManager.new(TEST_PROFILE_PATH)
 
@@ -391,6 +397,7 @@ func _test_multi_world_victory_claim() -> bool:
 
 func _test_older_save_reload_exploit_prevention() -> bool:
 	print("--- Scenario 12: Older Save Reload Exploit Prevention ---")
+	SaveManager.set_test_default_save_path(TEST_DEFAULT_SAVE_OVERRIDE)
 	_cleanup_test_files()
 	var mgr := LegacyProfileManager.new(TEST_PROFILE_PATH)
 
@@ -438,6 +445,7 @@ func _test_older_save_reload_exploit_prevention() -> bool:
 
 func _test_achievement_foundation() -> bool:
 	print("--- Scenario 13: Achievement Foundation & Single-Award Invariant ---")
+	SaveManager.set_test_default_save_path(TEST_DEFAULT_SAVE_OVERRIDE)
 	_cleanup_test_files()
 	var mgr := LegacyProfileManager.new(TEST_PROFILE_PATH)
 
@@ -489,6 +497,7 @@ func _test_deferred_surplus_treasury_conversion() -> bool:
 
 func _test_ui_and_victory_claim_reflection() -> bool:
 	print("--- Scenario 15: UI & Victory Claim Reflection ---")
+	SaveManager.set_test_default_save_path(TEST_DEFAULT_SAVE_OVERRIDE)
 	_cleanup_test_files()
 	var mgr := LegacyProfileManager.new(TEST_PROFILE_PATH)
 	LegacyProfileManager.set_instance(mgr)
@@ -530,6 +539,7 @@ func _test_ui_and_victory_claim_reflection() -> bool:
 
 func _test_double_reward_elimination() -> bool:
 	print("--- Expanded Test 1: Double Reward Elimination (FIX-1Z-A) ---")
+	SaveManager.set_test_default_save_path(TEST_DEFAULT_SAVE_OVERRIDE)
 	_cleanup_test_files()
 	var mgr := LegacyProfileManager.new(TEST_PROFILE_PATH)
 	LegacyProfileManager.set_instance(mgr)
@@ -573,6 +583,7 @@ func _test_double_reward_elimination() -> bool:
 
 func _test_achievement_persistence_failure_rollback() -> bool:
 	print("--- Expanded Test 2: Achievement Persistence Failure Rollback (FIX-1Z-B) ---")
+	SaveManager.set_test_default_save_path(TEST_DEFAULT_SAVE_OVERRIDE)
 	_cleanup_test_files()
 	var mgr := LegacyProfileManager.new(TEST_PROFILE_PATH)
 	mgr.legacy_balance = 50
@@ -619,6 +630,7 @@ func _test_achievement_persistence_failure_rollback() -> bool:
 
 func _test_profile_initialization_failure_unavailable() -> bool:
 	print("--- Expanded Test 3: Profile Initialization Failure Unavailable (FIX-1Z-D) ---")
+	SaveManager.set_test_default_save_path(TEST_DEFAULT_SAVE_OVERRIDE)
 	_cleanup_test_files()
 	var f1 := FileAccess.open(TEST_PROFILE_PATH, FileAccess.WRITE)
 	f1.store_string("CORRUPTED_JSON_PRIMARY_DATA_!@#$%")
@@ -650,6 +662,7 @@ func _test_profile_initialization_failure_unavailable() -> bool:
 
 func _test_claims_rejected_while_unavailable() -> bool:
 	print("--- Expanded Test 4: Claims Rejected While Profile Unavailable (FIX-1Z-D) ---")
+	SaveManager.set_test_default_save_path(TEST_DEFAULT_SAVE_OVERRIDE)
 	_cleanup_test_files()
 	var f1 := FileAccess.open(TEST_PROFILE_PATH, FileAccess.WRITE)
 	f1.store_string("{ INVALID JSON }")
@@ -812,6 +825,7 @@ func _test_world_id_persistence_save_load() -> bool:
 
 func _test_failed_migration_prevents_unsafe_claims() -> bool:
 	print("--- Expanded Test 7: Failed Migration Prevents Unsafe Claims (FIX-1Z-C) ---")
+	SaveManager.set_test_default_save_path(TEST_DEFAULT_SAVE_OVERRIDE)
 	_cleanup_test_files()
 	var mgr := LegacyProfileManager.new(TEST_PROFILE_PATH)
 	LegacyProfileManager.set_instance(mgr)
@@ -852,6 +866,7 @@ func _test_failed_migration_prevents_unsafe_claims() -> bool:
 
 func _test_atomic_write_failure_and_rollback() -> bool:
 	print("--- Expanded Test 8: Atomic Write Failure and Rollback ---")
+	SaveManager.set_test_default_save_path(TEST_DEFAULT_SAVE_OVERRIDE)
 	_cleanup_test_files()
 	var mgr := LegacyProfileManager.new(TEST_PROFILE_PATH)
 	# Set active_filepath to unwritable path
@@ -876,6 +891,7 @@ func _test_atomic_write_failure_and_rollback() -> bool:
 
 func _test_float_nan_invalid_amount_rejection() -> bool:
 	print("--- Expanded Test 9: Float / NaN / Inf Rejection Fail-Closed ---")
+	SaveManager.set_test_default_save_path(TEST_DEFAULT_SAVE_OVERRIDE)
 	_cleanup_test_files()
 	var mgr := LegacyProfileManager.new(TEST_PROFILE_PATH)
 
@@ -928,6 +944,7 @@ func _test_float_nan_invalid_amount_rejection() -> bool:
 
 func _test_failed_operations_leave_state_unchanged() -> bool:
 	print("--- Expanded Test 10: Failed Operations Leave State Unchanged ---")
+	SaveManager.set_test_default_save_path(TEST_DEFAULT_SAVE_OVERRIDE)
 	_cleanup_test_files()
 	var mgr := LegacyProfileManager.new(TEST_PROFILE_PATH)
 	mgr.claim_reward("initial_valid", "victory", 50, "world_valid")
@@ -966,6 +983,7 @@ func _test_failed_operations_leave_state_unchanged() -> bool:
 
 func _test_canonical_reward_id_enforcement_and_custom_id_bypass_rejection() -> bool:
 	print("--- FIX-1Z-E: Canonical Reward ID Enforcement & Custom ID Rejection ---")
+	SaveManager.set_test_default_save_path(TEST_DEFAULT_SAVE_OVERRIDE)
 	_cleanup_test_files()
 	var profile := LegacyProfileManager.new(TEST_PROFILE_PATH)
 	var vic_mgr := VictoryManager.new()
@@ -1023,6 +1041,7 @@ func _test_canonical_reward_id_enforcement_and_custom_id_bypass_rejection() -> b
 
 func _test_safe_backup_recovery_and_corrupt_primary_protection() -> bool:
 	print("--- FIX-1Z-F & FIX-1Z-H: Safe Backup Recovery & Corrupt Target Protection ---")
+	SaveManager.set_test_default_save_path(TEST_DEFAULT_SAVE_OVERRIDE)
 	_cleanup_test_files()
 	# Step 1: Create a valid profile and save it to produce valid primary and backup
 	var profile := LegacyProfileManager.new(TEST_PROFILE_PATH)
@@ -1076,6 +1095,7 @@ func _test_safe_backup_recovery_and_corrupt_primary_protection() -> bool:
 
 func _test_save_manager_atomic_backup_hardening() -> bool:
 	print("--- FIX-1Z-G: SaveManager Atomic Writes and Backup Safety ---")
+	SaveManager.set_test_default_save_path(TEST_DEFAULT_SAVE_OVERRIDE)
 	_cleanup_test_files()
 	var test_save_path := "user://test_save_atomic.json"
 	var test_bak_path := test_save_path + ".bak"
@@ -1135,6 +1155,7 @@ func _test_save_manager_atomic_backup_hardening() -> bool:
 
 func _test_hud_reward_status_classification() -> bool:
 	print("--- FIX-1Z-I: HUD Reward Status Classification ---")
+	SaveManager.set_test_default_save_path(TEST_DEFAULT_SAVE_OVERRIDE)
 	_cleanup_test_files()
 	var HUDScript = load("res://scripts/ui/hud.gd")
 	var hud = HUDScript.new()
@@ -1227,6 +1248,7 @@ func _test_hud_reward_status_classification() -> bool:
 
 func _test_integer_overflow_rejection() -> bool:
 	print("--- FIX-1Z-J: Numeric Overflow Protection Fail-Closed ---")
+	SaveManager.set_test_default_save_path(TEST_DEFAULT_SAVE_OVERRIDE)
 	_cleanup_test_files()
 	var mgr := LegacyProfileManager.new(TEST_PROFILE_PATH)
 
@@ -1280,6 +1302,7 @@ func _test_integer_overflow_rejection() -> bool:
 
 func _test_fix_1z_k_fail_closed_rewards() -> bool:
 	print("--- FIX-1Z-K: Fail-Closed Rewards (No Null-Profile Fallback) ---")
+	SaveManager.set_test_default_save_path(TEST_DEFAULT_SAVE_OVERRIDE)
 	_cleanup_test_files()
 	var vic := VictoryManager.new()
 	vic.world_id = "world_k_test_12345"
@@ -1353,6 +1376,7 @@ func _test_fix_1z_k_fail_closed_rewards() -> bool:
 
 func _test_fix_1z_l_world_id_persistence_lifecycle() -> bool:
 	print("--- FIX-1Z-L: World ID Persistence Lifecycle & Gating ---")
+	SaveManager.set_test_default_save_path(TEST_DEFAULT_SAVE_OVERRIDE)
 	_cleanup_test_files()
 	var test_save_path := "user://test_lifecycle_save.json"
 	var dir := DirAccess.open("user://")
@@ -1492,6 +1516,7 @@ func _test_fix_1z_l_world_id_persistence_lifecycle() -> bool:
 
 func _test_fix_1z_m_save_manager_backup_rotation_10_cases() -> bool:
 	print("--- FIX-1Z-M: SaveManager 10 Failure Injection & Backup Rotation Cases ---")
+	SaveManager.set_test_default_save_path(TEST_DEFAULT_SAVE_OVERRIDE)
 	_cleanup_test_files()
 	var test_path := "user://test_m_hardening.json"
 	var test_bak := test_path + ".bak"
@@ -1752,6 +1777,7 @@ func _test_fix_1z_m_save_manager_backup_rotation_10_cases() -> bool:
 
 func _test_fix_1z_n_float_64bit_boundary_precision() -> bool:
 	print("--- FIX-1Z-N & FIX-1Z-R: 64-Bit Float Boundary Precision Validation ---")
+	SaveManager.set_test_default_save_path(TEST_DEFAULT_SAVE_OVERRIDE)
 	_cleanup_test_files()
 
 	var float_upper: float = LegacyProfileManager.FLOAT_INT64_EXCLUSIVE_UPPER # 9223372036854775808.0 (2^63)
@@ -1859,6 +1885,7 @@ func _test_fix_1z_n_float_64bit_boundary_precision() -> bool:
 
 func _test_fix_1z_q_profile_recovery_failed_write_restart() -> bool:
 	print("--- FIX-1Z-Q: Profile Recovery Followed by Failed Write and Restart ---")
+	SaveManager.set_test_default_save_path(TEST_DEFAULT_SAVE_OVERRIDE)
 	_cleanup_test_files()
 	var prof_path := "user://test_profile_q.json"
 	var bak_path := prof_path + ".bak"
@@ -1993,6 +2020,7 @@ func _test_fix_1z_q_profile_recovery_failed_write_restart() -> bool:
 
 func _test_fix_1z_s_canonical_path_preservation_migration() -> bool:
 	print("--- FIX-1Z-S: Canonical Path Preservation During Backup Recovery and Migration ---")
+	SaveManager.set_test_default_save_path(TEST_DEFAULT_SAVE_OVERRIDE)
 	_cleanup_test_files()
 	var can_path := "user://test_legacy_migration.json"
 	var bak_path := can_path + ".bak"
@@ -2139,6 +2167,7 @@ var citizens_by_id: Dictionary = {}
 
 func _test_fix_1z_t_save_manager_crash_states() -> bool:
 	print("--- FIX-1Z-T: SaveManager Crash States & .bak.old Reconciliation ---")
+	SaveManager.set_test_default_save_path(TEST_DEFAULT_SAVE_OVERRIDE)
 	_cleanup_test_files()
 	var test_path := "user://test_save_crash_t.json"
 	var bak_path := test_path + ".bak"
@@ -2300,6 +2329,7 @@ func _test_fix_1z_t_save_manager_crash_states() -> bool:
 
 func _test_fix_1z_t_profile_manager_crash_states() -> bool:
 	print("--- FIX-1Z-T: LegacyProfileManager Crash States & .bak.old Reconciliation ---")
+	SaveManager.set_test_default_save_path(TEST_DEFAULT_SAVE_OVERRIDE)
 	_cleanup_test_files()
 	var prof_path := "user://test_prof_crash_t.json"
 	var bak_path := prof_path + ".bak"
@@ -2433,6 +2463,7 @@ func _test_fix_1z_t_profile_manager_crash_states() -> bool:
 
 func _test_fix_1z_u_strict_save_schema_validation() -> bool:
 	print("--- FIX-1Z-U: Strict and Consistent World-Save Schema Validation ---")
+	SaveManager.set_test_default_save_path(TEST_DEFAULT_SAVE_OVERRIDE)
 	_cleanup_test_files()
 	var test_path := "user://test_strict_schema.json"
 	var bak_path := test_path + ".bak"
@@ -2573,6 +2604,7 @@ func _test_fix_1z_u_strict_save_schema_validation() -> bool:
 
 func _test_fix_1z_v_explicit_profile_restore_copy_failure() -> bool:
 	print("--- FIX-1Z-V: Explicit Legacy Profile Restore-Copy Failure Injection ---")
+	SaveManager.set_test_default_save_path(TEST_DEFAULT_SAVE_OVERRIDE)
 	_cleanup_test_files()
 	var prof_path := "user://test_prof_restore_fail_v.json"
 	var bak_path := prof_path + ".bak"

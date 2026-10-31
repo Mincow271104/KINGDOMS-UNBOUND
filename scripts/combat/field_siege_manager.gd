@@ -272,12 +272,17 @@ func launch_field_siege(target_faction_id: String, objective_id: String) -> Dict
 	if obj != null:
 		obj.is_under_active_siege = true
 
+	var army = get_player_army_manager()
+	var init_total: int = army.get_army_count() if (army != null and army.has_method("get_army_count")) else 0
+	var init_garrison: int = army.get_defending_soldier_count() if (army != null and army.has_method("get_defending_soldier_count")) else 0
 	var siege_record: Dictionary = {
 		"siege_id": s_id,
 		"faction_id": target_faction_id,
 		"objective_id": objective_id,
 		"status": "active",
-		"defending_unit_ids": defender_ids
+		"defending_unit_ids": defender_ids,
+		"initial_soldier_count": init_total,
+		"initial_garrison_count": init_garrison
 	}
 	active_sieges[s_id] = siege_record
 	field_siege_started.emit(s_id, target_faction_id, objective_id)
@@ -325,17 +330,45 @@ func evaluate_siege_status(siege_id: String) -> Dictionary:
 	if obj != null and (not obj.is_alive or obj.is_captured):
 		return _resolve_siege_outcome(siege_id, "VICTORY")
 
-	# Defeat Check: Player field army wiped out completely
-	var field_troops: int = army.get_field_unit_count() if (army != null and army.has_method("get_field_unit_count")) else 0
+	# Total army wipeout is always DEFEAT
 	var total_soldiers: int = army.get_army_count() if (army != null and army.has_method("get_army_count")) else 0
-	if total_soldiers <= 0 or field_troops <= 0:
+	if total_soldiers <= 0:
 		return _resolve_siege_outcome(siege_id, "DEFEAT")
 
-	# Withdrawal Check: Player moved out of siege radius
-	if army != null and obj != null:
-		var dist: int = IsoMath.grid_distance(army.get_current_cell(), obj.current_cell)
-		if dist > (SIEGE_RADIUS + 4) or (army.get_movement_state() == PlayerArmyManager.MovementState.GARRISONED and army.get_current_cell() == army.get_rally_cell()):
+	var tac_mgr = army.get("tactical_military_mgr") if army != null else null
+	if tac_mgr != null and tac_mgr.has_method("get_all_field_units"):
+		var rally_c: Vector2i = army.get_rally_cell() if army.has_method("get_rally_cell") else Vector2i(32, 33)
+		var raw_field: Array = tac_mgr.get_all_field_units(rally_c)
+		var living_field: Array = []
+		for u in raw_field:
+			if u != null and is_instance_valid(u) and (u.get("is_alive") == null or bool(u.get("is_alive"))) and float(u.get("health") if u.get("health") != null else 100.0) > 0.0:
+				living_field.append(u)
+
+		if living_field.is_empty():
+			# No living units remain in the field: distinguish combat elimination of field force from return to garrison
+			var init_total: int = int(record.get("initial_soldier_count", total_soldiers))
+			var init_garrison: int = int(record.get("initial_garrison_count", 0))
+			var cur_garrison: int = tac_mgr.get_garrisoned_unit_count(rally_c) if tac_mgr.has_method("get_garrisoned_unit_count") else total_soldiers
+			if total_soldiers < init_total and cur_garrison <= init_garrison:
+				return _resolve_siege_outcome(siege_id, "DEFEAT")
 			return _resolve_siege_outcome(siege_id, "WITHDRAWAL")
+
+		if obj != null:
+			var in_siege_zone: int = 0
+			for u in living_field:
+				if IsoMath.grid_distance(u.current_cell, obj.current_cell) <= (SIEGE_RADIUS + 4):
+					in_siege_zone += 1
+			if in_siege_zone == 0:
+				return _resolve_siege_outcome(siege_id, "WITHDRAWAL")
+	else:
+		# Strategic-only fallback when no TacticalMilitaryManager is attached
+		if army != null and obj != null:
+			var dist: int = IsoMath.grid_distance(army.get_current_cell(), obj.current_cell)
+			if dist > (SIEGE_RADIUS + 4) or (army.get_movement_state() == PlayerArmyManager.MovementState.GARRISONED and army.get_current_cell() == army.get_rally_cell()):
+				return _resolve_siege_outcome(siege_id, "WITHDRAWAL")
+		var field_troops: int = army.get_field_unit_count() if (army != null and army.has_method("get_field_unit_count")) else 0
+		if field_troops <= 0:
+			return _resolve_siege_outcome(siege_id, "DEFEAT")
 
 	return {"status": "active", "outcome": "NONE"}
 
@@ -370,12 +403,16 @@ func _resolve_siege_outcome(siege_id: String, outcome: String) -> Dictionary:
 				fac.military_power = maxf(0.0, fac.military_power - 20.0)
 				details["faction_military_power"] = fac.military_power
 
-		# 2. Award plunder resources
+		# 2. Award plunder resources (recording actual added amounts)
 		var rm = get_resource_manager()
-		var plunder: Dictionary = PLUNDER_REWARDS.duplicate()
-		if rm != null and rm.has_method("add_resource"):
-			for r_type in plunder:
-				rm.call("add_resource", r_type, plunder[r_type])
+		var plunder: Dictionary = {}
+		for r_type in PLUNDER_REWARDS:
+			var req_amt: int = int(PLUNDER_REWARDS[r_type])
+			if rm != null and rm.has_method("add_resource"):
+				var actual_added = rm.call("add_resource", r_type, req_amt)
+				plunder[r_type] = int(actual_added) if actual_added != null else req_amt
+			else:
+				plunder[r_type] = req_amt
 		details["plunder"] = plunder
 
 		# 3. Clean up / route surviving defenders of captured outpost
@@ -498,5 +535,7 @@ func clear_all_objectives() -> void:
 	for k in objectives.keys():
 		var o = objectives[k]
 		if is_instance_valid(o) and o is Node:
+			if o.get_parent() != null:
+				o.get_parent().remove_child(o)
 			o.queue_free()
 	objectives.clear()

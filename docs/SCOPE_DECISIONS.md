@@ -63,7 +63,7 @@
     4. Settlement Morale $\ge 60\%$
   - Then 1–2 immigrants arrive at the Town Hall.
   - Complex family genetics and birth cycles are deferred to post-MVP; immigration is the deterministic growth mechanism.
-  - **Victory Hold:** All prosperity criteria must be maintained for 5 consecutive game-days (120 game-hours). If any metric drops below threshold, the 5-day timer resets to 0.
+  - **Victory Hold:** All prosperity criteria ($\text{Population} \ge 30$, $\text{Food} \ge 500$, $\text{Treasury} \ge 1000$, $\text{Stability} \ge 80\%$, $\text{Morale} \ge 75\%$, $\text{Technologies} \ge 3$) must be maintained for 5 consecutive game-days (120 game-hours). If any metric drops below threshold, the 5-day timer resets to 0.
 
 ### 1.5 Collapse Conditions & Recovery Windows
 - **Problem:** GDD defines collapse qualitatively ("loss of governmental capacity").

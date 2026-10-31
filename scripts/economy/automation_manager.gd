@@ -1466,7 +1466,7 @@ func evaluate_rules(
 					if fill_ratio >= buffer_congestion_ratio:
 						for job in job_mgr.get_all_jobs():
 							if job.type == "hauler" and job.source_workplace_id == wp.id:
-								job.priority += 2
+								job.priority = clampi(job.priority + 2, JobManager.MIN_JOB_PRIORITY, JobManager.MAX_JOB_PRIORITY)
 								actions_taken.append(
 									"Kho tạm %s đầy (%.0f%%): Tăng ưu tiên vận chuyển hàng về kho trung tâm" % [
 										wp.id, fill_ratio * 100.0

@@ -1016,12 +1016,13 @@ func _refresh_diplomacy_ui() -> void:
 		c_grid.add_theme_constant_override("v_separation", 6)
 		
 		var rm = get_node_or_null("/root/ResourceManager")
+		var caravan_opinion: float = _get_caravan_faction_opinion(active_caravan)
 		var inv: Dictionary = active_caravan.get("inventory")
 		for res_id in inv:
 			if inv[res_id] > 0:
 				var cur_res: String = res_id
 				var buy_btn := Button.new()
-				var price: int = active_caravan.call("get_effective_sell_price", cur_res, 0.0)
+				var price: int = active_caravan.call("get_effective_sell_price", cur_res, caravan_opinion)
 				buy_btn.text = "Mua 10 %s (%d Vàng)" % [cur_res, price * 10]
 				buy_btn.pressed.connect(func():
 					_handle_caravan_buy(cur_res, 10)
@@ -1033,7 +1034,7 @@ func _refresh_diplomacy_ui() -> void:
 			var cur_res: String = res_id
 			var avail_stock: int = rm.get_available_stock(cur_res) if rm != null else 0
 			if avail_stock >= 10:
-				var sell_price: int = active_caravan.call("get_effective_buy_price", cur_res, 0.0)
+				var sell_price: int = active_caravan.call("get_effective_buy_price", cur_res, caravan_opinion)
 				var sell_btn := Button.new()
 				sell_btn.text = "Bán 10 %s (+%d Vàng)" % [cur_res, sell_price * 10]
 				sell_btn.modulate = Color(1.1, 1.1, 0.7)
@@ -1136,13 +1137,25 @@ func _refresh_diplomacy_ui() -> void:
 		card.add_child(vbox)
 		factions_list_vbox.add_child(card)
 
+func _get_caravan_faction_opinion(caravan: Object) -> float:
+	if caravan == null or faction_mgr == null or not faction_mgr.has_method("get_faction"):
+		return 0.0
+	var origin_id: String = String(caravan.get("origin_faction_id")) if caravan.get("origin_faction_id") != null else "rival_merchant"
+	if origin_id.is_empty():
+		origin_id = "rival_merchant"
+	var fac = faction_mgr.get_faction(origin_id)
+	if fac != null and fac.get("opinion") != null:
+		return float(fac.get("opinion"))
+	return 0.0
+
 func _handle_caravan_buy(res_id: String, amount: int) -> void:
 	var active_caravan = world_view_ref.get("active_caravan") if world_view_ref != null else null
 	if active_caravan == null or not active_caravan.get("is_active"):
 		_show_diplomacy_feedback("❌ Thương đoàn đã rời đi!", true)
 		return
 	var rm = get_node_or_null("/root/ResourceManager")
-	var res: Dictionary = active_caravan.call("buy_from_caravan", res_id, amount, rm, 0.0)
+	var caravan_opinion: float = _get_caravan_faction_opinion(active_caravan)
+	var res: Dictionary = active_caravan.call("buy_from_caravan", res_id, amount, rm, caravan_opinion)
 	if res.get("success", false):
 		_show_diplomacy_feedback("✅ Đã mua %d %s (-%d Vàng) thành công!" % [amount, res_id, res.get("total_cost", 0)], false)
 	else:
@@ -1154,7 +1167,8 @@ func _handle_caravan_sell(res_id: String, amount: int) -> void:
 		_show_diplomacy_feedback("❌ Thương đoàn đã rời đi!", true)
 		return
 	var rm = get_node_or_null("/root/ResourceManager")
-	var res: Dictionary = active_caravan.call("sell_to_caravan", res_id, amount, rm, 0.0)
+	var caravan_opinion: float = _get_caravan_faction_opinion(active_caravan)
+	var res: Dictionary = active_caravan.call("sell_to_caravan", res_id, amount, rm, caravan_opinion)
 	if res.get("success", false):
 		_show_diplomacy_feedback("✅ Đã bán %d %s (+%d Vàng) cho thương đoàn!" % [amount, res_id, res.get("total_payout", 0)], false)
 	else:

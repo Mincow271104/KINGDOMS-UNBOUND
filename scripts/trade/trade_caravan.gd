@@ -173,3 +173,52 @@ func sell_to_caravan(
 		"total_payout": total_payout,
 		"remaining_caravan_gold": gold
 	}
+
+func serialize() -> Dictionary:
+	return {
+		"caravan_id": caravan_id,
+		"name": name,
+		"origin_faction_id": origin_faction_id,
+		"arrival_day": arrival_day,
+		"departure_day": departure_day,
+		"is_active": is_active,
+		"inventory": inventory.duplicate(true),
+		"gold": gold,
+		"sell_prices": sell_prices.duplicate(true),
+		"buy_prices": buy_prices.duplicate(true)
+	}
+
+static func deserialize(data: Dictionary) -> RefCounted:
+	if data.is_empty():
+		return null
+	var c_id := String(data.get("caravan_id", "")).strip_edges()
+	var c_name := String(data.get("name", "")).strip_edges()
+	var c_origin := String(data.get("origin_faction_id", "rival_merchant")).strip_edges()
+	if c_id.is_empty() or c_origin.is_empty():
+		return null
+	var script = load("res://scripts/trade/trade_caravan.gd")
+	var c = script.new(c_id, c_name if not c_name.is_empty() else ("Đoàn Buôn (%s)" % c_id), c_origin)
+	c.arrival_day = int(data.get("arrival_day", 1))
+	c.departure_day = int(data.get("departure_day", c.arrival_day + 2))
+	c.is_active = bool(data.get("is_active", true))
+	c.gold = maxi(0, int(data.get("gold", 0)))
+
+	c.inventory = {}
+	var raw_inv = data.get("inventory", {})
+	if raw_inv is Dictionary:
+		for k in raw_inv.keys():
+			c.inventory[String(k)] = maxi(0, int(raw_inv[k]))
+
+	c.sell_prices = {}
+	var raw_sell = data.get("sell_prices", {})
+	if raw_sell is Dictionary:
+		for k in raw_sell.keys():
+			c.sell_prices[String(k)] = maxi(1, int(raw_sell[k]))
+
+	c.buy_prices = {}
+	var raw_buy = data.get("buy_prices", {})
+	if raw_buy is Dictionary:
+		for k in raw_buy.keys():
+			c.buy_prices[String(k)] = maxi(1, int(raw_buy[k]))
+
+	return c

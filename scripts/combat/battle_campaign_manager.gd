@@ -382,13 +382,23 @@ func resolve_and_apply_raid(faction_id: String, current_day: int = -1) -> Dictio
 
 		# Release active job safely and trigger citizen death lifecycle
 		if cit.has_method("die"):
-			cit.die("Tử trận khi bảo vệ định cư")
+			var die_argc: int = 1
+			for m in cit.get_method_list():
+				if m.get("name") == "die":
+					die_argc = (m.get("args", []) as Array).size()
+					break
+			if die_argc >= 2:
+				cit.die("Tử trận khi bảo vệ định cư", "combat")
+			else:
+				cit.set("death_cause", "combat")
+				cit.die("Tử trận khi bảo vệ định cư")
 		else:
 			if cit.get("active_job") != null and jm != null:
 				jm.release_job(cit.active_job)
 				cit.active_job = null
 
 			# Update citizen status and mark deceased with combat reason
+			cit.set("death_cause", "combat")
 			cit.health = 0.0
 			cit.status_reason = "Tử trận khi bảo vệ định cư"
 			cit.current_state = 0 # State.IDLE

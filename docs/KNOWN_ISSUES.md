@@ -2,15 +2,16 @@
 
 ## Active Issues
 
-### ISSUE-005: Real-Time Tactical Field Combat Deferred to Future Milestones
-- **Severity:** Low / Architectural Scope Boundary
-- **Symptom:** Tactical unit-on-unit RTS micro combat (stances, manual targeting, enemy field patrol engagements) is not simulated in real time.
-- **Root Cause:** By design per GDD Section 10.4 and MASTER_PROMPT constraints, combat resolution is modeled through deterministic multi-factor formulas rather than RTS tactical micro-combat.
-- **Resolution / Scope Progress:** Package 1M resolved player army physical marching, discrete A* navigation on the 64×64 logical grid, visual `ArmyMarker` rendering, dynamic obstruction rerouting, and garrison/field defense state transitions. Real-time tactical micro-combat, enemy field movement, and manual siege controls remain deferred to post-MVP milestones.
+*No active blocking or deferred MVP gameplay issues remain.*
 
 ---
 
 ## Resolved Issues
+
+### ISSUE-005: Real-Time Tactical Field Combat & Field Siege Operations (Resolved in Packages 1W & 1X)
+- **Severity:** Low / Architectural Scope Boundary
+- **Symptom:** Tactical unit-on-unit RTS micro combat (stances, manual targeting, enemy field patrol engagements, and field siege operations) was initially deferred during early phases.
+- **Resolution:** Implemented `TacticalMilitaryManager` & `TacticalUnit` (Package 1W) and `EnemyMilitaryManager`, `EnemyTacticalUnit`, `FieldSiegeManager`, & `SiegeObjective` (Package 1X), providing full real-time tactical unit control, formations, control groups, enemy AI state machines (`HOLD`, `PATROL`, `ACQUIRE_TARGET`, `PURSUE`, `ATTACK`, `RECOVER_RETREAT`), and field siege campaigns with deterministic save/load persistence.
 
 ### ISSUE-004: Live Production Settlement Battle Trigger (Resolved in Package 1K)
 - **Severity:** Low / Architecture Scope Boundary

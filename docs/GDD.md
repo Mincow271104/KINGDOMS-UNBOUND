@@ -928,12 +928,13 @@ MVP chỉ cần hoàn thiện con đường chiến thắng thịnh vượng.
 Điều kiện ban đầu để kiểm thử:
 
 - Dân số đạt ít nhất 30.
-- Food dự trữ đạt mức an toàn.
-- Treasury không âm và có thể thanh toán chi phí thiết yếu.
-- Hoàn thành ít nhất ba công nghệ.
-- Morale trung bình đạt ít nhất 65/100.
+- Food dự trữ đạt mức an toàn ($\ge 500$ Food).
+- Treasury đạt ít nhất 1000 Gold ($\ge 1000$ Gold).
+- Hoàn thành ít nhất ba công nghệ ($\ge 3$ Technologies).
+- Độ ổn định (Stability) đạt ít nhất 80% ($\ge 80\%$).
+- Morale trung bình đạt ít nhất 75/100 ($\ge 75\%$).
 - Không có khủng hoảng nghiêm trọng.
-- Tất cả điều kiện được duy trì liên tục trong 5 ngày game.
+- Tất cả điều kiện được duy trì liên tục trong 5 ngày game (120 giờ game).
 
 Các giá trị phải đặt trong cấu hình và có thể cân bằng sau playtest.
 

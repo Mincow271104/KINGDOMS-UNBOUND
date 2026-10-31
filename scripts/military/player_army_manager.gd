@@ -853,19 +853,19 @@ func sync_state_from_tactical() -> void:
 			break
 
 	if any_moving:
-		# Enforce strict garrison invariant: strategic army cannot be GARRISONED while any tactical unit is moving
-		if movement_state == MovementState.GARRISONED or (movement_state == MovementState.IDLE_AT_FIELD and current_cell == rally_cell):
-			movement_state = MovementState.MARCHING
-			movement_state_changed.emit(movement_state, current_cell, destination_cell)
+		# Enforce strict garrison/field invariant: strategic army cannot be GARRISONED while any tactical unit is moving,
+		# and if all field units are moving (no stationary field force remains), strategic state transitions to MARCHING.
+		if movement_state == MovementState.GARRISONED or (movement_state == MovementState.IDLE_AT_FIELD and current_cell == rally_cell) or get_field_unit_count() == 0:
+			if movement_state != MovementState.MARCHING:
+				movement_state = MovementState.MARCHING
+				movement_state_changed.emit(movement_state, current_cell, destination_cell)
 		return
 
-	# If army is already IDLE_AT_FIELD at a valid field position and no units are moving:
-	if movement_state == MovementState.IDLE_AT_FIELD and current_cell != rally_cell:
-		return
-
-	# All units are idle: evaluate spatial distribution vs rally_cell
+	# All units are stationary (idle, holding, or attacking): evaluate spatial distribution vs rally_cell
 	var all_at_base: bool = (all_units.size() == soldier_count)
 	var first_field_cell := Vector2i(-1, -1)
+	var has_field_unit_near_current: bool = false
+	var current_is_field: bool = (IsoMath.grid_distance(current_cell, rally_cell) > RALLY_PERIMETER_DISTANCE)
 
 	for u in all_units:
 		var u_cell: Vector2i = u.get("current_cell")
@@ -874,6 +874,8 @@ func sync_state_from_tactical() -> void:
 			all_at_base = false
 			if first_field_cell == Vector2i(-1, -1):
 				first_field_cell = u_cell
+			if current_is_field and IsoMath.grid_distance(u_cell, current_cell) <= 3:
+				has_field_unit_near_current = true
 
 	if all_at_base:
 		if movement_state != MovementState.GARRISONED or current_cell != rally_cell:
@@ -882,9 +884,14 @@ func sync_state_from_tactical() -> void:
 			destination_cell = rally_cell
 			current_path.clear()
 			movement_state_changed.emit(movement_state, current_cell, destination_cell)
+	elif first_field_cell == Vector2i(-1, -1):
+		# Roster mismatch while all spawned units are at base: cannot claim GARRISONED, preserve current_cell
+		if movement_state != MovementState.IDLE_AT_FIELD:
+			movement_state = MovementState.IDLE_AT_FIELD
+			current_path.clear()
+			movement_state_changed.emit(movement_state, current_cell, destination_cell)
 	else:
-		var fallback_cell: Vector2i = all_units[0].current_cell if all_units[0] is Node2D else Vector2i(all_units[0].get("current_cell"))
-		var target_loc: Vector2i = first_field_cell if first_field_cell != Vector2i(-1, -1) else fallback_cell
+		var target_loc: Vector2i = current_cell if (current_is_field and has_field_unit_near_current) else first_field_cell
 		if movement_state != MovementState.IDLE_AT_FIELD or current_cell != target_loc:
 			movement_state = MovementState.IDLE_AT_FIELD
 			current_cell = target_loc

@@ -10,11 +10,22 @@ const SAVE_PATH_1: String = "user://saves/test_roundtrip_1.json"
 const SAVE_PATH_2: String = "user://saves/test_roundtrip_2.json"
 const TEST_CORRUPT_PATH: String = "user://saves/test_corrupt_save.json"
 const TEST_BAK_PATH: String = "user://saves/test_backup_restore.json"
+const TEST_DEFAULT_SAVE_OVERRIDE: String = "user://saves/test_isolated_default_world_save.json"
 
 var frame_count: int = 0
 var world_instance: Node = null
 var _assertions_passed: int = 0
 var _assertions_failed: int = 0
+
+func _cleanup_test_save_files() -> void:
+	SaveManager.set_test_default_save_path("")
+	var dir := DirAccess.open("user://")
+	if dir != null:
+		for base_p in [SAVE_PATH_1, SAVE_PATH_2, TEST_CORRUPT_PATH, TEST_BAK_PATH, TEST_DEFAULT_SAVE_OVERRIDE]:
+			for suffix in ["", ".bak", ".tmp", ".bak.tmp", ".bak.old"]:
+				var p: String = base_p + suffix
+				if FileAccess.file_exists(p):
+					dir.remove(p)
 
 func _assert_true(cond: bool, label: String, desc: String = "") -> bool:
 	if cond:
@@ -42,6 +53,7 @@ func _init() -> void:
 	print("========================================================\n")
 	
 	SaveManager.ensure_save_directory()
+	SaveManager.set_test_default_save_path(TEST_DEFAULT_SAVE_OVERRIDE)
 	
 	# Instantiate live WorldView scene into root
 	var world_scene: PackedScene = load("res://scenes/world/world_view.tscn")
@@ -63,10 +75,13 @@ func _process(_delta: float) -> bool:
 		var pass_tc8: bool = _test_tc8_8_world_event_persistence_and_legacy_fallback()
 		var pass_tc9: bool = _test_tc8_9_package_1x_schema_validation()
 		var pass_tc10: bool = _test_tc8_10_package_1x_worldview_and_double_load()
+		var pass_tc11: bool = _test_tc8_11_hardening_gates_combat_transactional_and_caravan()
+
+		_cleanup_test_save_files()
 		
 		print("\n--------------------------------------------------------")
 		print("  Assertions Passed: %d | Failed: %d" % [_assertions_passed, _assertions_failed])
-		if pass_tc1 and pass_tc2 and pass_tc3 and pass_tc4 and pass_tc5 and pass_tc6 and pass_tc7 and pass_tc8 and pass_tc9 and pass_tc10 and _assertions_failed == 0:
+		if pass_tc1 and pass_tc2 and pass_tc3 and pass_tc4 and pass_tc5 and pass_tc6 and pass_tc7 and pass_tc8 and pass_tc9 and pass_tc10 and pass_tc11 and _assertions_failed == 0:
 			print("  ALL PHASE 8 PERSISTENCE TESTS PASSED! (Exit Code 0)")
 			print("--------------------------------------------------------\n")
 			quit(0)
@@ -276,11 +291,12 @@ func _test_tc8_3_ui_save_load_workflow() -> bool:
 		return false
 	print("  [PASS] HUD save triggered and displayed success feedback: '%s'" % status_lbl.text)
 
-	# Verify save file exists on disk
-	if not FileAccess.file_exists(SaveManager.DEFAULT_SAVE_PATH):
+	# Verify save file exists on disk (at isolated test path)
+	var expected_save_path := SaveManager._resolve_filepath(SaveManager.DEFAULT_SAVE_PATH)
+	if not FileAccess.file_exists(expected_save_path):
 		print("  [FAIL] Default save file does not exist on disk!")
 		return false
-	print("  [PASS] Save file confirmed on disk at %s" % SaveManager.DEFAULT_SAVE_PATH)
+	print("  [PASS] Save file confirmed on disk at %s" % expected_save_path)
 
 	# 3. Modify live world state (e.g. consume gold)
 	var rm = root.get_node_or_null("ResourceManager")
@@ -882,12 +898,246 @@ func _test_tc8_10_package_1x_worldview_and_double_load() -> bool:
 	var obj_count_load2: int = sm.get_all_objectives().size()
 	_assert_eq(obj_count_load2, objs.size(), "TC-8.10-LOAD-2-NO-DUP-OBJS", "Double load did NOT duplicate siege objectives")
 
-	# 6. Legacy save without Package 1X sections loads safely
+	# 6. Legacy save without Package 1X sections loads safely and recreates default siege objectives without duplication (DEF-3)
 	var legacy_save: Dictionary = base_save.duplicate(true)
 	legacy_save.erase("enemy_military")
 	legacy_save.erase("field_siege")
 	var leg_res = SaveManager.apply_loaded_state_to_world(world_instance, legacy_save)
 	_assert_true(leg_res.get("success", false), "TC-8.10-LEGACY-SUCCESS", "Legacy save without enemy_military/field_siege loads cleanly")
+	var leg_objs: Array = sm.get_all_objectives()
+	_assert_eq(leg_objs.size(), 3, "TC-8.10-LEGACY-DEFAULT-OBJS", "Legacy save without field_siege recreated 3 default outpost objectives")
+	_assert_true(sm.get_objective("outpost_rival_military") != null and sm.get_objective("outpost_rival_merchant") != null and sm.get_objective("outpost_neutral_tribe") != null, "TC-8.10-LEGACY-OBJ-IDS", "All 3 default faction outposts exist after legacy load")
+	var siege_container = world_instance.get_node_or_null("SiegeObjectivesContainer")
+	if siege_container != null:
+		_assert_eq(siege_container.get_child_count(), 3, "TC-8.10-LEGACY-NO-ACTOR-DUP", "SiegeObjectivesContainer has 3 child actors without duplication")
+	var leg_res2 = SaveManager.apply_loaded_state_to_world(world_instance, legacy_save)
+	_assert_true(leg_res2.get("success", false), "TC-8.10-LEGACY-RELOAD-SUCCESS", "Second legacy load succeeded")
+	_assert_eq(sm.get_all_objectives().size(), 3, "TC-8.10-LEGACY-RELOAD-NO-DUP", "Repeated legacy load did not duplicate siege objectives")
+	if siege_container != null:
+		_assert_eq(siege_container.get_child_count(), 3, "TC-8.10-LEGACY-RELOAD-ACTORS", "Repeated legacy load did not duplicate objective actors")
 
 	print("  [PASS] TC-8.10 PASSED.\n")
+	return _assertions_failed == 0
+
+func _test_tc8_11_hardening_gates_combat_transactional_and_caravan() -> bool:
+	print("--- Running TC-8.11: Pre-Package-2A Hardening Gates (Gate A, Gate B, Gate E, Gate F) ---")
+	var TacticalUnitScript = preload("res://scripts/military/tactical_unit.gd")
+	var EnemyTacticalUnitScript = preload("res://scripts/military/enemy_tactical_unit.gd")
+
+	# -------------------------------------------------------------------------
+	# GATE A: Active Combat Save/Load, Target Resolution Order, & Transactional Load (CANON-001 / WEAK-TEST-01)
+	# -------------------------------------------------------------------------
+	var army_mgr = world_instance.get("player_army_mgr")
+	var tac_mgr = world_instance.get("tactical_military_mgr")
+	var em_mgr = world_instance.get("enemy_military_mgr")
+	var siege_mgr = world_instance.get("field_siege_mgr")
+	var fm = world_instance.get("faction_mgr")
+	var nav = world_instance.get("nav")
+
+	# Spawn 2 player units and enemy units, and configure active combat against both an enemy unit and a siege objective
+	army_mgr.soldier_count = 2
+	tac_mgr.sync_with_player_army()
+	var p_units: Array = tac_mgr.get_all_units()
+	_assert_eq(p_units.size(), 2, "GATE-A.1", "2 player tactical units spawned")
+
+	var mil_fac = fm.get_faction("rival_military")
+	if mil_fac:
+		mil_fac.is_at_war = true
+	fm.war_declared.emit("rival_military")
+	var e_units: Array = em_mgr.get_enemies_by_faction("rival_military")
+	_assert_true(e_units.size() > 0, "GATE-A.2", "Hostile enemy units spawned for rival_military")
+
+	var target_enemy = e_units[0]
+	var target_obj = siege_mgr.get_objective("outpost_rival_military")
+	_assert_true(target_obj != null, "GATE-A.3", "Siege objective outpost_rival_military exists")
+
+	# Player unit 0 engages enemy unit in melee range (empty pursuit path)
+	p_units[0].current_cell = Vector2i(20, 20)
+	p_units[0].target_cell = Vector2i(20, 20)
+	target_enemy.current_cell = Vector2i(20, 21)
+	target_enemy.target_cell = Vector2i(20, 21)
+	p_units[0].order_attack(target_enemy)
+	p_units[0].current_path.clear()
+
+	# Player unit 1 pursues siege objective with a valid path ending at target_cell
+	p_units[1].current_cell = target_obj.current_cell + Vector2i(2, 0)
+	p_units[1].order_attack(target_obj)
+	var p1_path: Array[Vector2i] = [target_obj.current_cell + Vector2i(1, 0), target_obj.current_cell]
+	p_units[1].current_path = p1_path
+	p_units[1].target_cell = target_obj.current_cell
+
+	# Enemy unit attacks player unit 0
+	target_enemy.order_attack(p_units[0])
+	target_enemy.current_path.clear()
+	target_enemy.target_cell = target_enemy.current_cell
+	target_enemy.ai_state = EnemyTacticalUnitScript.AIState.ATTACK
+
+	army_mgr.sync_state_from_tactical()
+
+	var combat_save: Dictionary = SaveManager.serialize_world_state(world_instance)
+	var val_combat = SaveManager.validate_save_data(combat_save)
+	if not val_combat.get("valid", false):
+		print("DEBUG GATE-A VALIDATION ERROR: ", val_combat.get("error"))
+	_assert_true(val_combat.get("valid", false), "GATE-A.4", "Active combat save passes validate_save_data")
+
+	var apply_combat = SaveManager.apply_loaded_state_to_world(world_instance, combat_save)
+	if not apply_combat.get("success", false):
+		print("DEBUG GATE-A APPLY ERROR: ", apply_combat.get("error"))
+	_assert_true(apply_combat.get("success", false), "GATE-A.5", "Active combat save restored cleanly via apply_loaded_state_to_world")
+
+	var restored_u0 = tac_mgr.get_unit(p_units[0].unit_id)
+	var restored_u1 = tac_mgr.get_unit(p_units[1].unit_id)
+	var restored_enemy = em_mgr.get_enemy(target_enemy.unit_id)
+	_assert_true(restored_u0 != null and restored_u0.order_state == TacticalUnitScript.OrderState.ATTACKING, "GATE-A.6", "Player unit 0 restored in ATTACKING state")
+	_assert_true(restored_u0 != null and restored_u0.target_actor != null and restored_u0.target_actor.unit_id == target_enemy.unit_id, "GATE-A.7", "Player unit 0 target_actor resolved to restored enemy unit")
+	_assert_true(restored_u1 != null and restored_u1.order_state == TacticalUnitScript.OrderState.ATTACKING, "GATE-A.8", "Player unit 1 restored in ATTACKING state")
+	_assert_true(restored_u1 != null and restored_u1.target_actor != null and restored_u1.target_actor.objective_id == "outpost_rival_military", "GATE-A.9", "Player unit 1 target_actor resolved to restored SiegeObjective")
+	_assert_true(restored_enemy != null and restored_enemy.order_state == TacticalUnitScript.OrderState.ATTACKING and restored_enemy.target_actor != null, "GATE-A.10", "Enemy unit target_actor resolved to restored player unit")
+
+	# Missing target on load -> graceful fallback to IDLE with empty path
+	var missing_tgt_save: Dictionary = combat_save.duplicate(true)
+	missing_tgt_save["tactical_military"]["units"][1]["target_actor_id"] = "deleted_target_999"
+	var apply_missing = SaveManager.apply_loaded_state_to_world(world_instance, missing_tgt_save)
+	_assert_true(apply_missing.get("success", false), "GATE-A.11", "Save with missing combat target loads cleanly without error")
+	var fallback_u1 = tac_mgr.get_unit(p_units[1].unit_id)
+	_assert_true(fallback_u1 != null and fallback_u1.order_state == TacticalUnitScript.OrderState.IDLE, "GATE-A.12", "Unit with missing target transitioned gracefully to IDLE")
+	_assert_true(fallback_u1 != null and fallback_u1.target_actor == null and fallback_u1.target_actor_id == "" and fallback_u1.current_path.is_empty(), "GATE-A.13", "Unit with missing target cleared pursuit path and target_actor_id")
+
+	# Enemy path validation rules in validate_save_data()
+	var bad_enemy_moving: Dictionary = combat_save.duplicate(true)
+	bad_enemy_moving["enemy_military"]["enemies"][0]["order_state"] = "moving"
+	bad_enemy_moving["enemy_military"]["enemies"][0]["current_path"] = []
+	_assert_eq(SaveManager.validate_save_data(bad_enemy_moving).get("valid", true), false, "GATE-A.14", "Rejected enemy unit with order_state=moving and empty current_path")
+
+	var bad_enemy_idle_path: Dictionary = combat_save.duplicate(true)
+	bad_enemy_idle_path["enemy_military"]["enemies"][0]["order_state"] = "idle"
+	bad_enemy_idle_path["enemy_military"]["enemies"][0]["current_path"] = [[20, 22]]
+	_assert_eq(SaveManager.validate_save_data(bad_enemy_idle_path).get("valid", true), false, "GATE-A.15", "Rejected enemy unit with order_state=idle and non-empty current_path")
+
+	# Transactional / preflight safety in apply_loaded_state_to_world() (DEF-2)
+	var tm: Node = root.get_node_or_null("TimeManager")
+	var rm: Node = root.get_node_or_null("ResourceManager")
+	tm.reset_time(10, 7, 1)
+	rm.reset_economy()
+	var pre_wid: String = String(world_instance.get("world_id"))
+	var pre_day: int = int(tm.get("current_day"))
+	var pre_hour: int = int(tm.get("current_hour"))
+	var pre_gold: int = int(rm.call("get_available_stock", "gold"))
+	var pre_food: int = int(rm.call("get_available_stock", "food"))
+	var pre_cit_count: int = (world_instance.get("citizen_list") as Array).size()
+	var pre_soldiers: int = army_mgr.get_army_count()
+	var pre_tac_count: int = tac_mgr.get_unit_count()
+	var pre_enemy_count: int = em_mgr.get_enemy_count()
+
+	var bad_late_payload: Dictionary = combat_save.duplicate(true)
+	bad_late_payload["metadata"]["world_id"] = "world_corrupt_late_999_999_999"
+	bad_late_payload["game_clock"]["current_day"] = 99
+	bad_late_payload["game_clock"]["current_hour"] = 22
+	bad_late_payload["resources"]["stock"]["gold"] = 9999
+	bad_late_payload["resources"]["stock"]["food"] = 8888
+	bad_late_payload["enemy_military"]["enemies"][0]["order_state"] = "idle"
+	bad_late_payload["enemy_military"]["enemies"][0]["current_path"] = null
+
+	var schema_pass_res: Dictionary = SaveManager.validate_save_data(bad_late_payload)
+	_assert_eq(schema_pass_res.get("valid", false), true, "GATE-A.16a", "Payload passes SaveManager.validate_save_data() schema check (Step 0a)")
+	var bad_apply_res: Dictionary = SaveManager.apply_loaded_state_to_world(world_instance, bad_late_payload)
+	_assert_eq(bad_apply_res.get("success", true), false, "GATE-A.16", "apply_loaded_state_to_world rejected payload during isolated preflight subsystem deserialize() probe (Step 0b)")
+	_assert_eq(String(world_instance.get("world_id")), pre_wid, "GATE-A.17", "Live world_id untouched on failed load")
+	_assert_eq(int(tm.get("current_day")), pre_day, "GATE-A.18", "Live TimeManager.current_day untouched on failed load")
+	_assert_eq(int(tm.get("current_hour")), pre_hour, "GATE-A.18b", "Live TimeManager.current_hour untouched on failed load")
+	_assert_eq(int(rm.call("get_available_stock", "gold")), pre_gold, "GATE-A.19", "Live ResourceManager gold untouched on failed load")
+	_assert_eq(int(rm.call("get_available_stock", "food")), pre_food, "GATE-A.19b", "Live ResourceManager food untouched on failed load")
+	_assert_eq((world_instance.get("citizen_list") as Array).size(), pre_cit_count, "GATE-A.20", "Live citizen count untouched on failed load")
+	_assert_eq(army_mgr.get_army_count(), pre_soldiers, "GATE-A.20b", "Live PlayerArmyManager soldier_count untouched on failed load")
+	_assert_eq(tac_mgr.get_unit_count(), pre_tac_count, "GATE-A.20c", "Live TacticalMilitaryManager unit count untouched on failed load")
+	_assert_eq(em_mgr.get_enemy_count(), pre_enemy_count, "GATE-A.20d", "Live EnemyMilitaryManager unit count untouched on failed load")
+
+	# -------------------------------------------------------------------------
+	# GATE B: Victory/Collapse State, Active Caravan, Fog of War, Midnight Order, & New-World Economy Reset
+	# -------------------------------------------------------------------------
+	# 1. Victory & Collapse state persistence (CANON-006)
+	var vic_mgr = world_instance.get("victory_mgr")
+	vic_mgr.townhall_ruin_hours = 36.5
+	vic_mgr.anarchy_hours = 18.0
+	vic_mgr.primary_collapse_reason = "Tòa Thị Chính bị phá hủy"
+	vic_mgr.has_continued_after_victory = true
+	var custom_events: Array[String] = ["Ngày 4: Đại Thắng Mùa Xuân"]
+	vic_mgr.major_events = custom_events
+
+	# 2. Active Trade Caravan persistence & faction opinion pricing (CANON-007 & CANON-010)
+	var caravan = TradeCaravan.generate_caravan(12345, 3, "rival_merchant")
+	world_instance.set("active_caravan", caravan)
+	var merch_fac_b = fm.get_faction("rival_merchant")
+	if merch_fac_b:
+		merch_fac_b.opinion = 100.0
+	var hud = world_instance.get("hud")
+	if hud and hud.has_method("_get_caravan_faction_opinion"):
+		var op_val: float = float(hud.call("_get_caravan_faction_opinion", caravan))
+		_assert_eq(op_val, 100.0, "GATE-B.1", "HUD queries actual rival_merchant faction opinion (100.0) for caravan pricing")
+	var initial_caravan_food: int = int(caravan.inventory.get("food", 0))
+	rm.add_resource("gold", 500)
+	var buy_res: Dictionary = caravan.buy_from_caravan("food", 5, rm, 100.0)
+	_assert_true(buy_res.get("success", false), "GATE-B.2", "Purchased 5 food from active caravan with opinion discount")
+	var post_buy_food: int = int(caravan.inventory.get("food", 0))
+	var post_buy_gold: int = int(caravan.gold)
+	_assert_eq(post_buy_food, initial_caravan_food - 5, "GATE-B.3", "Caravan inventory decremented by 5")
+
+	# 3. Fog of War active vision vs explored degradation (CANON-011)
+	var fow = world_instance.get("fog_of_war")
+	fow.reveal_circle(Vector2i(60, 60), 2)
+	_assert_eq(fow.get_state(Vector2i(60, 60)), FogOfWar.State.VISIBLE, "GATE-B.4", "Far corner (60,60) initially marked VISIBLE")
+	world_instance.call("refresh_world_vision")
+	_assert_eq(fow.get_state(Vector2i(60, 60)), FogOfWar.State.EXPLORED, "GATE-B.5", "Unobserved cell (60,60) degraded from VISIBLE to EXPLORED on vision refresh")
+	_assert_eq(fow.get_state(Vector2i(32, 32)), FogOfWar.State.VISIBLE, "GATE-B.6", "Settlement center (32,32) remains VISIBLE")
+
+	# Save and reload -> verify Victory fields, Active Caravan, and Fog of War states
+	var gate_b_save: Dictionary = SaveManager.serialize_world_state(world_instance)
+	vic_mgr.townhall_ruin_hours = 0.0
+	vic_mgr.anarchy_hours = 0.0
+	vic_mgr.primary_collapse_reason = ""
+	vic_mgr.has_continued_after_victory = false
+	var empty_events: Array[String] = []
+	vic_mgr.major_events = empty_events
+	world_instance.set("active_caravan", null)
+
+	var apply_b = SaveManager.apply_loaded_state_to_world(world_instance, gate_b_save)
+	_assert_true(apply_b.get("success", false), "GATE-B.7", "Gate B save restored cleanly")
+	_assert_eq(vic_mgr.townhall_ruin_hours, 36.5, "GATE-B.8", "Restored townhall_ruin_hours == 36.5")
+	_assert_eq(vic_mgr.anarchy_hours, 18.0, "GATE-B.9", "Restored anarchy_hours == 18.0")
+	_assert_eq(vic_mgr.primary_collapse_reason, "Tòa Thị Chính bị phá hủy", "GATE-B.10", "Restored primary_collapse_reason")
+	_assert_eq(vic_mgr.has_continued_after_victory, true, "GATE-B.11", "Restored has_continued_after_victory == true")
+	_assert_eq(vic_mgr.major_events.size(), 1, "GATE-B.12", "Restored major_events array")
+
+	var restored_caravan = world_instance.get("active_caravan")
+	_assert_true(restored_caravan != null and bool(restored_caravan.get("is_active")), "GATE-B.13", "Active caravan restored across save/load")
+	if restored_caravan != null:
+		_assert_eq(int(restored_caravan.inventory.get("food", -1)), post_buy_food, "GATE-B.14", "Restored caravan preserved modified food inventory")
+		_assert_eq(int(restored_caravan.gold), post_buy_gold, "GATE-B.15", "Restored caravan preserved modified gold balance")
+	_assert_eq(fow.get_state(Vector2i(60, 60)), FogOfWar.State.EXPLORED, "GATE-B.16", "Saved explored cell (60,60) restored as EXPLORED (not VISIBLE)")
+
+	# 4. Midnight hour-0 signal ordering before daily autosave (CANON-008)
+	var signal_order: Array[String] = []
+	var on_hr = func(h: int, d: int):
+		signal_order.append("hour:%d:%d" % [h, d])
+	var on_day = func(d: int, _s: String, _y: int):
+		signal_order.append("day:%d" % d)
+	tm.hour_passed.connect(on_hr)
+	tm.day_passed.connect(on_day)
+	tm.reset_time(23, 2, 1)
+	tm.call("_advance_one_hour")
+	tm.hour_passed.disconnect(on_hr)
+	tm.day_passed.disconnect(on_day)
+	_assert_true(signal_order.size() >= 2 and signal_order[0] == "hour:0:3" and signal_order[1] == "day:3", "GATE-B.17", "Midnight rollover emits hour_passed(0, 3) BEFORE day_passed(3): %s" % str(signal_order))
+
+	# 5. New-World Economy Reset in WorldView._generate_and_build_world() (CANON-005)
+	rm.consume_resource("gold", rm.get_available_stock("gold"))
+	rm.reserve_cost({"wood": 25})
+	rm.set("_is_starving", true)
+	_assert_eq(rm.get_available_stock("gold"), 0, "GATE-B.18", "Mutated gold to 0 before new world generation")
+	world_instance.call("_generate_and_build_world")
+	_assert_eq(rm.get_available_stock("gold"), EconomyConfig.STARTING_RESOURCES[EconomyConfig.RES_GOLD], "GATE-B.19", "New world generation reset gold to starting value (200)")
+	_assert_eq(rm.get_reserved_stock("wood"), 0, "GATE-B.20", "New world generation cleared resource reservations")
+	_assert_eq(rm.is_starving(), false, "GATE-B.21", "New world generation cleared starvation flag")
+
+	print("  [PASS] TC-8.11 PASSED.\n")
 	return _assertions_failed == 0

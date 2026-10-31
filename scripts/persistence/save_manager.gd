@@ -22,6 +22,15 @@ static var _test_inject_fail_backup_rollback: bool = false
 static var _test_inject_fail_target_remove: bool = false
 static var _test_inject_fail_target_rename: bool = false
 static var _test_inject_fail_backup_restore: bool = false
+static var _test_override_default_save_path: String = ""
+
+static func set_test_default_save_path(path: String) -> void:
+	_test_override_default_save_path = path
+
+static func _resolve_filepath(filepath: String) -> String:
+	if filepath == DEFAULT_SAVE_PATH and not _test_override_default_save_path.is_empty():
+		return _test_override_default_save_path
+	return filepath
 
 static func reset_test_injection() -> void:
 	_test_inject_fail_tmp_write = false
@@ -235,6 +244,7 @@ static func serialize_world_state(world_view: Node) -> Dictionary:
 	# 9. Victory & Crisis
 	var vic_mgr = world_view.get("victory_mgr")
 	if vic_mgr != null:
+		var raw_ev = vic_mgr.get("major_events")
 		data["victory"] = {
 			"hold_hours_elapsed": vic_mgr.get("hold_hours_elapsed"),
 			"is_victory_achieved": vic_mgr.get("is_victory_achieved"),
@@ -243,7 +253,11 @@ static func serialize_world_state(world_view: Node) -> Dictionary:
 			"total_simulation_hours": vic_mgr.get("total_simulation_hours"),
 			"legacy_points_earned": vic_mgr.get("legacy_points_earned"),
 			"is_legacy_claimed": vic_mgr.get("is_legacy_claimed"),
-			"major_events": vic_mgr.get("major_events")
+			"major_events": raw_ev.duplicate(true) if raw_ev is Array else [],
+			"townhall_ruin_hours": vic_mgr.get("townhall_ruin_hours"),
+			"anarchy_hours": vic_mgr.get("anarchy_hours"),
+			"primary_collapse_reason": vic_mgr.get("primary_collapse_reason"),
+			"has_continued_after_victory": vic_mgr.get("has_continued_after_victory")
 		}
 
 	# 10. Fog of War
@@ -311,6 +325,13 @@ static func serialize_world_state(world_view: Node) -> Dictionary:
 	if siege_mgr != null and siege_mgr.has_method("serialize"):
 		data["field_siege"] = siege_mgr.call("serialize")
 
+	# 20. Active Trade Caravan (CANON-007)
+	var act_caravan = world_view.get("active_caravan")
+	if act_caravan != null and bool(act_caravan.get("is_active")) and act_caravan.has_method("serialize"):
+		data["active_caravan"] = act_caravan.call("serialize")
+	else:
+		data["active_caravan"] = {}
+
 	return data
 
 static func _reconcile_backups(dir: DirAccess, bak_path: String, bak_old_path: String) -> bool:
@@ -350,6 +371,7 @@ static func _reconcile_backups(dir: DirAccess, bak_path: String, bak_old_path: S
 		return true
 
 static func save_dict_to_file(data: Dictionary, filepath: String) -> bool:
+	filepath = _resolve_filepath(filepath)
 	# FIX-1Z-U: Validate incoming production world-save data upfront
 	var incoming_val := validate_save_data(data)
 	if not incoming_val.get("valid", false):
@@ -559,6 +581,7 @@ static func save_dict_to_file(data: Dictionary, filepath: String) -> bool:
 	return true
 
 static func save_to_file(world_view: Node, filepath: String = DEFAULT_SAVE_PATH) -> Dictionary:
+	filepath = _resolve_filepath(filepath)
 	ensure_save_directory()
 	var state_dict := serialize_world_state(world_view)
 	var save_ok := save_dict_to_file(state_dict, filepath)
@@ -1125,7 +1148,17 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 			if u.has("target_cell") and not _is_valid_coord_arr(u.get("target_cell")):
 				return {"valid": false, "error": "Tọa độ target_cell của đơn vị %s trong tactical_military không hợp lệ." % String(u_id)}
 
-			var o_state: String = String(u.get("order_state", "idle")).to_lower()
+			var raw_o_state = u.get("order_state", "idle")
+			var o_state: String = "idle"
+			if _is_valid_integer_val(raw_o_state):
+				var o_int := int(raw_o_state)
+				if o_int < 0 or o_int > 3:
+					return {"valid": false, "error": "order_state của đơn vị %s trong tactical_military không hợp lệ: %s." % [String(u_id), str(raw_o_state)]}
+				o_state = ["idle", "moving", "holding", "attacking"][o_int]
+			elif raw_o_state is String:
+				o_state = String(raw_o_state).to_lower()
+			else:
+				return {"valid": false, "error": "order_state của đơn vị %s trong tactical_military không hợp lệ: %s." % [String(u_id), str(raw_o_state)]}
 			if not (o_state in ["idle", "moving", "holding", "attacking"]):
 				return {"valid": false, "error": "order_state của đơn vị %s trong tactical_military không hợp lệ: %s." % [String(u_id), str(o_state)]}
 
@@ -1155,7 +1188,7 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 				var tgt_cell_arr = u.get("target_cell")
 				tgt_cell = Vector2i(int(tgt_cell_arr[0]), int(tgt_cell_arr[1]))
 
-			if u.has("current_path"):
+			if u.has("current_path") and u.get("current_path") != null:
 				var u_path = u.get("current_path")
 				if not (u_path is Array):
 					return {"valid": false, "error": "current_path của đơn vị %s phải là Array." % String(u_id)}
@@ -1170,6 +1203,9 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 						return {"valid": false, "error": "Đơn vị %s có order_state là moving nhưng current_path lại rỗng." % String(u_id)}
 					if path_points[-1] != tgt_cell:
 						return {"valid": false, "error": "Điểm cuối trong current_path (%s) của đơn vị %s không khớp target_cell (%s)." % [str(path_points[-1]), String(u_id), str(tgt_cell)]}
+				elif o_state == "attacking":
+					if not path_points.is_empty() and u.has("target_cell") and path_points[-1] != tgt_cell:
+						return {"valid": false, "error": "Điểm cuối trong current_path (%s) của đơn vị đang tấn công %s không khớp target_cell (%s)." % [str(path_points[-1]), String(u_id), str(tgt_cell)]}
 				elif o_state in ["idle", "holding"]:
 					if not path_points.is_empty():
 						return {"valid": false, "error": "Đơn vị %s có order_state là %s nhưng current_path không rỗng." % [String(u_id), str(o_state)]}
@@ -1233,23 +1269,47 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 					if float(e.get("health")) > float(e.get("max_health")):
 						return {"valid": false, "error": "health (%f) của đơn vị %s vượt quá max_health (%f)." % [float(e.get("health")), eid_str, float(e.get("max_health"))]}
 
+				var e_ost_str: String = "idle"
 				if e.has("order_state"):
 					var ost = e.get("order_state")
-					var is_valid_ost := false
 					if ost is String and String(ost).to_lower() in ["idle", "moving", "holding", "attacking"]:
-						is_valid_ost = true
+						e_ost_str = String(ost).to_lower()
 					elif _is_valid_integer_val(ost) and int(ost) >= 0 and int(ost) <= 3:
-						is_valid_ost = true
-					if not is_valid_ost:
+						e_ost_str = ["idle", "moving", "holding", "attacking"][int(ost)]
+					else:
 						return {"valid": false, "error": "order_state của đơn vị địch %s không hợp lệ." % eid_str}
 
-				if e.has("current_path"):
+				var e_cur_arr = e.get("current_cell")
+				var e_cur_cell := Vector2i(int(e_cur_arr[0]), int(e_cur_arr[1]))
+				var e_tgt_cell := e_cur_cell
+				if e.has("target_cell"):
+					var e_tgt_arr = e.get("target_cell")
+					e_tgt_cell = Vector2i(int(e_tgt_arr[0]), int(e_tgt_arr[1]))
+				elif e_ost_str == "moving":
+					return {"valid": false, "error": "Đơn vị địch %s đang di chuyển (moving) nhưng thiếu target_cell." % eid_str}
+
+				if e_ost_str == "moving":
+					if not e.has("current_path") or not (e.get("current_path") is Array) or (e.get("current_path") as Array).is_empty():
+						return {"valid": false, "error": "Đơn vị địch %s có order_state là moving nhưng current_path rỗng hoặc không hợp lệ." % eid_str}
+
+				if e.has("current_path") and e.get("current_path") != null:
 					var cp = e.get("current_path")
 					if not (cp is Array):
 						return {"valid": false, "error": "current_path của đơn vị địch %s phải là Array." % eid_str}
+					var e_path_points: Array[Vector2i] = []
 					for pt in cp:
 						if not _is_valid_coord_arr(pt):
 							return {"valid": false, "error": "current_path của đơn vị địch %s chứa tọa độ không hợp lệ." % eid_str}
+						e_path_points.append(Vector2i(int(pt[0]), int(pt[1])))
+					if e_ost_str == "moving":
+						if e_path_points.is_empty() or e_path_points[-1] != e_tgt_cell:
+							return {"valid": false, "error": "Điểm cuối trong current_path của đơn vị địch %s không khớp target_cell." % eid_str}
+					elif e_ost_str == "attacking":
+						if not e_path_points.is_empty() and e.has("target_cell") and e_path_points[-1] != e_tgt_cell:
+							return {"valid": false, "error": "Điểm cuối trong current_path của đơn vị địch đang tấn công %s không khớp target_cell." % eid_str}
+					elif e_ost_str in ["idle", "holding"]:
+						if not e_path_points.is_empty():
+							return {"valid": false, "error": "Đơn vị địch %s ở trạng thái %s nhưng current_path không rỗng." % [eid_str, e_ost_str]}
 
 				if e.has("is_garrison_defender") and not (e.get("is_garrison_defender") is bool):
 					return {"valid": false, "error": "is_garrison_defender của đơn vị địch %s phải là boolean." % eid_str}
@@ -1315,6 +1375,47 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 				if st != "active" and st != "resolved" and st != "cancelled":
 					return {"valid": false, "error": "Trạng thái status của chiến dịch %s không hợp lệ: %s." % [str(sid), str(st)]}
 
+	# Validate optional victory section (CANON-006)
+	if json_dict.has("victory"):
+		var vic_val = json_dict.get("victory")
+		if not (vic_val is Dictionary):
+			return {"valid": false, "error": "Mục 'victory' phải là Dictionary."}
+		if vic_val.has("townhall_ruin_hours"):
+			var trh = vic_val.get("townhall_ruin_hours")
+			if not (trh is int or trh is float) or is_nan(float(trh)) or is_inf(float(trh)) or float(trh) < 0.0:
+				return {"valid": false, "error": "townhall_ruin_hours trong victory không hợp lệ."}
+		if vic_val.has("anarchy_hours"):
+			var ah = vic_val.get("anarchy_hours")
+			if not (ah is int or ah is float) or is_nan(float(ah)) or is_inf(float(ah)) or float(ah) < 0.0:
+				return {"valid": false, "error": "anarchy_hours trong victory không hợp lệ."}
+		if vic_val.has("primary_collapse_reason") and not (vic_val.get("primary_collapse_reason") is String):
+			return {"valid": false, "error": "primary_collapse_reason trong victory phải là String."}
+		if vic_val.has("has_continued_after_victory") and not (vic_val.get("has_continued_after_victory") is bool):
+			return {"valid": false, "error": "has_continued_after_victory trong victory phải là boolean."}
+		if vic_val.has("major_events") and vic_val.get("major_events") != null and not (vic_val.get("major_events") is Array):
+			return {"valid": false, "error": "major_events trong victory phải là Array."}
+
+	# Validate optional active_caravan section (CANON-007)
+	if json_dict.has("active_caravan"):
+		var car_val = json_dict.get("active_caravan")
+		if not (car_val is Dictionary):
+			return {"valid": false, "error": "Mục 'active_caravan' phải là Dictionary."}
+		if not car_val.is_empty():
+			var cid = car_val.get("caravan_id", "")
+			if not (cid is String) or String(cid).strip_edges().is_empty():
+				return {"valid": false, "error": "caravan_id trong active_caravan không hợp lệ."}
+			var orig = car_val.get("origin_faction_id", "")
+			if not (orig is String) or String(orig).strip_edges().is_empty():
+				return {"valid": false, "error": "origin_faction_id trong active_caravan không hợp lệ."}
+			if car_val.has("gold") and (not _is_valid_integer_val(car_val.get("gold")) or int(car_val.get("gold")) < 0):
+				return {"valid": false, "error": "gold trong active_caravan phải là số nguyên không âm."}
+			if car_val.has("inventory") and not (car_val.get("inventory") is Dictionary):
+				return {"valid": false, "error": "inventory trong active_caravan phải là Dictionary."}
+			if car_val.has("sell_prices") and not (car_val.get("sell_prices") is Dictionary):
+				return {"valid": false, "error": "sell_prices trong active_caravan phải là Dictionary."}
+			if car_val.has("buy_prices") and not (car_val.get("buy_prices") is Dictionary):
+				return {"valid": false, "error": "buy_prices trong active_caravan phải là Dictionary."}
+
 	return {"valid": true, "error": ""}
 
 static func _read_and_validate_save_file(path: String) -> Dictionary:
@@ -1348,6 +1449,7 @@ static func _read_and_validate_save_file(path: String) -> Dictionary:
 	return {"valid": true, "data": data}
 
 static func load_from_file(filepath: String = DEFAULT_SAVE_PATH) -> Dictionary:
+	filepath = _resolve_filepath(filepath)
 	var canonical_path := filepath
 	var bak_path := filepath + ".bak"
 	var bak_old_path := filepath + ".bak.old"
@@ -1419,7 +1521,47 @@ static func load_from_file(filepath: String = DEFAULT_SAVE_PATH) -> Dictionary:
 
 	return {"success": true, "data": data, "path": canonical_path, "source_path": source_path, "recovered_from_backup": recovered_from_backup}
 
-static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionary) -> Dictionary:
+static func _preflight_validate_military_subsystems(loaded_data: Dictionary) -> Dictionary:
+	var TacticalMilitaryManagerScript = preload("res://scripts/military/tactical_military_manager.gd")
+	var EnemyMilitaryManagerScript = preload("res://scripts/military/enemy_military_manager.gd")
+	var FieldSiegeManagerScript = preload("res://scripts/combat/field_siege_manager.gd")
+
+	if loaded_data.has("tactical_military"):
+		var tac_data = loaded_data.get("tactical_military")
+		if not (tac_data is Dictionary):
+			return {"valid": false, "error": "Dữ liệu tactical_military không hợp lệ (không phải Dictionary)."}
+		if not tac_data.is_empty():
+			var probe_tac = TacticalMilitaryManagerScript.new()
+			var ok_tac: bool = probe_tac.deserialize(tac_data)
+			probe_tac.clear_all_units()
+			if not ok_tac:
+				return {"valid": false, "error": "Khôi phục trạng thái quân sự chiến thuật (tactical_military) thất bại."}
+
+	if loaded_data.has("enemy_military"):
+		var enemy_data = loaded_data.get("enemy_military")
+		if not (enemy_data is Dictionary):
+			return {"valid": false, "error": "Dữ liệu quân sự địch 'enemy_military' phải là Dictionary."}
+		if not enemy_data.is_empty():
+			var probe_em = EnemyMilitaryManagerScript.new()
+			var ok_em: bool = probe_em.deserialize(enemy_data)
+			probe_em.clear_all_enemies()
+			if not ok_em:
+				return {"valid": false, "error": "Khôi phục dữ liệu quân sự địch 'enemy_military' thất bại."}
+
+	if loaded_data.has("field_siege"):
+		var siege_data = loaded_data.get("field_siege")
+		if not (siege_data is Dictionary):
+			return {"valid": false, "error": "Dữ liệu công thành 'field_siege' phải là Dictionary."}
+		if not siege_data.is_empty():
+			var probe_fs = FieldSiegeManagerScript.new()
+			var ok_fs: bool = probe_fs.deserialize(siege_data)
+			probe_fs.clear_all_objectives()
+			if not ok_fs:
+				return {"valid": false, "error": "Khôi phục dữ liệu công thành 'field_siege' thất bại."}
+
+	return {"valid": true, "error": ""}
+
+static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionary, _is_rollback: bool = false) -> Dictionary:
 	if world_view == null or loaded_data.is_empty():
 		return {"success": false, "error": "WorldView hoặc dữ liệu bản lưu rỗng"}
 
@@ -1427,6 +1569,17 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 	var val_res := validate_save_data(loaded_data)
 	if not val_res.get("valid", false):
 		return {"success": false, "error": val_res.get("error", "Dữ liệu bản lưu không hợp lệ")}
+
+	# Preflight probe all military/siege subsystems so no mid-restore failure can occur
+	var preflight_res := _preflight_validate_military_subsystems(loaded_data)
+	if not preflight_res.get("valid", false):
+		return {"success": false, "error": preflight_res.get("error", "Dữ liệu quân sự không hợp lệ")}
+
+	var pre_load_snapshot: Dictionary = {}
+	var pre_load_persisted: bool = false
+	if not _is_rollback:
+		pre_load_snapshot = serialize_world_state(world_view)
+		pre_load_persisted = bool(world_view.get("is_world_id_persisted"))
 
 	var CitizenControllerScript = preload("res://scripts/entities/citizen_controller.gd")
 	var citizen_tex = load("res://assets/entities/citizen.png")
@@ -1653,17 +1806,27 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 			for tid in unlocked_arr:
 				d[tid] = true
 
-	# 6. Restore Victory & Crisis State
-	var vic_data: Dictionary = loaded_data.get("victory", {})
+	# 6. Restore Victory & Crisis State (CANON-006)
+	var vic_data: Dictionary = loaded_data.get("victory", {}) if loaded_data.get("victory") is Dictionary else {}
 	var vic_mgr = world_view.get("victory_mgr")
-	if vic_mgr != null and not vic_data.is_empty():
-		vic_mgr.set("hold_hours_elapsed", vic_data.get("hold_hours_elapsed", 0.0))
-		vic_mgr.set("is_victory_achieved", vic_data.get("is_victory_achieved", false))
-		vic_mgr.set("is_collapse_triggered", vic_data.get("is_collapse_triggered", false))
-		vic_mgr.set("peak_population", vic_data.get("peak_population", 24))
-		vic_mgr.set("total_simulation_hours", vic_data.get("total_simulation_hours", 0.0))
-		vic_mgr.set("legacy_points_earned", vic_data.get("legacy_points_earned", 0))
-		vic_mgr.set("is_legacy_claimed", vic_data.get("is_legacy_claimed", false))
+	if vic_mgr != null:
+		vic_mgr.set("hold_hours_elapsed", float(vic_data.get("hold_hours_elapsed", 0.0)))
+		vic_mgr.set("is_victory_achieved", bool(vic_data.get("is_victory_achieved", false)))
+		vic_mgr.set("is_collapse_triggered", bool(vic_data.get("is_collapse_triggered", false)))
+		vic_mgr.set("peak_population", int(vic_data.get("peak_population", 24)))
+		vic_mgr.set("total_simulation_hours", float(vic_data.get("total_simulation_hours", 0.0)))
+		vic_mgr.set("legacy_points_earned", int(vic_data.get("legacy_points_earned", 0)))
+		vic_mgr.set("is_legacy_claimed", bool(vic_data.get("is_legacy_claimed", false)))
+		vic_mgr.set("townhall_ruin_hours", float(vic_data.get("townhall_ruin_hours", 0.0)))
+		vic_mgr.set("anarchy_hours", float(vic_data.get("anarchy_hours", 0.0)))
+		vic_mgr.set("primary_collapse_reason", String(vic_data.get("primary_collapse_reason", "")))
+		vic_mgr.set("has_continued_after_victory", bool(vic_data.get("has_continued_after_victory", false)))
+		var raw_events = vic_data.get("major_events", [])
+		var clean_events: Array[String] = []
+		if raw_events is Array:
+			for ev in raw_events:
+				clean_events.append(String(ev))
+		vic_mgr.set("major_events", clean_events)
 
 	# 7. Restore Factions
 	var fac_mgr = world_view.get("faction_mgr")
@@ -1744,7 +1907,7 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 			if not saved_poi_ids.has(poi.id):
 				poi.state = 0 # POIState.UNDISCOVERED
 
-	# 9. Restore Fog of War
+	# 9. Restore Fog of War (CANON-011: restore saved coordinates as EXPLORED, then recompute active VISIBLE sightlines)
 	var fow = world_view.get("fog_of_war")
 	var saved_fow: Array = loaded_data.get("fog_of_war", [])
 	if fow != null:
@@ -1754,7 +1917,7 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 				var cx: int = int(coord[0])
 				var cy: int = int(coord[1])
 				if IsoMath.is_in_bounds(Vector2i(cx, cy)):
-					fow._grid[cx][cy] = 2 # VISIBLE
+					fow._grid[cx][cy] = FogOfWar.State.EXPLORED
 
 	# Refresh POI visibility based on restored discovery states
 	if world_view.has_method("refresh_poi_visibility"):
@@ -1811,18 +1974,20 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 		if loaded_data.has("tactical_military"):
 			var tac_data = loaded_data.get("tactical_military")
 			if not (tac_data is Dictionary):
+				if not _is_rollback and not pre_load_snapshot.is_empty():
+					apply_loaded_state_to_world(world_view, pre_load_snapshot, true)
+					world_view.set("is_world_id_persisted", pre_load_persisted)
 				return {"success": false, "error": "Dữ liệu tactical_military không hợp lệ (không phải Dictionary)."}
 			var ok: bool = bool(tac_mgr.call("deserialize", tac_data))
 			if not ok:
+				if not _is_rollback and not pre_load_snapshot.is_empty():
+					apply_loaded_state_to_world(world_view, pre_load_snapshot, true)
+					world_view.set("is_world_id_persisted", pre_load_persisted)
 				return {"success": false, "error": "Khôi phục trạng thái quân sự chiến thuật (tactical_military) thất bại."}
 		else:
 			# Pure legacy save without tactical_military field:
 			# Reconstruct roster from authoritative player army
 			tac_mgr.call("deserialize_legacy", s_count, r_cell, nav_obj)
-
-		# Strict garrison transition audit: ensure player_army syncs from newly restored tactical roster
-		if army_mgr != null and army_mgr.has_method("sync_state_from_tactical"):
-			army_mgr.call("sync_state_from_tactical")
 
 	# 18. Restore Enemy Military (Package 1X)
 	var enemy_mgr = world_view.get("enemy_military_mgr")
@@ -1834,19 +1999,54 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 		else:
 			em_ok = bool(enemy_mgr.call("deserialize", {}))
 		if not em_ok:
+			if not _is_rollback and not pre_load_snapshot.is_empty():
+				apply_loaded_state_to_world(world_view, pre_load_snapshot, true)
+				world_view.set("is_world_id_persisted", pre_load_persisted)
 			return {"success": false, "error": "Khôi phục dữ liệu quân sự địch 'enemy_military' thất bại."}
 
 	# 19. Restore Field Siege Operations (Package 1X)
 	var siege_mgr = world_view.get("field_siege_mgr")
 	if siege_mgr != null and siege_mgr.has_method("deserialize"):
-		var siege_data = loaded_data.get("field_siege", {})
-		var fs_ok: bool = false
-		if siege_data is Dictionary:
-			fs_ok = bool(siege_mgr.call("deserialize", siege_data))
+		if loaded_data.has("field_siege"):
+			var siege_data = loaded_data.get("field_siege")
+			var fs_ok: bool = false
+			if siege_data is Dictionary:
+				fs_ok = bool(siege_mgr.call("deserialize", siege_data))
+			if not fs_ok:
+				if not _is_rollback and not pre_load_snapshot.is_empty():
+					apply_loaded_state_to_world(world_view, pre_load_snapshot, true)
+					world_view.set("is_world_id_persisted", pre_load_persisted)
+				return {"success": false, "error": "Khôi phục dữ liệu công thành 'field_siege' thất bại."}
 		else:
-			fs_ok = bool(siege_mgr.call("deserialize", {}))
-		if not fs_ok:
-			return {"success": false, "error": "Khôi phục dữ liệu công thành 'field_siege' thất bại."}
+			# Legacy save without field_siege key: reset siege state cleanly and recreate default outposts
+			siege_mgr.call("deserialize", {})
+			if world_view.has_method("_setup_default_siege_objectives"):
+				world_view.call("_setup_default_siege_objectives")
+
+	# 19b. Resolve combat targets only AFTER player units, enemy units, and siege objectives are all restored (CANON-001)
+	if tac_mgr != null and tac_mgr.has_method("resolve_all_combat_targets"):
+		tac_mgr.call("resolve_all_combat_targets")
+	if enemy_mgr != null and enemy_mgr.has_method("resolve_all_combat_targets"):
+		enemy_mgr.call("resolve_all_combat_targets")
+	if army_mgr != null and army_mgr.has_method("sync_state_from_tactical"):
+		army_mgr.call("sync_state_from_tactical")
+
+	# 19c. Recompute active Fog of War vision from restored buildings, citizens, and tactical units (CANON-011)
+	if world_view.has_method("refresh_world_vision"):
+		world_view.call("refresh_world_vision")
+	if world_view.has_method("refresh_poi_visibility"):
+		world_view.call("refresh_poi_visibility")
+
+	# 20. Restore Active Trade Caravan (CANON-007)
+	var caravan_data = loaded_data.get("active_caravan", {})
+	if caravan_data is Dictionary and not caravan_data.is_empty():
+		var restored_caravan = TradeCaravan.deserialize(caravan_data)
+		if restored_caravan != null and bool(restored_caravan.get("is_active")):
+			world_view.set("active_caravan", restored_caravan)
+		else:
+			world_view.set("active_caravan", null)
+	else:
+		world_view.set("active_caravan", null)
 
 	var cit_count: int = world_view.get("citizen_list").size() if world_view.get("citizen_list") != null else 0
 	var bld_count: int = world_data.buildings.size() if world_data != null and world_data.get("buildings") != null else 0

@@ -76,6 +76,7 @@ func _run_all_tests() -> void:
 	_test_peace_treaty_siege_cancellation()
 	_test_siege_retry_and_bounded_defenders()
 	_test_objective_click_prioritization_and_no_overlap()
+	_test_gate_d_siege_state_distinctions()
 
 	print("========================================================")
 	if failed_assertions == 0:
@@ -353,6 +354,8 @@ func _test_withdrawal_resolution() -> void:
 	var s_id = launch_res["siege_id"]
 
 	# Player retreats far away (e.g. back to base at (32, 33), dist > 16)
+	for u in tac_mgr.get_all_units():
+		u.current_cell = Vector2i(32, 33)
 	army_mgr.current_cell = Vector2i(32, 33)
 	army_mgr.movement_state = PlayerArmyManagerScript.MovementState.GARRISONED
 
@@ -626,6 +629,8 @@ func _test_siege_retry_and_bounded_defenders() -> void:
 	_assert(enemy_mgr.get_enemy_count() == 2, "TC-SIEGE.14: 1 defender defeated, exactly 2 remain in manager")
 
 	# 3. Player army retreats -> WITHDRAWAL
+	for u in tac_mgr.get_all_units():
+		u.current_cell = Vector2i(35, 35)
 	army_mgr.current_cell = Vector2i(35, 35)
 	army_mgr.movement_state = PlayerArmyManagerScript.MovementState.GARRISONED
 	var eval1 = sm.evaluate_siege_status(launch1["siege_id"])
@@ -633,6 +638,8 @@ func _test_siege_retry_and_bounded_defenders() -> void:
 	_assert(obj.is_under_active_siege == false, "TC-SIEGE.14: Objective no longer under active siege")
 
 	# 4. Player army returns and retries siege launch
+	for u in tac_mgr.get_all_units():
+		u.current_cell = Vector2i(22, 22)
 	army_mgr.current_cell = Vector2i(22, 22)
 	army_mgr.movement_state = PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD
 	var launch2 = sm.launch_field_siege("retry_faction", "obj_retry_1")
@@ -642,10 +649,14 @@ func _test_siege_retry_and_bounded_defenders() -> void:
 	_assert(obj.defending_unit_ids.size() == 3, "TC-SIEGE.14: Objective records exactly 3 defenders")
 
 	# 5. Withdraw again without killing any defenders
+	for u in tac_mgr.get_all_units():
+		u.current_cell = Vector2i(35, 35)
 	army_mgr.current_cell = Vector2i(35, 35)
 	sm.evaluate_siege_status(launch2["siege_id"])
 
 	# 6. Retry again when all 3 defenders are alive -> 0 new defenders spawned
+	for u in tac_mgr.get_all_units():
+		u.current_cell = Vector2i(22, 22)
 	army_mgr.current_cell = Vector2i(22, 22)
 	var launch3 = sm.launch_field_siege("retry_faction", "obj_retry_1")
 	_assert(launch3["success"] == true, "TC-SIEGE.14: Second retry succeeded")
@@ -697,3 +708,129 @@ func _test_objective_click_prioritization_and_no_overlap() -> void:
 
 	sm.clear_all_objectives()
 	enemy_mgr.clear_all_enemies()
+
+func _test_gate_d_siege_state_distinctions() -> void:
+	print("\n--- Test 16: Gate D Siege State Distinctions (CANON-004) ---")
+	var fm = MockFactionManager.new()
+	var fac = MockFactionData.new()
+	fac.id = "siege_gate_faction"
+	fac.is_at_war = true
+	fm.add_faction(fac)
+
+	var army_mgr = PlayerArmyManagerScript.new()
+	var tac_mgr = TacticalMilitaryManagerScript.new(null, army_mgr)
+	army_mgr.set_tactical_military_manager(tac_mgr)
+	army_mgr.soldier_count = 3
+	tac_mgr.sync_with_player_army()
+
+	var obj_cell := Vector2i(12, 12)
+	for u in tac_mgr.get_all_units():
+		u.current_cell = Vector2i(10, 12)
+		u.target_cell = Vector2i(10, 12)
+		u.order_state = TacticalUnitScript.OrderState.IDLE
+	army_mgr.current_cell = Vector2i(10, 12)
+	army_mgr.destination_cell = Vector2i(10, 12)
+	army_mgr.movement_state = PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD
+
+	var siege_mgr = FieldSiegeManagerScript.new(null, fm, army_mgr, null)
+	var obj = siege_mgr.register_objective("obj_gate_d1", obj_cell, "siege_gate_faction", 300.0, 0)
+	var launch1 = siege_mgr.launch_field_siege("siege_gate_faction", "obj_gate_d1")
+	_assert(launch1["success"] == true, "GATE-D.1: Siege launched with 3 stationary field units")
+	var sid1: String = launch1["siege_id"]
+
+	# Case D1: Units maneuver/march within siege radius (order_state == MOVING) -> must remain ACTIVE, NOT DEFEAT!
+	for u in tac_mgr.get_all_units():
+		var p: Array[Vector2i] = [Vector2i(11, 12)]
+		u.order_move(p, Vector2i(11, 12))
+	_assert(tac_mgr.get_field_unit_count() == 0, "GATE-D.2: Stationary field unit count is 0 while all units are MOVING")
+	_assert(tac_mgr.get_all_field_units().size() == 3, "GATE-D.3: Total physical field units in siege zone is still 3")
+	var eval_moving = siege_mgr.evaluate_siege_status(sid1)
+	_assert(eval_moving["status"] == "active" and eval_moving["outcome"] == "NONE", "GATE-D.4: Moving within siege zone keeps siege ACTIVE (not premature DEFEAT)")
+
+	# Case D2: Units withdraw outside siege radius / back to garrison with 0 casualties -> WITHDRAWAL, NOT DEFEAT!
+	for u in tac_mgr.get_all_units():
+		u.current_cell = army_mgr.get_rally_cell()
+		u.target_cell = u.current_cell
+		u.current_path.clear()
+		u.order_state = TacticalUnitScript.OrderState.IDLE
+	army_mgr.sync_state_from_tactical()
+	var eval_withdraw = siege_mgr.evaluate_siege_status(sid1)
+	_assert(eval_withdraw["status"] == "resolved" and eval_withdraw["outcome"] == "WITHDRAWAL", "GATE-D.5: Returning all units to garrison resolves siege as WITHDRAWAL (not DEFEAT)")
+
+	# Case D3: Field force eliminated in combat while garrison remains at base -> DEFEAT!
+	army_mgr.soldier_count = 4
+	tac_mgr.sync_with_player_army()
+	var all_u = tac_mgr.get_all_units()
+	# Keep 2 units at garrison, send 2 units to field objective
+	all_u[0].current_cell = army_mgr.get_rally_cell()
+	all_u[1].current_cell = army_mgr.get_rally_cell()
+	all_u[2].current_cell = Vector2i(11, 12)
+	all_u[3].current_cell = Vector2i(11, 13)
+	army_mgr.sync_state_from_tactical()
+
+	var launch2 = siege_mgr.launch_field_siege("siege_gate_faction", "obj_gate_d1")
+	_assert(launch2["success"] == true, "GATE-D.6: Second siege launched with 2 field units and 2 garrisoned units")
+	var sid2: String = launch2["siege_id"]
+
+	# Kill the 2 field units in combat
+	all_u[2].take_damage(500.0, "defender")
+	all_u[3].take_damage(500.0, "defender")
+	_assert(army_mgr.get_army_count() == 2, "GATE-D.7: 2 garrisoned soldiers survive after field force wiped out")
+	var eval_defeat = siege_mgr.evaluate_siege_status(sid2)
+	_assert(eval_defeat["status"] == "resolved" and eval_defeat["outcome"] == "DEFEAT", "GATE-D.8: Eliminating field force in combat resolves siege as DEFEAT")
+
+	# Case D4: Plunder report records actual added resources when near storage capacity
+	var cap_rm_script := GDScript.new()
+	cap_rm_script.source_code = "extends RefCounted\nfunc add_resource(res_type: String, amount: int) -> int:\n\tif res_type == 'wood': return 12\n\treturn amount\n"
+	cap_rm_script.reload()
+	var cap_rm = cap_rm_script.new()
+	siege_mgr.set_resource_manager(cap_rm)
+
+	all_u[0].current_cell = Vector2i(11, 12)
+	army_mgr.sync_state_from_tactical()
+	var launch3 = siege_mgr.launch_field_siege("siege_gate_faction", "obj_gate_d1")
+	var sid3: String = launch3["siege_id"]
+	obj.is_captured = true
+	obj.is_alive = false
+	var eval_vic = siege_mgr.evaluate_siege_status(sid3)
+	_assert(eval_vic["outcome"] == "VICTORY", "GATE-D.9: Captured objective resolves as VICTORY via evaluate_siege_status")
+	_assert(int(eval_vic["details"]["plunder"]["wood"]) == 12, "GATE-D.10: Plunder report records actual added wood (12) instead of nominal 50")
+
+	# Case D5 (DEF-4): Split field force where group 1 is outside withdrawal radius and group 2 remains inside siege zone
+	obj.is_captured = false
+	obj.is_alive = true
+	obj.health = 300.0
+	army_mgr.soldier_count = 2
+	tac_mgr.sync_with_player_army()
+	var split_units: Array = tac_mgr.get_all_units()
+	for u in split_units:
+		u.current_cell = Vector2i(11, 12)
+		u.target_cell = Vector2i(11, 12)
+		u.order_state = TacticalUnitScript.OrderState.IDLE
+	army_mgr.current_cell = Vector2i(11, 12)
+	army_mgr.destination_cell = Vector2i(11, 12)
+	army_mgr.movement_state = PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD
+
+	var launch4 = siege_mgr.launch_field_siege("siege_gate_faction", "obj_gate_d1")
+	_assert(launch4["success"] == true, "GATE-D.11: Siege launched for split-force evaluation")
+	var sid4: String = launch4["siege_id"]
+
+	# Move first unit (and strategic anchor) far outside siege radius (55, 55), while second unit stays inside siege zone (11, 12)
+	split_units[0].current_cell = Vector2i(55, 55)
+	split_units[0].target_cell = Vector2i(55, 55)
+	split_units[1].current_cell = Vector2i(11, 12)
+	split_units[1].target_cell = Vector2i(11, 12)
+	army_mgr.current_cell = Vector2i(55, 55)
+	army_mgr.destination_cell = Vector2i(55, 55)
+
+	var eval_split_active = siege_mgr.evaluate_siege_status(sid4)
+	_assert(eval_split_active["status"] == "active" and eval_split_active["outcome"] == "NONE", "GATE-D.12: Split force with living unit still inside siege zone remains ACTIVE (not premature WITHDRAWAL)")
+
+	# Now withdraw the second unit outside the siege radius as well -> WITHDRAWAL
+	split_units[1].current_cell = Vector2i(54, 55)
+	split_units[1].target_cell = Vector2i(54, 55)
+	var eval_split_withdrawn = siege_mgr.evaluate_siege_status(sid4)
+	_assert(eval_split_withdrawn["status"] == "resolved" and eval_split_withdrawn["outcome"] == "WITHDRAWAL", "GATE-D.13: Siege resolves as WITHDRAWAL once all living field units leave siege zone")
+
+	siege_mgr.clear_all_objectives()
+	tac_mgr.clear_all_units()

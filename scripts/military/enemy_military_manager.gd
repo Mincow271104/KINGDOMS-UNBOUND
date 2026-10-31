@@ -397,14 +397,26 @@ func clear_all_enemies() -> void:
 	all_enemies_cleared.emit()
 
 func on_peace_signed(faction_id: String) -> void:
-	# All units of faction cease attack immediately and retreat
+	# All units of faction cease attack immediately, clear pursuit paths, and retreat
 	for eid in enemies.keys():
 		var unit = enemies[eid]
 		if is_instance_valid(unit) and unit.owning_faction_id == faction_id:
-			unit.target_actor = null
-			unit.target_actor_id = ""
-			unit.order_state = TacticalUnit.OrderState.IDLE
+			if unit.has_method("clear_combat_and_pursuit_to_idle"):
+				unit.clear_combat_and_pursuit_to_idle()
+			else:
+				unit.target_actor = null
+				unit.target_actor_id = ""
+				unit.order_state = TacticalUnit.OrderState.IDLE
+				unit.current_path.clear()
+				unit.target_cell = unit.current_cell
 			unit.set_ai_state(EnemyTacticalUnitScript.AIState.RECOVER_RETREAT)
+
+func resolve_all_combat_targets() -> void:
+	for eid in enemies.keys():
+		var unit = enemies[eid]
+		if is_instance_valid(unit) and unit.order_state == TacticalUnit.OrderState.ATTACKING:
+			unit.set_world_view(world_view)
+			unit.resolve_target_actor()
 
 # -----------------------------------------------------------------------------
 # Serialization
