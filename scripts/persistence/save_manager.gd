@@ -178,7 +178,8 @@ static func serialize_world_state(world_view: Node) -> Dictionary:
 					"health": cit.get("health"),
 					"morale": cit.get("morale"),
 					"carrying_resource": cit.get("carrying_resource"),
-					"carrying_amount": cit.get("carrying_amount")
+					"carrying_amount": cit.get("carrying_amount"),
+					"skills": cit.call("serialize_skills") if cit.has_method("serialize_skills") else {}
 				})
 		data["citizens"] = c_data_list
 
@@ -733,6 +734,16 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 		const PROG_TOLERANCE: float = 0.001
 		if b_prog < 0.0 or b_prog > (b_hours + PROG_TOLERANCE):
 			return {"valid": false, "error": "Tiến độ thi công của '%s' nằm ngoài phạm vi hợp lệ [0, %f]: %f." % [b_type, b_hours, b_prog]}
+
+	# Validate citizens array and optional skills data (Package 2B)
+	var citizens_sec = json_dict.get("citizens")
+	if not (citizens_sec is Array):
+		return {"valid": false, "error": "Mục 'citizens' phải là một danh sách (Array)."}
+	for c in citizens_sec:
+		if not (c is Dictionary):
+			return {"valid": false, "error": "Bản ghi dân cư không đúng định dạng Dictionary."}
+		if c.has("skills") and not (c.get("skills") is Dictionary):
+			return {"valid": false, "error": "Dữ liệu kỹ năng 'skills' của dân cư phải là Dictionary."}
 
 	# Validate optional game_clock section (BUG-01)
 	if json_dict.has("game_clock"):
@@ -1770,6 +1781,8 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 		cit.set("morale", c.get("morale", 70.0))
 		cit.set("carrying_resource", c.get("carrying_resource", ""))
 		cit.set("carrying_amount", c.get("carrying_amount", 0))
+		if cit.has_method("deserialize_skills"):
+			cit.call("deserialize_skills", c.get("skills", {}))
 
 		citizens_container.add_child(cit)
 		world_view.get("citizens_by_id")[cid] = cit

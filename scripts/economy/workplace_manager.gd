@@ -203,6 +203,18 @@ func produce_to_buffer(workplace_id: String, season_modifier: float = 1.0, resou
 
 	return added
 
+## Returns expected output quantity for a single full production cycle.
+func get_expected_cycle_production(workplace_id: String, season_modifier: float = 1.0) -> int:
+	var wp: WorkplaceData = get_workplace(workplace_id)
+	if wp == null:
+		return 0
+	if not wp.required_inputs.is_empty() or wp.recipe_id != "":
+		return wp.output_amount
+	var prod: float = wp.base_production_per_cycle
+	if wp.output_resource == EconomyConfig.RES_FOOD:
+		prod *= season_modifier
+	return maxi(1, int(round(prod)))
+
 ## Hauler picks up goods from workplace buffer.
 func pickup_from_buffer(workplace_id: String, max_amount: int) -> int:
 	var wp: WorkplaceData = get_workplace(workplace_id)

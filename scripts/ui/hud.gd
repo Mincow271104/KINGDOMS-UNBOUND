@@ -111,6 +111,12 @@ var formation_scatter_btn: Button = null
 @onready var role_option_btn: OptionButton = $CitizenInspectPanel/MarginContainer/VBoxContainer/RoleHBox/RoleOptionBtn
 @onready var close_citizen_btn: Button = $CitizenInspectPanel/MarginContainer/VBoxContainer/CloseCitizenBtn
 
+# Vocational Skill UI Elements (Package 2B)
+@onready var skill_container: Control = get_node_or_null("CitizenInspectPanel/MarginContainer/VBoxContainer/SkillContainer")
+@onready var skill_name_label: Label = get_node_or_null("CitizenInspectPanel/MarginContainer/VBoxContainer/SkillContainer/SkillNameLabel")
+@onready var skill_bonus_label: Label = get_node_or_null("CitizenInspectPanel/MarginContainer/VBoxContainer/SkillContainer/SkillBonusLabel")
+@onready var skill_progress_bar: ProgressBar = get_node_or_null("CitizenInspectPanel/MarginContainer/VBoxContainer/SkillContainer/SkillProgressBar")
+
 var inspected_citizen: Node = null
 var research_mgr: Object = null
 var faction_mgr: Object = null
@@ -1309,6 +1315,42 @@ func _refresh_inspected_citizen() -> void:
 	fatigue_bar.value = inspected_citizen.get("fatigue")
 	health_bar.value = inspected_citizen.get("health")
 	morale_bar.value = inspected_citizen.get("morale")
+
+	# Refresh vocational skill display (Package 2B)
+	if skill_container and skill_name_label and skill_bonus_label and skill_progress_bar:
+		var cur_role: String = inspected_citizen.get("role") if inspected_citizen.get("role") != null else "idle"
+		var voc: String = CitizenSkillData.get_vocation_for_job(cur_role)
+		var s_data: CitizenSkillData = inspected_citizen.call("get_skill_data") if inspected_citizen.has_method("get_skill_data") else null
+
+		if voc != "" and s_data != null:
+			var lvl: int = s_data.get_level(voc)
+			var cur_xp: float = s_data.get_xp(voc)
+			var voc_name: String = CitizenSkillData.get_vocation_display_name(voc)
+			var bonus_pct: int = s_data.get_efficiency_bonus_percent(voc)
+			var title_str: String = CitizenSkillData.get_level_title(lvl)
+
+			if lvl >= 5:
+				skill_name_label.text = "%s — Cấp %d (%s - Tối đa)" % [voc_name, lvl, title_str]
+				skill_bonus_label.text = "XP: %d / 1000 | Hiệu suất: +%d%%" % [int(cur_xp), bonus_pct]
+				skill_progress_bar.min_value = 0.0
+				skill_progress_bar.max_value = 1000.0
+				skill_progress_bar.value = 1000.0
+			else:
+				var next_xp: int = s_data.get_next_level_xp(voc)
+				var base_xp: int = s_data.get_current_level_base_xp(voc)
+				skill_name_label.text = "%s — Cấp %d (%s)" % [voc_name, lvl, title_str]
+				skill_bonus_label.text = "XP: %d / %d | Hiệu suất: +%d%%" % [int(cur_xp), next_xp, bonus_pct]
+				skill_progress_bar.min_value = float(base_xp)
+				skill_progress_bar.max_value = float(next_xp)
+				skill_progress_bar.value = cur_xp
+		else:
+			# Non-vocational role (e.g. idle or guard)
+			var role_label_str: String = "Chưa có chuyên môn" if cur_role == "idle" else "Binh nghiệp (Vệ binh)"
+			skill_name_label.text = "Nghề: %s" % role_label_str
+			skill_bonus_label.text = "Hiệu suất: Tiêu chuẩn (1.00x)"
+			skill_progress_bar.min_value = 0.0
+			skill_progress_bar.max_value = 100.0
+			skill_progress_bar.value = 0.0
 
 func _on_role_option_selected(idx: int) -> void:
 	if inspected_citizen == null:

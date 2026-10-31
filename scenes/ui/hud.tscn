@@ -296,7 +296,7 @@ anchors_preset = 2
 anchor_top = 1.0
 anchor_bottom = 1.0
 offset_left = 16.0
-offset_top = -290.0
+offset_top = -365.0
 offset_right = 380.0
 offset_bottom = -56.0
 grow_vertical = 0
@@ -342,6 +342,28 @@ text = "Phân công lại:"
 [node name="RoleOptionBtn" type="OptionButton" parent="CitizenInspectPanel/MarginContainer/VBoxContainer/RoleHBox"]
 layout_mode = 2
 size_flags_horizontal = 3
+
+[node name="SkillContainer" type="VBoxContainer" parent="CitizenInspectPanel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme_override_constants/separation = 2
+
+[node name="SkillNameLabel" type="Label" parent="CitizenInspectPanel/MarginContainer/VBoxContainer/SkillContainer"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.9, 0.8, 0.3, 1)
+theme_override_font_sizes/font_size = 13
+text = "Nông nghiệp — Cấp 1 (Tập sự)"
+
+[node name="SkillBonusLabel" type="Label" parent="CitizenInspectPanel/MarginContainer/VBoxContainer/SkillContainer"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.8, 0.8, 0.8, 1)
+theme_override_font_sizes/font_size = 12
+text = "XP: 0 / 100 | Hiệu suất: +0%"
+
+[node name="SkillProgressBar" type="ProgressBar" parent="CitizenInspectPanel/MarginContainer/VBoxContainer/SkillContainer"]
+custom_minimum_size = Vector2(0, 12)
+layout_mode = 2
+max_value = 100.0
+show_percentage = false
 
 [node name="NeedsGrid" type="GridContainer" parent="CitizenInspectPanel/MarginContainer/VBoxContainer"]
 layout_mode = 2

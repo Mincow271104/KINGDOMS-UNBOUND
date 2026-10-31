@@ -8,6 +8,32 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### [Package 2B] - 2026-10-31
+#### Added
+- Citizen Skill Progression & Vocational Specialization (`CitizenSkillData`, `CitizenController`, `HUD`, `SaveManager`):
+  - Vocational skill progression model (`scripts/entities/citizen_skill_data.gd`) tracking individual citizen proficiency across 6 core vocations: `farming`, `woodcutting`, `mining`, `smithing`, `building`, and `hauling`.
+  - Canonical cumulative XP thresholds and strictly bounded multipliers per GDD §6.5:
+    - Level 1 (Tập sự / Novice): 0 XP -> 1.00x efficiency (Baseline).
+    - Level 2 (Học việc / Apprentice): 100 XP -> 1.08x efficiency (+8%).
+    - Level 3 (Thợ lành nghề / Journeyman): 300 XP -> 1.16x efficiency (+16%).
+    - Level 4 (Chuyên gia / Expert): 600 XP -> 1.25x efficiency (+25%).
+    - Level 5 (Bậc thầy / Master): 1000 XP -> 1.35x efficiency (+35% approved maximum cap).
+  - Real-work-only XP attribution:
+    - Production: +10 XP awarded to the specific crafting worker upon committing output to workplace buffer (`produced_qty > 0`).
+    - Building: +5 XP per game-hour of active construction labor contributed, preserving fractional progress.
+    - Hauling: +10 XP awarded upon genuine cargo delivery and deposit into storage (`delivered_amount > 0`).
+    - Zero passive XP for idle, sleeping, eating, wandering, or failed/blocked actions.
+  - Measurable gameplay consequences:
+    - Production jobs complete faster according to worker skill multiplier without violating recipe input-output conservation.
+    - Construction sites progress additively with independent builder multipliers without compounding.
+    - Haulers move faster across the grid based on hauling proficiency (48.0 px/s -> 64.8 px/s at Master Level 5).
+  - Cross-training and persistence:
+    - Role switching preserves 100% of earned XP across all vocations without decay or penalty.
+    - SaveManager serializes `skills` dictionary per citizen, fail-closed bounds checking, with full backward compatibility for legacy saves lacking skill data.
+  - Citizen Inspector UI:
+    - Enhanced `CitizenInspectPanel` in `scenes/ui/hud.tscn` and `scripts/ui/hud.gd` displaying vocational title, level badge, visual XP progress bar, efficiency bonus percentage, and Level 5 maximum indicator.
+  - Automated test suite `scripts/test/test_citizen_skills.gd` covering TC-SKL-01 through TC-SKL-22 (22/22 passed, Exit Code 0).
+
 ### [Package 2A] - 2026-10-31
 #### Added
 - Market Infrastructure & Physical Caravan Integration (`EconomyConfig`, `BuildingSystem`, `WorldView`, `CaravanMarker`, `HUD`, `SaveManager`):

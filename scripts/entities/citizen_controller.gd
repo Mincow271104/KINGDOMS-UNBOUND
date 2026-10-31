@@ -48,6 +48,9 @@ var job_mgr: JobManager = null
 var workplace_mgr: RefCounted = null
 var move_speed_px: float = 48.0 # Pixel speed per second
 
+# Vocational Skill Progression (Package 2B)
+var skill_data: CitizenSkillData = null
+
 # Logistics & Cargo
 var carrying_resource: String = ""
 var carrying_amount: int = 0
@@ -55,7 +58,13 @@ var carry_capacity: int = 10
 
 @onready var sprite: Sprite2D = get_node_or_null("Sprite2D")
 
+func _init() -> void:
+	if skill_data == null:
+		skill_data = CitizenSkillData.new()
+
 func _ready() -> void:
+	if skill_data == null:
+		skill_data = CitizenSkillData.new()
 	y_sort_enabled = true
 	if sprite == null:
 		sprite = get_node_or_null("Sprite2D")
@@ -79,8 +88,33 @@ func init_citizen(p_id: String, p_name: String, p_role: String, p_cell: Vector2i
 	job_mgr = p_job_mgr
 	workplace_mgr = p_workplace_mgr
 	_death_processed = false
+	if skill_data == null:
+		skill_data = CitizenSkillData.new()
 	position = IsoMath.map_to_local(current_cell)
 	_update_reason()
+
+func get_skill_data() -> CitizenSkillData:
+	if skill_data == null:
+		skill_data = CitizenSkillData.new()
+	return skill_data
+
+func get_skill_efficiency(vocation_or_job: String) -> float:
+	return get_skill_data().get_efficiency(vocation_or_job)
+
+func award_work_xp(vocation_or_job: String, amount: float) -> bool:
+	return get_skill_data().add_xp(vocation_or_job, amount)
+
+func get_effective_move_speed() -> float:
+	var hauler_mult: float = 1.0
+	if role == "hauler" or (active_job != null and active_job.type == "hauler"):
+		hauler_mult = get_skill_efficiency("hauling")
+	return move_speed_px * hauler_mult
+
+func serialize_skills() -> Dictionary:
+	return get_skill_data().serialize()
+
+func deserialize_skills(data: Variant) -> void:
+	get_skill_data().deserialize(data)
 
 func set_barracks_checker(checker: Callable) -> void:
 	barracks_checker = checker
@@ -276,7 +310,7 @@ func _process_movement(delta: float) -> void:
 		speed_mult = float(tm.get("current_speed"))
 	if speed_mult <= 0.0:
 		return
-	var step_dist: float = move_speed_px * delta * speed_mult
+	var step_dist: float = get_effective_move_speed() * delta * speed_mult
 
 	if dist <= step_dist:
 		position = target_local
@@ -349,19 +383,44 @@ func _pickup_hauler_cargo() -> void:
 		status_reason = "Kho tạm đã hết hàng, sẵn sàng việc mới"
 
 func _deposit_hauler_cargo() -> void:
-	if carrying_amount > 0:
-		var rm: Node = get_node("/root/ResourceManager") if (is_inside_tree() and has_node("/root/ResourceManager")) else null
-		if rm != null:
-			rm.add_resource(carrying_resource, carrying_amount)
+	if carrying_amount <= 0:
+		if active_job != null:
+			job_mgr.complete_job(active_job)
+			active_job = null
+		current_state = State.IDLE
+		status_reason = "Không có hàng để dỡ"
+		return
+
+	var delivered_amount: int = carrying_amount
+	var delivered_res: String = carrying_resource
+	var rm: Object = _get_resource_manager()
+	var added: int = 0
+	if rm != null and rm.has_method("add_resource"):
+		added = rm.add_resource(delivered_res, delivered_amount)
+	else:
+		added = delivered_amount
+
+	carrying_amount -= added
+
+	if carrying_amount <= 0:
 		carrying_amount = 0
 		carrying_resource = ""
-		
-	if active_job != null:
-		job_mgr.complete_job(active_job)
-		active_job = null
-		
-	current_state = State.IDLE
-	status_reason = "Đã dỡ hàng vào kho an toàn"
+		# Full cargo batch successfully deposited: award +10 hauling XP
+		award_work_xp("hauling", 10.0)
+		if active_job != null:
+			job_mgr.complete_job(active_job)
+			active_job = null
+		current_state = State.IDLE
+		status_reason = "Đã dỡ hàng vào kho an toàn"
+	else:
+		# Partial deposit: central storage space was insufficient to receive full batch.
+		# Remaining cargo is safely preserved in hauler inventory (no loss, no duplication).
+		# Zero XP awarded until complete batch is deposited.
+		if active_job != null:
+			job_mgr.release_job(active_job)
+			active_job = null
+		current_state = State.IDLE
+		status_reason = "Kho trung tâm đã đầy, còn giữ %d %s" % [carrying_amount, carrying_resource]
 
 func _process_working(delta: float) -> void:
 	if active_job == null or job_mgr == null:
@@ -378,10 +437,13 @@ func _process_working(delta: float) -> void:
 		_process_building_work(delta_hours)
 		return
 		
-	var completed := job_mgr.progress_job(active_job, delta_hours)
+	var skill_mult := get_skill_efficiency(active_job.type)
+	var effective_work_hours := delta_hours * skill_mult
+	var completed := job_mgr.progress_job(active_job, effective_work_hours)
 	if completed:
 		# Production at workplace deposits to buffer (not central storage)
 		if workplace_mgr != null and active_job != null:
+			var job_type: String = active_job.type
 			var target_wp_id: String = active_job.target_building_id
 			if active_job.get("workplace_channel_id") != null and active_job.get("workplace_channel_id") != "":
 				target_wp_id = active_job.get("workplace_channel_id")
@@ -400,11 +462,30 @@ func _process_working(delta: float) -> void:
 						var cur_day: int = int(tm.get("current_day")) if (tm != null and tm.get("current_day") != null) else -1
 						season_mod = float(es.call("get_farm_production_multiplier", season_mod, cur_day))
 				var rm_node: Node = get_node_or_null("/root/ResourceManager") if (is_inside_tree() and has_node("/root/ResourceManager")) else null
-				var produced_qty: int = workplace_mgr.produce_to_buffer(target_wp_id, season_mod, rm_node)
-				if produced_qty > 0:
-					status_reason = "Hoàn thành công việc, chuẩn bị việc mới"
-				else:
+
+				var expected_qty: int = 1
+				if workplace_mgr.has_method("get_expected_cycle_production"):
+					expected_qty = workplace_mgr.get_expected_cycle_production(target_wp_id, season_mod)
+				elif workplace_mgr.has_method("get_workplace"):
 					var wp_obj = workplace_mgr.get_workplace(target_wp_id)
+					if wp_obj != null:
+						if wp_obj.has_recipe():
+							expected_qty = wp_obj.output_amount
+						else:
+							var prod: float = wp_obj.base_production_per_cycle
+							if wp_obj.output_resource == EconomyConfig.RES_FOOD:
+								prod *= season_mod
+							expected_qty = maxi(1, int(round(prod)))
+
+				var produced_qty: int = workplace_mgr.produce_to_buffer(target_wp_id, season_mod, rm_node)
+				if produced_qty >= expected_qty and expected_qty > 0:
+					status_reason = "Hoàn thành công việc, chuẩn bị việc mới"
+					award_work_xp(job_type, 10.0)
+				elif produced_qty > 0:
+					# Partial production cycle: buffer did not have capacity for full cycle output
+					status_reason = "Kho đệm xưởng gần đầy, sản lượng bị giới hạn"
+				else:
+					var wp_obj = workplace_mgr.get_workplace(target_wp_id) if workplace_mgr.has_method("get_workplace") else null
 					if wp_obj and wp_obj.buffer_amount >= wp_obj.buffer_capacity:
 						status_reason = "Kho đệm xưởng đã đầy, chờ vận chuyển"
 					else:
@@ -437,20 +518,31 @@ func _process_building_work(delta_hours: float) -> void:
 		_update_reason()
 		return
 
+	# Advance construction factoring builder vocational skill multiplier
+	var skill_mult := get_skill_efficiency("building")
+	var effective_delta_hours := delta_hours * skill_mult
+
+	# Capture progress before advance for robust calculation
+	var prev_prog: float = -1.0
+	if world_data != null:
+		var b_obj = BuildingSystem.get_building_by_id(b_id, world_data)
+		if not b_obj.is_empty():
+			prev_prog = float(b_obj.get("construction_progress", 0.0))
+
 	# Advance construction
 	var res: Dictionary = {}
 	if construction_handler.is_valid():
 		var argc := construction_handler.get_argument_count()
 		if argc >= 2:
-			res = construction_handler.call(b_id, delta_hours)
+			res = construction_handler.call(b_id, effective_delta_hours)
 		else:
-			res = construction_handler.call(delta_hours)
+			res = construction_handler.call(effective_delta_hours)
 	else:
 		var wv = _get_world_view()
 		if wv != null and wv.has_method("advance_construction_work"):
-			res = wv.advance_construction_work(b_id, delta_hours)
+			res = wv.advance_construction_work(b_id, effective_delta_hours)
 		elif world_data != null:
-			res = BuildingSystem.advance_construction(b_id, delta_hours, world_data)
+			res = BuildingSystem.advance_construction(b_id, effective_delta_hours, world_data)
 			if res.get("completed", false):
 				var rm_node: Node = get_node_or_null("/root/ResourceManager") if (is_inside_tree() and has_node("/root/ResourceManager")) else null
 				BuildingSystem.complete_building(b_id, world_data, rm_node)
@@ -460,6 +552,27 @@ func _process_building_work(delta_hours: float) -> void:
 		current_state = State.IDLE
 		status_reason = "Công trình xây dựng đã hoàn thành hoặc bị hủy"
 		return
+
+	# Calculate actual progress made and active labor hours contributed
+	var progress_made: float = 0.0
+	if res.has("progress_delta"):
+		progress_made = maxf(0.0, float(res.get("progress_delta", 0.0)))
+	elif prev_prog >= 0.0 and res.has("progress"):
+		progress_made = maxf(0.0, float(res.get("progress", 0.0)) - prev_prog)
+	elif res.has("progress") and res.has("hours"):
+		var cur_p: float = float(res.get("progress", 0.0))
+		var max_h: float = float(res.get("hours", 0.0))
+		progress_made = clampf(effective_delta_hours, 0.0, max_h)
+	else:
+		progress_made = effective_delta_hours
+
+	var actual_labor_hours: float = 0.0
+	if skill_mult > 0.0:
+		actual_labor_hours = progress_made / skill_mult
+
+	if actual_labor_hours > 0.0:
+		# Award construction XP based strictly on actual game-hours contributed (5 XP per game-hour)
+		award_work_xp("building", actual_labor_hours * 5.0)
 
 	if res.get("completed", false):
 		active_job = null

@@ -145,14 +145,15 @@ static func advance_construction(b_data_or_id, delta_hours: float, world_data: W
 		b_data = get_building_by_id(b_data_or_id, world_data)
 
 	if b_data.is_empty():
-		return {"success": false, "completed": false, "progress": 0.0, "hours": 0.0}
+		return {"success": false, "completed": false, "progress": 0.0, "hours": 0.0, "progress_delta": 0.0}
 
 	if b_data.get("state", "") != "under_construction":
 		return {
 			"success": false,
 			"completed": false,
 			"progress": float(b_data.get("construction_progress", 0.0)),
-			"hours": float(b_data.get("construction_hours", 0.0))
+			"hours": float(b_data.get("construction_hours", 0.0)),
+			"progress_delta": 0.0
 		}
 
 	var total_hours: float = float(b_data.get("construction_hours", 12.0))
@@ -164,11 +165,14 @@ static func advance_construction(b_data_or_id, delta_hours: float, world_data: W
 			"success": false,
 			"completed": cur_prog >= (total_hours - 0.001),
 			"progress": cur_prog,
-			"hours": total_hours
+			"hours": total_hours,
+			"progress_delta": 0.0
 		}
 
+	var old_prog: float = cur_prog
 	cur_prog = clampf(cur_prog + delta_hours, 0.0, total_hours)
 	b_data["construction_progress"] = cur_prog
+	var progress_made: float = maxf(0.0, cur_prog - old_prog)
 
 	# Floating-point tolerance for required construction time (0.001 hours ~= 3.6 seconds)
 	const PROGRESS_TOLERANCE: float = 0.001
@@ -177,7 +181,8 @@ static func advance_construction(b_data_or_id, delta_hours: float, world_data: W
 		"success": true,
 		"completed": completed,
 		"progress": cur_prog,
-		"hours": total_hours
+		"hours": total_hours,
+		"progress_delta": progress_made
 	}
 
 static func complete_building(b_data_or_id, world_data: WorldGenerator.WorldData, resource_mgr: Object = null) -> bool:

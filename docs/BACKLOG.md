@@ -443,3 +443,14 @@
   - Verified 15/15 tests passing (Exit Code 0).
 - [x] **TASK-2A.7:** Palisade test assertion update for 12th GDD building:
   - Updated button count check in `scripts/test/test_palisade.gd` from 11 to 12 buttons to account for `MarketBtn` in `BuildMenuPanel`.
+
+---
+
+## Package 2B: Citizen Skill Progression & Vocational Specialization (Completed)
+- [x] **TASK-2B.1:** Vocational skill data model `CitizenSkillData` (`scripts/entities/citizen_skill_data.gd`) with 6 vocations (`farming`, `woodcutting`, `mining`, `smithing`, `building`, `hauling`), XP thresholds (0, 100, 300, 600, 1000), bounded multipliers (1.00x, 1.08x, 1.16x, 1.25x, 1.35x), XP clamping [0, 1000], and Vietnamese titles.
+- [x] **TASK-2B.2:** CitizenController integration: individual skill model instantiation, job-to-vocation mapping, work-rate scaling, builder contribution scaling, and hauler velocity calculation.
+- [x] **TASK-2B.3:** Real-work XP attribution: +10 XP on committed production cycle, +5 XP per game-hour of active construction contribution, +10 XP on successful cargo deposit, and 0 XP for idle, eating, resting, wandering, or failed work attempts.
+- [x] **TASK-2B.4:** Cross-training & career switching: role reassignment preserves 100% of accumulated XP across all vocations without decay or penalty.
+- [x] **TASK-2B.5:** CitizenInspectPanel UI enhancements in `scenes/ui/hud.tscn` and `scripts/ui/hud.gd`: dynamic vocational title, level badge, XP progress bar, efficiency bonus percentage, and Level 5 maximum indicator.
+- [x] **TASK-2B.6:** SaveManager backward-compatible persistence: serializing `skills` dictionary per citizen, fail-closed bounds validation, and clean fallback to Level 1 / 0 XP on legacy saves.
+- [x] **TASK-2B.7:** Automated test suite `scripts/test/test_citizen_skills.gd` covering TC-SKL-01 through TC-SKL-22 with 100% pass rate (Exit Code 0).

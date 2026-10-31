@@ -486,11 +486,44 @@
   - *Market Keeper / Trader Citizens:* Market serves as civic infrastructure; no new citizen jobs.
   - *Dedicated Storage Buffer:* Market provides 0 storage bonus per GDD §7.1.
 
+### 1.29 Package 2B — Citizen Skill Progression & Vocational Specialization (GDD §6.2, §6.3, §6.4, §6.5, §14.4)
+- **Problem:** Citizens possessed job roles, workplace assignments, and need decay, but lacked vocational proficiency progression. All citizens performed labor at identical flat baseline rates regardless of labor history, violating GDD §6.5 ("Kỹ năng nghề tăng dần thông qua công việc thực tế... Trong MVP, chỉ cần một hệ số hiệu quả đơn giản, có giới hạn trên").
+- **Authoritative Data Model & Bounded Thresholds:**
+  - Implemented `CitizenSkillData` (`scripts/entities/citizen_skill_data.gd`) tracking individual cumulative XP across six vocational categories:
+    - `farming` (Farmer)
+    - `woodcutting` (Woodcutter)
+    - `mining` (Miner, Quarryman)
+    - `smithing` (Smith)
+    - `building` (Builder)
+    - `hauling` (Hauler)
+  - Canonical level progression derived from cumulative XP with strictly bounded multipliers:
+    - Level 1 (Novice): $0\text{ XP}$ $\to 1.00\times$ (Starting baseline)
+    - Level 2 (Apprentice): $100\text{ XP}$ $\to 1.08\times$ (+8%)
+    - Level 3 (Journeyman): $300\text{ XP}$ $\to 1.16\times$ (+16%)
+    - Level 4 (Expert): $600\text{ XP}$ $\to 1.25\times$ (+25%)
+    - Level 5 (Master): $1000\text{ XP}$ $\to 1.35\times$ (+35% approved maximum cap)
+  - XP is strictly clamped to $[0.0, 1000.0]$.
+- **Real Work Only XP Attribution:**
+  - *Production:* $+10\text{ XP}$ awarded to the specific crafting worker only upon successful cycle completion committing goods to workplace output buffer (`produced_qty > 0`). Zero XP on failure, full buffer, or missing recipe inputs.
+  - *Building:* $+5\text{ XP}$ per game-hour of actual active construction labor contributed, preserving fractional progress accurately. Zero XP for assignment without progress.
+  - *Hauling:* $+10\text{ XP}$ awarded to the specific delivering hauler only upon genuine cargo deposit into storage (`delivered_amount > 0`). Zero XP for empty trips, pickup, or interrupted journeys.
+  - *Zero Passive XP:* Idle, sleeping, eating, and wandering states award exactly $0\text{ XP}$. Repeated completion callbacks are strictly idempotent.
+- **Gameplay Effect Integration:**
+  - *Production:* Applied worker-specific multiplier to work rate (`effective_work = delta_hours * skill_mult`) in `CitizenController._process_working()`, completing cycles faster and preserving integer recipe conservation without rounding loss.
+  - *Building:* Builder vocational multiplier scales independent construction contribution in `_process_building_work()`, allowing multiple builders to contribute additively without compounding across workers.
+  - *Hauling:* Hauler vocational multiplier scales individual movement speed (`move_speed_px * hauler_mult`, 48.0 px/s $\to$ 64.8 px/s at Master Level 5), directly accelerating logistics throughput.
+- **Cross-Training & Persistence Invariants:**
+  - Role reassignment preserves all accumulated vocational XP across careers; citizens retain their hard-earned mastery when switching roles.
+  - Versioned JSON serialization under `citizens` array (`skills: { "farming": 340.0, ... }`) without schema version bumping. Legacy saves lacking skill data deserialize cleanly with Level 1, 0 XP defaults. Malformed or tampered inputs clamp fail-closed.
+- **UI Reflection:**
+  - Enhanced `CitizenInspectPanel` in `scenes/ui/hud.tscn` and `scripts/ui/hud.gd` with dynamic vocational skill name, level badge (`Nông nghiệp — Cấp 3 (Thợ lành nghề)`), visual XP progress bar, and efficiency percentage readout (`+16%`), with dedicated maximum state for Level 5 and clean neutral status for idle/guard citizens.
+
 ---
 
 ## 2. Deferred & Excluded Scope for MVP
 | Feature | GDD Section | Status for MVP | Rationale |
 |---|---|---|---|
+| Citizen Skill Progression & Vocational Specialization | Phần VI & XIV | Implemented | Delivered end-to-end in Package 2B with 6 vocations, 1.00x-1.35x bounded multipliers, real-work XP, and HUD Inspector |
 | Market Infrastructure & Physical Caravan Integration | Phần VII & XI | Implemented | Delivered end-to-end in Package 2A with 3x3 Market, deterministic docking, Town Hall fallback, and CaravanMarker actor |
 | Automation Graph Delay & Repeat Nodes | Phần VII | Implemented | Delivered end-to-end in Package 1Y with bounded simulation clock queues |
 | Persistent Legacy Fund Foundation | Phần XII & XIII | Implemented | Delivered in Package 1Z with decoupled profile, atomic persistence, exactly-once claims, and UI |

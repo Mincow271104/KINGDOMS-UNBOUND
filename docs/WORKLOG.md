@@ -7623,3 +7623,145 @@ Implement Package 2A on branch `feature/package-2a-market-infrastructure` as aut
 
 ### Next Exact Step
 - Await owner review and authorization of Package 2A implementation and checkpoint commit.
+
+---
+
+## [2026-10-31] Package 2B: Citizen Skill Progression & Vocational Specialization Implementation
+
+### Context & Objective
+Implement Package 2B authorized by the owner on feature branch `feature/package-2b-citizen-skill-progression`.
+Fulfills GDD §6.2, §6.3, §6.4, §6.5, and §14.4 by establishing persistent individual vocational skills for citizens, awarding XP strictly through real work, integrating bounded efficiency multipliers (up to 1.35x), reflecting progression in the Citizen Inspector UI, preserving cross-training XP on career switching, and maintaining backward-compatible persistence.
+
+### Completed Work
+1. **Vocational Skill Data Model (`scripts/entities/citizen_skill_data.gd`):**
+   - Created `CitizenSkillData` (`RefCounted`) tracking individual cumulative XP across six vocational categories: `farming`, `woodcutting`, `mining`, `smithing`, `building`, `hauling`.
+   - Bounded cumulative XP thresholds: Level 1 (0 XP, 1.00x), Level 2 (100 XP, 1.08x), Level 3 (300 XP, 1.16x), Level 4 (600 XP, 1.25x), Level 5 (1000 XP, 1.35x approved maximum cap).
+   - Strict bounds: XP clamped to `[0.0, 1000.0]`. Fail-closed parsing for NaN, Inf, and negative numbers.
+   - Vietnamese vocational titles: `Tập sự` (Level 1), `Học việc` (Level 2), `Thợ lành nghề` (Level 3), `Chuyên gia` (Level 4), `Bậc thầy` (Level 5).
+2. **Citizen Controller Simulation Hooks (`scripts/entities/citizen_controller.gd`):**
+   - Instantiated and initialized `skill_data` per citizen. Added accessors `get_skill_data()`, `get_skill_efficiency()`, `award_work_xp()`, `get_effective_move_speed()`, `serialize_skills()`, `deserialize_skills()`.
+   - Production Hook: In `_process_working()`, applied worker skill efficiency multiplier to work progress (`effective_work = delta_hours * skill_mult`) in `JobManager.progress_job()`.
+   - Awarded +10 XP to corresponding vocation upon production cycle completion committing goods to workplace output buffer (`produced_qty > 0`). Zero XP awarded on full buffer or missing inputs.
+   - Building Hook: In `_process_building_work()`, applied builder efficiency multiplier to construction contribution (`effective_delta_hours = delta_hours * skill_mult`). Awarded +5 XP per game-hour of active construction contribution (`delta_hours * 5.0`) only on successful progress.
+   - Hauling Hook: In `_deposit_hauler_cargo()`, awarded +10 XP only upon genuine cargo deposit (`delivered_amount > 0`).
+   - Logistics Speed Hook: In `_process_movement()`, scaled movement speed by hauler proficiency (`48.0 px/s * hauler_mult`, up to 64.8 px/s at Master Level 5).
+   - Cross-Training Retention: In `set_role()`, preserved all accumulated vocational XP across careers; switching roles does not reset or degrade prior masteries.
+3. **SaveManager Persistence Integration (`scripts/persistence/save_manager.gd`):**
+   - Serialized `skills` dictionary under each citizen record without schema version bumping.
+   - In `validate_save_data()`, enforced that `skills` must be a Dictionary when present.
+   - In deserialization, safely restored skills with `deserialize_skills()`. Legacy saves without `skills` seamlessly default to Level 1, 0 XP across all vocations.
+4. **Citizen Inspector UI Reflection (`scenes/ui/hud.tscn`, `scripts/ui/hud.gd`):**
+   - Added `SkillContainer`, `SkillNameLabel`, `SkillBonusLabel`, and `SkillProgressBar` to `CitizenInspectPanel`.
+   - Adjusted panel `offset_top` to `-365.0` to accommodate the skill section without clipping, maintaining 305px clearance below TopBar at 720p.
+   - In `_refresh_inspected_citizen()`, dynamically formatted vocational name, level badge, progress bar, and efficiency percentage, with dedicated Level 5 maximum indicator and neutral display for idle/guard citizens.
+5. **Automated Test Suite (`scripts/test/test_citizen_skills.gd`):**
+   - Authored 22 comprehensive test cases (TC-SKL-01 to TC-SKL-22) covering data model, XP attribution, gameplay effects, cross-training, persistence, and UI.
+   - Verified 22/22 tests passing with 100% pass rate (Exit Code 0).
+6. **Documentation Synchronization:**
+   - Updated `docs/SCOPE_DECISIONS.md`, `docs/BACKLOG.md`, `docs/CHANGELOG.md`, and `docs/WORKLOG.md`.
+
+### Validations Performed & Results
+- **Package 2B Test Suite (22 tests):**
+  - `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless -s scripts/test/test_citizen_skills.gd`: **PASS (Exit Code 0: 22/22 tests passed)**
+- **Existing Citizen Tests:**
+  - `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless -s scripts/test/test_citizens.gd`: **PASS (Exit Code 0)**
+- **Existing Construction Tests:**
+  - `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless -s scripts/test/test_construction.gd`: **PASS (Exit Code 0)**
+- **Existing Logistics Tests:**
+  - `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless -s scripts/test/test_logistics.gd`: **PASS (Exit Code 0)**
+- **Existing Economy Tests:**
+  - `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless -s scripts/test/test_economy.gd`: **PASS (Exit Code 0)**
+- **Existing Save/Load Tests (182 assertions):**
+  - `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless -s scripts/test/test_save_load.gd`: **PASS (Exit Code 0: 182/182 assertions passed)**
+- **Existing Responsive Layout Tests (435 checks):**
+  - `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless -s scripts/test/test_responsive_layout.gd`: **PASS (Exit Code 0: 435/435 checks passed)**
+- **Full Project Automated Test Sweep (46 suites):**
+  - All 46 test suites across the repository: **PASS (Exit Code 0: 46/46 suites passed, 0 failures)**
+- **Headless Engine / Project Check:**
+  - `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --quit`: **PASS (Exit Code 0: 0 compile errors, 0 asset errors)**
+- **Whitespace / Git Check:**
+  - `git diff --check`: **PASS (Exit Code 0: zero trailing whitespaces or merge markers)**
+
+### Files Created / Modified
+- `scripts/entities/citizen_skill_data.gd` (Created)
+- `scripts/test/test_citizen_skills.gd` (Created)
+- `scenes/ui/hud.tscn` (Modified)
+- `scripts/entities/citizen_controller.gd` (Modified)
+- `scripts/persistence/save_manager.gd` (Modified)
+- `scripts/ui/hud.gd` (Modified)
+- `docs/SCOPE_DECISIONS.md` (Modified)
+- `docs/BACKLOG.md` (Modified)
+- `docs/CHANGELOG.md` (Modified)
+- `docs/WORKLOG.md` (Modified)
+
+### Protected Assets & User Files
+- `project.godot`: Pre-existing user modification strictly preserved and untouched.
+- All 57 pre-existing untracked entries (including `.gd.uid` files, test harnesses, and visual validation outputs): byte-for-byte preserved.
+- User saves: Untouched; test saves strictly isolated and purged on cleanup.
+- No git commit, push, merge, or rebase executed.
+
+### Next Exact Step
+- Present implementation results to owner for code review and authorization of Package 2B checkpoint.
+
+---
+
+## [2026-10-31] Package 2B Targeted Final Audit & Hardening Fixes (Completed)
+
+### Context & Objective
+Execute targeted independent code audit of Package 2B (Citizen Skill Progression & Vocational Specialization) before checkpoint authorization, addressing critical invariants in production XP, builder XP on completion overrun, hauler cargo preservation on partial deposits, and citizen inspector visual validation.
+
+### Completed Work & Targeted Fixes
+1. **Production Full-Cycle Invariant Hardening (`scripts/economy/workplace_manager.gd`, `scripts/entities/citizen_controller.gd`):**
+   - *Defect:* Previously awarded full +10 XP if `produced_qty > 0`. When a workplace buffer was nearly full, partial cycle outputs (e.g. 2 food into a 48/50 buffer instead of full 5 food) were prematurely granted full-cycle XP.
+   - *Fix:* Added `WorkplaceManager.get_expected_cycle_production(workplace_id, season_modifier)`. In `CitizenController._process_working()`, enforced that `produced_qty >= expected_qty` is strictly required to award +10 XP. If only partial output is accepted into buffer (`0 < produced_qty < expected_qty`), zero XP is awarded and status indicates buffer near capacity.
+2. **Builder XP Overrun Bounding (`scripts/economy/building_system.gd`, `scripts/entities/citizen_controller.gd`):**
+   - *Defect:* `CitizenController._process_building_work()` previously awarded `delta_hours * 5.0` XP regardless of how much work was left on a construction site. On a final tick with only 0.1 hours remaining, a 1.0-hour simulation tick awarded 5.0 XP instead of pro-rating to the actual labor accepted.
+   - *Fix:* In `BuildingSystem.advance_construction()`, added `"progress_delta": progress_made` to return dictionary. In `CitizenController._process_building_work()`, computed actual labor hours contributed via `actual_labor_hours = progress_made / skill_mult` and awarded strictly `actual_labor_hours * 5.0` XP. Bounded XP prevents over-awarding on completion overrun, accurately credits multiple builders working simultaneously, and awards 0 XP for cancelled or already completed buildings.
+3. **Hauler Cargo Preservation & Full Batch Deposit Invariant (`scripts/entities/citizen_controller.gd`):**
+   - *Defect:* In `CitizenController._deposit_hauler_cargo()`, `carrying_amount` was set to 0 unconditionally even when central storage only accepted a partial deposit, causing undelivered cargo to be lost while still awarding full +10 hauling XP.
+   - *Fix:* Subtracted stored goods from citizen inventory (`carrying_amount -= added`). Undelivered cargo is safely preserved in the citizen's backpack without item loss or duplication. Full +10 hauling XP is awarded strictly once when the complete cargo batch is deposited (`carrying_amount <= 0`). If central storage is full, hauler retains cargo and zero XP is awarded until storage space allows full delivery.
+4. **Citizen Skill Model Addition (`scripts/entities/citizen_skill_data.gd`):**
+   - Added `set_xp(vocation_or_job, xp_val)` for robust, clamped direct skill mutation during test fixtures and profile management.
+5. **Hardening Regression Tests (`scripts/test/test_citizen_skills.gd`):**
+   - Authored TC-SKL-23 through TC-SKL-27 covering partial production zero XP, builder completion overrun bounded XP, hauler partial deposit cargo preservation and zero duplication/loss, multi-builder pro-rated completion XP, and cancelled/completed building zero XP.
+   - Package 2B test suite expanded from 22 to 27 tests (100% pass rate).
+6. **Live Citizen Inspector Visual Validation (`scratch/package_2b_visual_validation/`):**
+   - Executed live display session under Windows DisplayServer with NVIDIA GeForce RTX 3050 Ti Laptop GPU at 1280x720.
+   - Captured 4 screenshots into `scratch/package_2b_visual_validation/`:
+     - `01_inspector_level_1.png`: Level 1 Novice Citizen (Farmer, 0 XP, Level 1 "Tập sự", +0% efficiency).
+     - `02_inspector_intermediate_xp.png`: Intermediate Citizen (Farming Level 3 "Thợ lành nghề", 340 XP, +16% efficiency, progress bar showing 340/600).
+     - `03_inspector_level_5_master.png`: Level 5 Master Citizen (Farming Level 5 "Bậc thầy", 1000 XP "Tối đa", +35% efficiency, max progress bar).
+     - `04_inspector_guard_idle.png`: Guard Citizen ("Binh nghiệp (Vệ binh)", standard 1.00x efficiency, empty bar).
+   - Visual checks confirmed: Zero clipped text, zero overlapping nodes, citizen activity & needs visible, Vietnamese nomenclature accurate, XP progress & efficiency percentages correct, top resource bar and bottom command bar completely unobstructed.
+
+### Validations Performed & Results
+- **Package 2B Expanded Test Suite (27 tests):**
+  - `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless -s scripts/test/test_citizen_skills.gd`: **PASS (Exit Code 0: 27/27 tests passed)**
+- **Full Project Automated Test Sweep (46 suites):**
+  - All 46 test suites across the repository: **PASS (Exit Code 0: 46/46 suites passed, 0 failures)**
+- **Whitespace / Git Check:**
+  - `git diff --check`: **PASS (Exit Code 0: zero trailing whitespaces or merge markers)**
+
+### Files Created / Modified
+- `scripts/entities/citizen_skill_data.gd` (Created for Package 2B)
+- `scripts/test/test_citizen_skills.gd` (Created for Package 2B)
+- `scratch/package_2b_visual_validation/` (Created 4 visual validation screenshots)
+- `scenes/ui/hud.tscn` (Modified)
+- `scripts/economy/building_system.gd` (Modified)
+- `scripts/economy/workplace_manager.gd` (Modified)
+- `scripts/entities/citizen_controller.gd` (Modified)
+- `scripts/persistence/save_manager.gd` (Modified)
+- `scripts/ui/hud.gd` (Modified)
+- `docs/SCOPE_DECISIONS.md` (Modified)
+- `docs/BACKLOG.md` (Modified)
+- `docs/CHANGELOG.md` (Modified)
+- `docs/WORKLOG.md` (Modified)
+
+### Protected Assets & User Files
+- `project.godot`: Pre-existing user modification strictly preserved and untouched.
+- All 57 pre-existing untracked entries (including `.gd.uid` files, test harnesses, and visual validation outputs): byte-for-byte preserved.
+- User saves: Untouched; test saves strictly isolated and purged on cleanup.
+- No git commit, push, merge, or rebase executed.
+
+### Next Exact Step
+- Present final audit report to owner for checkpoint authorization.
