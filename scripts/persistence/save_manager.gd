@@ -2048,6 +2048,9 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 	else:
 		world_view.set("active_caravan", null)
 
+	if world_view.has_method("refresh_caravan_marker"):
+		world_view.call("refresh_caravan_marker")
+
 	var cit_count: int = world_view.get("citizen_list").size() if world_view.get("citizen_list") != null else 0
 	var bld_count: int = world_data.buildings.size() if world_data != null and world_data.get("buildings") != null else 0
 	print("[SaveManager] Loaded world state restored successfully (%d citizens, %d buildings)" % [cit_count, bld_count])

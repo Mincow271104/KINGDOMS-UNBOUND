@@ -467,12 +467,31 @@
     - *Achievement Reset & Non-Resurrection (FIX-1Z-AC):* Seeded the original profile with a valid unlocked achievement (`"prosperity_victory"`) and populated `.bak.old` with a distinguishable schema-valid achievement record. Verified that both original manager and fresh restart manager have `unlocked_achievements.is_empty()`, proving that achievements are reset in memory and cannot be resurrected from stale backups.
     - *Complete Partial Cleanup Failure Assertions (FIX-1Z-AD):* In the cleanup failure injection scenario, created all five persistence artifacts simultaneously on disk before calling `reset_profile()` with failure injected on `.bak.old`. Verified that `reset_profile()` returns `false`, manager status is `STATUS_UNAVAILABLE`, `initialization_error` identifies `.bak.old`, `.bak.old` survives byte-for-byte unchanged, all other four artifacts (`target_path`, `.bak`, `.tmp`, `.bak.tmp`) are successfully deleted from disk, and subsequent reward claims are rejected fail-closed.
 
+### 1.28 Package 2A — Market Infrastructure & Settlement Commerce Integration
+- **Context:** `docs/GDD.md` §7.1 lists "Chợ (Market) | 3x3 | 25 Gỗ, 10 Đá | Giao dịch", which was the sole remaining unintegrated building in the GDD blueprint catalog. GDD §11 specifies visiting merchants arriving periodically to trade goods with asymmetrical pricing.
+- **Authoritative Design Decisions:**
+  - **Blueprint Standard:** `market` added to `EconomyConfig.BLUEPRINTS` with 3×3 footprint, cost: 25 Wood + 10 Stone, construction time: 12.0 hours (conforming directly to the closest 3×3 civic building, Research Hall), 100 HP, 0 housing, 0 permanent workers, and 0 storage bonus.
+  - **Builder Allocation:** Uses existing building system footprint dimension calculation ($\ge 3 \to 4$ builder slots).
+  - **Cancellation & Demolition:** Standard 50% material refund (12 Wood, 5 Stone) and full occupancy grid clearance via `BuildingSystem`.
+  - **Visiting Merchant Physical Docking:**
+    - Visiting merchant caravans physically dock at an unoccupied, non-water, in-bounds perimeter cell adjacent to an active Market.
+    - Represented by a lightweight `CaravanMarker` world actor with ground-contact foot pivot and Y-sorting enabled.
+    - If no active Market exists, or Market is under construction, or Market perimeter is blocked: the caravan falls back to the Town Hall perimeter without crashing.
+    - When multiple active Markets exist, selection is strictly deterministic (sorted by coordinate $y \times 64 + x$, then ID).
+  - **Pure World Presentation Ownership:** Docking coordinates are transient world presentation state re-derived on load from current world data. No schema changes or extra fields in `TradeCaravan` or `SaveManager` were added.
+  - **HUD Integration:** Build menu provides `MarketBtn` for placement; `DiplomacyPanel` identifies trade location (`Địa điểm giao thương: Chợ` vs `Địa điểm giao thương: Tòa thị chính`) while preserving existing trade APIs.
+- **Explicitly Deferred & Excluded Non-MVP Proposals:**
+  - *Emergency Trade Penalties (0% penalty):* Baseline trade prices remain 100% faithful to GDD §11 across both Market and Town Hall modes. No 25% price penalty or markup was added.
+  - *Municipal Commercial Tax (0% tax):* No transaction remittance to town treasury.
+  - *Market Keeper / Trader Citizens:* Market serves as civic infrastructure; no new citizen jobs.
+  - *Dedicated Storage Buffer:* Market provides 0 storage bonus per GDD §7.1.
 
 ---
 
 ## 2. Deferred & Excluded Scope for MVP
 | Feature | GDD Section | Status for MVP | Rationale |
 |---|---|---|---|
+| Market Infrastructure & Physical Caravan Integration | Phần VII & XI | Implemented | Delivered end-to-end in Package 2A with 3x3 Market, deterministic docking, Town Hall fallback, and CaravanMarker actor |
 | Automation Graph Delay & Repeat Nodes | Phần VII | Implemented | Delivered end-to-end in Package 1Y with bounded simulation clock queues |
 | Persistent Legacy Fund Foundation | Phần XII & XIII | Implemented | Delivered in Package 1Z with decoupled profile, atomic persistence, exactly-once claims, and UI |
 | Surplus treasury conversion to Legacy | Phần XIII | Deferred | Extension point implemented; pending official exchange formula and stability threshold |

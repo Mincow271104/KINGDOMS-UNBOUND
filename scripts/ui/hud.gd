@@ -200,6 +200,9 @@ func _ready() -> void:
 	var btn_palisade = $BuildMenuPanel/MarginContainer/VBoxContainer/GridContainer.get_node_or_null("PalisadeBtn")
 	if btn_palisade:
 		btn_palisade.pressed.connect(func(): _select_building("palisade"))
+	var btn_market = $BuildMenuPanel/MarginContainer/VBoxContainer/GridContainer.get_node_or_null("MarketBtn")
+	if btn_market:
+		btn_market.pressed.connect(func(): _select_building("market"))
 	btn_close_build.pressed.connect(func(): build_menu_panel.visible = false)
 
 	# Citizen inspector controls
@@ -994,10 +997,17 @@ func _refresh_diplomacy_ui() -> void:
 	# 1. Update Visiting Caravan Status
 	var active_caravan = world_view_ref.get("active_caravan") if world_view_ref != null else null
 	if active_caravan != null and active_caravan.get("is_active"):
-		caravan_status_label.text = "🐪 Đang có mặt: %s (Rời đi ngày %d) | Ngân sách: %d Vàng" % [
+		var loc_name: String = "Tòa thị chính"
+		if world_view_ref != null:
+			if world_view_ref.has_method("get_caravan_docking_location_name"):
+				loc_name = world_view_ref.call("get_caravan_docking_location_name")
+			elif world_view_ref.get("world_data") != null and BuildingSystem.is_market_active(world_view_ref.get("world_data")):
+				loc_name = "Chợ"
+		caravan_status_label.text = "🐪 Đang có mặt: %s (Rời đi ngày %d) | Ngân sách: %d Vàng\n📍 Địa điểm giao thương: %s" % [
 			active_caravan.get("name"),
 			active_caravan.get("departure_day"),
-			active_caravan.get("gold")
+			active_caravan.get("gold"),
+			loc_name
 		]
 		
 		# Add caravan quick trade section

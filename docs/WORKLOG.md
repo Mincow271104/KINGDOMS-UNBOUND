@@ -7542,7 +7542,84 @@ Execute the Eighth Corrective Audit for Package 1Z:
 - `docs/WORKLOG.md` (Modified)
 
 ### Next Exact Step
-- Stage modified files (preserving protected untracked files).
-- Commit changes: `test(persistence): strengthen profile reset artifact and memory assertions`.
-- Push to `origin/feat/package-1z-legacy-fund-foundation`.
-- Deliver comprehensive final completion report adhering to all audit reporting requirements.
+- Milestone 36 completed and committed (`f87c43e6619f1428f500d55a411440e26ac42dd7`).
+
+---
+
+## [2026-10-31] Milestone 37: Package 2A — Market Infrastructure & Settlement Commerce Integration ✅ COMPLETED
+
+### Context & Objective
+Implement Package 2A on branch `feature/package-2a-market-infrastructure` as authorized:
+1. Building ID: `market`, Vietnamese name: `Chợ`, footprint: `Vector2i(3, 3)`.
+2. Cost: 25 Wood + 10 Stone. Construction time: 12.0h (matching Research Hall standard). Health: 100 HP. Max workers: 0, housing: 0, storage bonus: `{}`.
+3. Builder capacity: 4 slots (derived from 3x3 footprint via `BuildingSystem.get_construction_worker_capacity()`).
+4. Physical Merchant Caravan docking: dynamic docking cell selection adjacent to active Market; fallback to Town Hall perimeter when Market is absent, under construction, or perimeter blocked.
+5. World presentation actor `CaravanMarker` with Y-sorting, ground-contact pivot, saffron modulate, and `NameLabel`.
+6. HUD integration: `MarketBtn` in `BuildMenuPanel`, trade location indicator in `DiplomacyPanel`.
+7. Persistence: transient world presentation re-derived on load in `SaveManager` with zero schema changes.
+8. Comprehensive test suite (`scripts/test/test_market.gd`) and full regression verification.
+
+### Completed Work
+1. **Economy Blueprint Configuration (`scripts/economy/economy_config.gd`):**
+   - Added `"market"` blueprint with 3x3 footprint, `{wood: 25, stone: 10}`, 12.0h build time, 100 HP, 0 housing, 0 workers, empty storage.
+2. **IsoMath Grid Helper (`scripts/utils/iso_math.gd`):**
+   - Added `grid_to_world(grid_pos: Vector2i) -> Vector2` alias for `map_to_local`.
+3. **Market Discovery & Docking Logic (`scripts/economy/building_system.gd`):**
+   - Implemented `is_market_active(world_data, market_id)`, `get_all_active_markets(world_data)` (deterministic sort by coordinate $y \times 64 + x$ then ID), `get_active_market(world_data)`, `get_town_hall(world_data)`, and `find_caravan_docking_cell(world_data)`.
+4. **CaravanMarker Actor (`scripts/trade/caravan_marker.gd`):**
+   - Created `CaravanMarker` Node2D with Y-sorting, `citizen.png` sprite (ground pivot `Vector2(-12, -30)`, saffron modulate `Color(1.2, 1.05, 0.4, 1.0)`), and `NameLabel`.
+5. **Authentic Pixel Art Asset (`assets/buildings/bld_market.png` & `.import`):**
+   - Created authentic 96x80 pixel art asset matching `docs/ASSET_STYLE_GUIDE.md` 27-color palette and 3x3 diamond base.
+6. **WorldView Integration (`scripts/world/world_view.gd`):**
+   - Preloaded `CaravanMarkerScript`, loaded `bld_market.png` texture with sprite offset `Vector2(-48.0, -56.0)` and Vietnamese name `"Chợ (3x3)"`.
+   - Added marker management methods (`_setup_caravan_marker`, `_update_caravan_marker_docking`, `refresh_caravan_marker`, `get_caravan_marker`, `get_caravan_docking_cell`, `is_caravan_docked_at_market`, `get_caravan_docking_location_name`).
+   - Hooked marker updates into caravan arrival, departure, building completion, cancellation, demolition, state changes, and world generation.
+7. **SaveManager Re-derivation (`scripts/persistence/save_manager.gd`):**
+   - Hooked `world_view.refresh_caravan_marker()` into Step 20 of `apply_loaded_state_to_world` for transient marker re-derivation without schema changes.
+8. **HUD Build Menu & Trade Location Indicator (`scenes/ui/hud.tscn` & `scripts/ui/hud.gd`):**
+   - Added `MarketBtn` ("⚖️ Chợ (25 Gỗ, 10 Đá)") to `BuildMenuPanel` and connected to `_select_building("market")`.
+   - Updated `DiplomacyPanel` caravan status label to dynamically display docking location: `📍 Địa điểm giao thương: Chợ` vs `📍 Địa điểm giao thương: Tòa thị chính`.
+9. **Automated Test Suite (`scripts/test/test_market.gd`):**
+   - Authored 15 comprehensive tests (TC-MKT-01 to TC-MKT-15) covering blueprint integrity, placement validation, worker capacity, construction lifecycle, cancellation refund, deterministic selection, perimeter docking legality, Town Hall fallback, blocked perimeter fallback, demolition re-routing, multi-market resolution, atomic trade invariants, legacy save compatibility, active caravan save/load persistence, and marker idempotency.
+10. **Test Suite Compatibility (`scripts/test/test_palisade.gd`):**
+   - Updated building button count assertion from 11 to 12 in `test_palisade.gd` to account for the 12th GDD building (`MarketBtn`).
+11. **Documentation Synchronization:**
+   - Updated `docs/SCOPE_DECISIONS.md`, `docs/BACKLOG.md`, `docs/CHANGELOG.md`, and `docs/WORKLOG.md`.
+
+### Validations Performed & Results
+- **Package 2A Test Suite (15 tests):**
+  - `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless -s scripts/test/test_market.gd`: **PASS (Exit Code 0: 15/15 tests passed)**
+- **Palisade Test Suite:**
+  - `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless -s scripts/test/test_palisade.gd`: **PASS (Exit Code 0: 7/7 test cases passed)**
+- **Full Project Automated Test Sweep (45 suites):**
+  - All 45 test suites in `scripts/test/test_*.gd`: **PASS (Exit Code 0: 45/45 suites passed, 0 failures)**
+- **Headless Engine / Project Check:**
+  - `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless --editor --quit`: **PASS (Exit Code 0: 0 compile errors, 0 asset errors, MCP connected)**
+- **Whitespace / Git Check:**
+  - `git diff --check`: **PASS (Exit Code 0: zero trailing whitespaces or merge markers)**
+
+### Files Created / Modified
+- `assets/buildings/bld_market.png` (Created)
+- `assets/buildings/bld_market.png.import` (Created)
+- `scripts/trade/caravan_marker.gd` (Created)
+- `scripts/test/test_market.gd` (Created)
+- `scenes/ui/hud.tscn` (Modified)
+- `scripts/economy/economy_config.gd` (Modified)
+- `scripts/economy/building_system.gd` (Modified)
+- `scripts/utils/iso_math.gd` (Modified)
+- `scripts/world/world_view.gd` (Modified)
+- `scripts/persistence/save_manager.gd` (Modified)
+- `scripts/ui/hud.gd` (Modified)
+- `scripts/test/test_palisade.gd` (Modified)
+- `docs/SCOPE_DECISIONS.md` (Modified)
+- `docs/BACKLOG.md` (Modified)
+- `docs/CHANGELOG.md` (Modified)
+- `docs/WORKLOG.md` (Modified)
+
+### Protected Assets & User Files
+- `project.godot`: Pre-existing user resize modification strictly preserved and untouched.
+- 55 pre-existing untracked entries (including `.gd.uid` files and `docs/visual_validation/`): byte-for-byte preserved.
+- No git commit, push, merge, or rebase executed.
+
+### Next Exact Step
+- Await owner review and authorization of Package 2A implementation and checkpoint commit.

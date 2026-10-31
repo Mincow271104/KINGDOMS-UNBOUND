@@ -388,16 +388,16 @@ func _run_world_integration_checks() -> void:
 		printerr("  [FAIL] Missing vital BuildMenuPanel HUD elements!")
 		failures += 1
 	else:
-		# Subcheck A: All 11 building buttons remain present and active
+		# Subcheck A: All building buttons remain present and active (12 with Package 2A Market)
 		var button_count: int = 0
 		for child in grid.get_children():
 			if child is Button:
 				button_count += 1
-		if button_count != 11:
-			printerr("  [FAIL] Expected exactly 11 building buttons in grid, found %d!" % button_count)
+		if button_count != 12:
+			printerr("  [FAIL] Expected exactly 12 building buttons in grid, found %d!" % button_count)
 			failures += 1
 		else:
-			print("  [PASS] All 11 building buttons present in BuildMenuPanel GridContainer.")
+			print("  [PASS] All 12 building buttons present in BuildMenuPanel GridContainer.")
 
 		# Subcheck B: Panel height accommodates combined minimum content size
 		var min_size: Vector2 = build_panel.get_combined_minimum_size()

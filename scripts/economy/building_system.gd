@@ -393,6 +393,80 @@ static func get_active_barracks_count(world_data: WorldGenerator.WorldData) -> i
 			count += 1
 	return count
 
+static func is_market_active(world_data: WorldGenerator.WorldData, market_id: String = "") -> bool:
+	if world_data == null or world_data.buildings == null:
+		return false
+	for b in world_data.buildings:
+		if b.get("type", "") == "market":
+			var b_id: String = b.get("id", "")
+			if market_id == "" or b_id == market_id:
+				if b.get("state", "active") == "active":
+					return true
+	return false
+
+static func get_all_active_markets(world_data: WorldGenerator.WorldData) -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	if world_data == null or world_data.buildings == null:
+		return result
+	for b in world_data.buildings:
+		if b.get("type", "") == "market" and b.get("state", "active") == "active":
+			result.append(b)
+	# Stable deterministic selection: primary sort by coordinate (y * 64 + x), secondary by id
+	result.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		var ca: Vector2i = a.get("cell", Vector2i(-1, -1))
+		var cb: Vector2i = b.get("cell", Vector2i(-1, -1))
+		var ka: int = ca.y * 64 + ca.x
+		var kb: int = cb.y * 64 + cb.x
+		if ka != kb:
+			return ka < kb
+		return String(a.get("id", "")) < String(b.get("id", ""))
+	)
+	return result
+
+static func get_active_market(world_data: WorldGenerator.WorldData) -> Dictionary:
+	var markets := get_all_active_markets(world_data)
+	if markets.is_empty():
+		return {}
+	return markets[0]
+
+static func get_town_hall(world_data: WorldGenerator.WorldData) -> Dictionary:
+	if world_data == null or world_data.buildings == null:
+		return {}
+	# Prefer active townhall
+	for b in world_data.buildings:
+		if b.get("type", "") == "townhall" and b.get("state", "active") == "active":
+			return b
+	# Fallback to any townhall building record
+	for b in world_data.buildings:
+		if b.get("type", "") == "townhall":
+			return b
+	return {}
+
+static func find_caravan_docking_cell(world_data: WorldGenerator.WorldData) -> Dictionary:
+	if world_data == null:
+		return {"cell": Vector2i(-1, -1), "is_market": false, "target_building": {}}
+
+	# 1. Primary: Dock beside an active Market if present and accessible
+	var active_mkt := get_active_market(world_data)
+	if not active_mkt.is_empty():
+		var m_origin: Vector2i = active_mkt.get("cell", Vector2i(-1, -1))
+		var m_size: Vector2i = active_mkt.get("size", Vector2i(3, 3))
+		var m_perim := find_perimeter_cells(m_origin, m_size, world_data, 1)
+		if not m_perim.is_empty():
+			return {"cell": m_perim[0], "is_market": true, "target_building": active_mkt}
+
+	# 2. Fallback: Emergency docking beside the Town Hall
+	var th := get_town_hall(world_data)
+	if not th.is_empty():
+		var th_origin: Vector2i = th.get("cell", Vector2i(-1, -1))
+		var th_size: Vector2i = th.get("size", Vector2i(3, 3))
+		var th_perim := find_perimeter_cells(th_origin, th_size, world_data, 1)
+		if not th_perim.is_empty():
+			return {"cell": th_perim[0], "is_market": false, "target_building": th}
+
+	# 3. Emergency safe state: Return invalid cell without crashing
+	return {"cell": Vector2i(-1, -1), "is_market": false, "target_building": th}
+
 
 static func find_perimeter_cells(origin: Vector2i, size: Vector2i, world_data: WorldGenerator.WorldData, max_count: int = 2, excluded_cells: Array = []) -> Array[Vector2i]:
 	var result: Array[Vector2i] = []

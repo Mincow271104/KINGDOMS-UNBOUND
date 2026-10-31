@@ -9,6 +9,7 @@ const BattleCampaignManagerScript = preload("res://scripts/combat/battle_campaig
 const PlayerArmyManagerScript = preload("res://scripts/military/player_army_manager.gd")
 const TacticalMilitaryManagerScript = preload("res://scripts/military/tactical_military_manager.gd")
 const ArmyMarkerScript = preload("res://scripts/military/army_marker.gd")
+const CaravanMarkerScript = preload("res://scripts/trade/caravan_marker.gd")
 const EnemyMilitaryManagerScript = preload("res://scripts/military/enemy_military_manager.gd")
 const FieldSiegeManagerScript = preload("res://scripts/combat/field_siege_manager.gd")
 const LegacyProfileManagerScript = preload("res://scripts/legacy/legacy_profile_manager.gd")
@@ -54,6 +55,7 @@ var tactical_military_mgr: RefCounted = null
 var enemy_military_mgr: RefCounted = null
 var field_siege_mgr: RefCounted = null
 var army_marker: Node2D = null
+var caravan_marker: Node2D = null
 var autosave_enabled: bool = true
 var autosave_interval_days: int = 1
 
@@ -142,6 +144,10 @@ func _load_assets() -> void:
 		building_textures["palisade"] = load("res://assets/buildings/bld_palisade.png")
 	else:
 		building_textures["palisade"] = building_textures.get("woodcutter", null)
+	if ResourceLoader.exists("res://assets/buildings/bld_market.png"):
+		building_textures["market"] = load("res://assets/buildings/bld_market.png")
+	else:
+		building_textures["market"] = building_textures.get("townhall", null)
 	
 	prop_textures["tree"] = load("res://assets/props/prop_tree.png")
 	prop_textures["rock"] = load("res://assets/props/prop_rock.png")
@@ -239,6 +245,7 @@ func _generate_and_build_world() -> void:
 	_spawn_pois()
 	_spawn_starter_citizens()
 	_setup_army_marker()
+	refresh_caravan_marker()
 	_setup_default_siege_objectives()
 
 	if faction_mgr != null:
@@ -322,6 +329,7 @@ func _get_building_sprite_offset(type: String) -> Vector2:
 		"townhall": return Vector2(-48.0, -56.0)
 		"research_hall": return Vector2(-48.0, -56.0)
 		"barracks": return Vector2(-48.0, -56.0)
+		"market": return Vector2(-48.0, -56.0)
 		"house": return Vector2(-32.0, -40.0)
 		"storehouse": return Vector2(-32.0, -40.0)
 		"farm": return Vector2(-32.0, -28.0)
@@ -556,6 +564,76 @@ func _setup_army_marker() -> void:
 
 func get_army_marker() -> Node2D:
 	return army_marker
+
+func _setup_caravan_marker() -> void:
+	if citizens_container == null:
+		return
+	if active_caravan == null or not bool(active_caravan.get("is_active")):
+		if caravan_marker != null and is_instance_valid(caravan_marker):
+			caravan_marker.visible = false
+		return
+
+	if caravan_marker != null and is_instance_valid(caravan_marker):
+		if not caravan_marker.is_inside_tree() and caravan_marker.get_parent() == null:
+			citizens_container.add_child(caravan_marker)
+		_update_caravan_marker_docking()
+		return
+
+	var existing = citizens_container.get_node_or_null("CaravanMarker")
+	if existing != null:
+		caravan_marker = existing
+		_update_caravan_marker_docking()
+		return
+
+	caravan_marker = CaravanMarkerScript.new()
+	caravan_marker.name = "CaravanMarker"
+	citizens_container.add_child(caravan_marker)
+	_update_caravan_marker_docking()
+
+func _update_caravan_marker_docking() -> void:
+	if caravan_marker == null or not is_instance_valid(caravan_marker):
+		return
+	if active_caravan == null or not bool(active_caravan.get("is_active")):
+		caravan_marker.visible = false
+		return
+
+	var dock_info: Dictionary = BuildingSystem.find_caravan_docking_cell(world_data)
+	var cell: Vector2i = dock_info.get("cell", Vector2i(-1, -1))
+	var at_market: bool = bool(dock_info.get("is_market", false))
+	caravan_marker.call("update_docking", cell, at_market, active_caravan)
+
+func refresh_caravan_marker() -> void:
+	if active_caravan == null or not bool(active_caravan.get("is_active")):
+		if caravan_marker != null and is_instance_valid(caravan_marker):
+			caravan_marker.visible = false
+			caravan_marker.queue_free()
+			caravan_marker = null
+		if citizens_container != null:
+			var existing = citizens_container.get_node_or_null("CaravanMarker")
+			if existing != null and is_instance_valid(existing):
+				existing.queue_free()
+		return
+	_setup_caravan_marker()
+
+func get_caravan_marker() -> Node2D:
+	return caravan_marker
+
+func get_caravan_docking_cell() -> Vector2i:
+	if caravan_marker != null and is_instance_valid(caravan_marker) and caravan_marker.has_method("get_docking_cell"):
+		var c = caravan_marker.call("get_docking_cell")
+		if c is Vector2i:
+			return c
+	var dock_info: Dictionary = BuildingSystem.find_caravan_docking_cell(world_data)
+	return dock_info.get("cell", Vector2i(-1, -1))
+
+func is_caravan_docked_at_market() -> bool:
+	if caravan_marker != null and is_instance_valid(caravan_marker) and caravan_marker.has_method("is_docked_at_market"):
+		return bool(caravan_marker.call("is_docked_at_market"))
+	var dock_info: Dictionary = BuildingSystem.find_caravan_docking_cell(world_data)
+	return bool(dock_info.get("is_market", false))
+
+func get_caravan_docking_location_name() -> String:
+	return "Chợ" if is_caravan_docked_at_market() else "Tòa thị chính"
 
 func get_tactical_military_manager() -> RefCounted:
 	return tactical_military_mgr
@@ -1280,6 +1358,10 @@ func complete_construction(b_id: String) -> bool:
 		elif hud != null and hud.has_method("_refresh_army_panel"):
 			hud.call("_refresh_army_panel")
 
+	# If market, refresh active trade caravan docking location
+	if b_data["type"] == "market":
+		refresh_caravan_marker()
+
 	var am = get_node_or_null("/root/AudioManager")
 	if am and am.has_method("play_build"):
 		am.play_build()
@@ -1332,6 +1414,10 @@ func cancel_construction_project(b_id: String) -> Dictionary:
 		elif hud != null and hud.has_method("_refresh_army_panel"):
 			hud.call("_refresh_army_panel")
 
+	# If market, refresh active trade caravan docking location
+	if b_data["type"] == "market":
+		refresh_caravan_marker()
+
 	return res
 
 func set_building_state(b_id: String, new_state: String) -> bool:
@@ -1351,6 +1437,10 @@ func set_building_state(b_id: String, new_state: String) -> bool:
 			player_army_mgr.call("notify_capacity_changed")
 		elif hud != null and hud.has_method("_refresh_army_panel"):
 			hud.call("_refresh_army_panel")
+
+	# If market, refresh active trade caravan docking location
+	if b_data["type"] == "market":
+		refresh_caravan_marker()
 	return true
 
 func demolish_building_project(b_id: String) -> Dictionary:
@@ -1378,6 +1468,10 @@ func demolish_building_project(b_id: String) -> Dictionary:
 			player_army_mgr.call("notify_capacity_changed")
 		elif hud != null and hud.has_method("_refresh_army_panel"):
 			hud.call("_refresh_army_panel")
+
+	# If market, refresh active trade caravan docking location
+	if b_data["type"] == "market":
+		refresh_caravan_marker()
 	return res
 
 func _get_building_at_cell(cell: Vector2i) -> Dictionary:
@@ -1646,6 +1740,7 @@ func _get_building_display_name(key: String) -> String:
 		"research_hall": return "Viện Nghiên Cứu Hoàng Gia (3x3)"
 		"barracks": return "Doanh Trại (3x3)"
 		"palisade": return "Tường Rào Phòng Ngự (1x1)"
+		"market": return "Chợ (3x3)"
 		_: return ""
 
 func _on_return_to_menu() -> void:
@@ -1779,13 +1874,16 @@ func _on_simulation_day_passed(day: int, _season: String, _year: int) -> void:
 	# Scheduled visiting trade caravan arrivals (Every 5 days, starting Day 3)
 	if (day % 5 == 3) and (active_caravan == null or not active_caravan.get("is_active")):
 		active_caravan = TradeCaravan.generate_caravan(world_seed, day, "rival_merchant")
+		refresh_caravan_marker()
 		if em != null:
-			em.trigger_event("caravan_arrived", "Thương Đoàn Ghé Thăm!", "%s đã cập bến quảng trường định cư!" % active_caravan.get("name"), true, {})
+			var loc_name: String = get_caravan_docking_location_name()
+			em.trigger_event("caravan_arrived", "Thương Đoàn Ghé Thăm!", "%s đã cập bến %s của định cư!" % [active_caravan.get("name"), loc_name], true, {})
 			
 	# Check caravan departure
 	if active_caravan != null and day >= active_caravan.get("departure_day"):
 		active_caravan.set("is_active", false)
 		active_caravan = null
+		refresh_caravan_marker()
 
 	# Daily Autosave
 	if autosave_enabled and (day % autosave_interval_days == 0):

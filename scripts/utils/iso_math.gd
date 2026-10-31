@@ -16,6 +16,10 @@ static func map_to_local(grid_pos: Vector2i) -> Vector2:
 	var ly: float = (float(grid_pos.x) + float(grid_pos.y)) * HALF_HEIGHT
 	return Vector2(lx, ly)
 
+## Alias for map_to_local conforming to standard world projection nomenclature.
+static func grid_to_world(grid_pos: Vector2i) -> Vector2:
+	return map_to_local(grid_pos)
+
 ## Converts continuous map-local pixel space (lx, ly) to discrete integer grid coordinate (gx, gy).
 ## Uses exact half-tile continuous axis transformation:
 ## u = lx/32.0 + ly/16.0; v = ly/16.0 - lx/32.0; gx = floor(u + 0.5); gy = floor(v + 0.5).

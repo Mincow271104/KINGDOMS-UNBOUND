@@ -8,6 +8,28 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### [Package 2A] - 2026-10-31
+#### Added
+- Market Infrastructure & Physical Caravan Integration (`EconomyConfig`, `BuildingSystem`, `WorldView`, `CaravanMarker`, `HUD`, `SaveManager`):
+  - Added Market (`market`) building blueprint to `EconomyConfig.BLUEPRINTS`: 3x3 footprint, cost 25 Wood + 10 Stone, 12.0h build time, 100 HP, 0 housing, 0 workers, 0 storage bonus, and 4 construction worker slots derived from footprint.
+  - Authentic pixel art asset `assets/buildings/bld_market.png` conforming to `docs/ASSET_STYLE_GUIDE.md` 27-color palette with 3x3 diamond base (96x80 canvas) and isometric sprite offset `(-48, -56)`.
+  - Static discovery helpers in `BuildingSystem`: `is_market_active()`, `get_all_active_markets()` (deterministic sorting by coordinate $y \times 64 + x$ then ID), `get_active_market()`, `get_town_hall()`, and `find_caravan_docking_cell(world_data)`.
+  - Added `grid_to_world()` alias in `scripts/utils/iso_math.gd`.
+  - Physical Merchant Caravan docking presentation:
+    - Dedicated lightweight `CaravanMarker` actor (`scripts/trade/caravan_marker.gd`) with Y-sorting, citizen texture with saffron modulation (`Color(1.2, 1.05, 0.4, 1.0)`), ground-contact foot pivot `(-12, -30)`, and `NameLabel`.
+    - Dynamic docking positioning: visiting merchant caravans dock at an unoccupied, non-water perimeter cell adjacent to the active Market.
+    - Graceful Town Hall fallback: when no Market exists, or Market is under construction, or perimeter is blocked, caravans safely dock at the Town Hall perimeter without breaking trade.
+    - Idempotent lifecycle management in `WorldView`: marker creation, repositioning, and removal hooked into caravan arrival, departure, building completion, cancellation, demolition, and world generation.
+  - UI & HUD Integration:
+    - Added `MarketBtn` ("⚖️ Chợ (25 Gỗ, 10 Đá)") to `BuildMenuPanel` grid in `scenes/ui/hud.tscn` and wired placement logic in `scripts/ui/hud.gd`.
+    - Dynamic trade location indicator in `DiplomacyPanel` caravan status label (`📍 Địa điểm giao thương: Chợ` vs `📍 Địa điểm giao thương: Tòa thị chính`).
+  - Persistence & Backward Compatibility:
+    - Wired `refresh_caravan_marker()` into Step 20 of `SaveManager.apply_loaded_state_to_world()`.
+    - Docking presentation is transient and re-derived from world state on load; zero schema changes, zero disk footprint, full backward compatibility with legacy saves.
+  - Dedicated automated test suite `scripts/test/test_market.gd` covering TC-MKT-01 through TC-MKT-15 (15/15 tests passed, Exit Code 0).
+#### Changed / Hardened
+- Updated `scripts/test/test_palisade.gd` button count assertion from 11 to 12 building buttons in `BuildMenuPanel` grid.
+
 ### [Package 1U] - 2026-10-24
 #### Added
 - Pairwise Faction Relations Foundation (`FactionRelationData`, `FactionManager`, `SaveManager`):

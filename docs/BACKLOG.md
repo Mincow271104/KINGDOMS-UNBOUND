@@ -420,3 +420,26 @@
   - **FIX-1Z-AB (All 5 Artifacts Present Before Reset & In-Memory State Cleared):** Strengthened `_test_fix_1z_w_reset_profile_resurrection_safety()` so that all five persistence artifacts (`target_path`, `.bak`, `.bak.old`, `.tmp`, `.bak.tmp`) simultaneously exist on disk and are asserted to exist before calling `reset_profile()`. Proves that all five artifacts are deleted upon successful reset. Immediately asserts that original manager `mgr` has its in-memory state fully reset (`STATUS_NEW_PROFILE`, balances 0, empty claimed rewards, empty unlocked achievements, empty initialization error). Asserts fresh manager instance also initializes cleanly with zero state and no resurrection.
   - **FIX-1Z-AC (Achievement Reset and Stale Achievement Non-Resurrection):** Seeded original manager with a valid unlocked achievement (`"prosperity_victory"`), persisted to primary profile, and populated `.bak.old` fixture with a distinguishable, schema-valid achievement record. Verified that both original manager and fresh restart manager have `unlocked_achievements.is_empty()`, proving that achievement records are cleared from memory and not resurrected from stale backups.
   - **FIX-1Z-AD (Complete Partial Cleanup Failure Assertions):** In the cleanup failure injection scenario, created all five artifacts simultaneously on disk before calling `reset_profile()` with failure injected on `.bak.old`. Verified that `reset_profile()` returns `false`, manager status is `STATUS_UNAVAILABLE`, `initialization_error` identifies `.bak.old`, `.bak.old` survives byte-for-byte unchanged, all other four artifacts (`target_path`, `.bak`, `.tmp`, `.bak.tmp`) are successfully deleted from disk, and subsequent reward claims are rejected fail-closed.
+- [x] **TASK-2A.1:** Market blueprint configuration & footprint in `EconomyConfig`:
+  - Added `"market"` entry to `BLUEPRINTS` in `scripts/economy/economy_config.gd` with 3x3 footprint, cost `{wood: 25, stone: 10}`, 12.0h build time, 100 HP, 0 housing, 0 workers, empty storage.
+  - Automatically derives 4 builder slots via `BuildingSystem.get_construction_worker_capacity()`.
+- [x] **TASK-2A.2:** BuildingSystem Market discovery helpers & caravan docking logic:
+  - Added `is_market_active()`, `get_all_active_markets()` (deterministic sort by coordinate $y \times 64 + x$ then ID), `get_active_market()`, and `get_town_hall()` in `scripts/economy/building_system.gd`.
+  - Implemented `find_caravan_docking_cell(world_data)` discovering perimeter cells around active Market with fallback to Town Hall perimeter.
+  - Added `grid_to_world()` alias in `scripts/utils/iso_math.gd`.
+- [x] **TASK-2A.3:** WorldView presentation actor & docking visual marker:
+  - Created `CaravanMarker` actor in `scripts/trade/caravan_marker.gd` with Y-sorting, citizen texture with saffron modulation (`Color(1.2, 1.05, 0.4, 1.0)`), ground-contact pivot `Vector2(-12, -30)`, and `NameLabel`.
+  - Added authentic pixel art asset `assets/buildings/bld_market.png` (96x80 diamond base, 27-color palette conforming to `docs/ASSET_STYLE_GUIDE.md`).
+  - Integrated dynamic marker spawning, repositioning, and removal in `scripts/world/world_view.gd` reactive to caravan arrival, departure, building completion, cancellation, demolition, and game generation.
+- [x] **TASK-2A.4:** HUD BuildMenuPanel wiring & DiplomacyPanel trade location indicators:
+  - Added `MarketBtn` ("⚖️ Chợ (25 Gỗ, 10 Đá)") to `scenes/ui/hud.tscn` BuildMenuPanel grid.
+  - Wired `MarketBtn` in `scripts/ui/hud.gd` to initiate `"market"` ghost placement.
+  - Updated `DiplomacyPanel` caravan status label to dynamically display docking location: `📍 Địa điểm giao thương: Chợ` vs `📍 Địa điểm giao thương: Tòa thị chính`.
+- [x] **TASK-2A.5:** SaveManager persistence integration & legacy save backward compatibility:
+  - Wired `world_view.refresh_caravan_marker()` into Step 20 of `apply_loaded_state_to_world` in `scripts/persistence/save_manager.gd`.
+  - Preserved pure presentation decoupling: zero schema changes, zero disk footprint, transient re-derivation on load. Fully backwards compatible with legacy saves.
+- [x] **TASK-2A.6:** Package 2A comprehensive test suite:
+  - Created headless test suite `scripts/test/test_market.gd` covering 15 test cases (TC-MKT-01 to TC-MKT-15): blueprint integrity, placement validation, worker capacity, construction lifecycle, cancellation refund, deterministic selection, perimeter docking legality, Town Hall fallback, blocked perimeter fallback, demolition re-routing, multi-market resolution, atomic trade invariants, legacy save compatibility, active caravan save/load persistence, and marker idempotency.
+  - Verified 15/15 tests passing (Exit Code 0).
+- [x] **TASK-2A.7:** Palisade test assertion update for 12th GDD building:
+  - Updated button count check in `scripts/test/test_palisade.gd` from 11 to 12 buttons to account for `MarketBtn` in `BuildMenuPanel`.

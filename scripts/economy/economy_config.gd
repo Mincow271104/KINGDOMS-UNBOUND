@@ -230,6 +230,17 @@ const BLUEPRINTS: Dictionary = {
 		"storage_bonus": {},
 		"max_workers": 0,
 		"job_type": ""
+	},
+	"market": {
+		"id": "market",
+		"name_vi": "Chợ",
+		"footprint": Vector2i(3, 3),
+		"cost": {RES_WOOD: 25, RES_STONE: 10},
+		"construction_hours": 12.0,
+		"housing_capacity": 0,
+		"storage_bonus": {},
+		"max_workers": 0,
+		"job_type": ""
 	}
 }
 
