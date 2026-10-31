@@ -7916,3 +7916,65 @@ Enforce all authoritative design rules:
 
 ### Next Exact Step
 - Package 2C final acceptance and crash-recovery verification complete. Await owner checkpoint review.
+
+---
+
+## 2026-11-01 — Package 2D: Cẩm Nang Trong Game & Hướng Dẫn 30 Ngày Đầu (Implementation & Verification)
+
+### Summary of Completed Work
+- **Exploration & Existing System Verification:**
+  - Audited codebase for existing help, tutorial, or encyclopedia systems (`git grep -i -E "tutorial|encyclopedia|manual"`). Confirmed none existed; designed a clean, reusable, self-contained architecture without duplicate subsystems.
+- **In-Game Player Field Guide (`scenes/ui/player_field_guide.tscn` & `scripts/ui/player_field_guide.gd`):**
+  - Implemented standalone `PlayerFieldGuide` scene with modal backdrop (`ColorRect`, `mouse_filter = STOP`) and centered dialog (`custom_minimum_size = Vector2(860, 490)`).
+  - Authored six comprehensive, natural Vietnamese chapters matching authoritative source implementations:
+    - **Chương A (Khởi Đầu Vương Quốc):** Leadership role, TopBar/BottomBar HUD guide, simulation speed controls, citizen/building inspection, and verified starting settlement baseline (24 citizens: 5 farmers, 4 woodcutters, 3 builders, 3 haulers, 9 idle; 8 buildings: Town Hall 3×3, Storehouse 2×2, Farm 2×2, Woodcutter 2×2, 4 Houses 2×2; starting stockpile: 150 Food, 120 Wood, 60 Stone, 0 Ore, 20 Metal, 15 Tools, 5 Crystal, 10 Herbs, 200 Gold).
+    - **Chương B (Dân Cư & Nghề Nghiệp):** Occupations and responsibilities, idle citizen assignment, survival needs (Hunger, Fatigue, Health, Morale), 6 Package 2B vocations from `CitizenSkillData`, real-work XP accumulation, and exact efficiency multipliers: Level 1 (0 XP, 1.00×), Level 2 (100 XP, 1.08×), Level 3 (300 XP, 1.16×), Level 4 (600 XP, 1.25×), Level 5 (1,000 XP, 1.35× max).
+    - **Chương C (Xây Dựng & Chuỗi Sản Xuất):** Placement rules, builder construction labor (0% to 100%), workplace output buffer (Local Buffer) vs Central Stockpile distinction, crucial principle that buffered goods are unavailable until hauled, vital role of Haulers, and workplace saturation halting production.
+    - **Chương D (Hướng Dẫn 30 Ngày Đầu Tiên):** 40-day year calendar (10 days/season), seasonal farm multipliers (Spring 1.0×, Summer 1.2×, Autumn 1.0×, Winter 0.5×) with explicit notice that seasonal modifiers apply strictly to farm food (wood, stone, ore, and metal unaffected), and tactical 4-stage starter guidance (Days 1–10, 11–20, 21–30, 31–40).
+    - **Chương E (Sự Kiện, Ngoại Giao & Quân Đội):** `EventManager` world events and warning banners, Faction Relations Matrix (Opinion levels, NAP, Alliances, gifts), Market trading and Caravans, Barracks soldier recruitment, daily upkeep (Food + Gold), tactical marching, and military casualty risks.
+    - **Chương F (Chiến Thắng, Sụp Đổ & Di Sản):** Prosperity Victory requirements (50+ population, $\ge 80\%$ Stability, Gold target held for 5 consecutive days), collapse conditions (0 population or 0% Stability), base victory reward (+100 LP), and Package 2C Surplus Treasury conversion rules (1,000 Gold reserve, 100:1 rate, $\ge 80\%$ Stability, collapsed settlements ineligible, exactly-once idempotency per World ID).
+- **HUD & Pause Menu Integration (`scenes/ui/hud.tscn`, `scripts/ui/hud.gd`):**
+  - Instanced `PlayerFieldGuide` as child of HUD (`visible = false` by default).
+  - Added `GuideHudBtn` (`"📖 Cẩm Nang (H)"`) on HUD for direct access during gameplay without pausing.
+  - Added `GuideBtn` in `PauseMenuOverlay` between Resume and Save Game buttons.
+  - Added hotkey bindings for `H` and `F1` in `hud.gd`, with `Escape` closing the guide cleanly.
+  - Opening/closing causes strictly zero mutation to simulation clock, simulation speed, resources, citizens, buildings, or save state.
+- **Input Isolation & Responsive Layout:**
+  - Enforced `mouse_filter = Control.MOUSE_FILTER_STOP` across modal backdrop and panel, completely isolating mouse events from underlying world interaction.
+  - Verified non-overlapping, fully enclosed responsive bounding across both 1280x720 and 1024x576 window sizes.
+- **Automated Validation:**
+  - Created `scripts/test/test_player_field_guide.gd`: 119/119 tests PASS across 9 test groups (Exit Code 0).
+  - Hardened responsive layout regression `scripts/test/test_responsive_layout.gd`: 435/435 checks PASS (Exit Code 0).
+  - Full repository regression: 48/48 test suites PASS (Exit Code 0).
+- **Live Visual Validation:**
+  - Captured 5 authentic live game screenshots under D3D12 hardware rendering:
+    - `docs/visual_validation/p2d_01_guide_main_overview.png` (1280x720, Chapter A Overview)
+    - `docs/visual_validation/p2d_02_guide_30day_starter.png` (1280x720, Chapter D 30-Day Starter)
+    - `docs/visual_validation/p2d_03_guide_citizen_skills.png` (1280x720, Chapter B Citizen Skills)
+    - `docs/visual_validation/p2d_04_guide_victory_legacy.png` (1280x720, Chapter F Victory & Legacy)
+    - `docs/visual_validation/p2d_05_guide_responsive_1024x576.png` (1024x576, Responsive layout)
+
+### Files Modified & Created
+- `scripts/ui/player_field_guide.gd` (New)
+- `scenes/ui/player_field_guide.tscn` (New)
+- `scripts/ui/hud.gd` (Modified)
+- `scenes/ui/hud.tscn` (Modified)
+- `scripts/test/test_player_field_guide.gd` (New)
+- `scripts/test/visual_package_2d_validation.gd` (New test script)
+- `docs/visual_validation/p2d_01_guide_main_overview.png` (New)
+- `docs/visual_validation/p2d_02_guide_30day_starter.png` (New)
+- `docs/visual_validation/p2d_03_guide_citizen_skills.png` (New)
+- `docs/visual_validation/p2d_04_guide_victory_legacy.png` (New)
+- `docs/visual_validation/p2d_05_guide_responsive_1024x576.png` (New)
+- `docs/SCOPE_DECISIONS.md` (Modified)
+- `docs/BACKLOG.md` (Modified)
+- `docs/WORKLOG.md` (Modified)
+
+### Protected Assets
+- `project.godot`: Pre-existing user-owned modification (`-window/size/resizable=true`) strictly preserved and untouched.
+- Untracked files: All 92 historical untracked files + diagnostic runners preserved byte-for-byte.
+- User saves: Real user profile and saves completely untouched.
+- Git operations: 0 commits, 0 pushes.
+
+### Next Exact Step
+- Package 2D implementation, automated testing, and live visual validation complete. Await owner review.

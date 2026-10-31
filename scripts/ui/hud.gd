@@ -37,6 +37,11 @@ signal citizen_role_changed(citizen_id: String, new_role: String)
 @onready var save_status_label: Label = $PauseMenuOverlay/CenterContainer/PanelContainer/MarginContainer/VBoxContainer/SaveStatusLabel
 @onready var build_menu_panel: Control = $BuildMenuPanel
 
+# Player Field Guide (Package 2D)
+@onready var player_field_guide: Control = get_node_or_null("PlayerFieldGuide")
+@onready var open_guide_btn: Button = get_node_or_null("GuideHudBtn")
+@onready var pause_guide_btn: Button = get_node_or_null("PauseMenuOverlay/CenterContainer/PanelContainer/MarginContainer/VBoxContainer/GuideBtn")
+
 # Diplomacy & Trade Panel
 @onready var diplomacy_panel: Control = $DiplomacyPanel
 @onready var caravan_status_label: Label = $DiplomacyPanel/MarginContainer/VBoxContainer/CaravanStatusLabel
@@ -171,6 +176,10 @@ func _ready() -> void:
 		load_game_btn.pressed.connect(_on_load_game_pressed)
 	if menu_btn:
 		menu_btn.pressed.connect(func(): return_to_menu_requested.emit())
+	if pause_guide_btn:
+		pause_guide_btn.pressed.connect(_on_pause_guide_pressed)
+	if open_guide_btn:
+		open_guide_btn.pressed.connect(_toggle_field_guide)
 
 	# Build Menu controls
 	build_menu_panel.visible = false
@@ -1223,6 +1232,14 @@ func _handle_declare_war(fac_id: String) -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
 		var k: InputEventKey = event as InputEventKey
+
+		# Package 2D: Complete keyboard isolation when Player Field Guide is active
+		if player_field_guide and player_field_guide.visible:
+			if k.keycode == KEY_ESCAPE or k.keycode == KEY_H or k.keycode == KEY_F1:
+				player_field_guide.close_guide()
+			get_viewport().set_input_as_handled()
+			return
+
 		if k.keycode == KEY_ESCAPE:
 			if _army_move_targeting:
 				cancel_army_move_targeting()
@@ -1252,6 +1269,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			_toggle_army_menu()
 		elif k.keycode == KEY_G:
 			_toggle_automation_editor()
+		elif k.keycode == KEY_H or k.keycode == KEY_F1:
+			_toggle_field_guide()
 		elif k.keycode == KEY_F11:
 			var cur_mode := DisplayServer.window_get_mode()
 			var is_fs := (cur_mode == DisplayServer.WINDOW_MODE_FULLSCREEN or cur_mode == DisplayServer.WINDOW_MODE_EXCLUSIVE_FULLSCREEN)
@@ -1766,3 +1785,43 @@ func set_tile_info(cell: Vector2i, terrain_name: String, building_name: String =
 		tile_info_label.text = "Ô: (%d, %d) | Địa hình: %s | Công trình: %s" % [cell.x, cell.y, terrain_name, building_name]
 	else:
 		tile_info_label.text = "Ô: (%d, %d) | Địa hình: %s" % [cell.x, cell.y, terrain_name]
+
+# -----------------------------------------------------------------------------
+# Player Field Guide (Package 2D)
+# -----------------------------------------------------------------------------
+
+func _toggle_field_guide() -> void:
+	if not player_field_guide:
+		return
+	if _army_move_targeting:
+		cancel_army_move_targeting()
+	if player_field_guide.visible:
+		player_field_guide.close_guide()
+	else:
+		build_menu_panel.visible = false
+		research_menu_panel.visible = false
+		if diplomacy_panel:
+			diplomacy_panel.visible = false
+		if army_panel:
+			army_panel.visible = false
+		if automation_editor:
+			automation_editor.visible = false
+		player_field_guide.open_guide()
+
+func _on_pause_guide_pressed() -> void:
+	if not player_field_guide:
+		return
+	player_field_guide.open_guide()
+
+func open_field_guide(chapter_idx: int = -1) -> void:
+	if player_field_guide:
+		player_field_guide.open_guide(chapter_idx)
+
+func close_field_guide() -> void:
+	if player_field_guide:
+		player_field_guide.close_guide()
+
+func is_field_guide_open() -> bool:
+	if player_field_guide:
+		return player_field_guide.visible
+	return false

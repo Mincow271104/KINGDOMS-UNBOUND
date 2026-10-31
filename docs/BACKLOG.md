@@ -480,3 +480,28 @@
   - Created `scripts/test/test_surplus_treasury_conversion.gd` covering all 14 authoritative requirements across 97 assertions (100% pass rate, Exit Code 0).
   - Updated `scripts/test/test_legacy_fund.gd` Scenario 14 to validate Package 2C conversion (43/43 pass, Exit Code 0).
   - Re-verified full project regression test matrix across all 12 test suites with 0 regressions.
+
+---
+
+## Package 2D: Cẩm Nang Trong Game & Hướng Dẫn 30 Ngày Đầu (Completed)
+- [x] **TASK-2D.1:** In-Game Player Field Guide Architecture & Data Model:
+  - Created standalone reusable `PlayerFieldGuide` scene (`scenes/ui/player_field_guide.tscn`) and class (`scripts/ui/player_field_guide.gd`).
+  - Structured 6 comprehensive, natural Vietnamese chapters matching authoritative source code:
+    - Chương A: Khởi Đầu Vương Quốc (HUD reading, clock, 24 citizens, 8 buildings, starting resources).
+    - Chương B: Dân Cư & Nghề Nghiệp (Roles, idle assignment, needs, 6 Package 2B skills, 0/100/300/600/1000 XP, 1.00x-1.35x efficiency multipliers).
+    - Chương C: Xây Dựng & Chuỗi Sản Xuất (Placement rules, builder labor, workplace output buffer vs central stockpile, hauler logistics, buffer saturation).
+    - Chương D: Hướng Dẫn 30 Ngày Đầu Tiên (40-day year calendar, 10 days/season, Xuân 1.0x, Hè 1.2x, Thu 1.0x, Đông 0.5x [food only], 4-stage starter guide).
+    - Chương E: Sự Kiện, Ngoại Giao & Quân Đội (World events, faction diplomacy, market caravans, barracks recruitment and daily upkeep).
+    - Chương F: Chiến Thắng, Sụp Đổ & Di Sản (Prosperity victory hold time, collapse triggers, base victory +100 LP, Package 2C 1,000 reserve, 100:1 rate, >=80% stability, exactly-once idempotency).
+- [x] **TASK-2D.2:** HUD & Pause Menu Seamless Integration:
+  - Added `GuideHudBtn` (`"📖 Cẩm Nang (H)"`) on HUD for direct access during gameplay without pausing.
+  - Added `GuideBtn` in `PauseMenuOverlay` between Resume and Save Game buttons.
+  - Added hotkey bindings for `H` and `F1` in `hud.gd`, with `Escape` closing the guide cleanly.
+  - Opening/closing causes strictly zero mutation to simulation clock, simulation speed, resources, citizens, buildings, or save state.
+- [x] **TASK-2D.3:** Input Isolation & Responsive Layout:
+  - Enforced `mouse_filter = Control.MOUSE_FILTER_STOP` across modal backdrop and panel, completely isolating mouse events from underlying world interaction.
+  - Verified non-overlapping, fully enclosed responsive bounding across both 1280x720 and 1024x576 window sizes.
+- [x] **TASK-2D.4:** Automated Test Suite:
+  - Created `scripts/test/test_player_field_guide.gd` covering 9 comprehensive test groups and 119 automated assertions (100% pass rate, Exit Code 0).
+- [x] **TASK-2D.5:** Live Visual Validation:
+  - Captured 5 authentic live game screenshots under D3D12 hardware rendering at 1280x720 and 1024x576 (`p2d_01` through `p2d_05`).

@@ -552,11 +552,31 @@
       - Kết quả giao dịch: Detailed status including explicit explanations for zero surplus or stability $< 80.0\%$.
       - Settlement button updates dynamically: `Nhận Di Sản (+100)` $\to$ `Nhận Di Sản (+140)` $\to$ `Đã Nhận Di Sản`.
 
+### 1.31 Package 2D — In-Game Player Field Guide & 30-Day Starter Manual (GDD §1.2 & §6.5)
+- **Problem:** New players entering KINGDOMS UNBOUND faced a steep learning curve without in-game documentation of core mechanics, seasonal farm multipliers, vocational skill thresholds, logistics buffer saturation, or victory/Legacy formulas. Players had to rely on out-of-game documentation or trial-and-error.
+- **Approved & Authoritative Gameplay Rules:**
+  - *In-Game Non-Linear Field Guide:*
+    - Integrated directly into the game HUD via top-right action button (`GuideHudBtn` "📖 Cẩm Nang (H)") and pause menu (`PauseMenuOverlay/GuideBtn`), accessible via hotkeys `H` and `F1`.
+    - Players can open and close the guide at any time during active gameplay without leaving their current world.
+    - Opening or closing the guide causes strictly zero mutation to world state: does not pause or alter `TimeManager` simulation speed or clock, does not modify resources, citizens, buildings, or Legacy profile data, and does not trigger autosaves.
+    - Fully non-linear browsing across all 6 structured chapters with sidebar navigation, previous/next chapter controls, and scrollable content area.
+  - *Six Structured Chapters (Natural Vietnamese):*
+    - **Chương A (Khởi Đầu Vương Quốc):** Player leadership role, TopBar/BottomBar HUD inspection, simulation speed controls (⏸, 1x, 2x, 3x), starting settlement facts: exactly 24 citizens (5 farmers, 4 woodcutters, 3 builders, 3 haulers, 9 idle), 8 initial buildings (Town Hall 3×3, Storehouse 2×2, Farm 2×2, Woodcutter Camp 2×2, 4 Houses 2×2), and starting inventory (150 Food, 120 Wood, 60 Stone, 0 Ore, 20 Metal, 15 Tools, 5 Crystal, 10 Herbs, 200 Gold).
+    - **Chương B (Dân Cư & Nghề Nghiệp):** Citizen vocations, idle citizen assignment, survival needs (Hunger, Fatigue, Health, Morale), 6 vocations from Package 2B (`CitizenSkillData`), real-work XP accumulation, and exact efficiency progression: Level 1 (0 XP, 1.00×), Level 2 (100 XP, 1.08×), Level 3 (300 XP, 1.16×), Level 4 (600 XP, 1.25×), Level 5 (1,000 XP, 1.35× max).
+    - **Chương C (Xây Dựng & Chuỗi Sản Xuất):** Placement rules, Builder labor from 0% to 100%, workplace output buffer (Local Buffer) vs Central Storehouse distinction, crucial principle that buffered resources are unavailable for general consumption until hauled, vital role of Haulers, and workplace saturation halting production.
+    - **Chương D (Hướng Dẫn 30 Ngày Đầu Tiên):** 40-day year calendar (10 days/season), seasonal farm multipliers (Spring 1.0×, Summer 1.2×, Autumn 1.0×, Winter 0.5×) with explicit notice that seasonal modifiers apply strictly to farm food (wood, stone, ore, and metal unaffected), and tactical 4-stage starter guidance (Days 1–10, 11–20, 21–30, 31–40).
+    - **Chương E (Sự Kiện, Ngoại Giao & Quân Đội):** `EventManager` world events and warning banners, Faction Relations Matrix (Opinion levels, NAP, Alliances, gifts), Market trading and Caravans, Barracks soldier recruitment, daily upkeep (Food + Gold), tactical marching, and military casualty risks.
+    - **Chương F (Chiến Thắng, Sụp Đổ & Di Sản):** Prosperity Victory requirements (50+ population, $\ge 80\%$ Stability, Gold target held for 5 consecutive days), collapse conditions (0 population or 0% Stability), base victory reward (+100 LP), and Package 2C Surplus Treasury conversion rules (1,000 Gold reserve, 100:1 rate, $\ge 80\%$ Stability, collapsed settlements ineligible, exactly-once idempotency per World ID).
+  - *UI Geometry & Input Isolation:*
+    - Full modal overlay with `mouse_filter = Control.MOUSE_FILTER_STOP` preventing click-through to underlying world tiles or unit selection.
+    - Responsive layout bounded at $860 \times 490$ px inside centered container, verified non-clipping and fully enclosed at both 1280×720 and 1024×576 resolutions.
+
 ---
 
 ## 2. Deferred & Excluded Scope for MVP
 | Feature | GDD Section | Status for MVP | Rationale |
 |---|---|---|---|
+| In-Game Player Field Guide & 30-Day Starter Manual | Phần I, VI & XIII | Implemented | Delivered end-to-end in Package 2D with 6 chapters, zero world mutation, input isolation, and 1280x720 / 1024x576 responsive layout |
 | Citizen Skill Progression & Vocational Specialization | Phần VI & XIV | Implemented | Delivered end-to-end in Package 2B with 6 vocations, 1.00x-1.35x bounded multipliers, real-work XP, and HUD Inspector |
 | Market Infrastructure & Physical Caravan Integration | Phần VII & XI | Implemented | Delivered end-to-end in Package 2A with 3x3 Market, deterministic docking, Town Hall fallback, and CaravanMarker actor |
 | Automation Graph Delay & Repeat Nodes | Phần VII | Implemented | Delivered end-to-end in Package 1Y with bounded simulation clock queues |
