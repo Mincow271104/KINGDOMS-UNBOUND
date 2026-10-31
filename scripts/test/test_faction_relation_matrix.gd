@@ -215,7 +215,7 @@ func _test_tc_frel_4_invalid_pair_and_number_rejection() -> void:
 	_assert_eq(fm.get_all_faction_relations(), before_all, "TC-FREL.4-NO-MUTATION")
 
 func _test_tc_frel_5_declare_war_between_factions() -> void:
-	print("\n--- TC-FREL.5: Pairwise war declaration clears NAP/Alliance, applies -50 opinion delta, emits pair signals ---")
+	print("\n--- TC-FREL.5: Pairwise war declaration blocked by treaties, applies -50 opinion delta, emits pair signals ---")
 	var fm := FactionManagerScript.new()
 	fm.set_faction_pair_opinion("rival_merchant", "rival_military", 70.0)
 	fm.set_faction_pair_opinion("rival_military", "rival_merchant", 65.0)
@@ -224,26 +224,33 @@ func _test_tc_frel_5_declare_war_between_factions() -> void:
 	_assert_true(fm.do_factions_have_alliance("rival_merchant", "rival_military"), "TC-FREL.5-HAS-ALLIANCE")
 	_assert_true(fm.do_factions_have_nap("rival_merchant", "rival_military"), "TC-FREL.5-HAS-NAP")
 
+	# BUG-2E-03: War declaration while under Alliance/NAP must be blocked fail-closed
+	var blocked_war: Dictionary = fm.declare_war_between_factions("rival_military", "rival_merchant")
+	_assert_false(bool(blocked_war.get("success", true)), "TC-FREL.5-BLOCKED-BY-ALLIANCE")
+	_assert_eq(str(blocked_war.get("reason_code", "")), FactionManagerScript.PAIR_REASON_ERR_BLOCKED_BY_TREATY, "TC-FREL.5-ERR-BLOCKED-CODE")
+	_assert_true(fm.do_factions_have_alliance("rival_merchant", "rival_military"), "TC-FREL.5-ALLIANCE-PRESERVED")
+	_assert_true(fm.do_factions_have_nap("rival_merchant", "rival_military"), "TC-FREL.5-NAP-PRESERVED")
+
+	# Now test valid war declaration on untreatied pair: neutral_tribe vs rival_military
 	var war_signals: Array = []
 	fm.faction_pair_war_declared.connect(func(init_id: String, tgt_id: String, p_key: String):
 		war_signals.append({"init": init_id, "tgt": tgt_id, "key": p_key})
 	)
 
-	# Opinions after alliance were 70+25=95 and 65+25=90. Declaring war applies -50 -> 45 and 40.
-	var war_res: Dictionary = fm.declare_war_between_factions("rival_military", "rival_merchant")
+	var init_op_nm = fm.get_directed_faction_opinion("neutral_tribe", "rival_military")
+	var init_op_mn = fm.get_directed_faction_opinion("rival_military", "neutral_tribe")
+	var war_res: Dictionary = fm.declare_war_between_factions("rival_military", "neutral_tribe")
 	_assert_true(bool(war_res.get("success", false)), "TC-FREL.5-WAR-OK")
-	_assert_true(fm.are_factions_at_war("rival_merchant", "rival_military"), "TC-FREL.5-AT-WAR-1")
-	_assert_true(fm.are_factions_at_war("rival_military", "rival_merchant"), "TC-FREL.5-AT-WAR-2")
-	_assert_false(fm.do_factions_have_nap("rival_merchant", "rival_military"), "TC-FREL.5-NAP-CLEARED")
-	_assert_false(fm.do_factions_have_alliance("rival_merchant", "rival_military"), "TC-FREL.5-ALLIANCE-CLEARED")
-	_assert_approx(fm.get_directed_faction_opinion("rival_merchant", "rival_military"), 45.0, "TC-FREL.5-OP-AB-AFTER-WAR")
-	_assert_approx(fm.get_directed_faction_opinion("rival_military", "rival_merchant"), 40.0, "TC-FREL.5-OP-BA-AFTER-WAR")
+	_assert_true(fm.are_factions_at_war("neutral_tribe", "rival_military"), "TC-FREL.5-AT-WAR-1")
+	_assert_true(fm.are_factions_at_war("rival_military", "neutral_tribe"), "TC-FREL.5-AT-WAR-2")
+	_assert_approx(fm.get_directed_faction_opinion("neutral_tribe", "rival_military"), init_op_nm - 50.0, "TC-FREL.5-OP-AB-AFTER-WAR")
+	_assert_approx(fm.get_directed_faction_opinion("rival_military", "neutral_tribe"), init_op_mn - 50.0, "TC-FREL.5-OP-BA-AFTER-WAR")
 	_assert_eq(war_signals.size(), 1, "TC-FREL.5-WAR-SIGNAL-COUNT")
 	_assert_eq(str(war_signals[0]["init"]), "rival_military", "TC-FREL.5-WAR-SIGNAL-INIT")
-	_assert_eq(str(war_signals[0]["tgt"]), "rival_merchant", "TC-FREL.5-WAR-SIGNAL-TGT")
+	_assert_eq(str(war_signals[0]["tgt"]), "neutral_tribe", "TC-FREL.5-WAR-SIGNAL-TGT")
 
 	# Duplicate war declaration rejected
-	var dup_war: Dictionary = fm.declare_war_between_factions("rival_merchant", "rival_military")
+	var dup_war: Dictionary = fm.declare_war_between_factions("neutral_tribe", "rival_military")
 	_assert_false(bool(dup_war.get("success", true)), "TC-FREL.5-DUP-WAR-REJECTED")
 	_assert_eq(str(dup_war.get("reason_code", "")), FactionManagerScript.PAIR_REASON_ERR_ALREADY_AT_WAR, "TC-FREL.5-DUP-WAR-CODE")
 

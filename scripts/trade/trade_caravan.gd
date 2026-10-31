@@ -10,6 +10,9 @@ var origin_faction_id: String
 var arrival_day: int
 var departure_day: int
 var is_active: bool = true
+var is_origin_at_war: bool = false
+
+const WARTIME_PRICE_SURCHARGE: float = 0.15
 
 var inventory: Dictionary = {} # res_id -> int
 var gold: int = 350
@@ -20,13 +23,15 @@ func _init(p_id: String = "", p_name: String = "", p_origin: String = "rival_mer
 	caravan_id = p_id
 	name = p_name
 	origin_faction_id = p_origin
+	is_origin_at_war = false
 
-static func generate_caravan(seed_val: int, day: int, origin_faction: String = "rival_merchant") -> RefCounted:
+static func generate_caravan(seed_val: int, day: int, origin_faction: String = "rival_merchant", is_at_war: bool = false) -> RefCounted:
 	var script = load("res://scripts/trade/trade_caravan.gd")
 	var c = script.new("caravan_%d" % day, "Đoàn Buôn Phương Nam (Ngày %d)" % day, origin_faction)
 	c.arrival_day = day
 	c.departure_day = day + 2 # Stays 2 days
 	c.is_active = true
+	c.is_origin_at_war = is_at_war
 	
 	var rng := RandomNumberGenerator.new()
 	rng.seed = seed_val + day * 555
@@ -68,7 +73,12 @@ func get_effective_sell_price(res_id: String, faction_opinion: float = 0.0) -> i
 	var base: int = sell_prices.get(res_id, 10)
 	# Faction opinion discount: up to -20% discount if high opinion
 	var mult := 1.0 - clampf(faction_opinion / 500.0, -0.2, 0.2)
-	return maxi(1, int(round(base * mult)))
+	if is_origin_at_war:
+		mult += WARTIME_PRICE_SURCHARGE
+	var price := int(round(base * mult))
+	if is_origin_at_war and price <= base:
+		price = base + 1
+	return maxi(1, price)
 
 func get_effective_buy_price(res_id: String, faction_opinion: float = 0.0) -> int:
 	var base: int = buy_prices.get(res_id, 5)
@@ -182,6 +192,7 @@ func serialize() -> Dictionary:
 		"arrival_day": arrival_day,
 		"departure_day": departure_day,
 		"is_active": is_active,
+		"is_origin_at_war": is_origin_at_war,
 		"inventory": inventory.duplicate(true),
 		"gold": gold,
 		"sell_prices": sell_prices.duplicate(true),
@@ -201,6 +212,7 @@ static func deserialize(data: Dictionary) -> RefCounted:
 	c.arrival_day = int(data.get("arrival_day", 1))
 	c.departure_day = int(data.get("departure_day", c.arrival_day + 2))
 	c.is_active = bool(data.get("is_active", true))
+	c.is_origin_at_war = bool(data.get("is_origin_at_war", false))
 	c.gold = maxi(0, int(data.get("gold", 0)))
 
 	c.inventory = {}

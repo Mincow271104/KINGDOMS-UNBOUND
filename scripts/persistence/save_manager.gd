@@ -895,6 +895,22 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 			var pr_raids = camp_val.get("processed_raids")
 			if not (pr_raids is Dictionary):
 				return {"valid": false, "error": "processed_raids của battle_campaign phải là từ điển (Dictionary)."}
+		if camp_val.has("pending_inter_faction_campaigns"):
+			var p_if = camp_val.get("pending_inter_faction_campaigns")
+			if not (p_if is Dictionary):
+				return {"valid": false, "error": "pending_inter_faction_campaigns của battle_campaign phải là từ điển (Dictionary)."}
+		if camp_val.has("processed_inter_faction_campaigns"):
+			var pr_if = camp_val.get("processed_inter_faction_campaigns")
+			if not (pr_if is Dictionary):
+				return {"valid": false, "error": "processed_inter_faction_campaigns của battle_campaign phải là từ điển (Dictionary)."}
+		if camp_val.has("recent_inter_faction_reports"):
+			var r_if = camp_val.get("recent_inter_faction_reports")
+			if not (r_if is Array):
+				return {"valid": false, "error": "recent_inter_faction_reports của battle_campaign phải là danh sách (Array)."}
+		if camp_val.has("next_inter_faction_campaign_index"):
+			var n_if = camp_val.get("next_inter_faction_campaign_index")
+			if not _is_valid_integer_val(n_if) or int(n_if) < 1:
+				return {"valid": false, "error": "next_inter_faction_campaign_index của battle_campaign phải là số nguyên >= 1."}
 		if camp_val.has("scheduled_raids"):
 			var raids_val = camp_val.get("scheduled_raids")
 			if not (raids_val is Array):
@@ -978,6 +994,18 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 						return {"valid": false, "error": "Ngày ngoại giao trong last_diplomacy_days của '%s' phải là số nguyên trong [1, 36500]: %s." % [str(fid), str(d_val)]}
 					if max_allowed_fac_day >= 1 and int(d_val) > max_allowed_fac_day:
 						return {"valid": false, "error": "Ngày ngoại giao trong last_diplomacy_days của '%s' (%d) không được lớn hơn current_day trong game_clock (%d)." % [str(fid), int(d_val), max_allowed_fac_day]}
+			if exec_val.has("last_pairwise_diplomacy_days"):
+				var lpdd_map = exec_val.get("last_pairwise_diplomacy_days")
+				if not (lpdd_map is Dictionary):
+					return {"valid": false, "error": "last_pairwise_diplomacy_days trong strategy_executor phải là từ điển (Dictionary)."}
+				for pk in lpdd_map:
+					if not (pk is String) or String(pk).is_empty():
+						return {"valid": false, "error": "Khóa cặp quan hệ trong last_pairwise_diplomacy_days không hợp lệ."}
+					var d_val = lpdd_map[pk]
+					if not _is_valid_integer_val(d_val) or int(d_val) < 1 or int(d_val) > 36500:
+						return {"valid": false, "error": "Ngày ngoại giao cặp trong last_pairwise_diplomacy_days của '%s' phải là số nguyên trong [1, 36500]: %s." % [str(pk), str(d_val)]}
+					if max_allowed_fac_day >= 1 and int(d_val) > max_allowed_fac_day:
+						return {"valid": false, "error": "Ngày ngoại giao cặp trong last_pairwise_diplomacy_days của '%s' (%d) không được lớn hơn current_day trong game_clock (%d)." % [str(pk), int(d_val), max_allowed_fac_day]}
 		if fac_root.has("pairwise_relations"):
 			var pair_map = fac_root.get("pairwise_relations")
 			if not (pair_map is Dictionary):
@@ -1035,6 +1063,23 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 					return {"valid": false, "error": "Trạng thái mâu thuẫn trong pairwise_relations['%s']: không thể vừa chiến tranh vừa có hiệp ước (has_nap=%s, has_alliance=%s)." % [expected_p_key, str(p_nap), str(p_allied)]}
 				if p_allied and not p_nap:
 					return {"valid": false, "error": "Trạng thái mâu thuẫn trong pairwise_relations['%s']: liên minh (has_alliance=true) đòi hỏi has_nap=true." % expected_p_key}
+				# Optional Package 2E fields
+				if p_entry.has("truce_until_day"):
+					var tud = p_entry.get("truce_until_day")
+					if not _is_valid_integer_val(tud) or int(tud) < -1:
+						return {"valid": false, "error": "truce_until_day trong pairwise_relations['%s'] phải là số nguyên >= -1." % expected_p_key}
+				if p_entry.has("war_start_day"):
+					var wsd = p_entry.get("war_start_day")
+					if not _is_valid_integer_val(wsd) or int(wsd) < -1:
+						return {"valid": false, "error": "war_start_day trong pairwise_relations['%s'] phải là số nguyên >= -1." % expected_p_key}
+				if p_entry.has("casus_belli") and not (p_entry.get("casus_belli") is String):
+					return {"valid": false, "error": "casus_belli trong pairwise_relations['%s'] phải là chuỗi." % expected_p_key}
+				if p_entry.has("war_count"):
+					var wc = p_entry.get("war_count")
+					if not _is_valid_integer_val(wc) or int(wc) < 0:
+						return {"valid": false, "error": "war_count trong pairwise_relations['%s'] phải là số nguyên >= 0." % expected_p_key}
+				if p_entry.has("last_battle_report") and not (p_entry.get("last_battle_report") is Dictionary):
+					return {"valid": false, "error": "last_battle_report trong pairwise_relations['%s'] phải là từ điển." % expected_p_key}
 
 			for exp_k in expected_keys:
 				if not seen_canonical_pairs.has(exp_k):
@@ -1428,6 +1473,8 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 				return {"valid": false, "error": "sell_prices trong active_caravan phải là Dictionary."}
 			if car_val.has("buy_prices") and not (car_val.get("buy_prices") is Dictionary):
 				return {"valid": false, "error": "buy_prices trong active_caravan phải là Dictionary."}
+			if car_val.has("is_origin_at_war") and not (car_val.get("is_origin_at_war") is bool):
+				return {"valid": false, "error": "is_origin_at_war trong active_caravan phải là bool."}
 
 	return {"valid": true, "error": ""}
 

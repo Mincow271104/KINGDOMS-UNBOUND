@@ -505,3 +505,36 @@
   - Created `scripts/test/test_player_field_guide.gd` covering 9 comprehensive test groups and 119 automated assertions (100% pass rate, Exit Code 0).
 - [x] **TASK-2D.5:** Live Visual Validation:
   - Captured 5 authentic live game screenshots under D3D12 hardware rendering at 1280x720 and 1024x576 (`p2d_01` through `p2d_05`).
+
+---
+
+## Package 2E: Autonomous Faction Conflict & Inter-Faction Warfare (Completed)
+- [x] **TASK-2E.1:** Pairwise Autonomous Diplomatic Decision Engine:
+  - Extended `FactionDiplomacyPlanner` (`scripts/factions/faction_diplomacy_planner.gd`) with pure, deterministic evaluation: `evaluate_pairwise_diplomatic_action()` and `evaluate_pair_diplomatic_action()`.
+  - Authoritative thresholds: War declaration triggered when `opinion <= -50.0`, `military_power >= 40.0`, `stability >= 30.0`, and `power_ratio >= 0.65`.
+  - Truce cooldown: 6 game days (`INTER_TRUCE_DURATION_DAYS = 6`), minimum war duration 2 days (`INTER_WAR_MIN_DURATION_DAYS = 2`), and war weariness peace trigger after 12 days (`INTER_WAR_WEARINESS_DAYS = 12`).
+  - Strict anti-oscillation: peace grants $+20.0$ mutual opinion (pulling relations up to $-30.0$, far above the $-50.0$ war threshold), establishing guaranteed diplomatic stability.
+- [x] **TASK-2E.2:** Pairwise Data Model & Faction Manager Integration:
+  - Extended `FactionRelationData` (`scripts/factions/faction_relation_data.gd`) tracking `truce_until_day`, `war_start_day`, `casus_belli`, `war_count`, `last_battle_report`, and `is_on_truce(day)`.
+  - Enhanced `FactionManager` (`scripts/factions/faction_manager.gd`) with `declare_war_between_factions()` (truce check, metadata recording), `sign_peace_between_factions()` (truce assignment, opinion boost), `execute_pairwise_diplomatic_action()`, `execute_all_pairwise_diplomacy()`, and signal `faction_pair_diplomatic_action_executed`.
+  - Daily simulation step 2b evaluates and executes pairwise diplomacy before economic intent execution.
+- [x] **TASK-2E.3:** Real Military Campaigns & BattleResolver Combat Resolution:
+  - Enhanced `BattleCampaignManager` (`scripts/combat/battle_campaign_manager.gd`) with inter-faction campaign lifecycle: `schedule_inter_faction_campaign()`, `process_daily_inter_faction_campaigns()`, `resolve_inter_faction_campaign()`, and `cancel_inter_faction_campaigns_for_pair()`.
+  - Wires `faction_pair_war_declared` to automatically schedule military campaigns (scheduled for `day + 2`) and `faction_pair_peace_signed` to cancel pending campaigns.
+  - Battle resolution delegates directly to authoritative `BattleResolver.resolve_battle` with genuine force composition, combat scores, and casualty application.
+  - Resource conservation: Plunder transferred strictly between defender and attacker stockpiles; zero phantom resources created.
+  - Concrete world consequences: Attacker victory inflicts real siege damage to regional defender outposts via `FieldSiegeManager`, with sacking on outpost destruction; casualties deduct from military power and population.
+- [x] **TASK-2E.4:** Trade Caravan Wartime Surcharge & Player Economic Impact:
+  - Extended `TradeCaravan` (`scripts/trade/trade_caravan.gd`) with `is_origin_at_war` and `WARTIME_PRICE_SURCHARGE = 0.15` (+15% sell price markup when caravan originates from a faction at war, with guaranteed minimum +1 Gold markup).
+  - Wired `WorldView` to dynamically detect origin faction wartime status when spawning caravans.
+- [x] **TASK-2E.5:** In-Game HUD Authoritative State & Event Banners:
+  - Enhanced `HUD` (`scripts/ui/hud.gd`) connecting `faction_pair_war_declared`, `faction_pair_peace_signed`, `inter_faction_campaign_scheduled`, `inter_faction_campaign_cancelled`, and `inter_faction_battle_resolved` to real-time event banners.
+  - Added Section 3 to Diplomacy Panel: "⚔️ QUAN HỆ & CHIẾN SỰ GIỮA CÁC THẾ LỰC (NPC — NPC)" dynamically listing all 3 canonical pairs with color-coded status badges (`[⚔️ ĐANG CHIẾN TRANH]`, `[🕊️ ĐÌNH CHIẾN]`, `[🤝 LIÊN MINH]`, `[📜 HIỆP ƯỚC BẤT TƯƠNG XÂM]`, `[⚖️ HÒA BÌNH]`), 2-way opinion readouts, Casus Belli, war duration, pending campaign info, recent battle summaries, and player alliance warnings.
+  - Added wartime surcharge warning note in Trade Caravan inspector.
+- [x] **TASK-2E.6:** Fail-Closed Save/Load Schema Validation & Backward Compatibility:
+  - Updated `SaveManager` (`scripts/persistence/save_manager.gd`) with schema validation for inter-faction campaigns (`pending_inter_faction_campaigns`, `processed_inter_faction_campaigns`, `recent_inter_faction_reports`, `next_inter_faction_campaign_index`), executor pairwise tracking (`last_pairwise_diplomacy_days`), and pairwise relation metadata.
+  - 100% backward compatibility with legacy saves without inter-faction conflict data.
+- [x] **TASK-2E.7:** Comprehensive Automated Test Suite & Live Visual Validation:
+  - Created `scripts/test/test_autonomous_faction_conflict.gd` covering 14 test groups across 99 automated assertions (100% pass rate, Exit Code 0).
+  - Created `scripts/test/visual_package_2e_validation.gd` capturing 3 high-fidelity 1280x720 PNG screenshots (`p2e_01` through `p2e_03`).
+  - Full project regression test suite passed: 100% green across all 7 test suites (1,916 assertions passed, 0 failures).

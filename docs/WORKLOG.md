@@ -7978,3 +7978,144 @@ Enforce all authoritative design rules:
 
 ### Next Exact Step
 - Package 2D implementation, automated testing, and live visual validation complete. Await owner review.
+
+---
+
+## 2026-11-01 — Package 2E: Autonomous Faction Conflict & Inter-Faction Warfare (Implementation & Verification)
+
+### Summary of Completed Work
+- **Exploration & Existing System Verification:**
+  - Audited codebase for inter-faction warfare foundation. Found `FactionRelationData` (Package 1U) tracked canonical unordered pair keys (`faction_a__faction_b`) with directional opinions and war/peace booleans, but lacked an autonomous evaluation engine or campaign execution mechanism.
+  - Reused existing systems strictly: single battle resolver (`BattleResolver.resolve_battle`), real field outposts (`FieldSiegeManager`), and daily simulation scheduling without duplicating subsystems or fabricating resources.
+- **Pairwise Autonomous Diplomatic Decision Engine (`scripts/factions/faction_diplomacy_planner.gd`):**
+  - Added pure, deterministic pairwise evaluators: `evaluate_pairwise_diplomatic_action(initiator, target, rel, current_day)` and `evaluate_pair_diplomatic_action(fac_1, fac_2, rel, current_day)`.
+  - Authoritative thresholds: War declaration evaluated when `opinion <= -50.0`, `military_power >= 40.0`, `stability >= 30.0`, and `power_ratio >= 0.65`.
+  - Anti-oscillation invariants: Truce duration of 6 game days (`INTER_TRUCE_DURATION_DAYS = 6`), minimum war duration of 2 days (`INTER_WAR_MIN_DURATION_DAYS = 2`), and war weariness peace trigger after 12 days (`INTER_WAR_WEARINESS_DAYS = 12`).
+  - Peace grants $+20.0$ mutual opinion (pulling relations up to $-30.0$, far above the $-50.0$ war threshold), establishing diplomatic stability.
+- **Pairwise Data Model & Faction Manager Integration (`scripts/factions/faction_relation_data.gd`, `scripts/factions/faction_manager.gd`):**
+  - Extended `FactionRelationData` tracking `truce_until_day`, `war_start_day`, `casus_belli`, `war_count`, `last_battle_report`, and `is_on_truce(day)`.
+  - Enhanced `FactionManager`: `declare_war_between_factions()` enforces fail-closed truce check (`PAIR_REASON_ERR_ON_TRUCE`), records Casus Belli, and sets `war_start_day`. `sign_peace_between_factions()` establishes 6-day truce.
+  - Added `execute_pairwise_diplomatic_action()` and `execute_all_pairwise_diplomacy()`, executed in daily simulation Step 2b before economic intents.
+- **Real Military Campaigns & BattleResolver Combat Resolution (`scripts/combat/battle_campaign_manager.gd`):**
+  - Implemented inter-faction military campaigns: automatic scheduling upon war declaration (`_on_faction_pair_war_declared` with 2-day prep delay), daily processing (`process_daily_inter_faction_campaigns`), resolution via `BattleResolver.resolve_battle`, and automatic cancellation upon peace (`_on_faction_pair_peace_signed`).
+  - Strict resource conservation: Plunder transferred between defender stockpile and attacker stockpile without phantom resource generation.
+  - Concrete world consequences: Attacker victory inflicts real siege damage to regional defender outposts via `FieldSiegeManager` ($15.0\text{ HP}$ per surviving attacker troop), with sacking upon reaching $0\text{ HP}$; casualties deduct from military power and population.
+- **Trade Caravan Wartime Surcharge (`scripts/trade/trade_caravan.gd`, `scripts/world/world_view.gd`):**
+  - Added `is_origin_at_war` and `WARTIME_PRICE_SURCHARGE = 0.15` (+15% sell price markup on goods purchased from caravans originating from factions at war, guaranteeing at least +1 Gold markup).
+  - Dynamically configured when caravans arrive in `WorldView`.
+- **In-Game HUD Authoritative State & Event Banners (`scripts/ui/hud.gd`):**
+  - Connected `faction_pair_war_declared`, `faction_pair_peace_signed`, `inter_faction_campaign_scheduled`, `inter_faction_campaign_cancelled`, and `inter_faction_battle_resolved` to real-time event banners.
+  - Added Section 3 to Diplomacy Panel: "⚔️ QUAN HỆ & CHIẾN SỰ GIỮA CÁC THẾ LỰC (NPC — NPC)" dynamically listing all 3 canonical pairs with color-coded status badges, 2-way opinion readouts, Casus Belli, war duration, pending campaign info, recent battle summaries, and player alliance warnings.
+  - Added wartime surcharge warning note in Trade Caravan inspector.
+- **Fail-Closed Save/Load Schema Validation (`scripts/persistence/save_manager.gd`):**
+  - Validated schema under `battle_campaign` (`pending_inter_faction_campaigns`, `processed_inter_faction_campaigns`, `recent_inter_faction_reports`, `next_inter_faction_campaign_index`), `strategy_executor` (`last_pairwise_diplomacy_days`), and `pairwise_relations` (`truce_until_day`, `war_start_day`, `casus_belli`, `war_count`, `last_battle_report`).
+  - Verified 100% backward compatibility with legacy saves.
+- **Automated Validation:**
+  - Created `scripts/test/test_autonomous_faction_conflict.gd`: 99/99 checks PASS across 14 test groups (Exit Code 0).
+  - Full project regression test matrix passed:
+    - `test_faction_relation_matrix.gd`: 160/160 PASS (Exit Code 0)
+    - `test_faction_diplomacy_ai.gd`: 437/437 PASS (Exit Code 0)
+    - `test_faction_strategy_execution.gd`: 951/951 PASS (Exit Code 0)
+    - `test_market.gd`: 15/15 PASS (Exit Code 0)
+    - `test_surplus_treasury_conversion.gd`: 124/124 PASS (Exit Code 0)
+    - `test_player_field_guide.gd`: 130/130 PASS (Exit Code 0)
+- **Live Visual Validation:**
+  - Created `scripts/test/visual_package_2e_validation.gd` and captured 3 high-fidelity 1280x720 PNG screenshots:
+    - `docs/visual_validation/p2e_01_inter_faction_warfare_diplomacy_panel.png` (Section 3 with active war, truce, Casus Belli, and battle summary)
+    - `docs/visual_validation/p2e_02_inter_faction_war_banner.png` (World war declaration banner notification)
+    - `docs/visual_validation/p2e_03_inter_faction_battle_result_banner.png` (Battle result banner with casualties and plunder)
+
+### Files Modified & Created
+- `scripts/factions/faction_relation_data.gd` (Modified)
+- `scripts/factions/faction_diplomacy_planner.gd` (Modified)
+- `scripts/factions/faction_manager.gd` (Modified)
+- `scripts/combat/battle_campaign_manager.gd` (Modified)
+- `scripts/trade/trade_caravan.gd` (Modified)
+- `scripts/world/world_view.gd` (Modified)
+- `scripts/persistence/save_manager.gd` (Modified)
+- `scripts/ui/hud.gd` (Modified)
+- `scripts/test/test_autonomous_faction_conflict.gd` (New)
+- `scripts/test/visual_package_2e_validation.gd` (New test script)
+- `docs/visual_validation/p2e_01_inter_faction_warfare_diplomacy_panel.png` (New)
+- `docs/visual_validation/p2e_02_inter_faction_war_banner.png` (New)
+- `docs/visual_validation/p2e_03_inter_faction_battle_result_banner.png` (New)
+- `docs/SCOPE_DECISIONS.md` (Modified)
+- `docs/BACKLOG.md` (Modified)
+- `docs/GAME_RULES.md` (Modified)
+- `docs/WORKLOG.md` (Modified)
+
+### Protected Assets & User Files
+- `project.godot`: Pre-existing user-owned modification (`-window/size/resizable=true`) strictly preserved and untouched.
+- Untracked files: All 92 historical untracked files + diagnostic runners preserved byte-for-byte.
+- User saves: Real user profile and saves completely untouched.
+- Git operations: 0 commits, 0 pushes.
+
+### Next Exact Step
+- Package 2E initial implementation complete. Proceed to independent logic code review.
+
+---
+
+## 2026-11-01 — Package 2E: Code Review Bug Fixes & Final Verification (Completed)
+
+### Summary of Completed Work
+- **BUG-2E-01 (HUD Signal Isolation for Inter-Faction Combat):**
+  - Added `"is_inter_faction": true` to the combat outcome context dictionary in `BattleCampaignManager.resolve_inter_faction_campaign()`.
+  - Added early-return guard in `HUD._on_battle_resolved()`: when `context.get("is_inter_faction", false)` is `true`, HUD suppresses settlement defense / defeat banners (`"THẤT THỦ!"` / `"THẮNG TRẬN!"`), ensuring only global world warfare event banners are triggered.
+- **BUG-2E-02 (TradeCaravan Wartime Surcharge Persistence Across Save/Load):**
+  - Added `"is_origin_at_war": is_origin_at_war` to `TradeCaravan.serialize()`.
+  - Added `c.is_origin_at_war = bool(data.get("is_origin_at_war", false))` to `TradeCaravan.deserialize()`, defaulting safely to `false` for backwards compatibility.
+  - Updated `SaveManager.validate_save_data()` schema validator to enforce bool type on `is_origin_at_war` if present in `active_caravan`.
+- **BUG-2E-03 (FactionManager Treaty & Truce Hard Protection):**
+  - Added `PAIR_REASON_ERR_BLOCKED_BY_TREATY` and `PAIR_REASON_ERR_INVALID_DAY` constants in `FactionManager`.
+  - Hardened `FactionManager.declare_war_between_factions()` to fail-closed with `PAIR_REASON_ERR_BLOCKED_BY_TREATY` if an Alliance or NAP is active, leaving treaties untouched.
+  - Enforced fail-closed validation when `truce_until_day >= 1` and current day cannot be resolved (`PAIR_REASON_ERR_INVALID_DAY`), and blocked war with `PAIR_REASON_ERR_ON_TRUCE` when truce is active.
+- **BUG-2E-04 (BattleCampaignManager Autonomous Campaign Desync Auto-Recovery):**
+  - Implemented `recover_missing_inter_faction_campaigns(current_day: int) -> Array[Dictionary]` in `BattleCampaignManager`.
+  - Integrated into `process_daily_inter_faction_campaigns()` to automatically schedule a missing campaign with a 2-day prep delay if two factions are at war without a pending campaign, preserving scheduling idempotency without resetting prep delays.
+- **BUG-2E-05 (FieldSiegeManager Outpost Visual Redraw on Inter-Faction Damage):**
+  - In `BattleCampaignManager.resolve_inter_faction_campaign()`, added `if obj.has_method("queue_redraw"): obj.queue_redraw()` immediately upon inflicting siege damage and upon outpost destruction.
+- **BUG-2E-06 (propose_treaty_between_factions Truce Duration Consistency):**
+  - Updated `FactionManager.propose_treaty_between_factions()` to pass `_resolve_current_day(current_day)` into `sign_peace_between_factions()`, ensuring peace treaties establish the standard 6-day truce cooldown.
+- **Automated Test Suite Expansion & Full Regression Pass:**
+  - Expanded `scripts/test/test_autonomous_faction_conflict.gd` with TC-2E.15 verifying all 6 bug fixes: 134/134 PASS (Exit Code 0).
+  - Updated `scripts/test/test_faction_relation_matrix.gd` TC-FREL.5 to verify treaty blocks: 162/162 PASS (Exit Code 0).
+  - Executed full project regression suite:
+    - `test_autonomous_faction_conflict.gd`: 134/134 PASS
+    - `test_faction_relation_matrix.gd`: 162/162 PASS
+    - `test_save_load.gd`: 182/182 PASS
+    - `test_faction_diplomacy_ai.gd`: 437/437 PASS
+    - `test_faction_strategy_execution.gd`: 951/951 PASS
+    - `test_market.gd`: 15/15 PASS
+    - `test_field_siege.gd`: 98/98 PASS
+    - `test_surplus_treasury_conversion.gd`: 124/124 PASS
+    - `test_player_field_guide.gd`: 130/130 PASS
+    - Total: 2,233 checks passed, 0 failures.
+
+### Files Modified & Created
+- `scripts/combat/battle_campaign_manager.gd` (Modified)
+- `scripts/ui/hud.gd` (Modified)
+- `scripts/trade/trade_caravan.gd` (Modified)
+- `scripts/persistence/save_manager.gd` (Modified)
+- `scripts/factions/faction_manager.gd` (Modified)
+- `scripts/factions/faction_diplomacy_planner.gd` (Modified)
+- `scripts/factions/faction_relation_data.gd` (Modified)
+- `scripts/world/world_view.gd` (Modified)
+- `scripts/test/test_autonomous_faction_conflict.gd` (New)
+- `scripts/test/test_faction_relation_matrix.gd` (Modified)
+- `scripts/test/visual_package_2e_validation.gd` (New test script)
+- `docs/visual_validation/p2e_01_inter_faction_warfare_diplomacy_panel.png` (New)
+- `docs/visual_validation/p2e_02_inter_faction_war_banner.png` (New)
+- `docs/visual_validation/p2e_03_inter_faction_battle_result_banner.png` (New)
+- `docs/SCOPE_DECISIONS.md` (Modified)
+- `docs/BACKLOG.md` (Modified)
+- `docs/GAME_RULES.md` (Modified)
+- `docs/WORKLOG.md` (Modified)
+
+### Protected Assets & User Files
+- `project.godot`: Pre-existing user-owned modification (`-window/size/resizable=true`) strictly preserved and untouched.
+- Untracked files: All 92 historical untracked files + diagnostic runners preserved byte-for-byte.
+- User saves: Real user profile and saves completely untouched.
+
+### Next Exact Step
+- Package 2E implementation, code review bug fixes, full regression verification, and visual proof complete. Create local checkpoint commit on `feature/package-2e-autonomous-faction-conflict` and push branch to remote `origin`.
+

@@ -27,6 +27,13 @@ var is_at_war: bool = false
 var has_nap: bool = false
 var has_alliance: bool = false
 
+# Package 2E: Autonomous Inter-Faction Conflict Tracking
+var truce_until_day: int = -1
+var war_start_day: int = -1
+var casus_belli: String = ""
+var war_count: int = 0
+var last_battle_report: Dictionary = {}
+
 func _init(p_id_1: String = "", p_id_2: String = "") -> void:
 	if not p_id_1.is_empty() and not p_id_2.is_empty() and p_id_1 != p_id_2:
 		var ordered: Array[String] = make_ordered_pair(p_id_1, p_id_2)
@@ -37,6 +44,11 @@ func _init(p_id_1: String = "", p_id_2: String = "") -> void:
 	is_at_war = false
 	has_nap = false
 	has_alliance = false
+	truce_until_day = -1
+	war_start_day = -1
+	casus_belli = ""
+	war_count = 0
+	last_battle_report = {}
 
 static func is_valid_finite_number(val: Variant) -> bool:
 	if val is int:
@@ -117,17 +129,30 @@ static func compute_disposition(opinion_val: float, at_war: bool, allied: bool) 
 func get_disposition(from_id: String, to_id: String) -> int:
 	return compute_disposition(get_opinion(from_id, to_id), is_at_war, has_alliance)
 
-func apply_declare_war() -> void:
+func apply_declare_war(start_day: int = -1, reason: String = "") -> void:
 	is_at_war = true
 	has_nap = false
 	has_alliance = false
+	war_start_day = start_day
+	casus_belli = reason
+	war_count += 1
 	opinion_a_to_b = clampf(opinion_a_to_b + DELTA_DECLARE_WAR, OPINION_MIN, OPINION_MAX)
 	opinion_b_to_a = clampf(opinion_b_to_a + DELTA_DECLARE_WAR, OPINION_MIN, OPINION_MAX)
 
-func apply_sign_peace() -> void:
+func apply_sign_peace(truce_duration: int = 6, current_day: int = -1) -> void:
 	is_at_war = false
+	if current_day >= 1 and truce_duration > 0:
+		truce_until_day = current_day + truce_duration
+	else:
+		truce_until_day = -1
 	opinion_a_to_b = clampf(opinion_a_to_b + DELTA_SIGN_PEACE, OPINION_MIN, OPINION_MAX)
 	opinion_b_to_a = clampf(opinion_b_to_a + DELTA_SIGN_PEACE, OPINION_MIN, OPINION_MAX)
+
+func is_on_truce(current_day: int) -> bool:
+	return not is_at_war and truce_until_day >= 1 and current_day < truce_until_day
+
+func record_battle(report_dict: Dictionary) -> void:
+	last_battle_report = report_dict.duplicate(true)
 
 func apply_sign_nap() -> void:
 	has_nap = true
@@ -157,7 +182,12 @@ func to_directed_view(from_id: String, to_id: String) -> Dictionary:
 		"reverse_disposition": compute_disposition(op_tf, is_at_war, has_alliance),
 		"is_at_war": is_at_war,
 		"has_nap": has_nap,
-		"has_alliance": has_alliance
+		"has_alliance": has_alliance,
+		"truce_until_day": truce_until_day,
+		"war_start_day": war_start_day,
+		"casus_belli": casus_belli,
+		"war_count": war_count,
+		"last_battle_report": last_battle_report.duplicate(true)
 	}
 
 func serialize() -> Dictionary:
@@ -169,5 +199,10 @@ func serialize() -> Dictionary:
 		"opinion_b_to_a": opinion_b_to_a,
 		"is_at_war": is_at_war,
 		"has_nap": has_nap,
-		"has_alliance": has_alliance
+		"has_alliance": has_alliance,
+		"truce_until_day": truce_until_day,
+		"war_start_day": war_start_day,
+		"casus_belli": casus_belli,
+		"war_count": war_count,
+		"last_battle_report": last_battle_report.duplicate(true)
 	}

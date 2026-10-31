@@ -50,6 +50,9 @@ const PAIR_REASON_ERR_ALREADY_HAS_NAP: String = "ERR_ALREADY_HAS_NAP"
 const PAIR_REASON_ERR_ALREADY_ALLIED: String = "ERR_ALREADY_ALLIED"
 const PAIR_REASON_ERR_INSUFFICIENT_OPINION: String = "ERR_INSUFFICIENT_OPINION"
 const PAIR_REASON_ERR_UNKNOWN_TREATY: String = "ERR_UNKNOWN_TREATY"
+const PAIR_REASON_ERR_ON_TRUCE: String = "ERR_ON_TRUCE"
+const PAIR_REASON_ERR_BLOCKED_BY_TREATY: String = "ERR_BLOCKED_BY_TREATY"
+const PAIR_REASON_ERR_INVALID_DAY: String = "ERR_INVALID_DAY"
 
 signal relation_changed(faction_id: String, new_opinion: float, disposition: int)
 signal treaty_signed(faction_id: String, treaty_type: String)
@@ -64,12 +67,35 @@ signal faction_pair_opinion_changed(from_id: String, to_id: String, new_opinion:
 signal faction_pair_war_declared(initiator_id: String, target_id: String, pair_key: String)
 signal faction_pair_peace_signed(faction_a: String, faction_b: String, pair_key: String)
 signal faction_pair_treaty_signed(faction_a: String, faction_b: String, treaty_type: String, pair_key: String)
+signal faction_pair_diplomatic_action_executed(pair_key: String, execution_result: Dictionary)
 
 var _factions: Dictionary = {} # id -> FactionData
 var _pairwise_relations: Dictionary = {} # canonical pair_key -> FactionRelationData
 var _strategy_executor: FactionStrategyExecutor = FactionStrategyExecutor.new()
 var _last_tribe_growth_day: int = -1
 var _last_diplomacy_days: Dictionary = {} # faction_id -> int day
+var _last_pairwise_diplomacy_days: Dictionary = {} # pair_key -> int day
+var _custom_current_day: int = -1
+
+func set_custom_current_day(day: int) -> void:
+	_custom_current_day = day
+
+func get_current_day() -> int:
+	return _resolve_current_day(-1)
+
+func _resolve_current_day(day: int) -> int:
+	if day >= 1:
+		return day
+	if _custom_current_day >= 1:
+		return _custom_current_day
+	if _custom_current_day == -999:
+		return -1
+	var main_loop = Engine.get_main_loop()
+	if main_loop is SceneTree and main_loop.root != null:
+		var tm = main_loop.root.get_node_or_null("TimeManager")
+		if tm != null and "current_day" in tm and int(tm.current_day) >= 1:
+			return int(tm.current_day)
+	return -1
 
 func _init() -> void:
 	_initialize_factions()
@@ -80,6 +106,8 @@ func _initialize_factions() -> void:
 		_strategy_executor.reset_state()
 	_last_tribe_growth_day = -1
 	_last_diplomacy_days.clear()
+	_last_pairwise_diplomacy_days.clear()
+	_custom_current_day = -1
 	
 	# Rival 1: Military Kingdom
 	var rival_mil := FactionData.new(
@@ -156,6 +184,14 @@ func get_faction_relation_record(id_1: String, id_2: String) -> FactionRelationD
 	if not _pairwise_relations.has(p_key):
 		initialize_pairwise_relations(false)
 	return _pairwise_relations.get(p_key, null)
+
+func get_pairwise_relation(pair_key: String) -> FactionRelationData:
+	if not _pairwise_relations.has(pair_key):
+		initialize_pairwise_relations(false)
+	return _pairwise_relations.get(pair_key, null)
+
+func get_pairwise_relation_between(id_1: String, id_2: String) -> FactionRelationData:
+	return get_faction_relation_record(id_1, id_2)
 
 func get_faction_relation(from_id: String, to_id: String) -> Dictionary:
 	var rec: FactionRelationData = get_faction_relation_record(from_id, to_id)
@@ -318,7 +354,7 @@ func modify_faction_pair_opinion(from_id: String, to_id: String, delta: Variant)
 		"disposition": new_disp
 	}
 
-func declare_war_between_factions(initiator_id: String, target_id: String) -> Dictionary:
+func declare_war_between_factions(initiator_id: String, target_id: String, casus_belli: String = "", current_day: int = -1) -> Dictionary:
 	var check: Dictionary = _validate_faction_pair_ids(initiator_id, target_id)
 	if not bool(check.get("valid", false)):
 		return {
@@ -347,7 +383,37 @@ func declare_war_between_factions(initiator_id: String, target_id: String) -> Di
 			"reason_code": PAIR_REASON_ERR_ALREADY_AT_WAR,
 			"reason": "Hai thế lực đã ở trong tình trạng chiến tranh"
 		}
-	rec.apply_declare_war()
+
+	# BUG-2E-03: Self-protect diplomacy rules against invalid war declarations
+	if rec.has_alliance:
+		return {
+			"success": false,
+			"reason_code": PAIR_REASON_ERR_BLOCKED_BY_TREATY,
+			"reason": "Hai thế lực đang có Liên Minh Phòng Thủ, không thể tuyên chiến"
+		}
+	if rec.has_nap:
+		return {
+			"success": false,
+			"reason_code": PAIR_REASON_ERR_BLOCKED_BY_TREATY,
+			"reason": "Hai thế lực đang có Hiệp Ước Không Xâm Phạm, không thể tuyên chiến"
+		}
+
+	var eff_day: int = _resolve_current_day(current_day)
+	if rec.truce_until_day >= 1:
+		if eff_day < 1:
+			return {
+				"success": false,
+				"reason_code": PAIR_REASON_ERR_INVALID_DAY,
+				"reason": "Không thể xác định ngày hiện tại để kiểm tra thời hạn đình chiến"
+			}
+		if rec.is_on_truce(eff_day):
+			return {
+				"success": false,
+				"reason_code": PAIR_REASON_ERR_ON_TRUCE,
+				"reason": "Hai thế lực đang trong thời gian đình chiến (đến ngày %d)" % rec.truce_until_day
+			}
+
+	rec.apply_declare_war(eff_day, casus_belli)
 	var p_key: String = rec.get_pair_key()
 	faction_pair_war_declared.emit(initiator_id, target_id, p_key)
 	_emit_pair_opinion_signals(rec)
@@ -361,10 +427,13 @@ func declare_war_between_factions(initiator_id: String, target_id: String) -> Di
 		"has_nap": rec.has_nap,
 		"has_alliance": rec.has_alliance,
 		"opinion_a_to_b": rec.opinion_a_to_b,
-		"opinion_b_to_a": rec.opinion_b_to_a
+		"opinion_b_to_a": rec.opinion_b_to_a,
+		"war_start_day": rec.war_start_day,
+		"casus_belli": rec.casus_belli,
+		"war_count": rec.war_count
 	}
 
-func sign_peace_between_factions(id_1: String, id_2: String) -> Dictionary:
+func sign_peace_between_factions(id_1: String, id_2: String, truce_duration: int = 6, current_day: int = -1) -> Dictionary:
 	var check: Dictionary = _validate_faction_pair_ids(id_1, id_2)
 	if not bool(check.get("valid", false)):
 		return {
@@ -393,7 +462,7 @@ func sign_peace_between_factions(id_1: String, id_2: String) -> Dictionary:
 			"reason_code": PAIR_REASON_ERR_NOT_AT_WAR,
 			"reason": "Hai thế lực đang trong trạng thái hòa bình"
 		}
-	rec.apply_sign_peace()
+	rec.apply_sign_peace(truce_duration, current_day)
 	var p_key: String = rec.get_pair_key()
 	faction_pair_peace_signed.emit(rec.faction_a, rec.faction_b, p_key)
 	_emit_pair_opinion_signals(rec)
@@ -405,7 +474,8 @@ func sign_peace_between_factions(id_1: String, id_2: String) -> Dictionary:
 		"faction_b": rec.faction_b,
 		"is_at_war": rec.is_at_war,
 		"opinion_a_to_b": rec.opinion_a_to_b,
-		"opinion_b_to_a": rec.opinion_b_to_a
+		"opinion_b_to_a": rec.opinion_b_to_a,
+		"truce_until_day": rec.truce_until_day
 	}
 
 func sign_nap_between_factions(id_1: String, id_2: String) -> Dictionary:
@@ -520,10 +590,11 @@ func sign_alliance_between_factions(id_1: String, id_2: String) -> Dictionary:
 		"opinion_b_to_a": rec.opinion_b_to_a
 	}
 
-func propose_treaty_between_factions(id_1: String, id_2: String, treaty_type: String) -> Dictionary:
+func propose_treaty_between_factions(id_1: String, id_2: String, treaty_type: String, current_day: int = -1) -> Dictionary:
+	var eff_day: int = _resolve_current_day(current_day)
 	match treaty_type:
 		"peace":
-			return sign_peace_between_factions(id_1, id_2)
+			return sign_peace_between_factions(id_1, id_2, FactionDiplomacyPlanner.INTER_TRUCE_DURATION_DAYS, eff_day)
 		"nap":
 			return sign_nap_between_factions(id_1, id_2)
 		"alliance":
@@ -600,6 +671,16 @@ func deserialize_pairwise_relations(data: Dictionary) -> void:
 			rec.is_at_war = false
 			rec.has_alliance = false
 			rec.has_nap = nap
+
+		var truce_d = entry.get("truce_until_day", -1)
+		rec.truce_until_day = int(truce_d) if (truce_d is int or (truce_d is float and not is_nan(truce_d) and floor(truce_d) == truce_d)) else -1
+		var war_d = entry.get("war_start_day", -1)
+		rec.war_start_day = int(war_d) if (war_d is int or (war_d is float and not is_nan(war_d) and floor(war_d) == war_d)) else -1
+		rec.casus_belli = str(entry.get("casus_belli", ""))
+		var w_cnt = entry.get("war_count", 0)
+		rec.war_count = maxi(0, int(w_cnt)) if (w_cnt is int or (w_cnt is float and not is_nan(w_cnt) and floor(w_cnt) == w_cnt)) else 0
+		var b_rep = entry.get("last_battle_report", {})
+		rec.last_battle_report = b_rep.duplicate(true) if (b_rep is Dictionary) else {}
 
 func get_faction(id: String) -> FactionData:
 	return _factions.get(id, null)
@@ -826,6 +907,134 @@ func execute_faction_diplomatic_action(faction_id: String, day: int, decision_ov
 		"changes": {}
 	}
 
+# -----------------------------------------------------------------------------
+# Package 2E: Autonomous Inter-Faction Pairwise Diplomacy Execution
+# -----------------------------------------------------------------------------
+
+func get_pairwise_last_diplomacy_day(pair_key: String) -> int:
+	return int(_last_pairwise_diplomacy_days.get(pair_key, -1))
+
+func set_pairwise_last_diplomacy_day(pair_key: String, day: int) -> void:
+	if pair_key.is_empty():
+		return
+	if day >= 1:
+		_last_pairwise_diplomacy_days[pair_key] = day
+	else:
+		_last_pairwise_diplomacy_days.erase(pair_key)
+
+func execute_pairwise_diplomatic_action(pair_key: String, day: int) -> Dictionary:
+	if not _pairwise_relations.has(pair_key):
+		initialize_pairwise_relations(false)
+	var rec: FactionRelationData = _pairwise_relations.get(pair_key, null)
+	if rec == null:
+		return {
+			"pair_key": pair_key,
+			"day": day,
+			"action_id": FactionDiplomacyPlanner.ACTION_NONE,
+			"success": false,
+			"reason_code": PAIR_REASON_ERR_UNKNOWN_FACTION,
+			"changes": {}
+		}
+	if day < 1:
+		return {
+			"pair_key": pair_key,
+			"day": day,
+			"action_id": FactionDiplomacyPlanner.ACTION_NONE,
+			"success": false,
+			"reason_code": DIPLO_REASON_ERR_INVALID_DAY,
+			"changes": {}
+		}
+	if get_pairwise_last_diplomacy_day(pair_key) >= day:
+		return {
+			"pair_key": pair_key,
+			"day": day,
+			"action_id": FactionDiplomacyPlanner.ACTION_NONE,
+			"success": false,
+			"reason_code": DIPLO_REASON_ALREADY_EVALUATED_TODAY,
+			"changes": {}
+		}
+
+	set_pairwise_last_diplomacy_day(pair_key, day)
+
+	var fac_1: FactionData = get_faction(rec.faction_a)
+	var fac_2: FactionData = get_faction(rec.faction_b)
+	if fac_1 == null or fac_2 == null:
+		return {
+			"pair_key": pair_key,
+			"day": day,
+			"action_id": FactionDiplomacyPlanner.ACTION_NONE,
+			"success": false,
+			"reason_code": PAIR_REASON_ERR_UNKNOWN_FACTION,
+			"changes": {}
+		}
+
+	var decision: Dictionary = FactionDiplomacyPlanner.evaluate_pair_diplomatic_action(fac_1, fac_2, rec, day)
+	var action_id: String = str(decision.get("action_id", FactionDiplomacyPlanner.ACTION_NONE))
+	var eligible: bool = bool(decision.get("eligible", false))
+
+	if not eligible or action_id == FactionDiplomacyPlanner.ACTION_NONE:
+		return {
+			"pair_key": pair_key,
+			"day": day,
+			"action_id": FactionDiplomacyPlanner.ACTION_NONE,
+			"success": false,
+			"reason_code": str(decision.get("reason_code", DIPLO_REASON_NO_ACTION)),
+			"decision": decision,
+			"changes": {}
+		}
+
+	if action_id == FactionDiplomacyPlanner.ACTION_DECLARE_WAR:
+		var init_id: String = str(decision.get("faction_id", fac_1.id))
+		var target_id: String = str(decision.get("target_id", fac_2.id if init_id == fac_1.id else fac_1.id))
+		var casus_belli: String = str(decision.get("casus_belli", ""))
+		var war_res: Dictionary = declare_war_between_factions(init_id, target_id, casus_belli, day)
+		var res: Dictionary = {
+			"pair_key": pair_key,
+			"day": day,
+			"action_id": FactionDiplomacyPlanner.ACTION_DECLARE_WAR,
+			"success": bool(war_res.get("success", false)),
+			"reason_code": str(war_res.get("reason_code", "")),
+			"initiator_id": init_id,
+			"target_id": target_id,
+			"casus_belli": casus_belli,
+			"decision": decision,
+			"changes": war_res
+		}
+		faction_pair_diplomatic_action_executed.emit(pair_key, res)
+		return res
+
+	if action_id == FactionDiplomacyPlanner.ACTION_SIGN_PEACE:
+		var peace_res: Dictionary = sign_peace_between_factions(fac_1.id, fac_2.id, FactionDiplomacyPlanner.INTER_TRUCE_DURATION_DAYS, day)
+		var res_peace: Dictionary = {
+			"pair_key": pair_key,
+			"day": day,
+			"action_id": FactionDiplomacyPlanner.ACTION_SIGN_PEACE,
+			"success": bool(peace_res.get("success", false)),
+			"reason_code": str(peace_res.get("reason_code", "")),
+			"decision": decision,
+			"changes": peace_res
+		}
+		faction_pair_diplomatic_action_executed.emit(pair_key, res_peace)
+		return res_peace
+
+	return {
+		"pair_key": pair_key,
+		"day": day,
+		"action_id": FactionDiplomacyPlanner.ACTION_NONE,
+		"success": false,
+		"reason_code": DIPLO_REASON_NO_ACTION,
+		"changes": {}
+	}
+
+func execute_all_pairwise_diplomacy(day: int) -> Array[Dictionary]:
+	initialize_pairwise_relations(false)
+	var results: Array[Dictionary] = []
+	var sorted_keys: Array = _pairwise_relations.keys()
+	sorted_keys.sort()
+	for k in sorted_keys:
+		results.append(execute_pairwise_diplomatic_action(str(k), day))
+	return results
+
 func get_strategy_executor() -> FactionStrategyExecutor:
 	return _strategy_executor
 
@@ -846,6 +1055,7 @@ func serialize_executor_state() -> Dictionary:
 	var out: Dictionary = _strategy_executor.serialize() if _strategy_executor != null else {"last_executed_days": {}}
 	out["last_tribe_growth_day"] = _last_tribe_growth_day
 	out["last_diplomacy_days"] = _last_diplomacy_days.duplicate(true)
+	out["last_pairwise_diplomacy_days"] = _last_pairwise_diplomacy_days.duplicate(true)
 	return out
 
 func deserialize_executor_state(data: Dictionary, current_day: int = -1) -> void:
@@ -853,6 +1063,7 @@ func deserialize_executor_state(data: Dictionary, current_day: int = -1) -> void
 		_strategy_executor = FactionStrategyExecutor.new()
 	_strategy_executor.deserialize(data, current_day)
 	_last_diplomacy_days.clear()
+	_last_pairwise_diplomacy_days.clear()
 	if data.is_empty():
 		_last_tribe_growth_day = -1
 		return
@@ -877,6 +1088,17 @@ func deserialize_executor_state(data: Dictionary, current_day: int = -1) -> void
 				var d: int = int(d_val)
 				if d >= 1 and d <= 36500 and (current_day < 1 or d <= current_day):
 					_last_diplomacy_days[String(fid)] = d
+
+	var raw_pair_diplo = data.get("last_pairwise_diplomacy_days", {})
+	if raw_pair_diplo is Dictionary:
+		for pk in raw_pair_diplo.keys():
+			if not (pk is String) or String(pk).is_empty():
+				continue
+			var d_val = raw_pair_diplo[pk]
+			if d_val is int or (d_val is float and not is_nan(d_val) and not is_inf(d_val) and floor(d_val) == d_val):
+				var d: int = int(d_val)
+				if d >= 1 and d <= 36500 and (current_day < 1 or d <= current_day):
+					_last_pairwise_diplomacy_days[String(pk)] = d
 
 func modify_opinion(faction_id: String, delta: float) -> Dictionary:
 	var fac: FactionData = get_faction(faction_id)
@@ -1053,6 +1275,9 @@ func update_daily_simulation(day: int) -> void:
 		if fac_dip == null:
 			continue
 		execute_faction_diplomatic_action(fid, day)
+
+	# 2b. Evaluate and execute autonomous inter-faction diplomacy for all canonical pairs (Package 2E)
+	execute_all_pairwise_diplomacy(day)
 
 	# 3. Evaluate and execute daily strategic intents for active factions in stable deterministic order
 	for fid in sorted_ids:

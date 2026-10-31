@@ -393,3 +393,60 @@ Execution routes through `FactionManager.propose_treaty(faction_id, "peace")`, w
 ### 13.3 Save/Load Persistence & Fail-Closed Validation
 - **Persistence Location:** Serialized under `data["factions"]["pairwise_relations"]` (`SAVE_SCHEMA_VERSION = 1`).
 - **Fail-Closed Validation:** `SaveManager.validate_save_data()` rejects non-Dictionary `pairwise_relations`, self-relations, unknown faction IDs, non-canonical ordering (`faction_a > faction_b`), key/field mismatches, duplicate pairs, non-finite or out-of-range opinions (`< -100.0` or `> 100.0`), non-boolean flags, and contradictory states (`is_at_war && (has_nap || has_alliance)` or `has_alliance && !has_nap`) before world mutation. Legacy saves omitting `pairwise_relations` initialize clean neutral defaults.
+
+---
+
+## 14. Autonomous Inter-Faction Warfare & Conflict Simulation (Package 2E)
+
+### 14.1 Daily Simulation Ordering
+- Daily pairwise diplomacy is evaluated in Step 2b of `FactionManager.update_daily_simulation(day)` (`execute_all_pairwise_diplomacy`) immediately after player-facing autonomous diplomacy and before daily strategic economic intent execution (Step 3).
+- At-most-once evaluation per day per canonical pair is enforced via `_last_pairwise_diplomacy_days[pair_key] = day`.
+
+### 14.2 Autonomous War Declaration Prerequisites
+An NPC faction autonomously initiates war against another NPC faction if and only if all of the following hold:
+1. Both factions are in `active` existence status (`in_exile` and `eliminated` factions cannot wage war).
+2. The pair is not currently at war (`is_at_war == false`).
+3. Neither faction is under an active truce (`is_on_truce(current_day) == false`).
+4. Neither faction has an active NAP (`has_nap == false`) or Alliance (`has_alliance == false`).
+5. Initiator opinion of the target is at or below the war threshold:
+   $$\text{opinion}(\text{initiator} \to \text{target}) \le -50.0 \quad (\text{INTER\_WAR\_MAX\_OPINION})$$
+6. Initiator military strength is at or above the minimum readiness threshold:
+   $$\text{military\_power} \ge 40.0 \quad (\text{INTER\_WAR\_MIN\_MILITARY\_POWER})$$
+7. Initiator internal stability is at or above the minimum cohesion threshold:
+   $$\text{stability} \ge 30.0 \quad (\text{INTER\_WAR\_MIN\_STABILITY})$$
+8. Relative military power ratio satisfies the strategic safety margin:
+   $$\frac{\text{initiator.military\_power}}{\text{target.military\_power}} \ge 0.65 \quad (\text{INTER\_WAR\_MIN\_POWER\_RATIO})$$
+9. Initiator strategic goal justifies conflict:
+   - `military_expansion`
+   - Ascended `emerging_power` with `consolidate_power`
+   - Extreme historical enmity ($\text{opinion} \le -75.0$)
+   - Target is `rival_merchant` (trade route competition)
+
+### 14.3 Campaign Preparation, Resolution & Outpost Siege
+- **Campaign Scheduling:** War declaration automatically schedules a military campaign in `BattleCampaignManager` with a 2-day preparation delay (`INTER_FACTION_CAMPAIGN_PREP_DAYS = 2`). Subsequent campaigns between warring factions are spaced at 4-day intervals (`INTER_FACTION_SUBSEQUENT_INTERVAL_DAYS = 4`).
+- **Real Combat Resolution:** Resolved via authoritative `BattleResolver.resolve_battle` with troops proportional to `military_power / 20.0` (clamped between 3 and 10 troops).
+- **Casualties & Resource Plunder:**
+  - Combat casualties deduct proportionally from `military_power` and `population`.
+  - Plundered resources are strictly transferred from the defender's `resources` stockpile to the attacker's stockpile without fabricating phantom resources.
+- **Outpost Damage & Sacking:**
+  - Attacker victory inflicts real siege damage to the defender's regional outpost tracked by `FieldSiegeManager` ($15.0\text{ HP}$ per surviving attacker troop).
+  - Outpost health reaching $0.0\text{ HP}$ transitions the outpost to sacked/captured status (`is_captured = true`).
+
+### 14.4 War Weariness & Peace Negotiation
+- **Weariness Trigger:** An active inter-faction war evaluates mutual peace when:
+  1. War duration $\ge 12$ game days (`INTER_WAR_WEARINESS_DAYS = 12`) **OR**
+  2. Either faction suffers military exhaustion:
+     $$\text{military\_power} \le 20.0 \quad \text{OR} \quad \text{stability} \le 25.0$$
+- **Truce Cooldown & Anti-Oscillation:**
+  - Signing peace terminates war (`is_at_war = false`), grants $+20.0$ mutual opinion (pulling relations up to $-30.0$, far above the $-50.0$ threshold), establishes a 6-day truce (`INTER_TRUCE_DURATION_DAYS = 6`), and cancels any pending inter-faction campaigns.
+  - During the truce (`current_day < truce_until_day`), all declaration attempts fail closed with `PAIR_REASON_ERR_ON_TRUCE`.
+
+### 14.5 Player Economic Impact & Trade Caravan Wartime Surcharge
+- **Wartime Surcharge:** When a trade caravan arrives from an origin faction currently engaged in war, all commodity sell prices to the player incur a $+15\%$ risk surcharge (`WARTIME_PRICE_SURCHARGE = 0.15`), with a guaranteed minimum markup of at least $+1$ Gold per commodity unit.
+- **Authoritative Transparency:** The visiting caravan inspector and Trade HUD display a prominent wartime warning: `⚠️ VÙNG CHIẾN SỰ: Xuất phát từ lãnh thổ có chiến tranh (Phụ phí rủi ro: +15% giá mua)`.
+
+### 14.6 Player Isolation & Diplomacy HUD Integration
+- **Strict Player Isolation:** Inter-faction wars never alter player opinions, player treaties, or player-targeted raids.
+- **World Warfare Transparency:**
+  - Real-time HUD event banners notify the player of world war declarations, peace treaties, campaign mobilization, and battle results with casualty reports.
+  - Section 3 of the Diplomacy Panel ("⚔️ QUAN HỆ & CHIẾN SỰ GIỮA CÁC THẾ LỰC (NPC — NPC)") displays all 3 canonical pairs with color-coded status badges, 2-way opinion readouts, Casus Belli, war duration, pending campaign info, recent battle summaries, and player alliance warnings.

@@ -15,10 +15,17 @@ const MILITARY_POWER_PER_TROOP: float = 30.0
 const MIN_ABSTRACT_TROOPS: int = 1
 const MAX_ABSTRACT_TROOPS: int = 20
 
+# Package 2E: Autonomous Inter-Faction Campaign Constants
+const INTER_FACTION_CAMPAIGN_PREP_DAYS: int = 2
+const INTER_FACTION_SUBSEQUENT_INTERVAL_DAYS: int = 4
+
 signal raid_scheduled(faction_id: String, scheduled_day: int, is_first: bool)
 signal raid_cancelled(faction_id: String, reason: String)
 signal battle_resolved(report: BattleResolver.BattleReport, raid_context: Dictionary)
 signal offensive_campaign_resolved(report: BattleResolver.BattleReport, context: Dictionary)
+signal inter_faction_campaign_scheduled(campaign_data: Dictionary)
+signal inter_faction_campaign_cancelled(campaign_id: String, reason: String)
+signal inter_faction_battle_resolved(report: BattleResolver.BattleReport, context: Dictionary)
 
 var world_view: Node = null
 var faction_mgr: FactionManager = null
@@ -30,6 +37,7 @@ var _custom_citizen_list: Array = []
 var _custom_resource_mgr: Object = null
 var _custom_job_mgr: JobManager = null
 var _custom_army_mgr: Object = null
+var _custom_field_siege_mgr: Object = null
 var _custom_current_day: int = -1
 
 # Persistent State:
@@ -41,6 +49,13 @@ var _processed_raids: Dictionary = {}
 var _in_flight_raids: Dictionary = {}
 var _in_flight_offensive: Dictionary = {}
 var _offensive_campaign_sequence: int = 0
+
+# Package 2E: Autonomous Inter-Faction Warfare Persistent State
+var _pending_inter_faction_campaigns: Dictionary = {} # campaign_id -> Dictionary
+var _processed_inter_faction_campaigns: Dictionary = {} # campaign_id -> bool
+var _recent_inter_faction_reports: Array[Dictionary] = [] # list of max 5 context dictionaries
+var _next_inter_faction_campaign_index: int = 1
+var _in_flight_inter_faction: Dictionary = {} # campaign_id -> bool
 
 func _init(p_world_view: Node = null, p_faction_mgr: FactionManager = null, p_seed: int = 12345) -> void:
 	world_view = p_world_view
@@ -82,17 +97,35 @@ func set_custom_job_manager(jm: JobManager) -> void:
 func set_custom_current_day(day: int) -> void:
 	_custom_current_day = day
 
+func set_custom_field_siege_manager(fsm: Object) -> void:
+	_custom_field_siege_mgr = fsm
+
+func get_field_siege_manager() -> Object:
+	if _custom_field_siege_mgr != null:
+		return _custom_field_siege_mgr
+	if is_instance_valid(world_view) and world_view.get("field_siege_mgr") != null:
+		return world_view.get("field_siege_mgr")
+	return null
+
 func _connect_faction_signals() -> void:
 	if not faction_mgr.war_declared.is_connected(_on_faction_war_declared):
 		faction_mgr.war_declared.connect(_on_faction_war_declared)
 	if not faction_mgr.peace_signed.is_connected(_on_faction_peace_signed):
 		faction_mgr.peace_signed.connect(_on_faction_peace_signed)
+	if faction_mgr.has_signal("faction_pair_war_declared") and not faction_mgr.faction_pair_war_declared.is_connected(_on_faction_pair_war_declared):
+		faction_mgr.faction_pair_war_declared.connect(_on_faction_pair_war_declared)
+	if faction_mgr.has_signal("faction_pair_peace_signed") and not faction_mgr.faction_pair_peace_signed.is_connected(_on_faction_pair_peace_signed):
+		faction_mgr.faction_pair_peace_signed.connect(_on_faction_pair_peace_signed)
 
 func _disconnect_faction_signals() -> void:
 	if faction_mgr.war_declared.is_connected(_on_faction_war_declared):
 		faction_mgr.war_declared.disconnect(_on_faction_war_declared)
 	if faction_mgr.peace_signed.is_connected(_on_faction_peace_signed):
 		faction_mgr.peace_signed.disconnect(_on_faction_peace_signed)
+	if faction_mgr.has_signal("faction_pair_war_declared") and faction_mgr.faction_pair_war_declared.is_connected(_on_faction_pair_war_declared):
+		faction_mgr.faction_pair_war_declared.disconnect(_on_faction_pair_war_declared)
+	if faction_mgr.has_signal("faction_pair_peace_signed") and faction_mgr.faction_pair_peace_signed.is_connected(_on_faction_pair_peace_signed):
+		faction_mgr.faction_pair_peace_signed.disconnect(_on_faction_pair_peace_signed)
 
 func _on_faction_war_declared(faction_id: String) -> void:
 	var cur_day: int = get_current_day()
@@ -100,6 +133,19 @@ func _on_faction_war_declared(faction_id: String) -> void:
 
 func _on_faction_peace_signed(faction_id: String) -> void:
 	cancel_raid(faction_id, "Ký kết hòa bình")
+
+func _on_faction_pair_war_declared(initiator_id: String, target_id: String, _pair_key: String) -> void:
+	var cur_day: int = get_current_day()
+	var sched_day: int = cur_day + INTER_FACTION_CAMPAIGN_PREP_DAYS
+	var casus: String = ""
+	if faction_mgr != null and faction_mgr.has_method("get_faction_relation_record"):
+		var rec = faction_mgr.get_faction_relation_record(initiator_id, target_id)
+		if rec != null:
+			casus = rec.casus_belli
+	schedule_inter_faction_campaign(initiator_id, target_id, sched_day, 1, casus)
+
+func _on_faction_pair_peace_signed(faction_a: String, faction_b: String, pair_key: String) -> void:
+	cancel_inter_faction_campaigns_for_pair(pair_key, "Ký kết hòa ước đình chiến")
 
 func get_current_day() -> int:
 	if _custom_current_day >= 0:
@@ -504,6 +550,11 @@ func process_daily_raids(current_day: int) -> Array[Dictionary]:
 			else:
 				cancel_raid(fac_id, "Thế lực không còn đủ điều kiện đột kích")
 
+	# Package 2E: Process daily inter-faction campaigns
+	var if_results: Array[Dictionary] = process_daily_inter_faction_campaigns(current_day)
+	for if_r in if_results:
+		results.append(if_r)
+
 	return results
 
 # -----------------------------------------------------------------------------
@@ -514,7 +565,11 @@ func serialize() -> Dictionary:
 	return {
 		"pending_raids": _pending_raids.duplicate(true),
 		"processed_raids": _processed_raids.duplicate(true),
-		"offensive_sequence": _offensive_campaign_sequence
+		"offensive_sequence": _offensive_campaign_sequence,
+		"pending_inter_faction_campaigns": _pending_inter_faction_campaigns.duplicate(true),
+		"processed_inter_faction_campaigns": _processed_inter_faction_campaigns.duplicate(true),
+		"recent_inter_faction_reports": _recent_inter_faction_reports.duplicate(true),
+		"next_inter_faction_campaign_index": _next_inter_faction_campaign_index
 	}
 
 func deserialize(data: Dictionary) -> void:
@@ -522,6 +577,12 @@ func deserialize(data: Dictionary) -> void:
 	_processed_raids.clear()
 	_in_flight_raids.clear()
 	_in_flight_offensive.clear()
+	_pending_inter_faction_campaigns.clear()
+	_processed_inter_faction_campaigns.clear()
+	_recent_inter_faction_reports.clear()
+	_in_flight_inter_faction.clear()
+	_next_inter_faction_campaign_index = 1
+
 	var raw_seq: int = 0
 	if data.has("offensive_sequence"):
 		raw_seq = int(data.get("offensive_sequence", 0))
@@ -542,6 +603,30 @@ func deserialize(data: Dictionary) -> void:
 				"scheduled_day": int(p_info.get("scheduled_day", 1)),
 				"raid_sequence": int(p_info.get("raid_sequence", 1))
 			}
+
+	var raw_if_pending = data.get("pending_inter_faction_campaigns", {})
+	if raw_if_pending is Dictionary:
+		for c_id in raw_if_pending:
+			var c_dict = raw_if_pending[c_id]
+			if c_dict is Dictionary:
+				var atk: String = str(c_dict.get("attacker_id", ""))
+				var def: String = str(c_dict.get("defender_id", ""))
+				var fm: FactionManager = get_faction_manager()
+				if fm == null or (fm.are_factions_at_war(atk, def) and fm.get_faction(atk) != null and fm.get_faction(def) != null and fm.get_faction(atk).existence_status == FactionData.STATUS_ACTIVE and fm.get_faction(def).existence_status == FactionData.STATUS_ACTIVE):
+					_pending_inter_faction_campaigns[str(c_id)] = c_dict.duplicate(true)
+
+	var raw_if_proc = data.get("processed_inter_faction_campaigns", {})
+	if raw_if_proc is Dictionary:
+		for k in raw_if_proc:
+			_processed_inter_faction_campaigns[String(k)] = bool(raw_if_proc[k])
+
+	var raw_reps = data.get("recent_inter_faction_reports", [])
+	if raw_reps is Array:
+		for r in raw_reps:
+			if r is Dictionary:
+				_recent_inter_faction_reports.append(r.duplicate(true))
+
+	_next_inter_faction_campaign_index = maxi(1, int(data.get("next_inter_faction_campaign_index", 1)))
 
 # -----------------------------------------------------------------------------
 # Stage F. Player-Led Abstract Offensive Campaigns (Package 1N)
@@ -699,3 +784,364 @@ func launch_offensive_campaign(target_faction_id: String, custom_seed: int = -1)
 		"report": report,
 		"context": context
 	}
+
+# -----------------------------------------------------------------------------
+# Stage G. Autonomous Inter-Faction Warfare Campaigns (Package 2E)
+# -----------------------------------------------------------------------------
+
+func has_pending_inter_faction_campaign_for_pair(pair_key: String) -> bool:
+	for camp in _pending_inter_faction_campaigns.values():
+		if camp.get("pair_key") == pair_key and camp.get("status") == "scheduled":
+			return true
+	return false
+
+func get_pending_inter_faction_campaign_for_pair(pair_key: String) -> Dictionary:
+	for camp in _pending_inter_faction_campaigns.values():
+		if camp.get("pair_key") == pair_key and camp.get("status") == "scheduled":
+			return camp.duplicate(true)
+	return {}
+
+func get_all_pending_inter_faction_campaigns() -> Array[Dictionary]:
+	var list: Array[Dictionary] = []
+	for camp in _pending_inter_faction_campaigns.values():
+		list.append(camp.duplicate(true))
+	return list
+
+func get_recent_inter_faction_reports() -> Array[Dictionary]:
+	return _recent_inter_faction_reports.duplicate(true)
+
+func schedule_inter_faction_campaign(
+	attacker_id: String,
+	defender_id: String,
+	scheduled_day: int,
+	seq: int = 1,
+	casus_belli: String = ""
+) -> Dictionary:
+	var fm = get_faction_manager()
+	if fm == null:
+		return {"success": false, "reason": "FactionManager not found"}
+
+	var atk_fac: FactionData = fm.get_faction(attacker_id)
+	var def_fac: FactionData = fm.get_faction(defender_id)
+	if atk_fac == null or def_fac == null:
+		return {"success": false, "reason": "One or both factions not found"}
+
+	if atk_fac.existence_status != FactionData.STATUS_ACTIVE or def_fac.existence_status != FactionData.STATUS_ACTIVE:
+		return {"success": false, "reason": "Both factions must be active to campaign"}
+
+	if not fm.are_factions_at_war(attacker_id, defender_id):
+		return {"success": false, "reason": "Factions are not at war"}
+
+	var p_key: String = FactionRelationData.make_pair_key(attacker_id, defender_id)
+	if has_pending_inter_faction_campaign_for_pair(p_key):
+		return {"success": false, "reason": "Campaign already pending for pair", "already_pending": true}
+
+	var camp_id: String = "if_camp_%d" % _next_inter_faction_campaign_index
+	_next_inter_faction_campaign_index += 1
+
+	var target_outpost: String = "outpost_%s" % defender_id
+	var record: Dictionary = {
+		"campaign_id": camp_id,
+		"pair_key": p_key,
+		"attacker_id": attacker_id,
+		"defender_id": defender_id,
+		"scheduled_day": scheduled_day,
+		"sequence": seq,
+		"status": "scheduled",
+		"casus_belli": casus_belli,
+		"target_outpost_id": target_outpost
+	}
+
+	_pending_inter_faction_campaigns[camp_id] = record
+	inter_faction_campaign_scheduled.emit(record)
+
+	return {
+		"success": true,
+		"campaign_id": camp_id,
+		"record": record
+	}
+
+func cancel_inter_faction_campaign(campaign_id: String, reason: String = "Cancelled") -> bool:
+	if _pending_inter_faction_campaigns.has(campaign_id):
+		var rec: Dictionary = _pending_inter_faction_campaigns[campaign_id]
+		rec["status"] = "cancelled"
+		_pending_inter_faction_campaigns.erase(campaign_id)
+		inter_faction_campaign_cancelled.emit(campaign_id, reason)
+		return true
+	return false
+
+func cancel_inter_faction_campaigns_for_pair(pair_key: String, reason: String = "Cancelled") -> int:
+	var to_cancel: Array[String] = []
+	for c_id in _pending_inter_faction_campaigns:
+		var camp: Dictionary = _pending_inter_faction_campaigns[c_id]
+		if camp.get("pair_key") == pair_key:
+			to_cancel.append(str(c_id))
+	for c_id in to_cancel:
+		cancel_inter_faction_campaign(c_id, reason)
+	return to_cancel.size()
+
+func resolve_inter_faction_campaign(campaign_id: String, current_day: int = -1) -> Dictionary:
+	if current_day < 0:
+		current_day = get_current_day()
+
+	if not _pending_inter_faction_campaigns.has(campaign_id):
+		return {"success": false, "reason": "Campaign not found"}
+
+	var record: Dictionary = _pending_inter_faction_campaigns[campaign_id]
+	var sched_day: int = int(record.get("scheduled_day", -1))
+	if current_day < sched_day:
+		return {"success": false, "reason": "Campaign not due yet", "not_due": true}
+
+	if _in_flight_inter_faction.get(campaign_id, false):
+		return {"success": false, "reason": "Campaign already in-flight", "in_flight": true}
+
+	if _processed_inter_faction_campaigns.has(campaign_id):
+		return {"success": false, "reason": "Campaign already processed", "already_processed": true}
+
+	var fm = get_faction_manager()
+	if fm == null:
+		return {"success": false, "reason": "FactionManager not found"}
+
+	var atk_id: String = str(record.get("attacker_id", ""))
+	var def_id: String = str(record.get("defender_id", ""))
+	var atk_fac: FactionData = fm.get_faction(atk_id)
+	var def_fac: FactionData = fm.get_faction(def_id)
+
+	if atk_fac == null or def_fac == null:
+		cancel_inter_faction_campaign(campaign_id, "Faction data missing")
+		return {"success": false, "reason": "Faction data missing"}
+
+	if atk_fac.existence_status != FactionData.STATUS_ACTIVE or def_fac.existence_status != FactionData.STATUS_ACTIVE:
+		cancel_inter_faction_campaign(campaign_id, "Faction no longer active")
+		return {"success": false, "reason": "Faction no longer active"}
+
+	if not fm.are_factions_at_war(atk_id, def_id):
+		cancel_inter_faction_campaign(campaign_id, "Factions no longer at war")
+		return {"success": false, "reason": "Factions no longer at war"}
+
+	_in_flight_inter_faction[campaign_id] = true
+
+	# 1. Construct Attacker Force
+	var atk_troops: int = clampi(int(round(atk_fac.military_power / MILITARY_POWER_PER_TROOP)), MIN_ABSTRACT_TROOPS, MAX_ABSTRACT_TROOPS)
+	var atk_equip: int = 2 if atk_fac.type == "rival_military" else 1
+	var atk_morale: float = clampf(atk_fac.stability, 20.0, 100.0)
+	var atk_force: Dictionary = {
+		"troops": atk_troops,
+		"equipment_tier": atk_equip,
+		"morale": atk_morale,
+		"terrain_multiplier": 1.0
+	}
+
+	# 2. Construct Defender Force
+	var def_troops: int = clampi(int(round(def_fac.military_power / MILITARY_POWER_PER_TROOP)), MIN_ABSTRACT_TROOPS, MAX_ABSTRACT_TROOPS)
+	var def_equip: int = 2 if def_fac.type == "rival_military" else 1
+	var def_morale: float = clampf(def_fac.stability, 20.0, 100.0)
+	var def_force: Dictionary = {
+		"troops": def_troops,
+		"equipment_tier": def_equip,
+		"morale": def_morale,
+		"fortification_level": 1,
+		"terrain_multiplier": 1.0,
+		"resources": def_fac.resources.duplicate(true)
+	}
+
+	# 3. Deterministic Seed
+	var camp_seq: int = int(record.get("sequence", 1))
+	var camp_seed: int = (world_seed * 41 + current_day * 107 + hash(atk_id) * 17 + hash(def_id) * 29 + camp_seq * 37) & 0x7FFFFFFF
+
+	# 4. Resolve Battle with BattleResolver
+	var report: BattleResolver.BattleReport = BattleResolverScript.resolve_battle(atk_force, def_force, camp_seed)
+
+	# 5. Apply Military Losses
+	var atk_lost: int = report.attacker_casualties
+	var def_lost: int = report.defender_casualties
+	var atk_prev_power: float = atk_fac.military_power
+	var def_prev_power: float = def_fac.military_power
+
+	atk_fac.military_power = maxf(0.0, atk_fac.military_power - float(atk_lost) * MILITARY_POWER_PER_TROOP)
+	def_fac.military_power = maxf(0.0, def_fac.military_power - float(def_lost) * MILITARY_POWER_PER_TROOP)
+
+	# Population casualties
+	atk_fac.population = maxi(10, atk_fac.population - clampi(int(atk_lost / 2), 0, atk_fac.population - 10))
+	def_fac.population = maxi(10, def_fac.population - clampi(int(def_lost / 2), 0, def_fac.population - 10))
+
+	# 6. Apply Plunder / Spoils Transactionally
+	var plundered_applied: Dictionary = {}
+	if report.victor == "attacker" and not report.plunder_spoils.is_empty():
+		for r_id in report.plunder_spoils:
+			var req_amt: int = int(report.plunder_spoils[r_id])
+			var avail: int = int(def_fac.resources.get(r_id, 0))
+			var taken: int = mini(req_amt, avail)
+			if taken > 0:
+				def_fac.resources[r_id] = avail - taken
+				atk_fac.resources[r_id] = int(atk_fac.resources.get(r_id, 0)) + taken
+				plundered_applied[r_id] = taken
+	elif report.victor == "defender":
+		# Defender captures a small tribute from attacker's Gold/Metal
+		for r_id in [EconomyConfig.RES_GOLD, EconomyConfig.RES_METAL]:
+			var avail: int = int(atk_fac.resources.get(r_id, 0))
+			var taken: int = int(round(float(avail) * 0.10))
+			if taken > 0:
+				atk_fac.resources[r_id] = avail - taken
+				def_fac.resources[r_id] = int(def_fac.resources.get(r_id, 0)) + taken
+				plundered_applied[r_id] = taken
+
+	# 7. Outpost Damage (Target Outpost)
+	var outpost_sacked: bool = false
+	var fsm = get_field_siege_manager()
+	var target_obj_id: String = str(record.get("target_outpost_id", ""))
+	if fsm != null and not target_obj_id.is_empty():
+		var obj = fsm.get_objective(target_obj_id)
+		if obj != null and is_instance_valid(obj) and obj.is_alive:
+			if report.victor == "attacker":
+				var dmg: float = float(report.attacker_troops_remaining) * 15.0
+				obj.health = maxf(0.0, obj.health - dmg)
+				if obj.health <= 0.0:
+					obj.health = 0.0
+					obj.is_alive = false
+					obj.is_captured = true
+					outpost_sacked = true
+					if fsm.has_method("_on_objective_destroyed"):
+						fsm.call("_on_objective_destroyed", obj.objective_id, atk_fac.id)
+				if obj.has_method("queue_redraw"):
+					obj.queue_redraw()
+
+	# 8. Stability Shifts
+	if report.victor == "attacker":
+		atk_fac.stability = minf(100.0, atk_fac.stability + 5.0)
+		def_fac.stability = maxf(0.0, def_fac.stability - 10.0)
+	elif report.victor == "defender":
+		def_fac.stability = minf(100.0, def_fac.stability + 5.0)
+		atk_fac.stability = maxf(0.0, atk_fac.stability - 10.0)
+	else:
+		atk_fac.stability = maxf(0.0, atk_fac.stability - 3.0)
+		def_fac.stability = maxf(0.0, def_fac.stability - 3.0)
+
+	# 9. Opinion Degradation & Record Battle
+	var rel_rec: FactionRelationData = fm.get_faction_relation_record(atk_id, def_id)
+	if rel_rec != null:
+		rel_rec.change_opinion(atk_id, def_id, -10.0)
+		rel_rec.change_opinion(def_id, atk_id, -10.0)
+
+	var victor_name: String = atk_fac.name if report.victor == "attacker" else (def_fac.name if report.victor == "defender" else "Bất phân thắng bại")
+	var context: Dictionary = {
+		"campaign_id": campaign_id,
+		"pair_key": record.get("pair_key", ""),
+		"attacker_id": atk_fac.id,
+		"attacker_name": atk_fac.name,
+		"defender_id": def_fac.id,
+		"defender_name": def_fac.name,
+		"day": current_day,
+		"sequence": camp_seq,
+		"seed": camp_seed,
+		"victor": report.victor,
+		"victor_name": victor_name,
+		"attacker_casualties": atk_lost,
+		"defender_casualties": def_lost,
+		"attacker_troops_remaining": report.attacker_troops_remaining,
+		"defender_troops_remaining": report.defender_troops_remaining,
+		"attacker_remaining_power": atk_fac.military_power,
+		"defender_remaining_power": def_fac.military_power,
+		"attacker_previous_power": atk_prev_power,
+		"defender_previous_power": def_prev_power,
+		"plunder": plundered_applied,
+		"outpost_sacked": outpost_sacked,
+		"target_outpost_id": target_obj_id,
+		"casus_belli": record.get("casus_belli", ""),
+		"explanation": report.explanation,
+		"is_inter_faction": true
+	}
+
+	if rel_rec != null:
+		rel_rec.record_battle(context)
+
+	_recent_inter_faction_reports.push_front(context)
+	if _recent_inter_faction_reports.size() > 5:
+		_recent_inter_faction_reports.pop_back()
+
+	# 10. Check Peace / Next Campaign Scheduling
+	var peace_signed_after_battle: bool = false
+	var mil_depleted: bool = atk_fac.military_power <= FactionDiplomacyPlanner.PEACE_MAX_MILITARY_POWER or def_fac.military_power <= FactionDiplomacyPlanner.PEACE_MAX_MILITARY_POWER
+	var stab_critical: bool = atk_fac.stability <= FactionDiplomacyPlanner.PEACE_MAX_STABILITY or def_fac.stability <= FactionDiplomacyPlanner.PEACE_MAX_STABILITY
+
+	if mil_depleted or stab_critical or outpost_sacked:
+		fm.sign_peace_between_factions(atk_id, def_id, FactionDiplomacyPlanner.INTER_TRUCE_DURATION_DAYS, current_day)
+		peace_signed_after_battle = true
+	else:
+		# War continues: Schedule next campaign with roles switched (defender counter-attacks)
+		var next_sched_day: int = current_day + INTER_FACTION_SUBSEQUENT_INTERVAL_DAYS
+		schedule_inter_faction_campaign(def_id, atk_id, next_sched_day, camp_seq + 1, str(record.get("casus_belli", "")))
+
+	_pending_inter_faction_campaigns.erase(campaign_id)
+	_processed_inter_faction_campaigns[campaign_id] = true
+	_in_flight_inter_faction.erase(campaign_id)
+
+	inter_faction_battle_resolved.emit(report, context)
+	battle_resolved.emit(report, context)
+
+	return {
+		"success": true,
+		"campaign_id": campaign_id,
+		"report": report,
+		"context": context,
+		"peace_signed": peace_signed_after_battle
+	}
+
+## Recovers missing inter-faction campaigns for active at-war faction pairs without pending campaigns.
+func recover_missing_inter_faction_campaigns(current_day: int) -> Array[Dictionary]:
+	var scheduled_list: Array[Dictionary] = []
+	var fm = get_faction_manager()
+	if fm == null or not fm.has_method("get_expected_canonical_pair_keys"):
+		return scheduled_list
+
+	var canonical_keys: Array[String] = fm.get_expected_canonical_pair_keys()
+	for pair_key in canonical_keys:
+		var rel = fm.get_pairwise_relation(pair_key)
+		if rel == null or not rel.is_at_war:
+			continue
+
+		var fa: FactionData = fm.get_faction(rel.faction_a)
+		var fb: FactionData = fm.get_faction(rel.faction_b)
+		if fa == null or fb == null:
+			continue
+		if fa.existence_status != FactionData.STATUS_ACTIVE or fb.existence_status != FactionData.STATUS_ACTIVE:
+			continue
+
+		if has_pending_inter_faction_campaign_for_pair(pair_key):
+			continue
+
+		# Determine attacker and defender
+		var atk_id: String = rel.faction_a
+		var def_id: String = rel.faction_b
+		if not rel.last_battle_report.is_empty():
+			var last_atk = str(rel.last_battle_report.get("attacker_id", ""))
+			if last_atk == rel.faction_a:
+				atk_id = rel.faction_b
+				def_id = rel.faction_a
+
+		var sched_day: int = current_day + INTER_FACTION_CAMPAIGN_PREP_DAYS
+		var seq: int = rel.war_count + 1
+		var res = schedule_inter_faction_campaign(atk_id, def_id, sched_day, seq, rel.casus_belli)
+		if res.get("success", false):
+			scheduled_list.append(res)
+
+	return scheduled_list
+
+func process_daily_inter_faction_campaigns(current_day: int) -> Array[Dictionary]:
+	var results: Array[Dictionary] = []
+	var camp_ids: Array = _pending_inter_faction_campaigns.keys()
+	camp_ids.sort()
+
+	for c_id in camp_ids:
+		var camp: Dictionary = _pending_inter_faction_campaigns.get(c_id, {})
+		if camp.is_empty():
+			continue
+		var sched_day: int = int(camp.get("scheduled_day", -1))
+		if sched_day <= current_day:
+			var res = resolve_inter_faction_campaign(str(c_id), current_day)
+			results.append(res)
+
+	# BUG-2E-04: Auto-recover campaigns for at-war pairs missing pending campaigns
+	recover_missing_inter_faction_campaigns(current_day)
+
+	return results

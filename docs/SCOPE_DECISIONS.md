@@ -571,11 +571,43 @@
     - Full modal overlay with `mouse_filter = Control.MOUSE_FILTER_STOP` preventing click-through to underlying world tiles or unit selection.
     - Responsive layout bounded at $860 \times 490$ px inside centered container, verified non-clipping and fully enclosed at both 1280×720 and 1024×576 resolutions.
 
+### 1.32 Package 2E — Autonomous Faction Conflict & Inter-Faction Warfare (GDD §10.1, §10.2, §10.5, §11.1)
+- **Problem:** NPC factions possessed pairwise relation records and could wage wars against the player, but had no autonomous evaluation engine or campaign mechanism to declare war on each other, mobilize military campaigns against rival outposts, resolve real battles, or negotiate peace, leaving inter-faction world politics static.
+- **Approved & Authoritative Gameplay Rules:**
+  - *Pairwise War Declaration Criteria:*
+    - Opinion threshold: `opinion <= -50.0`
+    - Military power prerequisite: `initiator.military_power >= 40.0`
+    - Stability prerequisite: `initiator.stability >= 30.0`
+    - Relative power ratio: `initiator.military_power / target.military_power >= 0.65`
+    - Casus Belli: Contextual and deterministic based on strategic goal, historical enmity, or trade route rivalry.
+    - Blocked if: target or initiator is `in_exile`/`eliminated`, active NAP or Alliance exists, or an active Truce is in effect.
+  - *Anti-Oscillation & Truce Invariants:*
+    - Truce duration: 6 game days (`INTER_TRUCE_DURATION_DAYS = 6`).
+    - Minimum war duration: 2 game days (`INTER_WAR_MIN_DURATION_DAYS = 2`).
+    - Opinion hysteresis: Peace treaty grants $+20.0$ mutual opinion, raising relations from $-50.0$ to $-30.0$, preventing immediate re-flipping into war.
+    - Fail-closed truce check: All declaration attempts during active truce return `PAIR_REASON_ERR_ON_TRUCE`.
+  - *Campaign Execution & Real Battle Resolution:*
+    - Reuses `BattleCampaignManager` and authoritative `BattleResolver.resolve_battle`.
+    - No phantom troops or fabricated resources: forces scaled proportionally from current `military_power`; plundered resources strictly transferred from defender stockpile to attacker stockpile without generation from thin air.
+    - Outpost damage: Attacker victory inflicts real damage to defender's regional outpost (`FieldSiegeManager`), with sacking if reduced to 0 HP.
+    - Casualties deduct from both military power and faction population.
+  - *War Weariness & Peace Negotiation:*
+    - War weariness triggers after 12 days of war (`INTER_WAR_WEARINESS_DAYS = 12`) or when either side suffers military exhaustion (`military_power <= 20.0` or `stability <= 25.0`).
+    - Signing peace terminates war, establishes 6-day truce, cancels pending inter-faction campaigns, and emits `faction_pair_peace_signed`.
+  - *World & Trade Impact on Player:*
+    - Complete player isolation: NPC-NPC wars never modify player opinions, player treaties, or player-targeted raids.
+    - Trade caravans originating from factions currently at war incur a $+15\%$ wartime risk surcharge (`WARTIME_PRICE_SURCHARGE = 0.15`) with a guaranteed minimum +1 Gold markup on all commodities.
+  - *UI & Persistence:*
+    - HUD event banners display worldwide conflict announcements ("Tin Chiến Sự Thế Giới!", "Hòa Ước Đình Chiến!", "Chiến Dịch Ngoại Bang!", and battle victory/casualty reports).
+    - Diplomacy Panel Section 3 dynamically lists all 3 canonical NPC-NPC pairs with color-coded status badges, 2-way opinion readouts, Casus Belli, war duration, pending campaign status, recent battle summaries, and player alliance warnings.
+    - Save/Load: Full versioned persistence of inter-faction campaigns, reports, and pairwise metadata (`truce_until_day`, `war_start_day`, `casus_belli`, `war_count`, `last_battle_report`) with fail-closed schema validation in `SaveManager`.
+
 ---
 
 ## 2. Deferred & Excluded Scope for MVP
 | Feature | GDD Section | Status for MVP | Rationale |
 |---|---|---|---|
+| Autonomous Faction Conflict & Inter-Faction Warfare | Phần X & XI | Implemented | Delivered end-to-end in Package 2E with pairwise war/peace AI, BattleResolver campaigns, resource plunder conservation, outpost siege damage, truce cooldowns, caravan surcharges, and Section 3 UI |
 | In-Game Player Field Guide & 30-Day Starter Manual | Phần I, VI & XIII | Implemented | Delivered end-to-end in Package 2D with 6 chapters, zero world mutation, input isolation, and 1280x720 / 1024x576 responsive layout |
 | Citizen Skill Progression & Vocational Specialization | Phần VI & XIV | Implemented | Delivered end-to-end in Package 2B with 6 vocations, 1.00x-1.35x bounded multipliers, real-work XP, and HUD Inspector |
 | Market Infrastructure & Physical Caravan Integration | Phần VII & XI | Implemented | Delivered end-to-end in Package 2A with 3x3 Market, deterministic docking, Town Hall fallback, and CaravanMarker actor |

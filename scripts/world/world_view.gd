@@ -1874,7 +1874,14 @@ func _on_simulation_day_passed(day: int, _season: String, _year: int) -> void:
 		
 	# Scheduled visiting trade caravan arrivals (Every 5 days, starting Day 3)
 	if (day % 5 == 3) and (active_caravan == null or not active_caravan.get("is_active")):
-		active_caravan = TradeCaravan.generate_caravan(world_seed, day, "rival_merchant")
+		var is_merchant_at_war: bool = false
+		if faction_mgr != null:
+			var fac = faction_mgr.get_faction("rival_merchant")
+			if fac != null and fac.is_at_war:
+				is_merchant_at_war = true
+			elif faction_mgr.are_factions_at_war("rival_merchant", "rival_military") or faction_mgr.are_factions_at_war("rival_merchant", "neutral_tribe"):
+				is_merchant_at_war = true
+		active_caravan = TradeCaravan.generate_caravan(world_seed, day, "rival_merchant", is_merchant_at_war)
 		refresh_caravan_marker()
 		if em != null:
 			var loc_name: String = get_caravan_docking_location_name()

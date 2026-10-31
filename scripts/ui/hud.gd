@@ -429,6 +429,13 @@ func show_event_banner(title: String, desc: String, is_positive: bool = true, du
 			event_banner.visible = false
 	)
 
+func _get_faction_display_name(fac_id: String) -> String:
+	if faction_mgr != null and faction_mgr.has_method("get_faction"):
+		var f = faction_mgr.call("get_faction", fac_id)
+		if f != null and f.get("name") != null:
+			return str(f.get("name"))
+	return fac_id
+
 func set_faction_manager(mgr: Object, world_ref: Node = null) -> void:
 	faction_mgr = mgr
 	world_view_ref = world_ref
@@ -443,6 +450,10 @@ func set_faction_manager(mgr: Object, world_ref: Node = null) -> void:
 			faction_mgr.peace_signed.connect(_on_faction_peace_signed)
 		if faction_mgr.has_signal("emerging_faction_ascended") and not faction_mgr.emerging_faction_ascended.is_connected(_on_emerging_faction_ascended):
 			faction_mgr.emerging_faction_ascended.connect(_on_emerging_faction_ascended)
+		if faction_mgr.has_signal("faction_pair_war_declared") and not faction_mgr.faction_pair_war_declared.is_connected(_on_faction_pair_war_declared):
+			faction_mgr.faction_pair_war_declared.connect(_on_faction_pair_war_declared)
+		if faction_mgr.has_signal("faction_pair_peace_signed") and not faction_mgr.faction_pair_peace_signed.is_connected(_on_faction_pair_peace_signed):
+			faction_mgr.faction_pair_peace_signed.connect(_on_faction_pair_peace_signed)
 
 func _on_faction_relation_changed(_id: String, _op: float, _disp: int) -> void:
 	_refresh_diplomacy_ui()
@@ -473,6 +484,18 @@ func _on_emerging_faction_ascended(_id: String, new_name: String) -> void:
 	show_event_banner("Thế Lực Mới Nổi!", "%s đã chính thức trỗi dậy thành một cường bang mới!" % new_name, true, 6.0)
 	_refresh_diplomacy_ui()
 
+func _on_faction_pair_war_declared(initiator_id: String, target_id: String, _pair_key: String) -> void:
+	var init_name: String = _get_faction_display_name(initiator_id)
+	var target_name: String = _get_faction_display_name(target_id)
+	show_event_banner("Tin Chiến Sự Thế Giới!", "⚔️ %s đã chính thức tuyên chiến với %s!" % [init_name, target_name], false, 7.0)
+	_refresh_diplomacy_ui()
+
+func _on_faction_pair_peace_signed(faction_a_id: String, faction_b_id: String, _pair_key: String) -> void:
+	var fa_name: String = _get_faction_display_name(faction_a_id)
+	var fb_name: String = _get_faction_display_name(faction_b_id)
+	show_event_banner("Hòa Ước Đình Chiến!", "🕊️ %s và %s đã ký kết hòa ước đình chiến!" % [fa_name, fb_name], true, 6.0)
+	_refresh_diplomacy_ui()
+
 var battle_campaign_mgr: Object = null
 
 func set_battle_campaign_manager(mgr: Object) -> void:
@@ -484,6 +507,43 @@ func set_battle_campaign_manager(mgr: Object) -> void:
 			battle_campaign_mgr.raid_cancelled.connect(_on_battle_raid_cancelled)
 		if not battle_campaign_mgr.battle_resolved.is_connected(_on_battle_resolved):
 			battle_campaign_mgr.battle_resolved.connect(_on_battle_resolved)
+		if battle_campaign_mgr.has_signal("inter_faction_campaign_scheduled") and not battle_campaign_mgr.inter_faction_campaign_scheduled.is_connected(_on_inter_faction_campaign_scheduled):
+			battle_campaign_mgr.inter_faction_campaign_scheduled.connect(_on_inter_faction_campaign_scheduled)
+		if battle_campaign_mgr.has_signal("inter_faction_campaign_cancelled") and not battle_campaign_mgr.inter_faction_campaign_cancelled.is_connected(_on_inter_faction_campaign_cancelled):
+			battle_campaign_mgr.inter_faction_campaign_cancelled.connect(_on_inter_faction_campaign_cancelled)
+		if battle_campaign_mgr.has_signal("inter_faction_battle_resolved") and not battle_campaign_mgr.inter_faction_battle_resolved.is_connected(_on_inter_faction_battle_resolved):
+			battle_campaign_mgr.inter_faction_battle_resolved.connect(_on_inter_faction_battle_resolved)
+
+func _on_inter_faction_campaign_scheduled(campaign_data: Dictionary) -> void:
+	var atk_name: String = _get_faction_display_name(String(campaign_data.get("attacker_id", "")))
+	var def_name: String = _get_faction_display_name(String(campaign_data.get("defender_id", "")))
+	var scheduled_day: int = int(campaign_data.get("scheduled_day", 1))
+	show_event_banner("Chiến Dịch Ngoại Bang!", "🚩 %s đang hành quân tiến đánh cứ điểm của %s (Dự kiến: Ngày %d)!" % [atk_name, def_name, scheduled_day], false, 6.0)
+	_refresh_diplomacy_ui()
+
+func _on_inter_faction_campaign_cancelled(campaign_id: String, reason: String) -> void:
+	show_event_banner("Chiến Dịch Bị Hủy", "Chiến dịch (%s) đã bị hủy: %s." % [campaign_id, reason], true, 5.0)
+	_refresh_diplomacy_ui()
+
+func _on_inter_faction_battle_resolved(report: BattleResolver.BattleReport, context: Dictionary) -> void:
+	var atk_id: String = String(context.get("attacker_id", ""))
+	var def_id: String = String(context.get("defender_id", ""))
+	var atk_name: String = _get_faction_display_name(atk_id)
+	var def_name: String = _get_faction_display_name(def_id)
+	var victor: String = report.victor
+	var victor_name: String = atk_name if victor == "attacker" else (def_name if victor == "defender" else "Bất phân thắng bại")
+	var title: String = "KẾT QUẢ CHIẾN SỰ: %s CHIẾN THẮNG!" % victor_name.to_upper() if victor != "draw" else "KẾT QUẢ CHIẾN SỰ: BẤT PHÂN THẮNG BẠI!"
+	var atk_lost: int = context.get("attacker_casualties", 0)
+	var def_lost: int = context.get("defender_casualties", 0)
+	var spoils: Dictionary = context.get("plundered_resources", {})
+	var spoils_str: String = ""
+	if not spoils.is_empty():
+		spoils_str = " | Cướp phá: %s" % str(spoils)
+	var desc: String = "%s vs %s\n%s\n[Thương vong: %s mất %d lính | %s mất %d lính%s]" % [
+		atk_name, def_name, report.explanation, atk_name, atk_lost, def_name, def_lost, spoils_str
+	]
+	show_event_banner(title, desc, false, 8.0)
+	_refresh_diplomacy_ui()
 
 func _on_battle_raid_scheduled(faction_id: String, scheduled_day: int, _is_first: bool) -> void:
 	var fac_name: String = faction_id
@@ -506,6 +566,10 @@ func _on_battle_raid_cancelled(faction_id: String, reason: String) -> void:
 	_refresh_diplomacy_ui()
 
 func _on_battle_resolved(report: BattleResolver.BattleReport, context: Dictionary) -> void:
+	# BUG-2E-01: Inter-faction battles (NPC vs NPC) are handled exclusively by _on_inter_faction_battle_resolved
+	if context.get("is_inter_faction", false):
+		return
+
 	var victor: String = report.victor
 	var is_offensive: bool = context.get("is_offensive", false)
 
@@ -1019,11 +1083,15 @@ func _refresh_diplomacy_ui() -> void:
 				loc_name = world_view_ref.call("get_caravan_docking_location_name")
 			elif world_view_ref.get("world_data") != null and BuildingSystem.is_market_active(world_view_ref.get("world_data")):
 				loc_name = "Chợ"
-		caravan_status_label.text = "🐪 Đang có mặt: %s (Rời đi ngày %d) | Ngân sách: %d Vàng\n📍 Địa điểm giao thương: %s" % [
+		var war_note: String = ""
+		if active_caravan.get("is_origin_at_war"):
+			war_note = "\n⚠️ VÙNG CHIẾN SỰ: Xuất phát từ lãnh thổ có chiến tranh (Phụ phí rủi ro: +15% giá mua)"
+		caravan_status_label.text = "🐪 Đang có mặt: %s (Rời đi ngày %d) | Ngân sách: %d Vàng\n📍 Địa điểm giao thương: %s%s" % [
 			active_caravan.get("name"),
 			active_caravan.get("departure_day"),
 			active_caravan.get("gold"),
-			loc_name
+			loc_name,
+			war_note
 		]
 		
 		# Add caravan quick trade section
@@ -1162,6 +1230,118 @@ func _refresh_diplomacy_ui() -> void:
 		vbox.add_child(hbox)
 		card.add_child(vbox)
 		factions_list_vbox.add_child(card)
+
+	# 3. Inter-Faction Pairwise Relations & Active Conflicts (Package 2E)
+	if faction_mgr.has_method("get_expected_canonical_pair_keys") and faction_mgr.has_method("get_pairwise_relation"):
+		var sep := HSeparator.new()
+		factions_list_vbox.add_child(sep)
+
+		var section_header := Label.new()
+		section_header.text = "⚔️ QUAN HỆ & CHIẾN SỰ GIỮA CÁC THẾ LỰC (NPC — NPC)"
+		section_header.modulate = Color(1.2, 0.9, 0.4)
+		factions_list_vbox.add_child(section_header)
+
+		var tm = get_node_or_null("/root/TimeManager")
+		var current_sim_day: int = tm.current_day if tm != null else 1
+
+		var pair_keys: Array = faction_mgr.call("get_expected_canonical_pair_keys")
+		for pair_key in pair_keys:
+			var rel = faction_mgr.call("get_pairwise_relation", pair_key)
+			if rel == null:
+				continue
+			var fa_id: String = str(rel.faction_a) if "faction_a" in rel else ""
+			var fb_id: String = str(rel.faction_b) if "faction_b" in rel else ""
+			var fa_name: String = _get_faction_display_name(fa_id)
+			var fb_name: String = _get_faction_display_name(fb_id)
+			var is_at_war: bool = bool(rel.is_at_war)
+			var is_truce: bool = rel.call("is_on_truce", current_sim_day) if rel.has_method("is_on_truce") else false
+			var has_alliance: bool = bool(rel.has_alliance)
+			var has_nap: bool = bool(rel.has_nap)
+
+			var pair_card := PanelContainer.new()
+			var p_vbox := VBoxContainer.new()
+			p_vbox.add_theme_constant_override("separation", 3)
+
+			var header_lbl := Label.new()
+			var status_str: String = ""
+			var status_color: Color = Color(0.8, 0.8, 0.8)
+			if is_at_war:
+				status_str = "[⚔️ ĐANG CHIẾN TRANH]"
+				status_color = Color(1.5, 0.4, 0.4)
+			elif is_truce:
+				var rem_days: int = maxi(0, int(rel.get("truce_until_day")) - current_sim_day)
+				status_str = "[🕊️ ĐÌNH CHIẾN — Còn %d ngày]" % rem_days
+				status_color = Color(1.2, 0.9, 0.3)
+			elif has_alliance:
+				status_str = "[🤝 LIÊN MINH]"
+				status_color = Color(0.4, 1.2, 1.2)
+			elif has_nap:
+				status_str = "[📜 HIỆP ƯỚC BẤT TƯƠNG XÂM]"
+				status_color = Color(0.6, 1.2, 0.6)
+			else:
+				status_str = "[⚖️ HÒA BÌNH]"
+				status_color = Color(0.7, 0.8, 0.9)
+
+			header_lbl.text = "%s ⟷ %s  %s" % [fa_name, fb_name, status_str]
+			header_lbl.modulate = status_color
+			p_vbox.add_child(header_lbl)
+
+			var rel_lbl := Label.new()
+			var op_ab: float = float(rel.get("opinion_a_to_b"))
+			var op_ba: float = float(rel.get("opinion_b_to_a"))
+			rel_lbl.text = "Thiện cảm 2 chiều: %s ➔ %s: %.1f | %s ➔ %s: %.1f" % [fa_name, fb_name, op_ab, fb_name, fa_name, op_ba]
+			rel_lbl.modulate = Color(0.85, 0.85, 0.85)
+			p_vbox.add_child(rel_lbl)
+
+			if is_at_war:
+				var war_details_lbl := Label.new()
+				var cb_name: String = String(rel.get("casus_belli"))
+				var start_day: int = int(rel.get("war_start_day"))
+				var duration: int = maxi(1, current_sim_day - start_day)
+				war_details_lbl.text = "Nguyên nhân (Casus Belli): %s | Bắt đầu: Ngày %d (Kéo dài %d ngày)" % [cb_name, start_day, duration]
+				war_details_lbl.modulate = Color(1.4, 0.6, 0.4)
+				p_vbox.add_child(war_details_lbl)
+
+				if battle_campaign_mgr != null and battle_campaign_mgr.has_method("get_pending_inter_faction_campaign_for_pair"):
+					var pending: Dictionary = battle_campaign_mgr.call("get_pending_inter_faction_campaign_for_pair", pair_key)
+					if not pending.is_empty():
+						var camp_lbl := Label.new()
+						var atk_name: String = _get_faction_display_name(String(pending.get("attacker_id", pending.get("attacker_faction_id", ""))))
+						var def_name: String = _get_faction_display_name(String(pending.get("defender_id", pending.get("defender_faction_id", ""))))
+						camp_lbl.text = "🚩 Chiến dịch quân sự: %s tấn công %s vào Ngày %d (Đợt %d)" % [
+							atk_name, def_name, pending.get("scheduled_day", current_sim_day), pending.get("sequence", 1)
+						]
+						camp_lbl.modulate = Color(1.5, 0.7, 0.3)
+						p_vbox.add_child(camp_lbl)
+
+				var last_rep: Dictionary = rel.get("last_battle_report") if rel.get("last_battle_report") != null else {}
+				if not last_rep.is_empty():
+					var last_lbl := Label.new()
+					var vic_id: String = String(last_rep.get("victor", ""))
+					var vic_display: String = _get_faction_display_name(vic_id) if not vic_id.is_empty() and vic_id != "draw" else "Hòa"
+					last_lbl.text = "Trận gần nhất (Ngày %d): Thắng: %s (Tổn thất: %s mất %d, %s mất %d)" % [
+						last_rep.get("day", 1),
+						vic_display,
+						fa_name, last_rep.get("casualties_a", 0),
+						fb_name, last_rep.get("casualties_b", 0)
+					]
+					last_lbl.modulate = Color(0.9, 0.9, 0.7)
+					p_vbox.add_child(last_lbl)
+
+			# Check player alliance involvement
+			var fa_obj = faction_mgr.call("get_faction", fa_id)
+			var fb_obj = faction_mgr.call("get_faction", fb_id)
+			var player_allied_with_a: bool = (fa_obj != null and bool(fa_obj.get("has_alliance")))
+			var player_allied_with_b: bool = (fb_obj != null and bool(fb_obj.get("has_alliance")))
+			if is_at_war and (player_allied_with_a or player_allied_with_b):
+				var ally_warning := Label.new()
+				var allied_name: String = fa_name if player_allied_with_a else fb_name
+				ally_warning.text = "⚠️ NGOẠI GIAO LIÊN MINH: Bạn đang có liên minh với %s (Bên tham chiến)!" % allied_name
+				ally_warning.modulate = Color(1.4, 1.1, 0.3)
+				p_vbox.add_child(ally_warning)
+
+			pair_card.add_child(p_vbox)
+			factions_list_vbox.add_child(pair_card)
 
 func _get_caravan_faction_opinion(caravan: Object) -> float:
 	if caravan == null or faction_mgr == null or not faction_mgr.has_method("get_faction"):
