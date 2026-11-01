@@ -224,8 +224,19 @@ static func complete_building(b_data_or_id, world_data: WorldGenerator.WorldData
 	apply_completion_effects(b_data, resource_mgr)
 	return true
 
+static func is_valid_resource_manager_for_cancellation(resource_mgr: Object) -> bool:
+	if resource_mgr == null or not is_instance_valid(resource_mgr):
+		return false
+	if not resource_mgr.has_method("get_total_stock"):
+		return false
+	if not resource_mgr.has_method("get_storage_capacity") and not resource_mgr.has_method("get_capacity"):
+		return false
+	if not resource_mgr.has_method("add_resources_atomic"):
+		return false
+	return true
+
 ## Preflights cancellation feasibility, calculating 50% refund and verifying storage space.
-## Returns {"can_cancel": bool, "refund": Dictionary, "reason": String}.
+## Returns {"can_cancel": bool, "refund": Dictionary, "insufficient_storage": bool, "reason": String}.
 static func can_cancel_construction(b_data_or_id, world_data: WorldGenerator.WorldData, resource_mgr: Object = null, refund_ratio: float = 0.5) -> Dictionary:
 	var b_data: Dictionary = {}
 	if b_data_or_id is Dictionary:
@@ -234,10 +245,10 @@ static func can_cancel_construction(b_data_or_id, world_data: WorldGenerator.Wor
 		b_data = get_building_by_id(b_data_or_id, world_data)
 
 	if b_data.is_empty():
-		return {"can_cancel": false, "reason": "Công trình không tồn tại", "refund": {}}
+		return {"can_cancel": false, "reason": "Công trình không tồn tại", "insufficient_storage": false, "refund": {}}
 
 	if b_data.get("state", "") != "under_construction":
-		return {"can_cancel": false, "reason": "Chỉ có thể hủy công trình đang xây dựng", "refund": {}}
+		return {"can_cancel": false, "reason": "Chỉ có thể hủy công trình đang xây dựng", "insufficient_storage": false, "refund": {}}
 
 	var type: String = b_data.get("type", "")
 	var bp: Dictionary = EconomyConfig.BLUEPRINTS.get(type, {})
@@ -248,7 +259,14 @@ static func can_cancel_construction(b_data_or_id, world_data: WorldGenerator.Wor
 		if refund_amount > 0:
 			planned_refund[res_id] = refund_amount
 
-	if resource_mgr != null and not planned_refund.is_empty():
+	if not planned_refund.is_empty():
+		if not is_valid_resource_manager_for_cancellation(resource_mgr):
+			return {
+				"can_cancel": false,
+				"reason": "Yêu cầu ResourceManager hợp lệ có add_resources_atomic để hoàn trả tài nguyên",
+				"insufficient_storage": false,
+				"refund": planned_refund
+			}
 		for res_id in planned_refund:
 			var refund_amount: int = planned_refund[res_id]
 			var space: int = 999999
@@ -268,9 +286,9 @@ static func can_cancel_construction(b_data_or_id, world_data: WorldGenerator.Wor
 					"refund": planned_refund
 				}
 
-	return {"can_cancel": true, "reason": "", "refund": planned_refund}
+	return {"can_cancel": true, "reason": "", "insufficient_storage": false, "refund": planned_refund}
 
-static func cancel_construction(b_data_or_id, world_data: WorldGenerator.WorldData, resource_mgr: Object = null, job_mgr: Object = null) -> Dictionary:
+static func cancel_construction(b_data_or_id, world_data: WorldGenerator.WorldData, resource_mgr: Object = null, job_mgr: Object = null, refund_ratio: float = 0.5) -> Dictionary:
 	var b_data: Dictionary = {}
 	if b_data_or_id is Dictionary:
 		b_data = b_data_or_id
@@ -278,63 +296,34 @@ static func cancel_construction(b_data_or_id, world_data: WorldGenerator.WorldDa
 		b_data = get_building_by_id(b_data_or_id, world_data)
 
 	if b_data.is_empty():
-		return {"success": false, "reason": "Công trình không tồn tại"}
+		return {"success": false, "reason": "Công trình không tồn tại", "insufficient_storage": false, "refunded": {}}
 
 	if b_data.get("state", "") != "under_construction":
-		return {"success": false, "reason": "Chỉ có thể hủy công trình đang xây dựng"}
+		return {"success": false, "reason": "Chỉ có thể hủy công trình đang xây dựng", "insufficient_storage": false, "refunded": {}}
 
-	# Fail closed if required resource_mgr dependency is missing or invalid
-	if resource_mgr == null or not (resource_mgr.has_method("add_resources_atomic") or resource_mgr.has_method("add_resource")):
-		return {"success": false, "reason": "Thiếu ResourceManager để hoàn trả tài nguyên"}
+	var check := can_cancel_construction(b_data, world_data, resource_mgr, refund_ratio)
+	if not check.get("can_cancel", false):
+		return {
+			"success": false,
+			"reason": check.get("reason", "Không thể hủy thi công"),
+			"insufficient_storage": check.get("insufficient_storage", false),
+			"refunded": {}
+		}
 
 	var b_id: String = b_data.get("id", "")
-	var type: String = b_data.get("type", "")
 	var origin: Vector2i = b_data.get("cell", Vector2i(-1, -1))
 	var size: Vector2i = b_data.get("size", Vector2i(1, 1))
-	var bp: Dictionary = EconomyConfig.BLUEPRINTS.get(type, {})
-	var cost: Dictionary = bp.get("cost", {})
-	var refund_ratio: float = 0.5
+	var planned_refund: Dictionary = check.get("refund", {})
 
-	# Calculate promised 50% refund amounts
-	var planned_refund: Dictionary = {}
-	for res_id in cost:
-		var refund_amount: int = int(float(cost[res_id]) * refund_ratio)
-		if refund_amount > 0:
-			planned_refund[res_id] = refund_amount
-
-	# All-or-Nothing check: Verify storage capacity has space for all refund amounts
-	for res_id in planned_refund:
-		var refund_amount: int = planned_refund[res_id]
-		var space: int = 999999
-		if resource_mgr.has_method("get_storage_capacity") and resource_mgr.has_method("get_total_stock"):
-			var cap: int = int(resource_mgr.get_storage_capacity(res_id))
-			var cur: int = int(resource_mgr.get_total_stock(res_id))
-			space = maxi(0, cap - cur)
-		elif resource_mgr.has_method("get_capacity") and resource_mgr.has_method("get_total_stock"):
-			var cap: int = int(resource_mgr.get_capacity(res_id))
-			var cur: int = int(resource_mgr.get_total_stock(res_id))
-			space = maxi(0, cap - cur)
-		if space < refund_amount:
-			return {
-				"success": false,
-				"reason": "Dung lượng kho chứa không đủ để nhận hoàn trả 50%% tài nguyên (%s: cần %d, còn trống %d)" % [res_id, refund_amount, space],
-				"insufficient_storage": true,
-				"refunded": {}
-			}
-
-	# Execute atomic refund: credit all resources and record exact credited amounts
+	# Execute atomic refund: credit all resources using authoritative add_resources_atomic
 	var refunded: Dictionary = {}
 	if not planned_refund.is_empty():
-		if resource_mgr.has_method("add_resources_atomic"):
-			var atomic_res: Dictionary = resource_mgr.add_resources_atomic(planned_refund)
-			if not atomic_res.get("success", false):
-				return {"success": false, "reason": atomic_res.get("reason", "Không thể hoàn trả tài nguyên"), "refunded": {}}
-			refunded = atomic_res.get("credited", {})
-		else:
-			for res_id in planned_refund:
-				var refund_amount: int = planned_refund[res_id]
-				var added: int = resource_mgr.add_resource(res_id, refund_amount)
-				refunded[res_id] = added
+		if not is_valid_resource_manager_for_cancellation(resource_mgr):
+			return {"success": false, "reason": "Yêu cầu ResourceManager hợp lệ có add_resources_atomic để hoàn trả tài nguyên", "insufficient_storage": false, "refunded": {}}
+		var atomic_res: Dictionary = resource_mgr.add_resources_atomic(planned_refund)
+		if not atomic_res.get("success", false):
+			return {"success": false, "reason": atomic_res.get("reason", "Không thể hoàn trả toàn bộ tài nguyên vào kho chứa"), "insufficient_storage": false, "refunded": {}}
+		refunded = atomic_res.get("credited", {})
 
 	# 1. Clear occupancy only for this building's footprint
 	if world_data:

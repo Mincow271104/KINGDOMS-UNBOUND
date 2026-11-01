@@ -80,6 +80,21 @@ class MockTestResourceManager extends Node:
 		stock[res_id] = cur + added
 		return added
 
+	func add_resources_atomic(resources: Dictionary) -> Dictionary:
+		for r in resources:
+			var amt: int = int(resources[r])
+			var cur: int = get_available_stock(r)
+			var max_cap: int = capacities.get(r, 500)
+			if cur + amt > max_cap:
+				return {"success": false, "reason": "Dung lượng kho chứa không đủ", "credited": {}}
+		var credited: Dictionary = {}
+		for r in resources:
+			var amt: int = int(resources[r])
+			var cur: int = get_available_stock(r)
+			stock[r] = cur + amt
+			credited[r] = amt
+		return {"success": true, "credited": credited}
+
 	func has_resource(res_id: String, amount: int) -> bool:
 		return get_available_stock(res_id) >= amount
 

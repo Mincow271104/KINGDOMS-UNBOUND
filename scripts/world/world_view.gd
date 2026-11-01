@@ -1829,7 +1829,9 @@ func register_dynamic_workplace(b_data: Dictionary) -> WorkplaceManager.Workplac
 				var ch_id := b_id + ch_suffix
 				var desc: String = "Luyện kim loại từ quặng thô" if r_id == "smelt_metal" else ("Rèn công cụ từ kim loại và gỗ" if r_id == "craft_tools" else ("Chế tác: " + r_name))
 				for i in range(r_quota):
-					job_mgr.create_job(job_type, access_cell, desc, b_id, r_duration, 1, true, r_id, ch_id)
+					var r_job = job_mgr.create_job(job_type, access_cell, desc, b_id, r_duration, 1, true, r_id, ch_id)
+					if r_job != null:
+						r_job.id = "%s_job_%d" % [ch_id, i]
 
 		print("[WorldView] Registered dynamic workshop '%s' with %d recipe channels at %s" % [b_id, recipes.size(), access_cell])
 		return primary_wp

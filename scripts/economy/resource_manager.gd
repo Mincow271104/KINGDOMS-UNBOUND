@@ -21,8 +21,17 @@ var _is_starving: bool = false
 
 ## Test-only failure injection hook for exercising the commit-phase rollback branch
 var _test_fail_commit_resource: String = ""
+var _debug_mode_override: Variant = null # null follows OS.is_debug_build()
+
+func _is_debug_execution() -> bool:
+	if _debug_mode_override != null:
+		return bool(_debug_mode_override)
+	return OS.is_debug_build()
 
 func set_test_fail_commit_resource(res_id: String) -> void:
+	if not _is_debug_execution():
+		_test_fail_commit_resource = ""
+		return
 	_test_fail_commit_resource = res_id
 
 func is_starving() -> bool:
@@ -216,8 +225,8 @@ func add_resources_atomic(resources: Dictionary) -> Dictionary:
 		if amt <= 0:
 			continue
 
-		# Test-only failure injection point during commit step
-		if _test_fail_commit_resource != "" and res_id == _test_fail_commit_resource:
+		# Test-only failure injection point during commit step (debug/test mode only)
+		if _is_debug_execution() and _test_fail_commit_resource != "" and res_id == _test_fail_commit_resource:
 			rollback_needed = true
 			rollback_reason = "Test injected commit failure for %s" % res_id
 			break

@@ -1660,6 +1660,14 @@ func _test_tc_bm_31_workshop_pause_channels() -> bool:
 	var wp_mgr = world_instance.workplace_mgr
 	var rm = world_instance.get_node_or_null("/root/ResourceManager")
 
+	# B5: Record original resource stock snapshot before adding test materials
+	var init_stock := {
+		"ore": rm.get_resource("ore"),
+		"metal": rm.get_resource("metal"),
+		"wood": rm.get_resource("wood"),
+		"tools": rm.get_resource("tools")
+	}
+
 	# Setup workshop test fixture
 	var origin := Vector2i(28, 28)
 	var b_data := {
@@ -1682,26 +1690,21 @@ func _test_tc_bm_31_workshop_pause_channels() -> bool:
 	smelt_wp.buffer_amount = 6
 	craft_wp.buffer_amount = 4
 
-	# Setup jobs
-	var job_smelt = JobData.new()
-	job_smelt.id = "smelt_test_job"
-	job_smelt.type = "smith"
-	job_smelt.recipe_id = "smelt_metal"
-	job_smelt.target_building_id = "workshop_test_pause"
-	job_smelt.workplace_channel_id = "workshop_test_pause_smelt"
+	# B1: Retrieve the actual registered smelt and craft jobs from jm.get_jobs_for_building()
+	var registered_jobs: Array = jm.get_jobs_for_building("workshop_test_pause")
+	var job_smelt: JobData = null
+	var job_craft: JobData = null
+	for j in registered_jobs:
+		if j.recipe_id == "smelt_metal" and j.workplace_channel_id == "workshop_test_pause_smelt" and job_smelt == null:
+			job_smelt = j
+		elif j.recipe_id == "craft_tools" and j.workplace_channel_id == "workshop_test_pause_craft" and job_craft == null:
+			job_craft = j
 
-	var job_craft = JobData.new()
-	job_craft.id = "craft_test_job"
-	job_craft.type = "smith"
-	job_craft.recipe_id = "craft_tools"
-	job_craft.target_building_id = "workshop_test_pause"
-	job_craft.workplace_channel_id = "workshop_test_pause_craft"
+	if job_smelt == null or job_craft == null:
+		printerr("FAIL B1: Real registered workshop jobs not found in JobManager: smelt=%s, craft=%s" % [str(job_smelt), str(job_craft)])
+		return false
 
-	var job_haul = JobData.new()
-	job_haul.id = "haul_test_job"
-	job_haul.type = "hauler"
-	job_haul.target_building_id = "workshop_test_pause"
-	job_haul.source_workplace_id = "workshop_test_pause_smelt"
+	var job_haul = jm.create_hauling_job("workshop_test_pause_smelt", smelt_wp.access_cell, Vector2i(31, 34), "metal", 5, "Haul smelted metal", 2)
 
 	# Provide crafting materials for input checks and actual production
 	rm.add_resource("ore", 10)
@@ -1738,16 +1741,24 @@ func _test_tc_bm_31_workshop_pause_channels() -> bool:
 		printerr("FAIL: Craft production input consumption incorrect: metal=%d, wood=%d" % [rm.get_resource("metal"), rm.get_resource("wood")])
 		failures += 1
 
-	# Assign workers to both channels
+	# B1: Assign actual registered JobManager jobs to actual citizens
 	var cit0 = world_instance.citizen_list[0]
 	var cit1 = world_instance.citizen_list[1] if world_instance.citizen_list.size() > 1 else null
+	job_smelt.state = JobState.IN_PROGRESS
+	job_smelt.worker_id = cit0.citizen_id
 	cit0.active_job = job_smelt
 	cit0.current_state = CitizenController.State.WORKING
 	if cit1 != null:
+		job_craft.state = JobState.IN_PROGRESS
+		job_craft.worker_id = cit1.citizen_id
 		cit1.active_job = job_craft
 		cit1.current_state = CitizenController.State.WORKING
 
-	# 2. Parent pause: both channels paused, buffers unchanged, workers safely released to IDLE
+	# B2. Parent pause: both channels paused, buffers unchanged, workers safely released to IDLE, jobs available/unassigned
+	var pre_pause_ore = rm.get_resource("ore")
+	var pre_pause_metal = rm.get_resource("metal")
+	var pre_pause_wood = rm.get_resource("wood")
+
 	world_instance.set_building_state("workshop_test_pause", "paused")
 	if not wp_mgr.is_workplace_paused("workshop_test_pause_smelt") or not wp_mgr.is_workplace_paused("workshop_test_pause_craft"):
 		printerr("FAIL: Both workshop sub-channels must be paused")
@@ -1764,6 +1775,13 @@ func _test_tc_bm_31_workshop_pause_channels() -> bool:
 		printerr("FAIL: Active smith worker cit1 not released to IDLE on pause")
 		failures += 1
 
+	if job_smelt.state != JobState.AVAILABLE or job_smelt.worker_id != "":
+		printerr("FAIL B2: job_smelt not returned to AVAILABLE unassigned state: state=%d, worker=%s" % [job_smelt.state, job_smelt.worker_id])
+		failures += 1
+	if job_craft.state != JobState.AVAILABLE or job_craft.worker_id != "":
+		printerr("FAIL B2: job_craft not returned to AVAILABLE unassigned state: state=%d, worker=%s" % [job_craft.state, job_craft.worker_id])
+		failures += 1
+
 	# Production to buffer during pause must return 0 and consume no inputs
 	var paused_smelt_prod = wp_mgr.produce_to_buffer("workshop_test_pause_smelt", 1.0, rm)
 	var paused_craft_prod = wp_mgr.produce_to_buffer("workshop_test_pause_craft", 1.0, rm)
@@ -1772,6 +1790,9 @@ func _test_tc_bm_31_workshop_pause_channels() -> bool:
 		failures += 1
 	if smelt_wp.buffer_amount != 7 or craft_wp.buffer_amount != 5:
 		printerr("FAIL: Buffers mutated during paused produce_to_buffer!")
+		failures += 1
+	if rm.get_resource("ore") != pre_pause_ore or rm.get_resource("metal") != pre_pause_metal or rm.get_resource("wood") != pre_pause_wood:
+		printerr("FAIL B2: Input resources mutated during paused production calls!")
 		failures += 1
 
 	# Smith jobs non-executable while paused, hauler jobs remain executable
@@ -1785,8 +1806,28 @@ func _test_tc_bm_31_workshop_pause_channels() -> bool:
 		printerr("FAIL: Hauler job should remain executable for paused workshop channel")
 		failures += 1
 
-	# 3. Save/Load roundtrip preserving paused state, channel buffers, and exact job counts
-	var pre_save_workshop_jobs: int = jm.get_jobs_for_building("workshop_test_pause").size()
+	# Clean up transient hauler test job before persisting building state
+	if jm != null and job_haul != null and job_haul in jm._jobs:
+		jm._jobs.erase(job_haul)
+
+	# B3. Save/load exact identity comparison
+	var build_job_snapshot := func() -> Array:
+		var snap: Array = []
+		for j in jm.get_jobs_for_building("workshop_test_pause"):
+			snap.append({
+				"id": j.id,
+				"type": j.type,
+				"target_building_id": j.target_building_id,
+				"recipe_id": j.recipe_id,
+				"workplace_channel_id": j.workplace_channel_id,
+				"is_recurring": j.is_recurring,
+				"state": j.state,
+				"worker_id": j.worker_id
+			})
+		snap.sort_custom(func(a, b): return a["id"] < b["id"])
+		return snap
+
+	var pre_save_snapshot: Array = build_job_snapshot.call()
 	var temp_save_path := "user://test_workshop_pause_save.json"
 	var s_res = SaveManagerScript.save_to_file(world_instance, temp_save_path)
 	if not s_res.get("success", false):
@@ -1818,34 +1859,40 @@ func _test_tc_bm_31_workshop_pause_channels() -> bool:
 		printerr("FAIL: Workshop sub-channels should remain paused after load")
 		failures += 1
 
-	var smelt_wp_loaded = wp_mgr.get_workplace("workshop_test_pause_smelt")
-	var craft_wp_loaded = wp_mgr.get_workplace("workshop_test_pause_craft")
-	if smelt_wp_loaded == null or craft_wp_loaded == null:
-		printerr("FAIL: Channels missing after load")
-		failures += 1
-	elif smelt_wp_loaded.buffer_amount != 7 or craft_wp_loaded.buffer_amount != 5:
-		printerr("FAIL: Buffer amounts not preserved across save/load! Smelt: %d, Craft: %d" % [smelt_wp_loaded.buffer_amount, craft_wp_loaded.buffer_amount])
-		failures += 1
-	elif smelt_wp_loaded.recipe_id != "smelt_metal" or craft_wp_loaded.recipe_id != "craft_tools":
-		printerr("FAIL: Recipe metadata lost across save/load: smelt=%s, craft=%s" % [smelt_wp_loaded.recipe_id, craft_wp_loaded.recipe_id])
-		failures += 1
-
-	# Verify no duplicate channels created
-	var channel_count := 0
+	# Verify exactly two WorkplaceData channels exist and preserve channel IDs and recipe metadata (B3)
+	var ws_channels: Array = []
 	for wp in wp_mgr.get_all_workplaces():
 		if wp.parent_building_id == "workshop_test_pause":
-			channel_count += 1
-	if channel_count != 2:
-		printerr("FAIL: Channel count mismatch after load: expected 2, got %d" % channel_count)
+			ws_channels.append(wp)
+	if ws_channels.size() != 2:
+		printerr("FAIL B3: Channel count mismatch after load: expected 2, got %d" % ws_channels.size())
+		failures += 1
+	var found_smelt := false
+	var found_craft := false
+	for wp in ws_channels:
+		if wp.id == "workshop_test_pause_smelt" and wp.recipe_id == "smelt_metal" and wp.buffer_amount == 7:
+			found_smelt = true
+		elif wp.id == "workshop_test_pause_craft" and wp.recipe_id == "craft_tools" and wp.buffer_amount == 5:
+			found_craft = true
+	if not found_smelt or not found_craft:
+		printerr("FAIL B3: Loaded channels lack correct channel IDs, recipe metadata, or buffer amounts")
 		failures += 1
 
-	# Verify job count preserved without duplicates
-	var post_load_workshop_jobs: int = jm.get_jobs_for_building("workshop_test_pause").size()
-	if post_load_workshop_jobs != pre_save_workshop_jobs:
-		printerr("FAIL: Workshop job count duplicated/mismatched after load: %d vs %d" % [pre_save_workshop_jobs, post_load_workshop_jobs])
+	# Compare complete job identity and state snapshot (B3)
+	var post_load_snapshot: Array = build_job_snapshot.call()
+	if post_load_snapshot.size() != pre_save_snapshot.size():
+		printerr("FAIL B3: Workshop job count mismatch after load: pre=%d, post=%d" % [pre_save_snapshot.size(), post_load_snapshot.size()])
 		failures += 1
+	else:
+		for i in range(pre_save_snapshot.size()):
+			var s_pre: Dictionary = pre_save_snapshot[i]
+			var s_post: Dictionary = post_load_snapshot[i]
+			for k in s_pre:
+				if s_pre[k] != s_post.get(k, null):
+					printerr("FAIL B3: Job identity/state mismatch for job %s key '%s': pre=%s, post=%s" % [s_pre["id"], k, str(s_pre[k]), str(s_post.get(k))])
+					failures += 1
 
-	# 4. Resume after load: both channels active again, real production functional again
+	# B4. Resume lifecycle: resume through actual world API
 	world_instance.set_building_state("workshop_test_pause", "active")
 	if not BuildingSystemScript.is_building_active_by_id("workshop_test_pause", world_instance.world_data):
 		printerr("FAIL: Workshop should be active after resume")
@@ -1854,38 +1901,77 @@ func _test_tc_bm_31_workshop_pause_channels() -> bool:
 		printerr("FAIL: Workshop sub-channels should not be paused after resume")
 		failures += 1
 
+	var smelt_wp_loaded = wp_mgr.get_workplace("workshop_test_pause_smelt")
+	var craft_wp_loaded = wp_mgr.get_workplace("workshop_test_pause_craft")
+	var pre_resume_ore = rm.get_resource("ore")
+	var pre_resume_metal = rm.get_resource("metal")
+	var pre_resume_wood = rm.get_resource("wood")
+
 	var res_smelt_prod = wp_mgr.produce_to_buffer("workshop_test_pause_smelt", 1.0, rm)
 	var res_craft_prod = wp_mgr.produce_to_buffer("workshop_test_pause_craft", 1.0, rm)
 	if res_smelt_prod != 1 or smelt_wp_loaded.buffer_amount != 8:
 		printerr("FAIL: Production after resume failed on smelt: produced=%d, buffer=%d" % [res_smelt_prod, smelt_wp_loaded.buffer_amount])
 		failures += 1
+	if rm.get_resource("ore") != pre_resume_ore - 2:
+		printerr("FAIL: Smelt after resume did not consume 2 ore! %d -> %d" % [pre_resume_ore, rm.get_resource("ore")])
+		failures += 1
+
 	if res_craft_prod != 1 or craft_wp_loaded.buffer_amount != 6:
 		printerr("FAIL: Production after resume failed on craft: produced=%d, buffer=%d" % [res_craft_prod, craft_wp_loaded.buffer_amount])
 		failures += 1
+	if rm.get_resource("metal") != pre_resume_metal - 2 or rm.get_resource("wood") != pre_resume_wood - 1:
+		printerr("FAIL: Craft after resume did not consume inputs correctly: metal=%d, wood=%d" % [pre_resume_metal, rm.get_resource("metal")])
+		failures += 1
 
-	# Verify channel count and job count remain strictly non-duplicated after resume
-	channel_count = 0
+	# Compare job identity/state snapshot after resume (B4)
+	var post_resume_snapshot: Array = build_job_snapshot.call()
+	if post_resume_snapshot.size() != post_load_snapshot.size():
+		printerr("FAIL B4: Workshop job count changed after resume: %d vs %d" % [post_load_snapshot.size(), post_resume_snapshot.size()])
+		failures += 1
+	else:
+		for i in range(post_load_snapshot.size()):
+			var s_load: Dictionary = post_load_snapshot[i]
+			var s_resume: Dictionary = post_resume_snapshot[i]
+			for k in s_load:
+				if s_load[k] != s_resume.get(k, null):
+					printerr("FAIL B4: Job snapshot changed after resume for job %s key '%s': %s vs %s" % [s_load["id"], k, str(s_load[k]), str(s_resume.get(k))])
+					failures += 1
+
+	# Check channel count remains strictly 2 (B4)
+	var resume_ch_count := 0
 	for wp in wp_mgr.get_all_workplaces():
 		if wp.parent_building_id == "workshop_test_pause":
-			channel_count += 1
-	if channel_count != 2:
-		printerr("FAIL: Channel count duplicated after resume: %d" % channel_count)
+			resume_ch_count += 1
+	if resume_ch_count != 2:
+		printerr("FAIL B4: Channel count duplicated after resume: %d" % resume_ch_count)
 		failures += 1
 
-	if not jm._is_job_executable(job_smelt, wp_mgr, rm, Callable(), world_instance.nav):
+	# Find reloaded jobs and test executability
+	var reloaded_jobs = jm.get_jobs_for_building("workshop_test_pause")
+	var reloaded_smelt: JobData = null
+	var reloaded_craft: JobData = null
+	for j in reloaded_jobs:
+		if j.recipe_id == "smelt_metal" and j.workplace_channel_id == "workshop_test_pause_smelt" and reloaded_smelt == null:
+			reloaded_smelt = j
+		elif j.recipe_id == "craft_tools" and j.workplace_channel_id == "workshop_test_pause_craft" and reloaded_craft == null:
+			reloaded_craft = j
+
+	if reloaded_smelt == null or not jm._is_job_executable(reloaded_smelt, wp_mgr, rm, Callable(), world_instance.nav):
 		printerr("FAIL: Smelt job should be executable after resume")
 		failures += 1
-	if not jm._is_job_executable(job_craft, wp_mgr, rm, Callable(), world_instance.nav):
+	if reloaded_craft == null or not jm._is_job_executable(reloaded_craft, wp_mgr, rm, Callable(), world_instance.nav):
 		printerr("FAIL: Craft job should be executable after resume")
 		failures += 1
 
-	# Cleanup test materials
-	rm.consume_resource("ore", rm.get_resource("ore"))
-	rm.consume_resource("metal", rm.get_resource("metal"))
-	rm.consume_resource("wood", rm.get_resource("wood"))
-	rm.consume_resource("tools", rm.get_resource("tools"))
+	# B5: Fixture cleanup - restore exact starting stock snapshot
+	for res_id in init_stock:
+		rm._current_stock[res_id] = init_stock[res_id]
 
-	# Cleanup
+	# Clean up hauler job from jm if present
+	if jm != null and job_haul != null and job_haul in jm._jobs:
+		jm._jobs.erase(job_haul)
+
+	# Cleanup building & jobs
 	world_instance.demolish_building_project("workshop_test_pause")
 
 	if failures == 0:
@@ -2051,7 +2137,7 @@ func _test_tc_bm_32_atomic_refund_failure_injection() -> bool:
 			if IsoMathScript.is_in_bounds(cell):
 				wd.occupancy[cell.x][cell.y] = false
 
-	# 3. Fail-closed interface check when add_resources_atomic is missing
+	# 3. Fail-closed interface check when add_resources_atomic is missing (Demolition)
 	var non_atomic_mock = NonAtomicResourceManagerMock.new()
 	if BuildingSystemScript.is_valid_resource_manager_for_demolition(non_atomic_mock):
 		printerr("FAIL: is_valid_resource_manager_for_demolition should reject mock lacking add_resources_atomic")
@@ -2061,8 +2147,159 @@ func _test_tc_bm_32_atomic_refund_failure_injection() -> bool:
 		printerr("FAIL: demolish_building should fail closed when add_resources_atomic is missing")
 		failures += 1
 
+	# 4. Objective D: Verify test failure injection seam is inert outside debug/test mode
+	rm._debug_mode_override = false
+	rm.set_test_fail_commit_resource("wood")
+	if rm._test_fail_commit_resource != "":
+		printerr("FAIL: set_test_fail_commit_resource must be inert when outside debug execution mode")
+		failures += 1
+	var normal_atomic_res = rm.add_resources_atomic({"wood": 10})
+	if not normal_atomic_res.get("success", false):
+		printerr("FAIL: add_resources_atomic failed when failure injection seam should be inert")
+		failures += 1
+	rm.consume_resource("wood", 10)
+	rm._debug_mode_override = null
+
+	# 5. Objective C: Atomic Construction Cancellation Invariants
+	var cancel_origin := Vector2i(20, 20)
+	var b_cancel := {
+		"id": "bld_cancel_atomic_test",
+		"type": "workshop", # Costs: 20 Wood, 15 Stone, 5 Metal -> 50% refund is 10 Wood, 7 Stone, 2 Metal
+		"cell": cancel_origin,
+		"size": Vector2i(2, 2),
+		"state": "under_construction",
+		"health": 100
+	}
+	wd.buildings.append(b_cancel)
+	for ox in range(2):
+		for oy in range(2):
+			var cell = cancel_origin + Vector2i(ox, oy)
+			if IsoMathScript.is_in_bounds(cell):
+				wd.occupancy[cell.x][cell.y] = true
+
+	var cancel_builder_job: JobData = null
+	if jm != null:
+		cancel_builder_job = jm.create_job("builder", cancel_origin, "Build workshop", "bld_cancel_atomic_test")
+
+	# 5a. Non-atomic ResourceManager mock is rejected for construction cancellation
+	if BuildingSystemScript.is_valid_resource_manager_for_cancellation(non_atomic_mock):
+		printerr("FAIL: is_valid_resource_manager_for_cancellation should reject mock lacking add_resources_atomic")
+		failures += 1
+	var can_cancel_mock = BuildingSystemScript.can_cancel_construction(b_cancel, wd, non_atomic_mock)
+	if can_cancel_mock.get("can_cancel", true):
+		printerr("FAIL: can_cancel_construction should reject non-atomic ResourceManager mock")
+		failures += 1
+	var cancel_mock_res = BuildingSystemScript.cancel_construction(b_cancel, wd, non_atomic_mock, jm)
+	if cancel_mock_res.get("success", true):
+		printerr("FAIL: cancel_construction should reject non-atomic ResourceManager mock")
+		failures += 1
+
+	# Construction remains in world after rejection; occupancy and jobs remain unchanged
+	if BuildingSystemScript.get_building_by_id("bld_cancel_atomic_test", wd).is_empty():
+		printerr("FAIL: Under-construction building was erased on non-atomic mock rejection")
+		failures += 1
+	var occ_preserved := true
+	for ox in range(2):
+		for oy in range(2):
+			var cell = cancel_origin + Vector2i(ox, oy)
+			if IsoMathScript.is_in_bounds(cell) and not wd.occupancy[cell.x][cell.y]:
+				occ_preserved = false
+	if not occ_preserved:
+		printerr("FAIL: Occupancy cleared on non-atomic mock rejection")
+		failures += 1
+	if jm != null and cancel_builder_job != null and not cancel_builder_job in jm._jobs:
+		printerr("FAIL: Builder job was removed on non-atomic mock rejection")
+		failures += 1
+
+	# 5b. Failure injection during atomic cancellation restores all transaction state exactly
+	var pre_canc_wood: int = rm.get_resource("wood")
+	var pre_canc_stone: int = rm.get_resource("stone")
+	var pre_canc_metal: int = rm.get_resource("metal")
+	var pre_canc_tally_wood: float = rm.get_daily_production_tally("wood")
+	var pre_canc_tally_stone: float = rm.get_daily_production_tally("stone")
+	var pre_canc_tally_metal: float = rm.get_daily_production_tally("metal")
+
+	var canc_signal_count: int = 0
+	var canc_signal_spy := func(_res: String, _avail: int, _total: int):
+		canc_signal_count += 1
+	rm.resource_changed.connect(canc_signal_spy)
+
+	# Inject commit failure on stone
+	rm.set_test_fail_commit_resource("stone")
+	var injected_canc_res = BuildingSystemScript.cancel_construction(b_cancel, wd, rm, jm)
+	rm.set_test_fail_commit_resource("")
+	rm.resource_changed.disconnect(canc_signal_spy)
+
+	if injected_canc_res.get("success", true):
+		printerr("FAIL: cancel_construction must fail when commit phase is aborted on stone!")
+		failures += 1
+	if canc_signal_count != 0:
+		printerr("FAIL: Intermediate signals emitted during canceled construction rollback: %d" % canc_signal_count)
+		failures += 1
+	if rm.get_resource("wood") != pre_canc_wood or rm.get_resource("stone") != pre_canc_stone or rm.get_resource("metal") != pre_canc_metal:
+		printerr("FAIL: Resource stocks not rolled back after cancellation failure!")
+		failures += 1
+	if rm.get_daily_production_tally("wood") != pre_canc_tally_wood or rm.get_daily_production_tally("stone") != pre_canc_tally_stone or rm.get_daily_production_tally("metal") != pre_canc_tally_metal:
+		printerr("FAIL: Daily production tallies not restored after cancellation failure!")
+		failures += 1
+
+	# Building record, occupancy, and jobs remain unchanged after failure injection
+	if BuildingSystemScript.get_building_by_id("bld_cancel_atomic_test", wd).is_empty():
+		printerr("FAIL: Building was deleted on failed cancellation transaction")
+		failures += 1
+	occ_preserved = true
+	for ox in range(2):
+		for oy in range(2):
+			var cell = cancel_origin + Vector2i(ox, oy)
+			if IsoMathScript.is_in_bounds(cell) and not wd.occupancy[cell.x][cell.y]:
+				occ_preserved = false
+	if not occ_preserved:
+		printerr("FAIL: Occupancy cleared on failed cancellation transaction")
+		failures += 1
+	if jm != null and cancel_builder_job != null and not cancel_builder_job in jm._jobs:
+		printerr("FAIL: Builder job removed on failed cancellation transaction")
+		failures += 1
+
+	# 5c. Actual atomic cancellation succeeds and credits exact expected refund
+	var real_canc_res = BuildingSystemScript.cancel_construction(b_cancel, wd, rm, jm)
+	if not real_canc_res.get("success", false):
+		printerr("FAIL: Real atomic cancel_construction failed: %s" % real_canc_res.get("reason", ""))
+		failures += 1
+
+	var refunded_canc: Dictionary = real_canc_res.get("refunded", {})
+	if refunded_canc.get("wood", 0) != 10 or refunded_canc.get("stone", 0) != 7 or refunded_canc.get("metal", 0) != 2:
+		printerr("FAIL: Credited refund mismatch: %s" % str(refunded_canc))
+		failures += 1
+
+	if rm.get_resource("wood") != pre_canc_wood + 10 or rm.get_resource("stone") != pre_canc_stone + 7 or rm.get_resource("metal") != pre_canc_metal + 2:
+		printerr("FAIL: Resource stock not accurately incremented after cancellation success!")
+		failures += 1
+
+	if not BuildingSystemScript.get_building_by_id("bld_cancel_atomic_test", wd).is_empty():
+		printerr("FAIL: Building not erased from world_data after successful cancellation")
+		failures += 1
+
+	var occ_cleared := true
+	for ox in range(2):
+		for oy in range(2):
+			var cell = cancel_origin + Vector2i(ox, oy)
+			if IsoMathScript.is_in_bounds(cell) and wd.occupancy[cell.x][cell.y]:
+				occ_cleared = false
+	if not occ_cleared:
+		printerr("FAIL: Occupancy not cleared after successful cancellation")
+		failures += 1
+
+	if jm != null and cancel_builder_job != null and cancel_builder_job in jm._jobs:
+		printerr("FAIL: Builder job not removed after successful cancellation")
+		failures += 1
+
+	# Cleanup refunded resources
+	rm.consume_resource("wood", 10)
+	rm.consume_resource("stone", 7)
+	rm.consume_resource("metal", 2)
+
 	if failures == 0:
-		print("  [PASS] TC-BM.32: Real ResourceManager atomic failure-injection & commit rollback verified.")
+		print("  [PASS] TC-BM.32: Real ResourceManager atomic failure-injection, commit rollback & unified construction cancellation verified.")
 		return true
 	return false
 
@@ -2077,6 +2314,15 @@ func _test_tc_bm_33_cargo_conservation_scenarios() -> bool:
 	var jm = world_instance.job_mgr
 	var cit0 = world_instance.citizen_list[0]
 	var cit1 = world_instance.citizen_list[1] if world_instance.citizen_list.size() > 1 else null
+
+	# Objective A1 & A2: Explicitly assign and verify hauler role, JobManager, and navigation reference
+	var orig_role0: String = cit0.role
+	cit0.role = "hauler"
+	cit0.job_mgr = jm
+	cit0.nav = world_instance.nav
+	if cit0.job_mgr == null or cit0.nav == null:
+		printerr("FAIL Objective A: cit0 missing valid JobManager or Navigation reference")
+		failures += 1
 
 	# STEP 1: Hauler picks up cargo from workplace using real _pickup_hauler_cargo
 	var origin := Vector2i(26, 26)
@@ -2140,37 +2386,47 @@ func _test_tc_bm_33_cargo_conservation_scenarios() -> bool:
 	if cit0.carrying_source_workplace_id != "farm_cargo_test":
 		printerr("FAIL Step 2: carrying_source_workplace_id lost after partial delivery! Got '%s'" % cit0.carrying_source_workplace_id)
 		failures += 1
+	# Verify hauling XP is not yet awarded on partial delivery (Objective A13)
+	if cit0.get_skill_data().get_xp("hauling") != 0.0:
+		printerr("FAIL Step 2: Hauling XP should not be awarded on partial delivery: %f" % cit0.get_skill_data().get_xp("hauling"))
+		failures += 1
 
-	# STEP 3: Citizen holding cargo in _process_idle() refuses new jobs while storage remains full (A1 & A2)
-	# Setup an executable hauler job in JobManager
-	var extra_haul_job = JobData.new()
-	extra_haul_job.id = "haul_job_waiting_test"
-	extra_haul_job.type = "hauler"
-	extra_haul_job.source_workplace_id = "farm_cargo_test"
-	extra_haul_job.target_building_id = "farm_cargo_test"
-	extra_haul_job.cargo_resource = "food"
-	extra_haul_job.cargo_amount = 5
-	extra_haul_job.state = JobState.AVAILABLE
-	if jm != null:
-		jm._jobs.append(extra_haul_job)
+	# STEP 3: Objective A3-A8: Real second hauling job through JobManager; genuine eligibility check
+	farm_wp.buffer_amount = 10 # Buffer has actual goods (Objective A4)
+	var extra_haul_job = jm.create_hauling_job("farm_cargo_test", farm_wp.access_cell, Vector2i(31, 34), "food", 5, "Haul extra food", 2)
+	if extra_haul_job.state != JobState.AVAILABLE:
+		printerr("FAIL Step 3: Second hauling job should be AVAILABLE: %d" % extra_haul_job.state)
+		failures += 1
 
-	# Simulate 3 idle ticks: citizen must NOT accept work, must retain remainder and source workplace
+	# Assert job is executable using real JobManager check (Objective A5)
+	var is_hauler_job_exec: bool = jm._is_job_executable(extra_haul_job, wp_mgr, rm, Callable(), world_instance.nav)
+	if not is_hauler_job_exec:
+		printerr("FAIL Step 3: Second hauling job must be executable in JobManager")
+		failures += 1
+
+	# Assert citizen could otherwise reach the source location (Objective A6)
+	var path_to_source: Array = world_instance.nav.find_path(cit0.current_cell, extra_haul_job.source_cell)
+	if path_to_source.is_empty():
+		printerr("FAIL Step 3: Source cell of second hauling job is not reachable for citizen")
+		failures += 1
+
+	# Call actual _process_idle() repeatedly while central storage remains full (Objective A7 & A8)
 	for i in range(3):
 		cit0._process_idle()
 		if cit0.active_job != null:
-			printerr("FAIL Step 3: Citizen accepted job '%s' while carrying undelivered cargo!" % cit0.active_job.id)
+			printerr("FAIL Step 3: Hauler accepted job '%s' while carrying undelivered cargo!" % cit0.active_job.id)
 			failures += 1
 		if cit0.current_state != CitizenController.State.IDLE:
 			printerr("FAIL Step 3: Citizen state changed away from IDLE: %d" % cit0.current_state)
+			failures += 1
+		if extra_haul_job.state != JobState.AVAILABLE or extra_haul_job.worker_id != "":
+			printerr("FAIL Step 3: Second hauling job was claimed or assigned: state=%d, worker=%s" % [extra_haul_job.state, extra_haul_job.worker_id])
 			failures += 1
 		if cit0.carrying_amount != 6 or cit0.carrying_resource != "food" or cit0.carrying_source_workplace_id != "farm_cargo_test":
 			printerr("FAIL Step 3: Cargo fields corrupted during idle processing with cargo: %d %s %s" % [cit0.carrying_amount, cit0.carrying_resource, cit0.carrying_source_workplace_id])
 			failures += 1
 
-	if jm != null:
-		jm._jobs.erase(extra_haul_job)
-
-	# STEP 4: Defensive guard against cargo overwrite in _pickup_hauler_cargo() (A1 & A2)
+	# STEP 4: Defensive guard against cargo overwrite in _pickup_hauler_cargo() (Objective A9)
 	var overwrite_job = JobData.new()
 	overwrite_job.id = "overwrite_attempt_job"
 	overwrite_job.type = "hauler"
@@ -2181,7 +2437,7 @@ func _test_tc_bm_33_cargo_conservation_scenarios() -> bool:
 	cit0.active_job = overwrite_job
 	cit0.call("_pickup_hauler_cargo")
 
-	if cit0.carrying_amount != 6 or cit0.carrying_resource != "food":
+	if cit0.carrying_amount != 6 or cit0.carrying_resource != "food" or cit0.carrying_source_workplace_id != "farm_cargo_test":
 		printerr("FAIL Step 4: _pickup_hauler_cargo overwrote existing cargo! Amount: %d" % cit0.carrying_amount)
 		failures += 1
 	if cit0.active_job != null:
@@ -2191,7 +2447,43 @@ func _test_tc_bm_33_cargo_conservation_scenarios() -> bool:
 		printerr("FAIL Step 4: Status reason did not report retained cargo rejection: '%s'" % cit0.status_reason)
 		failures += 1
 
-	# STEP 5: Fail-closed deposit when ResourceManager is unavailable or invalid (A1 & A2)
+	# STEP 5: Free storage capacity and verify single full delivery + exact XP (Objective A10, A11, A12, A13)
+	rm._capacities["food"] = orig_cap # Free enough central storage capacity (Objective A10)
+	var pre_final_food = rm.get_resource("food")
+
+	# Call _process_idle() again: remaining cargo deposited exactly once (Objective A11)
+	cit0._process_idle()
+
+	if cit0.carrying_amount != 0 or cit0.carrying_resource != "" or cit0.carrying_source_workplace_id != "":
+		printerr("FAIL Step 5: Remaining cargo was not cleared on idle tick delivery: amt=%d, res=%s" % [cit0.carrying_amount, cit0.carrying_resource])
+		failures += 1
+	if rm.get_resource("food") != pre_final_food + 6:
+		printerr("FAIL Step 5: Expected 6 food deposited, got: %d -> %d" % [pre_final_food, rm.get_resource("food")])
+		failures += 1
+	if cit0.get_skill_data().get_xp("hauling") != 10.0:
+		printerr("FAIL Step 5: Hauling XP (+10) not awarded after full successful delivery: %f" % cit0.get_skill_data().get_xp("hauling"))
+		failures += 1
+
+	# Run another idle tick and verify no duplicate deposit or duplicate XP (Objective A12 & A13)
+	var post_final_food = rm.get_resource("food")
+	var post_final_xp = cit0.get_skill_data().get_xp("hauling")
+	cit0._process_idle()
+
+	if rm.get_resource("food") != post_final_food:
+		printerr("FAIL Step 5: Duplicate food deposit on subsequent idle tick: %d != %d" % [post_final_food, rm.get_resource("food")])
+		failures += 1
+	if cit0.get_skill_data().get_xp("hauling") != post_final_xp:
+		printerr("FAIL Step 5: Duplicate XP awarded on subsequent idle tick: %f != %f" % [cit0.get_skill_data().get_xp("hauling"), post_final_xp])
+		failures += 1
+
+	# Clean up second hauling job
+	if jm != null:
+		jm._jobs.erase(extra_haul_job)
+	if cit0.active_job == extra_haul_job:
+		cit0.active_job = null
+		cit0.current_state = CitizenController.State.IDLE
+
+	# STEP 6: Fail-closed deposit when ResourceManager is unavailable or invalid
 	var cit_isolated = CitizenController.new()
 	cit_isolated.carrying_resource = "wood"
 	cit_isolated.carrying_amount = 7
@@ -2203,23 +2495,30 @@ func _test_tc_bm_33_cargo_conservation_scenarios() -> bool:
 	cit_isolated.active_job = dummy_job
 	cit_isolated.call("_deposit_hauler_cargo")
 	if cit_isolated.carrying_amount != 7 or cit_isolated.carrying_resource != "wood" or cit_isolated.carrying_source_workplace_id != "farm_cargo_test":
-		printerr("FAIL Step 5: Fail-closed deposit did not preserve cargo on missing RM! amount=%d, res=%s, wp=%s" % [cit_isolated.carrying_amount, cit_isolated.carrying_resource, cit_isolated.carrying_source_workplace_id])
+		printerr("FAIL Step 6: Fail-closed deposit did not preserve cargo on missing RM! amount=%d, res=%s, wp=%s" % [cit_isolated.carrying_amount, cit_isolated.carrying_resource, cit_isolated.carrying_source_workplace_id])
 		failures += 1
 	if cit_isolated.active_job != null:
-		printerr("FAIL Step 5: Dummy job not released on fail-closed deposit")
+		printerr("FAIL Step 6: Dummy job not released on fail-closed deposit")
 		failures += 1
 	if cit_isolated.get_skill_data().get_xp("hauling") != 0.0:
-		printerr("FAIL Step 5: XP erroneously awarded on failed deposit: %f" % cit_isolated.get_skill_data().get_xp("hauling"))
+		printerr("FAIL Step 6: XP erroneously awarded on failed deposit: %f" % cit_isolated.get_skill_data().get_xp("hauling"))
 		failures += 1
 	cit_isolated.free()
 
-	# STEP 6: Source workplace demolition preflight finds cargo through source identity alone
+	# STEP 7: Demolition preflight finds cargo through persistent source identity
+	# Re-arm cit0 with 6 food for remaining demolition and save/load tests
+	cit0.carrying_resource = "food"
+	cit0.carrying_amount = 6
+	cit0.carrying_source_workplace_id = "farm_cargo_test"
+	cit0.current_state = CitizenController.State.IDLE
+	cit0.active_job = null
+
 	var cargo_found = world_instance.get_carried_cargo_for_building("farm_cargo_test")
 	if cargo_found.get("food", 0) != 6:
-		printerr("FAIL Step 6: get_carried_cargo_for_building failed to find 6 food via persistent source identity! Got: %s" % str(cargo_found))
+		printerr("FAIL Step 7: get_carried_cargo_for_building failed to find 6 food via persistent source identity! Got: %s" % str(cargo_found))
 		failures += 1
 
-	# STEP 7: Multiple haulers & en route hauler (State.HAULING) aggregated
+	# STEP 8: Multiple haulers & en route hauler (State.HAULING) aggregated
 	if cit1 != null:
 		cit1.carrying_resource = "food"
 		cit1.carrying_amount = 4
@@ -2229,41 +2528,41 @@ func _test_tc_bm_33_cargo_conservation_scenarios() -> bool:
 
 	var multi_cargo = world_instance.get_carried_cargo_for_building("farm_cargo_test")
 	if multi_cargo.get("food", 0) != 10:
-		printerr("FAIL Step 7: Multiple haulers cargo aggregation failed! Expected 10, got: %s" % str(multi_cargo))
+		printerr("FAIL Step 8: Multiple haulers cargo aggregation failed! Expected 10, got: %s" % str(multi_cargo))
 		failures += 1
 
-	# STEP 8: Demolition rejected when central storage lacks capacity for refund + carried cargo
+	# STEP 9: Demolition rejected when central storage lacks capacity for refund + carried cargo
 	# We have 10 carried food. Set food capacity to current stock + 5 (needs 10 headroom)
 	rm._capacities["food"] = rm.get_resource("food") + 5
 	var dem_rej = world_instance.demolish_building_project("farm_cargo_test")
 	if dem_rej.get("success", true):
-		printerr("FAIL Step 8: Demolition must be rejected when storage cannot fit carried cargo!")
+		printerr("FAIL Step 9: Demolition must be rejected when storage cannot fit carried cargo!")
 		failures += 1
 	if not "Dung lượng kho chứa không đủ" in dem_rej.get("reason", ""):
-		printerr("FAIL Step 8: Demolition rejection reason mismatch: '%s'" % dem_rej.get("reason", ""))
+		printerr("FAIL Step 9: Demolition rejection reason mismatch: '%s'" % dem_rej.get("reason", ""))
 		failures += 1
 	# Verify building still exists and citizen cargo was not lost
 	if BuildingSystemScript.get_building_by_id("farm_cargo_test", world_instance.world_data).is_empty():
-		printerr("FAIL Step 8: Building was deleted on rejected demolition")
+		printerr("FAIL Step 9: Building was deleted on rejected demolition")
 		failures += 1
 	if cit0.carrying_amount != 6 or (cit1 != null and cit1.carrying_amount != 4):
-		printerr("FAIL Step 8: Citizen cargo was modified on rejected demolition")
+		printerr("FAIL Step 9: Citizen cargo was modified on rejected demolition")
 		failures += 1
 
-	# STEP 9: Save and reload game while citizens hold cargo with no active job
+	# STEP 10: Save and reload game while citizens hold cargo with no active job
 	rm._capacities["food"] = orig_cap # Restore capacity so save/load has valid storage state
 	var temp_save_path := "user://test_cargo_source_id_save.json"
 	var s_res = SaveManagerScript.save_to_file(world_instance, temp_save_path)
 	if not s_res.get("success", false):
-		printerr("FAIL Step 9: Save failed")
+		printerr("FAIL Step 10: Save failed")
 		failures += 1
 	var l_res = SaveManagerScript.load_from_file(temp_save_path)
 	if not l_res.get("success", false):
-		printerr("FAIL Step 9: Load failed")
+		printerr("FAIL Step 10: Load failed")
 		failures += 1
 	var a_res = SaveManagerScript.apply_loaded_state_to_world(world_instance, l_res["data"])
 	if not a_res.get("success", false):
-		printerr("FAIL Step 9: Apply loaded state failed")
+		printerr("FAIL Step 10: Apply loaded state failed")
 		failures += 1
 
 	if FileAccess.file_exists(temp_save_path):
@@ -2275,40 +2574,40 @@ func _test_tc_bm_33_cargo_conservation_scenarios() -> bool:
 	var cit0_reloaded = world_instance.citizen_list[0]
 	var cit1_reloaded = world_instance.citizen_list[1] if world_instance.citizen_list.size() > 1 else null
 	if cit0_reloaded.carrying_amount != 6 or cit0_reloaded.carrying_resource != "food":
-		printerr("FAIL Step 9: cit0 cargo not preserved across save/load! Amount: %d, Res: %s" % [cit0_reloaded.carrying_amount, cit0_reloaded.carrying_resource])
+		printerr("FAIL Step 10: cit0 cargo not preserved across save/load! Amount: %d, Res: %s" % [cit0_reloaded.carrying_amount, cit0_reloaded.carrying_resource])
 		failures += 1
 	if cit0_reloaded.carrying_source_workplace_id != "farm_cargo_test":
-		printerr("FAIL Step 9: cit0 carrying_source_workplace_id not preserved across save/load! Got '%s'" % cit0_reloaded.carrying_source_workplace_id)
+		printerr("FAIL Step 10: cit0 carrying_source_workplace_id not preserved across save/load! Got '%s'" % cit0_reloaded.carrying_source_workplace_id)
 		failures += 1
 	if cit1_reloaded != null:
 		if cit1_reloaded.carrying_amount != 4 or cit1_reloaded.carrying_resource != "food":
-			printerr("FAIL Step 9: cit1 cargo not preserved across save/load! Amount: %d" % cit1_reloaded.carrying_amount)
+			printerr("FAIL Step 10: cit1 cargo not preserved across save/load! Amount: %d" % cit1_reloaded.carrying_amount)
 			failures += 1
 		if cit1_reloaded.carrying_source_workplace_id != "farm_cargo_test":
-			printerr("FAIL Step 9: cit1 carrying_source_workplace_id not preserved across save/load!")
+			printerr("FAIL Step 10: cit1 carrying_source_workplace_id not preserved across save/load!")
 			failures += 1
 
-	# STEP 10: Demolition after reload deposits all carried cargo into storage
+	# STEP 11: Demolition after reload deposits all carried cargo into storage
 	var pre_dem_food = rm.get_resource("food")
 	var dem_res = world_instance.demolish_building_project("farm_cargo_test")
 	if not dem_res.get("success", false):
-		printerr("FAIL Step 10: Demolition after reload failed: %s" % dem_res.get("reason", ""))
+		printerr("FAIL Step 11: Demolition after reload failed: %s" % dem_res.get("reason", ""))
 		failures += 1
 	if cit0_reloaded.carrying_amount != 0 or (cit1_reloaded != null and cit1_reloaded.carrying_amount != 0):
-		printerr("FAIL Step 10: Remaining cargo was not deposited upon demolition! cit0=%d, cit1=%d" % [cit0_reloaded.carrying_amount, cit1_reloaded.carrying_amount if cit1_reloaded != null else 0])
+		printerr("FAIL Step 11: Remaining cargo was not deposited upon demolition! cit0=%d, cit1=%d" % [cit0_reloaded.carrying_amount, cit1_reloaded.carrying_amount if cit1_reloaded != null else 0])
 		failures += 1
 	if cit0_reloaded.carrying_source_workplace_id != "" or (cit1_reloaded != null and cit1_reloaded.carrying_source_workplace_id != ""):
-		printerr("FAIL Step 10: carrying_source_workplace_id was not cleared after demolition deposit!")
+		printerr("FAIL Step 11: carrying_source_workplace_id was not cleared after demolition deposit!")
 		failures += 1
 	# Carried cargo was 10 food total -> storage must have increased by 10 food
 	if rm.get_resource("food") != pre_dem_food + 10:
-		printerr("FAIL Step 10: Food in storage did not increase by 10! %d -> %d" % [pre_dem_food, rm.get_resource("food")])
+		printerr("FAIL Step 11: Food in storage did not increase by 10! %d -> %d" % [pre_dem_food, rm.get_resource("food")])
 		failures += 1
 
 	# Clean up food added from test
-	rm.consume_resource("food", 10)
+	rm.consume_resource("food", 16) # 6 from earlier deposit + 10 from demolition
 
-	# STEP 11: Multi-channel recipes (workshop channels) resolve to parent building
+	# STEP 12: Multi-channel recipes (workshop channels) resolve to parent building
 	var ws_origin := Vector2i(28, 28)
 	var ws_data := {
 		"id": "ws_channel_test",
@@ -2334,25 +2633,29 @@ func _test_tc_bm_33_cargo_conservation_scenarios() -> bool:
 
 	var ws_cargo = world_instance.get_carried_cargo_for_building("ws_channel_test")
 	if ws_cargo.get("metal", 0) != 5:
-		printerr("FAIL Step 11: Workshop channel cargo not resolved to parent workshop! Got: %s" % str(ws_cargo))
+		printerr("FAIL Step 12: Workshop channel cargo not resolved to parent workshop! Got: %s" % str(ws_cargo))
 		failures += 1
 
 	var pre_metal = rm.get_resource("metal")
 	var ws_dem = world_instance.demolish_building_project("ws_channel_test")
 	if not ws_dem.get("success", false):
-		printerr("FAIL Step 11: Workshop demolition failed: %s" % ws_dem.get("reason", ""))
+		printerr("FAIL Step 12: Workshop demolition failed: %s" % ws_dem.get("reason", ""))
 		failures += 1
 	if rm.get_resource("metal") != pre_metal + 7: # 2 refund (50% of 5) + 5 cargo = 7
-		printerr("FAIL Step 11: Metal cargo + refund not deposited into storage on workshop demolition! Got %d, expected %d" % [rm.get_resource("metal"), pre_metal + 7])
+		printerr("FAIL Step 12: Metal cargo + refund not deposited into storage on workshop demolition! Got %d, expected %d" % [rm.get_resource("metal"), pre_metal + 7])
 		failures += 1
 	if cit0_reloaded.carrying_amount != 0 or cit0_reloaded.carrying_source_workplace_id != "":
-		printerr("FAIL Step 11: Citizen cargo and source workplace not cleared after workshop demolition")
+		printerr("FAIL Step 12: Citizen cargo and source workplace not cleared after workshop demolition")
 		failures += 1
 
 	rm.consume_resource("metal", 7)
 	rm.consume_resource("wood", 10)
 	rm.consume_resource("stone", 7)
 	rm._capacities["food"] = orig_cap
+
+	# Restore cit0 role and skill xp
+	cit0.role = orig_role0
+	cit0.get_skill_data()._xp["hauling"] = 0.0
 
 	if failures == 0:
 		print("  [PASS] TC-BM.33: All cargo conservation scenarios verified.")

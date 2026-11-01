@@ -8616,3 +8616,67 @@ Address all review findings and test coverage gaps identified during Round 4 ind
 
 ### Next Exact Step
 - Create Round 4 commit, push to `feature/package-2f-building-inspection-and-management` on remote `origin`, and await ChatGPT independent review. Do NOT proceed to Package 2G.
+
+---
+
+## [2026-11-01] Package 2F: Building Inspection, Workplace Management & Demolition System — Independent Review Corrections (Round 5)
+
+### Context & Objectives
+Address all review findings, test defects, and transaction safety requirements identified during Round 5 independent review of Package 2F:
+1. **Valid Hauler Regression Testing (Objective A — TC-BM.33):**
+   - Explicitly assigned `citizen.role = "hauler"` (saving and later restoring original role) with valid `JobManager` and navigation references.
+   - Created a second real hauling job via `jm.create_hauling_job()` with source buffer goods and verified path reachability and `JobData.State.AVAILABLE`.
+   - Verified that repeated `_process_idle()` calls while carrying cargo and while central storage is full keep the citizen IDLE (`active_job == null`), refuse the second hauling job, leave the job AVAILABLE and unassigned, and preserve carried cargo intact.
+   - Verified defensive pickup guard against cargo overwrite, single deposit upon storage availability with exactly +10 hauling XP, and zero duplicate deposits or XP on subsequent idle ticks.
+2. **Complete Actual JobManager Lifecycle Coverage (Objective B — TC-BM.31):**
+   - Retrieved and utilized real registered workshop jobs (`job_smelt`, `job_craft`) from `JobManager.get_jobs_for_building()`, identified by `recipe_id`, `workplace_channel_id`, and deterministic IDs (`"%s_job_%d" % [ch_id, i]`).
+   - Tested real pause lifecycle via `world_instance.set_building_state()`: workers released to IDLE, jobs released to AVAILABLE unassigned, zero production on paused channels, and inputs/buffers untouched.
+   - Before save, recorded a deterministic sorted snapshot of every Workshop job (ID, type, building, recipe, channel, recurring, state, worker ID) and verified 100% snapshot identity match post-load, along with exact dual-channel WorkplaceData verification.
+   - Resumed workshop, verified dual-channel production operates cleanly, and re-verified job identity snapshots without duplicate channels or duplicate jobs.
+   - Restored initial test world resource stocks at cleanup rather than depleting all materials.
+3. **Unified Atomic Refund on Construction Cancellation (Objective C):**
+   - Updated `BuildingSystem.is_valid_resource_manager_for_cancellation()` and `can_cancel_construction()` / `cancel_construction()` to strictly require `add_resources_atomic()`, eliminating sequential `add_resource()` partial fallbacks.
+   - Rejection or transaction failure preserves building site, occupancy, jobs, and stocks intact.
+   - Updated `test_market.gd` `MockTestResourceManager` with `add_resources_atomic()` to adhere to the unified contract.
+   - In TC-BM.32: tested non-atomic mock rejection, building site preservation, commit failure injection rollback, and successful atomic cancellation with exact 50% refund (+10 wood, +7 stone, +2 metal).
+4. **Constrain Test-Only Failure Injection Seam (Objective D):**
+   - Guarded `ResourceManager.set_test_fail_commit_resource()` and the commit-phase seam with `_is_debug_execution()`, delegating to `OS.is_debug_build()`.
+   - In non-debug execution, the seam is inert and cannot be triggered in release builds.
+   - Verified in TC-BM.32 that `set_test_fail_commit_resource()` is rejected/inert when debug execution is disabled.
+5. **Preserved Atomic Rollback Contract (Objective E):**
+   - Retained complete preflight, exact stock/tally rollback, starvation flag restoration before notifications, and zero false signals on failed atomic transactions.
+   - Tested against the real `ResourceManager` commit failure seam.
+6. **Full Regression Matrix & Log Evidence (Objective F):**
+   - Executed all 16 regression suites with 0 failures and exit code 0.
+   - Persistently archived raw stdout/stderr logs in `scratch/round5_logs/`.
+
+### Test Results & Matrix Verification (16 Suites, 0 Failures)
+Distinguishing test cases, checks, and assertions as reported by respective suite runners:
+1. `scripts/test/test_autonomous_faction_conflict.gd`: 205 checks (Exit Code 0) — Log: `scratch/round5_logs/01_test_autonomous_faction_conflict.log`
+2. `scripts/test/test_faction_relation_matrix.gd`: 162 checks (Exit Code 0) — Log: `scratch/round5_logs/02_test_faction_relation_matrix.log`
+3. `scripts/test/test_save_load.gd`: 182 assertions (Exit Code 0) — Log: `scratch/round5_logs/03_test_save_load.log`
+4. `scripts/test/test_faction_diplomacy_ai.gd`: 437 checks (Exit Code 0) — Log: `scratch/round5_logs/04_test_faction_diplomacy_ai.log`
+5. `scripts/test/test_faction_strategy_execution.gd`: 951 checks (Exit Code 0) — Log: `scratch/round5_logs/05_test_faction_strategy_execution.log`
+6. `scripts/test/test_market.gd`: 15 test cases (Exit Code 0) — Log: `scratch/round5_logs/06_test_market.log`
+7. `scripts/test/test_field_siege.gd`: 16 test cases, 98 assertions (Exit Code 0) — Log: `scratch/round5_logs/07_test_field_siege.log`
+8. `scripts/test/test_surplus_treasury_conversion.gd`: 15 requirements, 124 checks (Exit Code 0) — Log: `scratch/round5_logs/08_test_surplus_treasury_conversion.log`
+9. `scripts/test/test_player_field_guide.gd`: 9 test groups, 130 checks (Exit Code 0) — Log: `scratch/round5_logs/09_test_player_field_guide.log`
+10. `scripts/test/test_workshop.gd`: 7 test groups (Exit Code 0) — Log: `scratch/round5_logs/10_test_workshop.log`
+11. `scripts/test/test_research_hall.gd`: 7 test groups (Exit Code 0) — Log: `scratch/round5_logs/11_test_research_hall.log`
+12. `scripts/test/test_barracks.gd`: 7 test groups (Exit Code 0) — Log: `scratch/round5_logs/12_test_barracks.log`
+13. `scripts/test/test_watchtower.gd`: 9 test groups (Exit Code 0) — Log: `scratch/round5_logs/13_test_watchtower.log`
+14. `scripts/test/test_citizen_skills.gd`: 27 test cases (Exit Code 0) — Log: `scratch/round5_logs/14_test_citizen_skills.log`
+15. `scripts/test/test_tactical_military.gd`: 11 groups, 419 assertions (Exit Code 0) — Log: `scratch/round5_logs/15_test_tactical_military.log`
+16. `scripts/test/test_building_management.gd`: 34 test cases (Exit Code 0) — Log: `scratch/round5_logs/16_test_building_management.log`
+
+### Files Modified & Protected
+- `scripts/economy/resource_manager.gd` (Guarded failure injection seam with `_is_debug_execution()`)
+- `scripts/economy/building_system.gd` (Unified atomic refund contract in `is_valid_resource_manager_for_cancellation()` and `cancel_construction()`)
+- `scripts/world/world_view.gd` (Deterministic job IDs `"%s_job_%d" % [ch_id, i]` for recipe channels across save/load)
+- `scripts/test/test_building_management.gd` (Updated TC-BM.31, TC-BM.32, TC-BM.33)
+- `scripts/test/test_market.gd` (Implemented `add_resources_atomic()` on `MockTestResourceManager`)
+- `docs/WORKLOG.md` (Updated)
+- Protected assets (`project.godot`, 92 historical untracked files, user saves) strictly preserved.
+
+### Next Exact Step
+- Create Round 5 commit, push to `feature/package-2f-building-inspection-and-management` on remote `origin`, and await ChatGPT independent review. Do NOT proceed to Package 2G.
