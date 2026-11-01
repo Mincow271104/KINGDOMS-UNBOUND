@@ -1147,6 +1147,8 @@ func _on_return_home_btn_pressed() -> void:
 
 var _diplomacy_feedback_message: String = ""
 var _diplomacy_feedback_is_error: bool = false
+var _caravan_trade_panel: PanelContainer = null
+var _caravan_quotes_refresh_pending: bool = false
 
 func _show_diplomacy_feedback(message: String, is_error: bool = false) -> void:
 	_diplomacy_feedback_message = message
@@ -1199,94 +1201,11 @@ func _refresh_diplomacy_ui() -> void:
 		
 		# Add caravan quick trade section
 		var c_panel := PanelContainer.new()
-		var c_vbox := VBoxContainer.new()
-		c_vbox.add_theme_constant_override("separation", 6)
-		
-		var c_title := Label.new()
-		c_title.text = "HÀNG HÓA THƯƠNG ĐOÀN (Giao dịch 10 món):"
-		c_title.modulate = Color(0.4, 1.2, 0.6)
-		c_vbox.add_child(c_title)
-
-		var c_desc := Label.new()
-		c_desc.text = "⚖️ Thị trường cung–cầu: Giá biến động (±20%) theo tồn kho vương quốc & thương đoàn. Quan hệ ngoại giao và phụ phí chiến sự (+15%) áp dụng đồng thời."
-		c_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-		c_desc.modulate = Color(0.85, 0.9, 0.95)
-		c_vbox.add_child(c_desc)
-		
-		var c_grid := GridContainer.new()
-		c_grid.columns = 3
-		c_grid.add_theme_constant_override("h_separation", 8)
-		c_grid.add_theme_constant_override("v_separation", 6)
-		
-		var rm = get_node_or_null("/root/ResourceManager")
-		var caravan_opinion: float = _get_caravan_faction_opinion(active_caravan)
-		var inv: Dictionary = active_caravan.get("inventory")
-		for res_id in inv:
-			if inv[res_id] > 0:
-				var cur_res: String = res_id
-				var buy_btn := Button.new()
-				var bd: Dictionary = active_caravan.call("get_price_breakdown", cur_res, caravan_opinion, rm) if active_caravan.has_method("get_price_breakdown") else {}
-				var unit_price: int = int(bd.get("final_sell_price", active_caravan.call("get_effective_sell_price", cur_res, caravan_opinion, rm)))
-				var total_cost: int = unit_price * 10
-				buy_btn.text = "Mua 10 %s (%d/đv • %d Vàng)" % [cur_res, unit_price, total_cost]
-				
-				var mult_val: float = float(bd.get("market_multiplier", 1.0))
-				var local_p: float = float(bd.get("local_pressure", 0.0)) * 100.0
-				var car_p: float = float(bd.get("caravan_pressure", 0.0)) * 100.0
-				var op_adj: float = float(bd.get("opinion_adjustment", 0.0)) * -100.0
-				var tt: String = "Mua %s:\n• Giá gốc: %d Vàng/đv\n• Cung vương quốc: %d (chuẩn %.0f) -> Áp lực: %+.1f%%\n• Hàng thương đoàn: %d (chuẩn %.1f) -> Áp lực: %+.1f%%\n• Hệ số thị trường: x%.2f\n• Ngoại giao: %+.1f%%\n• Đơn giá: %d Vàng (Tổng 10: %d Vàng)" % [
-					cur_res,
-					int(bd.get("base_sell_price", unit_price)),
-					int(bd.get("local_stock", 0)),
-					float(bd.get("local_reference_stock", 0.0)),
-					local_p,
-					int(bd.get("caravan_stock", 0)),
-					float(bd.get("caravan_reference_stock", 0.0)),
-					car_p,
-					mult_val,
-					op_adj,
-					unit_price,
-					total_cost
-				]
-				if bd.get("is_origin_at_war", false):
-					tt += "\n⚠️ Phụ phí vùng chiến sự: +15%"
-				buy_btn.tooltip_text = tt
-				buy_btn.pressed.connect(func():
-					_handle_caravan_buy(cur_res, 10)
-				)
-				c_grid.add_child(buy_btn)
-				
-		# Also provide selling surplus goods to caravan for gold
-		for res_id in [EconomyConfig.RES_WOOD, EconomyConfig.RES_FOOD, EconomyConfig.RES_STONE, EconomyConfig.RES_HERBS, EconomyConfig.RES_METAL]:
-			var cur_res: String = res_id
-			var avail_stock: int = rm.get_available_stock(cur_res) if rm != null else 0
-			if avail_stock >= 10:
-				var bd_sell: Dictionary = active_caravan.call("get_price_breakdown", cur_res, caravan_opinion, rm) if active_caravan.has_method("get_price_breakdown") else {}
-				var sell_price: int = int(bd_sell.get("final_buy_price", active_caravan.call("get_effective_buy_price", cur_res, caravan_opinion, rm)))
-				var total_payout: int = sell_price * 10
-				var sell_btn := Button.new()
-				sell_btn.text = "Bán 10 %s (%d/đv • +%d Vàng)" % [cur_res, sell_price, total_payout]
-				sell_btn.modulate = Color(1.1, 1.1, 0.7)
-				
-				var mult_val: float = float(bd_sell.get("market_multiplier", 1.0))
-				var op_gain: float = float(bd_sell.get("opinion_adjustment", 0.0)) * 100.0
-				sell_btn.tooltip_text = "Bán %s cho thương đoàn:\n• Giá gốc: %d Vàng/đv\n• Hệ số thị trường: x%.2f\n• Ưu đãi ngoại giao: %+.1f%%\n• Đơn giá thu mua: %d Vàng (Tổng 10: +%d Vàng)" % [
-					cur_res,
-					int(bd_sell.get("base_buy_price", sell_price)),
-					mult_val,
-					op_gain,
-					sell_price,
-					total_payout
-				]
-				sell_btn.pressed.connect(func():
-					_handle_caravan_sell(cur_res, 10)
-				)
-				c_grid.add_child(sell_btn)
-				
-		c_vbox.add_child(c_grid)
-		c_panel.add_child(c_vbox)
+		_caravan_trade_panel = c_panel
+		_populate_caravan_trade_panel(c_panel, active_caravan)
 		factions_list_vbox.add_child(c_panel)
 	else:
+		_caravan_trade_panel = null
 		var tm = get_node_or_null("/root/TimeManager")
 		var cur_day: int = tm.current_day if tm else 1
 		var next_day: int = cur_day + (3 - (cur_day % 5)) if (cur_day % 5) <= 3 else cur_day + (8 - (cur_day % 5))
@@ -1496,6 +1415,165 @@ func _refresh_diplomacy_ui() -> void:
 
 			pair_card.add_child(p_vbox)
 			factions_list_vbox.add_child(pair_card)
+
+func _populate_caravan_trade_panel(c_panel: PanelContainer, active_caravan: Object) -> void:
+	var c_vbox := VBoxContainer.new()
+	c_vbox.add_theme_constant_override("separation", 6)
+	
+	var c_title := Label.new()
+	c_title.text = "HÀNG HÓA THƯƠNG ĐOÀN (Giao dịch 10 món):"
+	c_title.modulate = Color(0.4, 1.2, 0.6)
+	c_vbox.add_child(c_title)
+
+	var c_desc := Label.new()
+	c_desc.text = "⚖️ Thị trường cung–cầu: Giá biến động (±20%) theo tồn kho vương quốc & thương đoàn. Quan hệ ngoại giao và phụ phí chiến sự (+15%) áp dụng đồng thời."
+	c_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	c_desc.modulate = Color(0.85, 0.9, 0.95)
+	c_vbox.add_child(c_desc)
+	
+	var c_grid := GridContainer.new()
+	c_grid.columns = 3
+	c_grid.add_theme_constant_override("h_separation", 8)
+	c_grid.add_theme_constant_override("v_separation", 6)
+	
+	var rm = get_node_or_null("/root/ResourceManager")
+	var caravan_opinion: float = _get_caravan_faction_opinion(active_caravan)
+	var inv: Dictionary = active_caravan.get("inventory")
+	for res_id in inv:
+		if inv[res_id] > 0:
+			var cur_res: String = res_id
+			var buy_btn := Button.new()
+			var bd: Dictionary = active_caravan.call("get_price_breakdown", cur_res, caravan_opinion, rm) if active_caravan.has_method("get_price_breakdown") else {}
+			var unit_price: int = int(bd.get("final_sell_price", active_caravan.call("get_effective_sell_price", cur_res, caravan_opinion, rm)))
+			var total_cost: int = unit_price * 10
+			buy_btn.text = "Mua 10 %s (%d/đv • %d Vàng)" % [cur_res, unit_price, total_cost]
+			
+			var mult_val: float = float(bd.get("market_multiplier", 1.0))
+			var local_p: float = float(bd.get("local_pressure", 0.0)) * 100.0
+			var car_p: float = float(bd.get("caravan_pressure", 0.0)) * 100.0
+			var op_adj: float = float(bd.get("opinion_adjustment", 0.0)) * -100.0
+			var tt: String = "Mua %s:\n• Giá gốc: %d Vàng/đv\n• Cung vương quốc: %d (chuẩn %.0f) -> Áp lực: %+.1f%%\n• Hàng thương đoàn: %d (chuẩn %.1f) -> Áp lực: %+.1f%%\n• Hệ số thị trường: x%.2f\n• Ngoại giao: %+.1f%%\n• Đơn giá: %d Vàng (Tổng 10: %d Vàng)" % [
+				cur_res,
+				int(bd.get("base_sell_price", unit_price)),
+				int(bd.get("local_stock", 0)),
+				float(bd.get("local_reference_stock", 0.0)),
+				local_p,
+				int(bd.get("caravan_stock", 0)),
+				float(bd.get("caravan_reference_stock", 0.0)),
+				car_p,
+				mult_val,
+				op_adj,
+				unit_price,
+				total_cost
+			]
+			if bd.get("is_origin_at_war", false):
+				tt += "\n⚠️ Phụ phí vùng chiến sự: +15%"
+			buy_btn.tooltip_text = tt
+			buy_btn.pressed.connect(func():
+				_handle_caravan_buy(cur_res, 10)
+			)
+			c_grid.add_child(buy_btn)
+			
+	# Also provide selling surplus goods to caravan for gold
+	for res_id in [EconomyConfig.RES_WOOD, EconomyConfig.RES_FOOD, EconomyConfig.RES_STONE, EconomyConfig.RES_HERBS, EconomyConfig.RES_METAL, EconomyConfig.RES_TOOLS, EconomyConfig.RES_CRYSTAL]:
+		var cur_res: String = res_id
+		var avail_stock: int = rm.get_available_stock(cur_res) if rm != null else 0
+		if avail_stock >= 10:
+			var bd_sell: Dictionary = active_caravan.call("get_price_breakdown", cur_res, caravan_opinion, rm) if active_caravan.has_method("get_price_breakdown") else {}
+			var sell_price: int = int(bd_sell.get("final_buy_price", active_caravan.call("get_effective_buy_price", cur_res, caravan_opinion, rm)))
+			var total_payout: int = sell_price * 10
+			var sell_btn := Button.new()
+			sell_btn.text = "Bán 10 %s (%d/đv • +%d Vàng)" % [cur_res, sell_price, total_payout]
+			sell_btn.modulate = Color(1.1, 1.1, 0.7)
+			
+			var mult_val: float = float(bd_sell.get("market_multiplier", 1.0))
+			var local_p: float = float(bd_sell.get("local_pressure", 0.0)) * 100.0
+			var car_p: float = float(bd_sell.get("caravan_pressure", 0.0)) * 100.0
+			var op_gain: float = float(bd_sell.get("opinion_adjustment", 0.0)) * 100.0
+			var tt_sell: String = "Bán %s cho thương đoàn:\n• Giá gốc: %d Vàng/đv\n• Cung vương quốc: %d (chuẩn %.0f) -> Áp lực: %+.1f%%\n• Hàng thương đoàn: %d (chuẩn %.1f) -> Áp lực: %+.1f%%\n• Hệ số thị trường: x%.2f\n• Ưu đãi ngoại giao: %+.1f%%\n• Đơn giá thu mua: %d Vàng (Tổng 10: +%d Vàng)" % [
+				cur_res,
+				int(bd_sell.get("base_buy_price", sell_price)),
+				int(bd_sell.get("local_stock", 0)),
+				float(bd_sell.get("local_reference_stock", 0.0)),
+				local_p,
+				int(bd_sell.get("caravan_stock", 0)),
+				float(bd_sell.get("caravan_reference_stock", 0.0)),
+				car_p,
+				mult_val,
+				op_gain,
+				sell_price,
+				total_payout
+			]
+			sell_btn.tooltip_text = tt_sell
+			sell_btn.pressed.connect(func():
+				_handle_caravan_sell(cur_res, 10)
+			)
+			c_grid.add_child(sell_btn)
+			
+	c_vbox.add_child(c_grid)
+	c_panel.add_child(c_vbox)
+
+func _refresh_caravan_trade_section() -> void:
+	var active_caravan = world_view_ref.get("active_caravan") if world_view_ref != null else null
+	if active_caravan == null or not active_caravan.get("is_active"):
+		_caravan_trade_panel = null
+		return
+	if _caravan_trade_panel != null and is_instance_valid(_caravan_trade_panel) and _caravan_trade_panel.is_inside_tree():
+		for child in _caravan_trade_panel.get_children():
+			_caravan_trade_panel.remove_child(child)
+			child.queue_free()
+		_populate_caravan_trade_panel(_caravan_trade_panel, active_caravan)
+		
+		# Update caravan status label text
+		var loc_name: String = "Tòa thị chính"
+		if world_view_ref != null:
+			if world_view_ref.has_method("get_caravan_docking_location_name"):
+				loc_name = world_view_ref.call("get_caravan_docking_location_name")
+			elif world_view_ref.get("world_data") != null and BuildingSystem.is_market_active(world_view_ref.get("world_data")):
+				loc_name = "Chợ"
+		var war_note: String = ""
+		if active_caravan.get("is_origin_at_war"):
+			war_note = "\n⚠️ VÙNG CHIẾN SỰ: Xuất phát từ lãnh thổ có chiến tranh (Phụ phí rủi ro: +15% giá mua)"
+		caravan_status_label.text = "🐪 Đang có mặt: %s (Rời đi ngày %d) | Ngân sách: %d Vàng\n📍 Địa điểm giao thương: %s%s" % [
+			active_caravan.get("name"),
+			active_caravan.get("departure_day"),
+			active_caravan.get("gold"),
+			loc_name,
+			war_note
+		]
+	else:
+		_refresh_diplomacy_ui()
+
+func _is_price_relevant_resource(res_id: String) -> bool:
+	return res_id in [
+		EconomyConfig.RES_FOOD,
+		EconomyConfig.RES_WOOD,
+		EconomyConfig.RES_STONE,
+		EconomyConfig.RES_METAL,
+		EconomyConfig.RES_TOOLS,
+		EconomyConfig.RES_HERBS,
+		EconomyConfig.RES_CRYSTAL,
+		EconomyConfig.RES_GOLD
+	]
+
+func _request_caravan_quotes_refresh() -> void:
+	if diplomacy_panel == null or not diplomacy_panel.visible:
+		return
+	var active_caravan = world_view_ref.get("active_caravan") if world_view_ref != null else null
+	if active_caravan == null or not active_caravan.get("is_active"):
+		return
+	if not _caravan_quotes_refresh_pending:
+		_caravan_quotes_refresh_pending = true
+		call_deferred("_refresh_caravan_quotes_deferred")
+
+func _refresh_caravan_quotes_deferred() -> void:
+	_caravan_quotes_refresh_pending = false
+	if diplomacy_panel == null or not diplomacy_panel.visible:
+		return
+	var active_caravan = world_view_ref.get("active_caravan") if world_view_ref != null else null
+	if active_caravan == null or not active_caravan.get("is_active"):
+		return
+	_refresh_caravan_trade_section()
 
 func _get_caravan_faction_opinion(caravan: Object) -> float:
 	if caravan == null or faction_mgr == null or not faction_mgr.has_method("get_faction"):
@@ -1859,8 +1937,10 @@ func _update_time_display() -> void:
 	clock_label.text = tm.get_clock_string()
 	date_label.text = tm.get_date_string()
 
-func _on_resource_changed(_id: String, _avail: int, _total: int) -> void:
+func _on_resource_changed(id: String, _avail: int, _total: int) -> void:
 	_refresh_all_resources()
+	if _is_price_relevant_resource(id):
+		_request_caravan_quotes_refresh()
 
 func _refresh_all_resources() -> void:
 	if not get_node_or_null("/root/ResourceManager"):

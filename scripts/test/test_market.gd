@@ -1169,7 +1169,7 @@ func _test_tc_mkt_23_transaction_failure_rollback() -> bool:
 		printerr("FAIL: TC-MKT-23 should fail on insufficient player stock")
 		return false
 
-	# Verify zero state mutation across all failures
+	# Verify zero state mutation across standard failures
 	if c.gold != snap_c_gold or c.inventory[EconomyConfigScript.RES_WOOD] != snap_c_inv[EconomyConfigScript.RES_WOOD]:
 		printerr("FAIL: TC-MKT-23 caravan state mutated during failure")
 		return false
@@ -1177,48 +1177,161 @@ func _test_tc_mkt_23_transaction_failure_rollback() -> bool:
 		printerr("FAIL: TC-MKT-23 resource manager state mutated during failure")
 		return false
 
-	print("  PASS: TC-MKT-23 All failure paths fail-closed with zero state corruption or partial deductions")
+	# 5. Scenario C1: Destination inventory capacity full on buy
+	# Player has enough gold (500) and caravan has enough stock (20), but warehouse is at capacity (20/20)
+	rm.stock[EconomyConfigScript.RES_GOLD] = 500
+	rm.stock[EconomyConfigScript.RES_WOOD] = 20
+	rm.capacities[EconomyConfigScript.RES_WOOD] = 20
+	c.gold = 500
+	c.inventory[EconomyConfigScript.RES_WOOD] = 20
+
+	var c1_snap_c_gold = c.gold
+	var c1_snap_c_stock = c.inventory[EconomyConfigScript.RES_WOOD]
+	var c1_snap_p_gold = rm.get_available_stock(EconomyConfigScript.RES_GOLD)
+	var c1_snap_p_stock = rm.get_available_stock(EconomyConfigScript.RES_WOOD)
+
+	var fail_cap_buy = c.buy_from_caravan(EconomyConfigScript.RES_WOOD, 10, rm, 0.0)
+	if fail_cap_buy.get("success", true):
+		printerr("FAIL: TC-MKT-23 should fail on full destination inventory capacity")
+		return false
+	if c.gold != c1_snap_c_gold or c.inventory[EconomyConfigScript.RES_WOOD] != c1_snap_c_stock:
+		printerr("FAIL: TC-MKT-23 caravan state mutated during destination capacity failure")
+		return false
+	if rm.get_available_stock(EconomyConfigScript.RES_GOLD) != c1_snap_p_gold or rm.get_available_stock(EconomyConfigScript.RES_WOOD) != c1_snap_p_stock:
+		printerr("FAIL: TC-MKT-23 resource manager state mutated during destination capacity failure")
+		return false
+
+	# 6. Scenario C2: Player gold storage capacity full on sell
+	# Player has enough goods (20) and caravan has enough gold (500), but player gold vault is at capacity (100/100)
+	rm.stock[EconomyConfigScript.RES_GOLD] = 100
+	rm.capacities[EconomyConfigScript.RES_GOLD] = 100
+	rm.capacities[EconomyConfigScript.RES_WOOD] = 500
+
+	var c2_snap_c_gold = c.gold
+	var c2_snap_c_stock = c.inventory[EconomyConfigScript.RES_WOOD]
+	var c2_snap_p_gold = rm.get_available_stock(EconomyConfigScript.RES_GOLD)
+	var c2_snap_p_stock = rm.get_available_stock(EconomyConfigScript.RES_WOOD)
+
+	var fail_cap_sell = c.sell_to_caravan(EconomyConfigScript.RES_WOOD, 10, rm, 0.0)
+	if fail_cap_sell.get("success", true):
+		printerr("FAIL: TC-MKT-23 should fail on full player gold capacity")
+		return false
+	if c.gold != c2_snap_c_gold or c.inventory[EconomyConfigScript.RES_WOOD] != c2_snap_c_stock:
+		printerr("FAIL: TC-MKT-23 caravan state mutated during gold capacity failure")
+		return false
+	if rm.get_available_stock(EconomyConfigScript.RES_GOLD) != c2_snap_p_gold or rm.get_available_stock(EconomyConfigScript.RES_WOOD) != c2_snap_p_stock:
+		printerr("FAIL: TC-MKT-23 resource manager state mutated during gold capacity failure")
+		return false
+
+	print("  PASS: TC-MKT-23 All failure paths (stock, gold, warehouse cap, gold cap) fail-closed with zero state corruption")
 	return true
 
 func _test_tc_mkt_24_post_trade_quote_update() -> bool:
 	print("[TC-MKT-24] Testing post-trade price quote elasticity update...")
+	# Fixture using Crystal:
+	# Local reference stock = 5.0 (EconomyConfig.STARTING_RESOURCES[RES_CRYSTAL])
+	# Caravan reference stock = 4.0 (TradeCaravan.CARAVAN_REFERENCE_STOCK[RES_CRYSTAL])
+	# Base sell price = 35 Gold, Base buy price = 22 Gold
 	var c = TradeCaravanScript.new("c_elastic", "Đoàn Buôn", "rival_merchant")
 	c.gold = 1000
-	c.inventory = {EconomyConfigScript.RES_TOOLS: 15}
-	c.sell_prices = {EconomyConfigScript.RES_TOOLS: 15}
-	c.buy_prices = {EconomyConfigScript.RES_TOOLS: 10}
+	c.inventory = {EconomyConfigScript.RES_CRYSTAL: 4}
+	c.sell_prices = {EconomyConfigScript.RES_CRYSTAL: 35}
+	c.buy_prices = {EconomyConfigScript.RES_CRYSTAL: 22}
 
-	# Starting with scarce kingdom tools (0)
+	# Initial kingdom stock: 5 Crystal (neutral reference stock)
 	var rm = MockTestResourceManager.new({
 		EconomyConfigScript.RES_GOLD: 1000,
-		EconomyConfigScript.RES_TOOLS: 0
+		EconomyConfigScript.RES_CRYSTAL: 5
 	})
 
-	var quote_initial = c.get_effective_sell_price(EconomyConfigScript.RES_TOOLS, 0.0, rm)
+	# 1. Neutral baseline verification
+	# Local: 5 / 5.0 -> ratio 1.0 -> local_pressure = 0.0
+	# Caravan: 4 / 4.0 -> ratio 1.0 -> caravan_pressure = 0.0
+	# market_multiplier = 1.000
+	# Unit sell quote: round(35 * 1.000) = 35
+	var bd_init = c.get_price_breakdown(EconomyConfigScript.RES_CRYSTAL, 0.0, rm)
+	var quote_initial: int = c.get_effective_sell_price(EconomyConfigScript.RES_CRYSTAL, 0.0, rm)
+	if absf(float(bd_init.get("market_multiplier", 0.0)) - 1.000) > 0.001:
+		printerr("FAIL: TC-MKT-24 initial multiplier expected 1.000, got %f" % bd_init.get("market_multiplier"))
+		return false
+	if quote_initial != 35:
+		printerr("FAIL: TC-MKT-24 initial quote expected 35, got %d" % quote_initial)
+		return false
 
-	# Buy 10 tools from caravan -> kingdom now has 10 tools (scarcity relieved), caravan now has 5 tools (caravan scarcer)
-	var buy_res = c.buy_from_caravan(EconomyConfigScript.RES_TOOLS, 10, rm, 0.0)
+	# 2. Player buys 3 Crystal from caravan
+	# Trade execution: 3 Crystal for 3 * 35 = 105 Gold
+	var buy_res = c.buy_from_caravan(EconomyConfigScript.RES_CRYSTAL, 3, rm, 0.0)
 	if not buy_res.get("success", false):
 		printerr("FAIL: TC-MKT-24 buy failed: %s" % buy_res.get("reason"))
 		return false
-
-	var bd_after = c.get_price_breakdown(EconomyConfigScript.RES_TOOLS, 0.0, rm)
-	if bd_after.get("local_stock") != 10:
-		printerr("FAIL: TC-MKT-24 local_stock expected 10, got %d" % bd_after.get("local_stock"))
-		return false
-	if bd_after.get("caravan_stock") != 5:
-		printerr("FAIL: TC-MKT-24 caravan_stock expected 5, got %d" % bd_after.get("caravan_stock"))
+	if buy_res.get("unit_price") != quote_initial:
+		printerr("FAIL: TC-MKT-24 executed buy price (%d) != quote_initial (%d)" % [buy_res.get("unit_price"), quote_initial])
 		return false
 
-	# Local pressure dropped from +0.10 to +0.033
-	# Caravan pressure rose from -0.05 to +0.05
-	# The updated quote correctly reflects the new supply-demand landscape
-	var quote_subsequent = c.get_effective_sell_price(EconomyConfigScript.RES_TOOLS, 0.0, rm)
-	if quote_subsequent != bd_after.final_sell_price:
-		printerr("FAIL: TC-MKT-24 quote parity failure")
+	# Balances after purchase:
+	# Kingdom stock: 5 + 3 = 8
+	# Caravan inventory: 4 - 3 = 1
+	var bd_after_buy = c.get_price_breakdown(EconomyConfigScript.RES_CRYSTAL, 0.0, rm)
+	if bd_after_buy.get("local_stock") != 8:
+		printerr("FAIL: TC-MKT-24 local_stock expected 8, got %d" % bd_after_buy.get("local_stock"))
+		return false
+	if bd_after_buy.get("caravan_stock") != 1:
+		printerr("FAIL: TC-MKT-24 caravan_stock expected 1, got %d" % bd_after_buy.get("caravan_stock"))
 		return false
 
-	print("  PASS: TC-MKT-24 Post-trade price quotes update dynamically from new inventory and stock")
+	# Elasticity calculation after purchase:
+	# local_ratio = 8.0 / 5.0 = 1.6 -> local_pressure = (1.0 - 1.6) * 0.10 = -0.060
+	# caravan_ratio = 1.0 / 4.0 = 0.25 -> caravan_pressure = (1.0 - 0.25) * 0.10 = +0.075
+	# market_multiplier = 1.0 + (-0.060) + 0.075 = 1.015
+	# New unit sell quote: round(35 * 1.015) = round(35.525) = 36
+	var mult_after_buy: float = float(bd_after_buy.get("market_multiplier", 0.0))
+	if absf(mult_after_buy - 1.015) > 0.001:
+		printerr("FAIL: TC-MKT-24 multiplier after buy expected 1.015, got %f" % mult_after_buy)
+		return false
+
+	var quote_after_buy: int = c.get_effective_sell_price(EconomyConfigScript.RES_CRYSTAL, 0.0, rm)
+	if quote_after_buy != 36:
+		printerr("FAIL: TC-MKT-24 quote after buy expected 36, got %d" % quote_after_buy)
+		return false
+	if quote_after_buy <= quote_initial:
+		printerr("FAIL: TC-MKT-24 quote after buy (%d) must be strictly greater than quote_initial (%d)" % [quote_after_buy, quote_initial])
+		return false
+
+	# 3. Player sells 3 Crystal back to caravan
+	# Caravan buys at unit buy price: round(22 * 1.015) = round(22.33) = 22
+	var sell_res = c.sell_to_caravan(EconomyConfigScript.RES_CRYSTAL, 3, rm, 0.0)
+	if not sell_res.get("success", false):
+		printerr("FAIL: TC-MKT-24 sell failed: %s" % sell_res.get("reason"))
+		return false
+
+	# Balances after sale:
+	# Kingdom stock restored: 8 - 3 = 5
+	# Caravan inventory restored: 1 + 3 = 4
+	var bd_after_sell = c.get_price_breakdown(EconomyConfigScript.RES_CRYSTAL, 0.0, rm)
+	if bd_after_sell.get("local_stock") != 5:
+		printerr("FAIL: TC-MKT-24 local_stock restored expected 5, got %d" % bd_after_sell.get("local_stock"))
+		return false
+	if bd_after_sell.get("caravan_stock") != 4:
+		printerr("FAIL: TC-MKT-24 caravan_stock restored expected 4, got %d" % bd_after_sell.get("caravan_stock"))
+		return false
+
+	# Elasticity restored to baseline:
+	# local_pressure = 0.0, caravan_pressure = 0.0, market_multiplier = 1.000
+	# Unit sell quote restored: round(35 * 1.000) = 35 < 36
+	var mult_after_sell: float = float(bd_after_sell.get("market_multiplier", 0.0))
+	if absf(mult_after_sell - 1.000) > 0.001:
+		printerr("FAIL: TC-MKT-24 multiplier after sell expected 1.000, got %f" % mult_after_sell)
+		return false
+
+	var quote_after_sell: int = c.get_effective_sell_price(EconomyConfigScript.RES_CRYSTAL, 0.0, rm)
+	if quote_after_sell != 35:
+		printerr("FAIL: TC-MKT-24 quote after sell expected 35, got %d" % quote_after_sell)
+		return false
+	if quote_after_sell >= quote_after_buy:
+		printerr("FAIL: TC-MKT-24 quote after sell (%d) must be strictly less than quote_after_buy (%d)" % [quote_after_sell, quote_after_buy])
+		return false
+
+	print("  PASS: TC-MKT-24 Post-trade price quotes update dynamically from new inventory and stock (35 -> 36 -> 35)")
 	return true
 
 func _test_tc_mkt_25_wartime_and_diplomacy_combination() -> bool:

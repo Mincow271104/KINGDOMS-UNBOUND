@@ -9036,3 +9036,34 @@ Implement dynamic supply-demand market pricing for Kingdoms Unbound under Packag
 
 ### Next Exact Step
 - Review git diff, stage modified files explicitly (`git add scripts/trade/trade_caravan.gd scripts/ui/hud.gd scripts/test/test_market.gd docs/BACKLOG.md docs/GAME_RULES.md docs/SCOPE_DECISIONS.md docs/CHANGELOG.md docs/WORKLOG.md`), commit with `feat(trade): add dynamic supply-demand market pricing`, push branch `feature/package-2h-dynamic-market-pricing` to remote `origin`, and deliver the handoff report in Vietnamese.
+
+---
+
+## 2026-11-02 — Package 2H Final Review Fix: HUD Quote Consistency & Targeted Test Coverage (Completed)
+
+### Context & Objective
+Execute a narrow correction round on branch `feature/package-2h-dynamic-market-pricing` following independent source review:
+1. **Fix A — Keep Displayed Market Quotes Synchronized:** Connect `ResourceManager.resource_changed` in `HUD` to refresh trade quotes when price-relevant stock changes while the caravan panel is open. Scoped narrowly to the caravan panel via `call_deferred` without rebuilding faction cards, zero polling, zero timers, maintaining authoritative transaction execution.
+2. **Fix B — Complete Both Buy and Sell Price Tooltips:** Display full breakdown on sell buttons (base buy price, kingdom stock/ref, local pressure, caravan stock/ref, caravan pressure, market multiplier, diplomatic adjustment, unit payout, total payout for 10 units) without duplicating math in HUD and strictly omitting wartime surcharge on the sell side.
+3. **Fix C — Strengthen TC-MKT-23 Capacity Failure Coverage:** Add Scenario C1 (destination warehouse full on buy) and Scenario C2 (gold vault full on sell), asserting upfront rejection and verifying all 4 balances (player gold, player stock, caravan inventory, caravan gold) remain unchanged.
+4. **Fix D — Make TC-MKT-24 Prove Real Quote Change:** Refactor TC-MKT-24 using a deterministic Crystal fixture ($Base = 35$) crossing integer rounding boundary ($35 \to 36 \to 35$, multiplier $1.000 \to 1.015 \to 1.000$), testing both buy and sell elasticity, and asserting against `quote_initial`.
+5. **Documentation Accuracy Audit:** Confirm numeric examples and formulas in documentation align strictly with implementation.
+
+### Implementation Summary
+1. **HUD Caravan Quotes Deferred Event-Driven Refresh (`scripts/ui/hud.gd`):**
+   - Added `_caravan_trade_panel: PanelContainer` reference and `_caravan_quotes_refresh_pending: bool` guard.
+   - Connected `_on_resource_changed(id, avail, total)` to trigger `_request_caravan_quotes_refresh()` for price-relevant goods (`food`, `wood`, `stone`, `metal`, `tools`, `herbs`, `crystal`, `gold`).
+   - Implemented `_refresh_caravan_quotes_deferred()` and `_refresh_caravan_trade_section()` to repopulate only the trade container and caravan status label if `diplomacy_panel.visible` and `active_caravan.is_active`, avoiding rebuilding faction cards or polling per frame.
+   - Completed the sell button tooltip with all 9 breakdown metrics via `active_caravan.get_price_breakdown()`, strictly omitting wartime surcharge.
+2. **Automated Test Suite Hardening (`scripts/test/test_market.gd`):**
+   - **TC-MKT-23:** Added Scenario C1 (destination inventory capacity full on buy) and Scenario C2 (player gold vault full on sell), verifying all 4 balances remain strictly untouched.
+   - **TC-MKT-24:** Refactored to test Crystal with deterministic baseline ($Local = 5, Caravan = 4 \Rightarrow Mult = 1.000, Quote = 35$). Executing 3-crystal purchase shifts balances to $Local = 8, Caravan = 1 \Rightarrow Mult = 1.015, Quote = 36 > 35$. Selling 3 crystal back restores balances to $Local = 5, Caravan = 4 \Rightarrow Mult = 1.000, Quote = 35 < 36$. Asserted `quote_initial`, multiplier changes, and stock changes.
+
+### Verification & Regression Results (Targeted Scope)
+1. `scripts/test/test_market.gd`: **26/26 tests PASSED (Exit Code 0)**
+2. `scripts/test/test_gold_transactions.gd`: **9/9 checks PASSED (Exit Code 0)**
+3. Headless Editor Parse Check (`Godot_v4.7-stable_win64_console.exe --headless --editor --quit`): **Exit Code 0, 0 errors**.
+
+### Next Exact Step
+- Stage modified files explicitly (`git add scripts/ui/hud.gd scripts/test/test_market.gd docs/WORKLOG.md`), commit with `fix(trade): synchronize dynamic market quotes and coverage`, push to `origin/feature/package-2h-dynamic-market-pricing`, and deliver the handoff report in Vietnamese.
+
