@@ -374,6 +374,28 @@ static func get_construction_worker_capacity(type: String) -> int:
 	else:
 		return 4
 
+const PAUSABLE_BUILDING_TYPES: Array[String] = [
+	"farm",
+	"woodcutter",
+	"quarry",
+	"mine",
+	"workshop"
+]
+
+static func is_building_pausable(b_type: String) -> bool:
+	return b_type in PAUSABLE_BUILDING_TYPES
+
+static func is_valid_resource_manager_for_demolition(resource_mgr: Object, requires_storage: bool = false) -> bool:
+	if resource_mgr == null or not is_instance_valid(resource_mgr):
+		return false
+	if not resource_mgr.has_method("add_resource") or not resource_mgr.has_method("get_total_stock"):
+		return false
+	if not resource_mgr.has_method("get_storage_capacity") and not resource_mgr.has_method("get_capacity"):
+		return false
+	if requires_storage and not resource_mgr.has_method("remove_storage_capacity"):
+		return false
+	return true
+
 ## Preflights demolition feasibility, calculating 50% refund and verifying storage space.
 ## Takes into account storage capacity reductions if demolishing a storage provider.
 ## Returns {"can_demolish": bool, "refund": Dictionary, "is_townhall": bool, "reason": String}.
@@ -403,9 +425,19 @@ static func can_demolish_building(b_data_or_id, world_data: WorldGenerator.World
 		if refund_amount > 0:
 			planned_refund[res_id] = refund_amount
 
+	var storage_bonus: Dictionary = bp.get("storage_bonus", {})
+	var requires_rm: bool = not planned_refund.is_empty() or not storage_bonus.is_empty()
+	if requires_rm:
+		if not is_valid_resource_manager_for_demolition(resource_mgr, not storage_bonus.is_empty()):
+			return {
+				"can_demolish": false,
+				"reason": "Yêu cầu ResourceManager hợp lệ để hoàn trả tài nguyên và điều chỉnh kho chứa",
+				"refund": planned_refund,
+				"is_townhall": is_townhall
+			}
+
 	# Storage capacity preflight: check post-demolition storage capacity!
 	if resource_mgr != null and not planned_refund.is_empty():
-		var storage_bonus: Dictionary = bp.get("storage_bonus", {})
 		for res_id in planned_refund:
 			var refund_amount: int = planned_refund[res_id]
 			var space: int = 999999
@@ -436,6 +468,9 @@ static func can_demolish_building(b_data_or_id, world_data: WorldGenerator.World
 	}
 
 static func demolish_building(b_data_or_id, world_data: WorldGenerator.WorldData, resource_mgr: Object = null, job_mgr: Object = null, refund_ratio: float = 0.5) -> Dictionary:
+	if world_data == null:
+		return {"success": false, "reason": "Dữ liệu thế giới không hợp lệ", "refunded": {}}
+
 	var b_data: Dictionary = {}
 	if b_data_or_id is Dictionary:
 		b_data = b_data_or_id
@@ -460,24 +495,41 @@ static func demolish_building(b_data_or_id, world_data: WorldGenerator.WorldData
 	var size: Vector2i = b_data.get("size", Vector2i(1, 1))
 	var bp: Dictionary = EconomyConfig.BLUEPRINTS.get(type, {})
 	var planned_refund: Dictionary = check.get("refund", {})
+	var storage_bonus: Dictionary = bp.get("storage_bonus", {})
+
+	# Double check resource_mgr validity if refund or storage bonus applies
+	if not planned_refund.is_empty() or not storage_bonus.is_empty():
+		if not is_valid_resource_manager_for_demolition(resource_mgr, not storage_bonus.is_empty()):
+			return {"success": false, "reason": "ResourceManager không hợp lệ", "refunded": {}}
 
 	# 1. Execute atomic refund
 	var refunded: Dictionary = {}
+	var refund_success := true
 	if resource_mgr != null:
 		for res_id in planned_refund:
 			var amt: int = planned_refund[res_id]
 			var added: int = resource_mgr.add_resource(res_id, amt)
 			refunded[res_id] = added
+			if added < amt:
+				refund_success = false
+				break
 
-		# Deduct storage capacity if this building granted storage
-		var storage_bonus: Dictionary = bp.get("storage_bonus", {})
-		if not storage_bonus.is_empty() and resource_mgr.has_method("remove_storage_capacity"):
-			for res_id in storage_bonus:
-				resource_mgr.remove_storage_capacity(res_id, int(storage_bonus[res_id]))
-			b_data["storage_applied"] = false
+	if not refund_success:
+		# Rollback any credited resources before returning failure
+		if resource_mgr != null and resource_mgr.has_method("deduct_resource"):
+			for res_id in refunded:
+				if refunded[res_id] > 0:
+					resource_mgr.deduct_resource(res_id, refunded[res_id])
+		return {"success": false, "reason": "Không thể hoàn trả toàn bộ tài nguyên vào kho chứa", "refunded": {}}
+
+	# Deduct storage capacity if this building granted storage
+	if resource_mgr != null and not storage_bonus.is_empty() and resource_mgr.has_method("remove_storage_capacity"):
+		for res_id in storage_bonus:
+			resource_mgr.remove_storage_capacity(res_id, int(storage_bonus[res_id]))
+		b_data["storage_applied"] = false
 
 	# 2. Clear occupancy
-	if world_data:
+	if world_data.occupancy != null:
 		for ox in range(size.x):
 			for oy in range(size.y):
 				var cell := origin + Vector2i(ox, oy)
@@ -489,7 +541,7 @@ static func demolish_building(b_data_or_id, world_data: WorldGenerator.WorldData
 		job_mgr.remove_jobs_for_building(b_id)
 
 	# 4. Erase building record
-	if world_data:
+	if world_data.buildings != null:
 		world_data.buildings.erase(b_data)
 
 	return {"success": true, "refunded": refunded, "building": b_data}

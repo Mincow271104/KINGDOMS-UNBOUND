@@ -8322,3 +8322,92 @@ Enforce all authoritative design rules:
 ### Next Exact Step
 - Stage allowed Package 2F files, commit with conventional commit message, and push branch `feature/package-2f-building-inspection-and-management` to remote repository `origin`. Await independent code review by ChatGPT.
 
+---
+
+## 2026-11-01 — Package 2F: Independent Review Corrections (Round 1)
+
+### Context & Baseline
+- **Branch:** `feature/package-2f-building-inspection-and-management`
+- **Pushed Baseline HEAD:** `89aaaca27e785f0a868938937a7716dfe4093fcf`
+- **Accepted Base:** `b5377e02b442c5004a1884a022fbeafbfaab94aa` (Package 2E Accepted)
+- **Review Findings:** Addressed all 7 review findings (BUG-2F-01 through BUG-2F-07) identified during independent code review by ChatGPT.
+
+### Completed Corrective Work
+1. **BUG-2F-01: Corrected Mouse Click Routing & Interaction Priority (`world_view.gd`):**
+   - Fixed `_unhandled_input()` control flow so simple left clicks properly route through the selection hierarchy.
+   - When clicking on cells, checks if an actual tactical military unit was hit. If so, clears building selection, closes citizen panel, and selects the unit.
+   - If no tactical unit was hit (or clicked cell is inside a building footprint that overrides adjacent unit selection), clears tactical selection and invokes `_handle_left_click(cell)`.
+   - `_handle_left_click()` authoritatively resolves exact citizen, building footprint (1x1, 2x2, 3x3), adjacent citizen fallback, or empty ground deselection.
+   - Preserves `target_cell` meta, screen transform, and viewport mouse coordinates.
+2. **BUG-2F-02: Restrict Pause/Resume Exclusively to Supported Workplaces (`building_system.gd`, `hud.gd`, `world_view.gd`):**
+   - Added `const PAUSABLE_BUILDING_TYPES: Array[String] = ["farm", "woodcutter", "quarry", "mine", "workshop"]` and helper `is_building_pausable(b_type: String) -> bool`.
+   - `WorldView.set_building_state()` rejects pausing non-pausable structures fail-closed.
+   - `HUD._refresh_building_inspector()` hides `pause_resume_btn` for all civic buildings.
+   - `HUD._on_pause_resume_building_pressed()` verifies `is_building_pausable()` before attempting state changes.
+   - Prevents pausing Town Hall from initiating 72-hour ruin countdown or pausing House from reducing population capacity.
+3. **BUG-2F-03: Fail-Closed Demolition Validation (`building_system.gd`):**
+   - Added `is_valid_resource_manager_for_demolition(resource_mgr, requires_storage: bool) -> bool`.
+   - `can_demolish_building()` returns `can_demolish: false` if `resource_mgr == null` or missing required methods (`get_total_stock`, `get_storage_capacity`).
+   - `demolish_building()` returns `success: false` fail-closed without mutating buildings, clearing occupancy, or removing jobs.
+   - Atomic refund transfer rolls back on partial credit failures.
+4. **BUG-2F-04: Accurate Civic Building Statistics (`hud.gd`):**
+   - In `_refresh_civic_inspector()`:
+     - Town Hall: displays exact storage bonuses (`+1,500 Lương thực / Gỗ / Đá`, `+300 Quặng / Kim loại`), 0 residents, and 72h collapse emergency warning.
+     - House: displays 6 residents capacity.
+     - Storehouse: displays exact per-resource storage bonus (`+500 Lương thực / Gỗ / Đá`, `+300 Quặng / Kim loại`).
+     - Watchtower: displays 15-tile vision radius.
+     - Barracks: displays 2 guards and +5 army capacity.
+5. **BUG-2F-05: Storage Capacity Conservation (`building_system.gd`):**
+   - Storehouse demolition reduces capacity safely via `ResourceManager.remove_storage_capacity()` without clamping or deleting existing stock.
+6. **BUG-2F-06: Workforce & Cargo Conservation on Demolition (`world_view.gd`):**
+   - When a workplace is demolished, any hauler carrying cargo deposits goods directly into central storage (`rm.add_resource()`) before job clearance.
+   - Hauler's `carrying_amount` is reset to 0, and status reason is set to `"Công trình đã bị dỡ bỏ"` without being overwritten by `_update_reason()`.
+7. **BUG-2F-07: Test Suite Upgrades (`test_building_management.gd`):**
+   - TC-BM.5: Exercises real `_unhandled_input()` mouse events with active tactical military manager present.
+   - TC-BM.12: Asserts exact spec-compliant values for all 7 civic building types.
+   - TC-BM.17: Asserts fail-closed rejection on null and invalid `resource_mgr`.
+   - TC-BM.18: Cleans up test wood so subsequent tests have proper storage headroom.
+   - TC-BM.19: Verifies fail-closed demolition on null/invalid manager, Storehouse capacity reduction, stock conservation, and hauler cargo deposit to storage.
+   - TC-BM.22: Verifies pause rejection for Town Hall and civic buildings, real Town Hall demolition, and 72-hour collapse countdown integration with `VictoryManager`.
+   - TC-BM.29: Real disk file save/load roundtrip to `user://test_save_p2f_temp.json`, buffer restore, job executability, and temporary file cleanup.
+
+### Test Results & Matrix Verification
+- **Package 2F Test Suite (`test_building_management.gd`):**
+  - 30/30 tests PASSED (Exit Code 0).
+- **Package 2E & Core Subsystem Regression Matrix (16 Suites Total):**
+  1. `test_autonomous_faction_conflict.gd`: 205/205 PASS (Exit Code 0)
+  2. `test_faction_relation_matrix.gd`: 162/162 PASS (Exit Code 0)
+  3. `test_save_load.gd`: 182/182 PASS (Exit Code 0)
+  4. `test_faction_diplomacy_ai.gd`: 437/437 PASS (Exit Code 0)
+  5. `test_faction_strategy_execution.gd`: 951/951 PASS (Exit Code 0)
+  6. `test_market.gd`: 15/15 PASS (Exit Code 0)
+  7. `test_field_siege.gd`: 98/98 PASS (Exit Code 0)
+  8. `test_surplus_treasury_conversion.gd`: 124/124 PASS (Exit Code 0)
+  9. `test_player_field_guide.gd`: 130/130 PASS (Exit Code 0)
+  10. `test_workshop.gd`: 7/7 PASS (Exit Code 0)
+  11. `test_research_hall.gd`: 7/7 PASS (Exit Code 0)
+  12. `test_barracks.gd`: 7/7 PASS (Exit Code 0)
+  13. `test_watchtower.gd`: 8/8 PASS (Exit Code 0)
+  14. `test_citizen_skills.gd`: 27/27 PASS (Exit Code 0)
+  15. `test_tactical_military.gd`: 419/419 PASS (Exit Code 0)
+  16. `test_building_management.gd`: 30/30 PASS (Exit Code 0)
+  - Total: 2,809 checks / assertions passed with 0 failures across all 16 suites.
+- **Hardware Visual Validation (`visual_package_2f_validation.gd`):**
+  - D3D12 Forward+ on RTX 3050 Ti Laptop GPU.
+  - Generated and verified 4 PNG screenshots in `docs/visual_validation/`:
+    - `p2f_01_workplace_inspect_buffer_1280x720.png`
+    - `p2f_02_demolish_confirm_overlay_1280x720.png`
+    - `p2f_03_townhall_demolish_emergency_warning_1280x720.png`
+    - `p2f_04_workplace_inspect_responsive_1024x576.png`
+
+### Files Modified & Protected
+- `scripts/economy/building_system.gd` (Modified)
+- `scripts/ui/hud.gd` (Modified)
+- `scripts/world/world_view.gd` (Modified)
+- `scripts/test/test_building_management.gd` (Modified)
+- `docs/WORKLOG.md` (Modified)
+- Protected files (`project.godot`, 92 historical untracked files, user saves) strictly preserved.
+
+### Next Exact Step
+- Stage allowed Round 1 correction files, commit with conventional commit message, and push to `feature/package-2f-building-inspection-and-management` on remote `origin`. Await ChatGPT review.
+

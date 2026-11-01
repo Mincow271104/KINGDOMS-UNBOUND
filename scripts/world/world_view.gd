@@ -835,6 +835,10 @@ func _find_tactical_unit_at_cell(cell: Vector2i) -> Node2D:
 		if d < best_dist:
 			best_dist = d
 			best_unit = u
+	if best_unit != null and best_dist > 0:
+		var b_at_cell: Dictionary = _get_building_at_cell(cell)
+		if not b_at_cell.is_empty():
+			return null
 	return best_unit
 
 func _find_enemy_unit_at_cell(cell: Vector2i) -> Node2D:
@@ -967,7 +971,15 @@ func _unhandled_input(event: InputEvent) -> void:
 
 	if event is InputEventMouseButton:
 		var mb: InputEventMouseButton = event as InputEventMouseButton
-		var mouse_local := terrain_layer.get_local_mouse_position()
+		var mouse_local: Vector2
+		if event.has_meta("target_cell"):
+			mouse_local = IsoMath.map_to_local(event.get_meta("target_cell"))
+		elif mb.position != Vector2.ZERO and camera != null and is_inside_tree():
+			var canvas_xform: Transform2D = camera.get_canvas_transform()
+			var global_pos: Vector2 = canvas_xform.affine_inverse() * mb.position
+			mouse_local = terrain_layer.to_local(global_pos)
+		else:
+			mouse_local = terrain_layer.get_local_mouse_position()
 		var cell := IsoMath.local_to_map(mouse_local)
 		
 		if placing_building_type != "":
@@ -1001,10 +1013,15 @@ func _unhandled_input(event: InputEvent) -> void:
 					else:
 						# Simple left click
 						_clear_selection_box_display()
-						var clicked_unit = _find_tactical_unit_at_cell(cell)
-						if clicked_unit != null:
-							if tactical_military_mgr != null:
-								tactical_military_mgr.call("select_unit", clicked_unit.unit_id, mb.shift_pressed)
+						var clicked_unit: Node2D = null
+						if tactical_military_mgr != null:
+							clicked_unit = _find_tactical_unit_at_cell(cell)
+
+						if clicked_unit != null and tactical_military_mgr != null:
+							clear_building_selection()
+							if hud != null and hud.has_method("close_citizen_inspector"):
+								hud.close_citizen_inspector()
+							tactical_military_mgr.call("select_unit", clicked_unit.unit_id, mb.shift_pressed)
 						else:
 							if not mb.shift_pressed and tactical_military_mgr != null:
 								tactical_military_mgr.call("clear_selection")
@@ -1543,10 +1560,28 @@ func set_building_state(b_id: String, new_state: String) -> bool:
 	var old_state: String = b_data.get("state", "")
 	if old_state == new_state:
 		return true
+
+	var type: String = b_data.get("type", "")
+	# Validate state transitions fail-closed:
+	if new_state == "paused":
+		# Only supported pausable workplace types can be paused
+		if not BuildingSystem.is_building_pausable(type):
+			return false
+		# Only active buildings can be paused
+		if old_state != "active":
+			return false
+	elif new_state == "active":
+		# Can only resume if currently paused, or completing construction
+		if old_state != "paused" and old_state != "under_construction":
+			return false
+		if old_state == "paused" and not BuildingSystem.is_building_pausable(type):
+			return false
+	else:
+		return false
+
 	b_data["state"] = new_state
 
 	var origin: Vector2i = b_data.get("cell", Vector2i.ZERO)
-	var type: String = b_data.get("type", "")
 	var node_name := "Building_%s_%d_%d" % [type, origin.x, origin.y]
 	var b_node = buildings_container.get_node_or_null(node_name) if buildings_container != null else null
 	var spr: Sprite2D = null
@@ -1624,14 +1659,24 @@ func demolish_building_project(b_id: String) -> Dictionary:
 
 	# Release any citizens assigned to this building to IDLE
 	for cit in citizen_list:
-		if cit.get("active_job") != null and JobManager.job_matches_building(cit.active_job, b_id):
-			cit.active_job = null
-			cit.set("current_state", CitizenController.State.IDLE)
-			cit.set("status_reason", "Công trình đã bị dỡ bỏ")
-			if cit.has_method("_update_reason"):
-				cit.call("_update_reason")
-		if cit.get("workplace_id") == b_id:
-			cit.set("workplace_id", "")
+		if is_instance_valid(cit):
+			if cit.get("active_job") != null and JobManager.job_matches_building(cit.active_job, b_id):
+				# Conserve carried goods: deposit directly into central storage so goods are never lost
+				var carry_amt: int = int(cit.get("carrying_amount")) if cit.get("carrying_amount") != null else 0
+				var carry_res: String = cit.get("carrying_resource") if cit.get("carrying_resource") != null else ""
+				if carry_amt > 0 and carry_res != "" and rm != null:
+					rm.add_resource(carry_res, carry_amt)
+					cit.set("carrying_amount", 0)
+					cit.set("carrying_resource", "")
+
+				if job_mgr != null:
+					job_mgr.release_job(cit.active_job)
+				cit.active_job = null
+				cit.set("current_state", CitizenController.State.IDLE)
+				cit.set("status_reason", "Công trình đã bị dỡ bỏ")
+				# Note: Do not call _update_reason() here as it overwrites custom status reason
+			if cit.get("workplace_id") == b_id or (cit.get("workplace_id") != null and cit.get("workplace_id").begins_with(b_id + "_")):
+				cit.set("workplace_id", "")
 
 	# Unregister workplace and channels if dynamic workplace
 	if workplace_mgr != null:

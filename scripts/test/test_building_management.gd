@@ -214,42 +214,168 @@ func _test_tc_bm_4_ground_misses() -> bool:
 	return false
 
 # -----------------------------------------------------------------------------
-# TC-BM.5: Selection Priority Order
+# TC-BM.5: Selection Priority Order & Real Mouse Input Handling
 # -----------------------------------------------------------------------------
+func _simulate_mouse_click(world: Node, cell: Vector2i, shift: bool = false) -> void:
+	var press_event := InputEventMouseButton.new()
+	press_event.button_index = MOUSE_BUTTON_LEFT
+	press_event.pressed = true
+	press_event.shift_pressed = shift
+	press_event.set_meta("target_cell", cell)
+	world._unhandled_input(press_event)
+
+	var release_event := InputEventMouseButton.new()
+	release_event.button_index = MOUSE_BUTTON_LEFT
+	release_event.pressed = false
+	release_event.shift_pressed = shift
+	release_event.set_meta("target_cell", cell)
+	world._unhandled_input(release_event)
+
 func _test_tc_bm_5_click_priority() -> bool:
 	print("--- Running TC-BM.5: Selection Priority Hierarchy ---")
 	var failures: int = 0
 	var hud = world_instance.hud
-	var origin := Vector2i(12, 12)
-	var b_data := {
-		"id": "priority_test_bld",
+
+	# Setup buildings for testing 1x1, 2x2, and 3x3 footprints
+	var b_1x1 := {
+		"id": "pri_test_1x1",
+		"type": "watchtower",
+		"cell": Vector2i(10, 10),
+		"size": Vector2i(1, 1),
+		"state": "active",
+		"health": 100
+	}
+	var b_2x2 := {
+		"id": "pri_test_2x2",
 		"type": "farm",
-		"cell": origin,
+		"cell": Vector2i(12, 12),
 		"size": Vector2i(2, 2),
 		"state": "active",
 		"health": 100
 	}
-	world_instance.world_data.buildings.append(b_data)
+	var b_3x3 := {
+		"id": "pri_test_3x3",
+		"type": "townhall",
+		"cell": Vector2i(16, 16),
+		"size": Vector2i(3, 3),
+		"state": "active",
+		"health": 100
+	}
+	world_instance.world_data.buildings.append(b_1x1)
+	world_instance.world_data.buildings.append(b_2x2)
+	world_instance.world_data.buildings.append(b_3x3)
 
-	# 1. Click on empty building cell -> selects building
-	world_instance._handle_left_click(origin)
-	if world_instance.selected_building_id != "priority_test_bld":
-		printerr("FAIL: Building was not selected when clicked directly")
+	# 1. 1x1 Building click through _unhandled_input
+	_simulate_mouse_click(world_instance, Vector2i(10, 10))
+	if world_instance.selected_building_id != "pri_test_1x1":
+		printerr("FAIL: 1x1 building was not selected via _unhandled_input mouse click")
 		failures += 1
 	if not hud.building_inspect_panel.visible:
-		printerr("FAIL: HUD building inspect panel not opened on building click")
+		printerr("FAIL: Building inspect panel not opened on 1x1 building click")
 		failures += 1
 
-	# 2. Click on empty ground -> clears building selection
-	world_instance._handle_left_click(Vector2i(0, 0))
+	# 2. 2x2 Building click through _unhandled_input across all 4 cells
+	for ox in range(2):
+		for oy in range(2):
+			_simulate_mouse_click(world_instance, Vector2i(12 + ox, 12 + oy))
+			if world_instance.selected_building_id != "pri_test_2x2":
+				printerr("FAIL: 2x2 building not selected on cell (%d, %d)" % [12 + ox, 12 + oy])
+				failures += 1
+
+	# 3. 3x3 Building click through _unhandled_input across all 9 cells
+	for ox in range(3):
+		for oy in range(3):
+			_simulate_mouse_click(world_instance, Vector2i(16 + ox, 16 + oy))
+			if world_instance.selected_building_id != "pri_test_3x3":
+				printerr("FAIL: 3x3 building not selected on cell (%d, %d)" % [16 + ox, 16 + oy])
+				failures += 1
+
+	# 4. Exact-cell citizen click takes priority over empty ground & opens CitizenInspectPanel
+	var test_cit = world_instance.citizen_list[0]
+	var orig_cit_cell = test_cit.current_cell
+	test_cit.current_cell = Vector2i(20, 20)
+	_simulate_mouse_click(world_instance, Vector2i(20, 20))
+	if not hud.citizen_panel.visible:
+		printerr("FAIL: Citizen panel not opened when exact citizen cell was clicked")
+		failures += 1
+	if hud.inspected_citizen != test_cit:
+		printerr("FAIL: Inspected citizen not set to clicked citizen")
+		failures += 1
+	if world_instance.selected_building_id != "":
+		printerr("FAIL: Building selection should be cleared when citizen is clicked")
+		failures += 1
+	test_cit.current_cell = orig_cit_cell
+	hud.close_citizen_inspector()
+
+	# 5. Tactical unit takes priority over building underneath
+	if world_instance.tactical_military_mgr != null:
+		var tac_mgr = world_instance.tactical_military_mgr
+		var tac_u = tac_mgr._create_unit_instance("pri_test_soldier", Vector2i(12, 12))
+		tac_mgr.units["pri_test_soldier"] = tac_u
+		_simulate_mouse_click(world_instance, Vector2i(12, 12))
+		if not tac_mgr.is_unit_selected("pri_test_soldier"):
+			printerr("FAIL: Tactical unit on building was not selected over building")
+			failures += 1
+		if world_instance.selected_building_id != "":
+			printerr("FAIL: Building should NOT be selected when tactical unit on it is clicked")
+			failures += 1
+		tac_mgr.clear_selection()
+		tac_mgr._remove_unit("pri_test_soldier")
+
+	# 6. Click on empty ground clears building selection and closes panels
+	_simulate_mouse_click(world_instance, Vector2i(12, 12)) # select building
+	if world_instance.selected_building_id != "pri_test_2x2":
+		printerr("FAIL: Re-selection failed")
+		failures += 1
+	_simulate_mouse_click(world_instance, Vector2i(0, 0)) # click empty ground
 	if world_instance.selected_building_id != "":
 		printerr("FAIL: Building selection not cleared on empty ground click")
 		failures += 1
 	if hud.building_inspect_panel.visible:
-		printerr("FAIL: HUD building inspect panel remained open on empty ground click")
+		printerr("FAIL: Building inspect panel remained visible on empty ground click")
 		failures += 1
 
-	world_instance.world_data.buildings.erase(b_data)
+	# 7. Drag box does not trigger simple building selection
+	var press_drag := InputEventMouseButton.new()
+	press_drag.button_index = MOUSE_BUTTON_LEFT
+	press_drag.pressed = true
+	press_drag.position = Vector2(100, 100)
+	world_instance._unhandled_input(press_drag)
+	var move_drag := InputEventMouseMotion.new()
+	move_drag.position = Vector2(250, 250)
+	world_instance._unhandled_input(move_drag)
+	var release_drag := InputEventMouseButton.new()
+	release_drag.button_index = MOUSE_BUTTON_LEFT
+	release_drag.pressed = false
+	release_drag.position = Vector2(250, 250)
+	world_instance._unhandled_input(release_drag)
+	if world_instance.selected_building_id != "":
+		printerr("FAIL: Drag selection falsely triggered building selection")
+		failures += 1
+
+	# 8. Building placement mode does not trigger building selection
+	world_instance.placing_building_type = "farm"
+	_simulate_mouse_click(world_instance, Vector2i(12, 12))
+	if world_instance.selected_building_id != "":
+		printerr("FAIL: Building selected during placement mode")
+		failures += 1
+	world_instance.placing_building_type = ""
+
+	# 9. Army move targeting mode does not trigger building selection
+	if hud.has_method("set_army_move_targeting"):
+		hud.set_army_move_targeting(true)
+		_simulate_mouse_click(world_instance, Vector2i(12, 12))
+		if world_instance.selected_building_id != "":
+			printerr("FAIL: Building selected during army move targeting mode")
+			failures += 1
+		hud.set_army_move_targeting(false)
+
+	# Clean up test buildings
+	world_instance.world_data.buildings.erase(b_1x1)
+	world_instance.world_data.buildings.erase(b_2x2)
+	world_instance.world_data.buildings.erase(b_3x3)
+	hud.close_building_inspector()
+
 	if failures == 0:
 		print("  [PASS] TC-BM.5: Selection priority and dismissal verified.")
 		return true
@@ -541,6 +667,31 @@ func _test_tc_bm_12_civic_descriptions() -> bool:
 			printerr("FAIL: Civic text empty for '%s'" % t)
 			failures += 1
 
+		# Exact blueprint value assertions (BUG-2F-04)
+		if t == "townhall":
+			if "10 cư dân" in hud.civic_stats_label.text or "8 ô" in hud.civic_stats_label.text:
+				printerr("FAIL: Town Hall stats must NOT contain ungrounded housing (10) or vision (8)")
+				failures += 1
+			if not "+500" in hud.civic_stats_label.text or not "72 giờ" in hud.civic_stats_label.text:
+				printerr("FAIL: Town Hall stats must reflect storage bonus dictionary and 72h emergency collapse warning")
+				failures += 1
+		elif t == "house":
+			if not "6 cư dân" in hud.civic_stats_label.text:
+				printerr("FAIL: House stats must assert exact blueprint housing capacity (6 residents)")
+				failures += 1
+		elif t == "storehouse":
+			if not "+500" in hud.civic_stats_label.text or not "+300" in hud.civic_stats_label.text:
+				printerr("FAIL: Storehouse stats must reflect per-resource storage bonus dictionary (+500, +300)")
+				failures += 1
+		elif t == "watchtower":
+			if not "15 ô" in hud.civic_stats_label.text:
+				printerr("FAIL: Watchtower stats must assert exact blueprint vision radius (15 tiles)")
+				failures += 1
+		elif t == "barracks":
+			if not "2 Vệ Binh" in hud.civic_stats_label.text or not "+5 binh sĩ" in hud.civic_stats_label.text:
+				printerr("FAIL: Barracks stats must assert guard capacity (2) and army capacity (+5)")
+				failures += 1
+
 	hud.close_building_inspector()
 	if failures == 0:
 		print("  [PASS] TC-BM.12: All 7 civic building types provide verified descriptions and stats.")
@@ -735,6 +886,18 @@ func _test_tc_bm_17_demolish_preflight() -> bool:
 		printerr("FAIL: Expected refund {wood:15, stone:2}, got: %s" % str(refund))
 		failures += 1
 
+	# Fail-closed test with null resource_mgr (BUG-2F-03)
+	var res_null := BuildingSystemScript.can_demolish_building(b_data, world_instance.world_data, null)
+	if res_null.get("can_demolish", true):
+		printerr("FAIL: can_demolish_building must return false when resource_mgr is null")
+		failures += 1
+
+	# Fail-closed test with invalid resource_mgr missing required methods
+	var res_invalid := BuildingSystemScript.can_demolish_building(b_data, world_instance.world_data, RefCounted.new())
+	if res_invalid.get("can_demolish", true):
+		printerr("FAIL: can_demolish_building must return false when resource_mgr is invalid")
+		failures += 1
+
 	world_instance.world_data.buildings.erase(b_data)
 	if failures == 0:
 		print("  [PASS] TC-BM.17: Demolition 50% refund accurately preflighted.")
@@ -762,9 +925,11 @@ func _test_tc_bm_18_demolish_storage_preflight() -> bool:
 	var cur_cap: int = rm.get_storage_capacity("wood")
 	var post_cap: int = cur_cap - 500
 	var cur_stock: int = rm.get_total_stock("wood")
+	var added_wood: int = 0
 	# Add stock up to post_cap
 	if post_cap > cur_stock:
-		rm.add_resource("wood", post_cap - cur_stock)
+		added_wood = post_cap - cur_stock
+		rm.add_resource("wood", added_wood)
 
 	var res := BuildingSystemScript.can_demolish_building(b_data, world_instance.world_data, rm)
 	if res.get("can_demolish", true):
@@ -774,6 +939,8 @@ func _test_tc_bm_18_demolish_storage_preflight() -> bool:
 		printerr("FAIL: insufficient_storage flag expected on storehouse rejection")
 		failures += 1
 
+	if added_wood > 0:
+		rm.consume_resource("wood", added_wood)
 	world_instance.world_data.buildings.erase(b_data)
 	if failures == 0:
 		print("  [PASS] TC-BM.18: Post-demolition storage reduction preflight verified.")
@@ -781,11 +948,46 @@ func _test_tc_bm_18_demolish_storage_preflight() -> bool:
 	return false
 
 # -----------------------------------------------------------------------------
-# TC-BM.19: Demolition Execution
+# TC-BM.19: Demolition Execution & Workforce/Resource Conservation
 # -----------------------------------------------------------------------------
 func _test_tc_bm_19_demolish_execution() -> bool:
 	print("--- Running TC-BM.19: Demolition Execution ---")
 	var failures: int = 0
+	var rm = world_instance.get_node_or_null("/root/ResourceManager")
+
+	# 1. Fail-closed: Demolition must fail without valid ResourceManager (BUG-2F-03)
+	var fail_b := {
+		"id": "bld_fail_null_rm",
+		"type": "farm",
+		"cell": Vector2i(22, 22),
+		"size": Vector2i(2, 2),
+		"state": "active",
+		"health": 100
+	}
+	world_instance.world_data.buildings.append(fail_b)
+	world_instance.world_data.occupancy[22][22] = true
+	var res_null = BuildingSystemScript.demolish_building(fail_b, world_instance.world_data, null)
+	if res_null.get("success", false):
+		printerr("FAIL: demolish_building must fail closed when resource_mgr is null")
+		failures += 1
+	if BuildingSystemScript.get_building_by_id("bld_fail_null_rm", world_instance.world_data).is_empty():
+		printerr("FAIL: Building was deleted despite null resource_mgr")
+		failures += 1
+	if not world_instance.world_data.occupancy[22][22]:
+		printerr("FAIL: Occupancy was cleared despite null resource_mgr")
+		failures += 1
+	world_instance.world_data.buildings.erase(fail_b)
+	world_instance.world_data.occupancy[22][22] = false
+
+	# 2. Fail-closed: Demolition must fail with invalid ResourceManager missing methods
+	world_instance.world_data.buildings.append(fail_b)
+	var res_inv = BuildingSystemScript.demolish_building(fail_b, world_instance.world_data, RefCounted.new())
+	if res_inv.get("success", false):
+		printerr("FAIL: demolish_building must fail closed when resource_mgr is invalid")
+		failures += 1
+	world_instance.world_data.buildings.erase(fail_b)
+
+	# 3. Successful execution: Workplace demolition & state clearance
 	var origin := Vector2i(24, 24)
 	var b_data := {
 		"id": "demolish_exec_test",
@@ -804,13 +1006,84 @@ func _test_tc_bm_19_demolish_execution() -> bool:
 	if not res.get("success", false):
 		printerr("FAIL: demolish_building_project failed: %s" % res.get("reason", ""))
 		failures += 1
-
 	if world_instance.selected_building_id != "":
 		printerr("FAIL: Selected building not cleared after demolition")
 		failures += 1
-
 	if not BuildingSystemScript.get_building_by_id("demolish_exec_test", world_instance.world_data).is_empty():
 		printerr("FAIL: Building was not removed from world_data")
+		failures += 1
+
+	# 4. Storage capacity decrement and existing stock conservation (BUG-2F-05)
+	var initial_food_cap = rm.get_storage_capacity("food")
+	var initial_ore_cap = rm.get_storage_capacity("ore")
+	var b_store := {
+		"id": "test_storehouse_cap_exec",
+		"type": "storehouse",
+		"cell": Vector2i(20, 20),
+		"size": Vector2i(2, 2),
+		"state": "active",
+		"health": 100
+	}
+	world_instance.world_data.buildings.append(b_store)
+	BuildingSystemScript.apply_completion_effects(b_store, rm)
+	if rm.get_storage_capacity("food") != initial_food_cap + 500:
+		printerr("FAIL: Storehouse did not increase food capacity by 500")
+		failures += 1
+	if rm.get_storage_capacity("ore") != initial_ore_cap + 300:
+		printerr("FAIL: Storehouse did not increase ore capacity by 300")
+		failures += 1
+
+	# Give stock exceeding post-demolition baseline capacity
+	rm.add_resource("food", 200)
+	var stock_before_demolish = rm.get_total_stock("food")
+
+	var res_store = world_instance.demolish_building_project("test_storehouse_cap_exec")
+	if not res_store.get("success", false):
+		printerr("FAIL: Failed to demolish storehouse: %s" % res_store.get("reason", ""))
+		failures += 1
+	if rm.get_storage_capacity("food") != initial_food_cap:
+		printerr("FAIL: Food capacity did not decrease by 500 upon storehouse demolition")
+		failures += 1
+	if rm.get_storage_capacity("ore") != initial_ore_cap:
+		printerr("FAIL: Ore capacity did not decrease by 300 upon storehouse demolition")
+		failures += 1
+	if rm.get_total_stock("food") < stock_before_demolish:
+		printerr("FAIL: Existing stock was silently deleted/clamped on capacity reduction!")
+		failures += 1
+
+	# 5. Worker and hauling cargo cleanup without inventory loss (BUG-2F-06)
+	var cit_hauler = world_instance.citizen_list[1]
+	cit_hauler.role = "hauler"
+	cit_hauler.set("carrying_amount", 10)
+	cit_hauler.set("carrying_resource", "wood")
+	var hauler_job = JobData.new()
+	hauler_job.id = "hauler_demolish_test_job"
+	hauler_job.type = "hauler"
+	hauler_job.target_building_id = "demolish_cargo_bld"
+	cit_hauler.active_job = hauler_job
+
+	var b_cargo := {
+		"id": "demolish_cargo_bld",
+		"type": "farm",
+		"cell": Vector2i(26, 26),
+		"size": Vector2i(2, 2),
+		"state": "active",
+		"health": 100
+	}
+	world_instance.world_data.buildings.append(b_cargo)
+	var wood_before = rm.get_total_stock("wood")
+	world_instance.demolish_building_project("demolish_cargo_bld")
+	var wood_after = rm.get_total_stock("wood")
+
+	# +10 wood from carried cargo deposit + 15 wood from 50% farm refund = +25 wood
+	if wood_after < wood_before + 25:
+		printerr("FAIL: Carried cargo (+10) was not deposited into storage on demolition! %d -> %d" % [wood_before, wood_after])
+		failures += 1
+	if cit_hauler.get("carrying_amount") != 0:
+		printerr("FAIL: Hauler cargo was not cleared after demolition deposit")
+		failures += 1
+	if cit_hauler.get("status_reason") != "Công trình đã bị dỡ bỏ":
+		printerr("FAIL: Hauler status reason mismatch: '%s'" % cit_hauler.get("status_reason"))
 		failures += 1
 
 	if failures == 0:
@@ -879,21 +1152,94 @@ func _test_tc_bm_21_townhall_warning() -> bool:
 	return false
 
 # -----------------------------------------------------------------------------
-# TC-BM.22: Town Hall Collapse Grace Period
+# TC-BM.22: Town Hall Collapse Grace Period & Pause Rejection
 # -----------------------------------------------------------------------------
 func _test_tc_bm_22_townhall_collapse_grace() -> bool:
 	print("--- Running TC-BM.22: Town Hall 72h Grace Period & Collapse Trigger ---")
 	var failures: int = 0
-	var vm = VictoryManagerScript.new()
 
-	# 1. When townhall is destroyed/missing, tick 71 hours -> still running
+	# 1. Pausing Town Hall must be rejected fail-closed (BUG-2F-02)
+	var pause_th_res = world_instance.set_building_state("townhall_starter", "paused")
+	if pause_th_res:
+		printerr("FAIL: set_building_state must refuse pausing Town Hall!")
+		failures += 1
+	var th_bld = BuildingSystemScript.get_building_by_id("townhall_starter", world_instance.world_data)
+	if th_bld.get("state") != "active":
+		printerr("FAIL: Town Hall state was altered to '%s'" % th_bld.get("state"))
+		failures += 1
+	if not BuildingSystemScript.is_town_hall_active(world_instance.world_data):
+		printerr("FAIL: is_town_hall_active must remain true!")
+		failures += 1
+	if world_instance.victory_mgr.townhall_ruin_hours > 0.0:
+		printerr("FAIL: Town Hall loss countdown was triggered by pause attempt!")
+		failures += 1
+
+	# Verify pausing civic structures (House, Storehouse, Barracks, Market) is also rejected
+	var mock_civics := [
+		{"id": "mock_house", "type": "house"},
+		{"id": "storehouse_starter", "type": "storehouse"},
+		{"id": "mock_barracks", "type": "barracks"},
+		{"id": "mock_market", "type": "market"}
+	]
+	for c in mock_civics:
+		world_instance.world_data.buildings.append({"id": c["id"], "type": c["type"], "cell": Vector2i(1, 1), "size": Vector2i(2, 2), "state": "active", "health": 100})
+		var p_res = world_instance.set_building_state(c["id"], "paused")
+		if p_res:
+			printerr("FAIL: Non-workplace building '%s' was permitted to pause!" % c["type"])
+			failures += 1
+		world_instance.world_data.buildings.erase(BuildingSystemScript.get_building_by_id(c["id"], world_instance.world_data))
+
+	# 2. Actual Town Hall demolition through WorldView integration (BUG-2F-07)
+	var rm = world_instance.get_node_or_null("/root/ResourceManager")
+	if rm != null:
+		var free_wood = rm.get_storage_capacity("wood") - rm.get_total_stock("wood")
+		if free_wood < 50:
+			rm.consume_resource("wood", 50 - free_wood)
+		var free_stone = rm.get_storage_capacity("stone") - rm.get_total_stock("stone")
+		if free_stone < 50:
+			rm.consume_resource("stone", 50 - free_stone)
+
+	var th_origin: Vector2i = th_bld.get("cell", Vector2i(30, 30))
+	var res_demolish = world_instance.demolish_building_project("townhall_starter")
+	if not res_demolish.get("success", false):
+		printerr("FAIL: Failed to demolish townhall_starter: %s" % res_demolish.get("reason", ""))
+		failures += 1
+	if BuildingSystemScript.is_town_hall_active(world_instance.world_data):
+		printerr("FAIL: is_town_hall_active should be false after Town Hall demolition")
+		failures += 1
+
+	# Hourly simulation tick detects missing capital and initiates 72h countdown
+	world_instance._on_simulation_hour_passed(1, 1)
+	if world_instance.victory_mgr.townhall_ruin_hours <= 0.0:
+		printerr("FAIL: VictoryManager did not start town hall lost countdown after demolition")
+		failures += 1
+	if world_instance.victory_mgr.townhall_ruin_hours != 1.0:
+		printerr("FAIL: Countdown hours mismatch: %f" % world_instance.victory_mgr.townhall_ruin_hours)
+		failures += 1
+
+	# Reconstructing/Restoring Town Hall cancels countdown
+	var restored_th := {
+		"id": "townhall_starter",
+		"type": "townhall",
+		"cell": th_origin,
+		"size": Vector2i(3, 3),
+		"state": "active",
+		"health": 100
+	}
+	world_instance.world_data.buildings.append(restored_th)
+	world_instance._on_simulation_hour_passed(2, 1)
+	if world_instance.victory_mgr.townhall_ruin_hours != 0.0:
+		printerr("FAIL: Countdown was not cancelled after Town Hall was restored")
+		failures += 1
+
+	# 3. Verify terminal collapse after 72 continuous hours using VictoryManager instance
+	var vm = VictoryManagerScript.new()
 	for h in range(71):
 		var res := vm.tick_hourly(20, 500, 500, 80.0, 80.0, 3, false, 5)
 		if res.get("status") == "collapse":
 			printerr("FAIL: Collapse prematurely triggered at hour %d (< 72)" % h)
 			failures += 1
 
-	# 2. At hour 72 -> collapse triggered!
 	var res72 := vm.tick_hourly(20, 500, 500, 80.0, 80.0, 3, false, 5)
 	if res72.get("status") != "collapse":
 		printerr("FAIL: Terminal collapse was not triggered after 72 hours of destroyed townhall")
@@ -1106,11 +1452,12 @@ func _test_tc_bm_28_resume_restores_operations() -> bool:
 	return false
 
 # -----------------------------------------------------------------------------
-# TC-BM.29: Save/Load Persistence of Paused State
+# TC-BM.29: Save/Load Persistence of Paused State (Real Disk Roundtrip)
 # -----------------------------------------------------------------------------
 func _test_tc_bm_29_save_load_persistence() -> bool:
 	print("--- Running TC-BM.29: Save/Load Persistence of Paused Buildings ---")
 	var failures: int = 0
+	var temp_save_path := "user://test_save_p2f_temp.json"
 	var origin := Vector2i(26, 26)
 	var b_data := {
 		"id": "bld_save_pause_test",
@@ -1121,28 +1468,77 @@ func _test_tc_bm_29_save_load_persistence() -> bool:
 		"health": 100
 	}
 	world_instance.world_data.buildings.append(b_data)
+	world_instance.register_dynamic_workplace(b_data)
+	world_instance.workplace_mgr.set_workplace_paused("bld_save_pause_test", true)
+	var wp = world_instance.workplace_mgr.get_workplace("bld_save_pause_test")
+	if wp != null:
+		wp.buffer_amount = 17
 
-	# Serialize
-	var save_dict: Dictionary = SaveManagerScript.serialize_world_state(world_instance)
-	var buildings_arr: Array = save_dict.get("buildings", [])
-	var found_paused := false
-	for b in buildings_arr:
-		if b.get("id") == "bld_save_pause_test" and b.get("state") == "paused":
-			found_paused = true
-			break
-
-	if not found_paused:
-		printerr("FAIL: Paused state not serialized in saved buildings")
+	# 1. Real save to disk at isolated temporary path
+	var save_res := SaveManagerScript.save_to_file(world_instance, temp_save_path)
+	if not save_res.get("success", false):
+		printerr("FAIL: Temporary file save failed: %s" % save_res.get("error", ""))
 		failures += 1
 
-	# Test sync_workplaces_after_load restores paused state
-	world_instance.sync_workplaces_after_load()
+	# Mutate live memory before loading to confirm loaded data actually overwrites state
+	wp.buffer_amount = 0
+	world_instance.workplace_mgr.set_workplace_paused("bld_save_pause_test", false)
+	b_data["state"] = "active"
+
+	# 2. Real load from disk
+	var load_res := SaveManagerScript.load_from_file(temp_save_path)
+	if not load_res.get("success", false):
+		printerr("FAIL: Temporary file load failed: %s" % load_res.get("error", ""))
+		failures += 1
+
+	var apply_res := SaveManagerScript.apply_loaded_state_to_world(world_instance, load_res["data"])
+	if not apply_res.get("success", false):
+		printerr("FAIL: Applying loaded state failed: %s" % apply_res.get("error", ""))
+		failures += 1
+
+	# 3. Verify paused building state and workplace pause are restored
+	var loaded_b := BuildingSystemScript.get_building_by_id("bld_save_pause_test", world_instance.world_data)
+	if loaded_b.get("state") != "paused":
+		printerr("FAIL: Building state was not restored to 'paused', got '%s'" % loaded_b.get("state"))
+		failures += 1
+
 	if not world_instance.workplace_mgr.is_workplace_paused("bld_save_pause_test"):
-		printerr("FAIL: sync_workplaces_after_load did not restore workplace is_paused")
+		printerr("FAIL: WorkplaceManager is_workplace_paused was not restored to true")
 		failures += 1
 
-	world_instance.workplace_mgr.unregister_workplace("bld_save_pause_test")
-	world_instance.world_data.buildings.erase(b_data)
+	var restored_wp = world_instance.workplace_mgr.get_workplace("bld_save_pause_test")
+	if restored_wp == null or restored_wp.buffer_amount != 17:
+		printerr("FAIL: Workplace buffer amount was not restored to 17, got %d" % (restored_wp.buffer_amount if restored_wp else -1))
+		failures += 1
+
+	# 4. Verify no jobs execute while paused
+	var jm = world_instance.job_mgr
+	var wp_mgr = world_instance.workplace_mgr
+	var rm = world_instance.get_node_or_null("/root/ResourceManager")
+	var jobs = jm.get_jobs_for_building("bld_save_pause_test")
+	for j in jobs:
+		if j.type != "hauler" and jm._is_job_executable(j, wp_mgr, rm, Callable(), world_instance.nav):
+			printerr("FAIL: Job '%s' should not be executable while workplace is paused" % j.id)
+			failures += 1
+
+	# 5. Verify resume works cleanly after load
+	var resume_ok = world_instance.set_building_state("bld_save_pause_test", "active")
+	if not resume_ok:
+		printerr("FAIL: Failed to resume paused workplace after load")
+		failures += 1
+	if world_instance.workplace_mgr.is_workplace_paused("bld_save_pause_test"):
+		printerr("FAIL: Workplace still paused after resume")
+		failures += 1
+
+	# 6. Clean up temporary save file and test building
+	if FileAccess.file_exists(temp_save_path):
+		DirAccess.remove_absolute(temp_save_path)
+	if FileAccess.file_exists(temp_save_path + ".bak"):
+		DirAccess.remove_absolute(temp_save_path + ".bak")
+	if FileAccess.file_exists(temp_save_path + ".bak.old"):
+		DirAccess.remove_absolute(temp_save_path + ".bak.old")
+	world_instance.demolish_building_project("bld_save_pause_test")
+
 	if failures == 0:
 		print("  [PASS] TC-BM.29: Paused state survives save/load serialization.")
 		return true

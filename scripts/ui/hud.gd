@@ -2251,13 +2251,14 @@ func refresh_building_inspector() -> void:
 	else:
 		if construction_section != null:
 			construction_section.visible = false
+		var is_pausable_workplace: bool = BuildingSystem.is_building_pausable(b_type)
 		if pause_resume_btn != null:
-			pause_resume_btn.visible = true
+			pause_resume_btn.visible = is_pausable_workplace and (state == "active" or state == "paused")
 			pause_resume_btn.text = "Tiếp Tục Hoạt Động" if state == "paused" else "Tạm Dừng Hoạt Động"
 		if demolish_btn != null:
 			demolish_btn.visible = true
 
-		var is_workplace: bool = b_type in ["farm", "woodcutter", "quarry", "mine", "workshop"]
+		var is_workplace: bool = is_pausable_workplace
 		if is_workplace:
 			if workplace_section != null:
 				workplace_section.visible = true
@@ -2404,26 +2405,26 @@ func _refresh_civic_inspector(_b_id: String, b_type: String, b_data: Dictionary)
 
 	match b_type:
 		"townhall":
-			civic_desc_label.text = "Trung tâm quản trị vương quốc. Cung cấp không gian sinh sống, kho chứa trung tâm và duy trì nền tảng chính trị."
-			civic_stats_label.text = "• Sức chứa: 10 cư dân\n• Dung lượng kho: +2000 đơn vị\n• Tầm nhìn cảnh giới: 8 ô\n• Trụ cột sinh tồn: Mất Tòa Thị Chính quá 72 giờ sẽ dẫn đến sụp đổ vương quốc!"
+			civic_desc_label.text = "Trung tâm quản trị vương quốc, lưu trữ tài nguyên cơ bản và duy trì quyền lực hoàng gia."
+			civic_stats_label.text = "• Sức chứa kho: Lương thực/Gỗ/Đá +500, Quặng/Kim loại +300, Công cụ +200, Thảo dược +200, Pha lê +100\n• Trụ cột sinh tồn: Mất Tòa Thị Chính quá 72 giờ sẽ dẫn đến sụp đổ vương quốc!"
 		"house":
 			civic_desc_label.text = "Khu nhà ở dân cư kiên cố giúp bảo vệ cư dân khỏi thời tiết khắc nghiệt và hồi phục thể lực."
-			civic_stats_label.text = "• Sức chứa: 4 cư dân\n• Giảm mệt mỏi khi nghỉ ngơi: Tốc độ cao\n• Nâng cao sĩ khí cộng đồng"
+			civic_stats_label.text = "• Sức chứa: 6 cư dân\n• Giảm mệt mỏi khi nghỉ ngơi: Tốc độ cao\n• Nâng cao sĩ khí cộng đồng"
 		"storehouse":
-			civic_desc_label.text = "Kho chứa vật phẩm trung chuyển trung tâm, mở rộng sức chứa hàng hóa cho toàn bộ vương quốc."
-			civic_stats_label.text = "• Sức chứa mở rộng: +500 dung lượng cho mỗi loại tài nguyên\n• Điểm tiếp nhận hàng hóa của phu khuân vác"
+			civic_desc_label.text = "Kho chứa hàng hóa trung chuyển, mở rộng dung lượng dự trữ tài nguyên cho toàn bộ vương quốc."
+			civic_stats_label.text = "• Sức chứa mở rộng: Lương thực/Gỗ/Đá +500, Quặng/Kim loại +300\n• Tiếp nhận hàng hóa chuyển về từ các phu khuân vác"
 		"barracks":
 			civic_desc_label.text = "Doanh trại quân đội đồn trú, huấn luyện và chỉ huy lực lượng phòng thủ vương quốc."
-			civic_stats_label.text = "• Cung cấp vị trí tuần tra và phòng vệ cho Vệ Binh\n• Mở khóa phân công nghề nghiệp Vệ Binh trong bảng dân cư\n• Nâng cao sức chứa đội quân viễn chinh"
+			civic_stats_label.text = "• Vị trí đồn trú: 2 Vệ Binh tuần tra\n• Mở khóa phân công nghề nghiệp Vệ Binh trong bảng dân cư\n• Nâng cao sức chứa quân đội (+5 binh sĩ)"
 		"watchtower":
 			civic_desc_label.text = "Tháp canh cảnh giới tầm xa, phát hiện sớm hiểm họa từ sương mù chiến tranh."
-			civic_stats_label.text = "• Tầm nhìn cảnh giới: 7 ô\n• Xóa sương mù chiến tranh xung quanh"
+			civic_stats_label.text = "• Tầm nhìn cảnh giới: 15 ô\n• Xóa sương mù chiến tranh xung quanh"
 		"market":
 			civic_desc_label.text = "Khu thương xá sầm uất, nơi tiếp đón các đoàn thương gia và tiến hành giao thương liên bang."
-			civic_stats_label.text = "• Điểm ghé chân và bốc dỡ hàng của các đoàn lạc đà buôn bán\n• Thúc đẩy chỉ số kinh tế và thịnh vượng vương quốc"
+			civic_stats_label.text = "• Điểm ghé chân và bốc dỡ hàng của các đoàn thương đoàn\n• Thúc đẩy chỉ số kinh tế và thịnh vượng vương quốc"
 		"research_hall":
 			civic_desc_label.text = "Viện hàn lâm nghiên cứu học thuật, mở khóa các tiến bộ khoa học kỹ thuật."
-			civic_stats_label.text = "• Cho phép thực hiện nghiên cứu công nghệ tại Menu Nghiên Cứu\n• Cung cấp chỗ làm việc cho các học giả"
+			civic_stats_label.text = "• Mở khóa Menu Nghiên Cứu và các công nghệ tiến bộ\n• Nền tảng phát triển học thuật vương quốc"
 		_:
 			civic_desc_label.text = "Công trình vương quốc."
 			civic_stats_label.text = "• Kích thước: %dx%d" % [b_data.get("size", Vector2i(1,1)).x, b_data.get("size", Vector2i(1,1)).y]
@@ -2431,7 +2432,12 @@ func _refresh_civic_inspector(_b_id: String, b_type: String, b_data: Dictionary)
 func _on_pause_resume_building_pressed() -> void:
 	if world_view_ref == null or inspected_building_id == "":
 		return
+	var b_type: String = inspected_building_data.get("type", "")
+	if not BuildingSystem.is_building_pausable(b_type):
+		return
 	var cur_state: String = inspected_building_data.get("state", "active")
+	if cur_state != "active" and cur_state != "paused":
+		return
 	var target_state := "active" if cur_state == "paused" else "paused"
 	world_view_ref.set_building_state(inspected_building_id, target_state)
 	refresh_building_inspector()
