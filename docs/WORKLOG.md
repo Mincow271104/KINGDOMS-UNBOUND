@@ -9265,3 +9265,69 @@ Following independent source review of Package 2I candidate (`cf0b02037c8d15c795
 
 ### Next Exact Step
 - Stage modified files explicitly (`scripts/entities/citizen_controller.gd`, `scripts/persistence/save_manager.gd`, `scripts/world/world_view.gd`, `scripts/test/test_building_management.gd`, `docs/GAME_RULES.md`, `docs/BACKLOG.md`, `docs/CHANGELOG.md`, `docs/WORKLOG.md`), commit with `fix(buildings): preserve upgrades when completion is blocked`, push branch `feature/package-2i-settlement-building-upgrades` to `origin`, and deliver the final handoff report.
+
+---
+
+## 2026-11-02 — RC2 Live Gameplay Acceptance Run: Post-Package 2I Integration & Real Play Verification (Completed)
+
+### Context & Primary Objectives
+- **Target:** Verify the integrated playable product following Packages 2F, 2G, 2H, and 2I through an actual live in-game gameplay session (~15 to 35 simulation days).
+- **Branch:** `qa/rc2-live-gameplay-acceptance` created from approved baseline `628ddb4780da59bb1a39896e91b62ee03a03ec2f`.
+- **Godot Version:** 4.7-stable.official.5b4e0cb0f (Windows x64).
+- **Environment Isolation:** User data and legacy profiles backed up safely to `%APPDATA%\Godot\app_userdata\KINGDOMS UNBOUND\pre_rc2_backup\`; isolated test saves routed to `rc2_live_acceptance_save.json`. User's local `project.godot` modifications and untracked artifacts strictly preserved.
+- **Session Settings:** Seed `12345`, Standard Difficulty (GDD v1.0), Dedicated world name `RC2_Acceptance_Realm`.
+
+### Live Gameplay Scenario & Findings
+1. **Section 4A — New World & Simulation Foundation:**
+   - Launched main menu, entered seed `12345`, selected Standard difficulty, initialized `WorldView`.
+   - 64×64 diamond isometric grid rendered crisply; camera focused on plaza `(32, 32)`.
+   - Starter settlement spawned 24 citizens (5 farmers, 4 woodcutters, 3 builders, 3 haulers, 9 idle) and starter buildings: Town Hall (3×3), Storehouse (2×2), Farm (2×2), Woodcutter (2×2), 4 Houses (2×2).
+   - Speed controls (0× Pause, 1× Normal, 2× Fast, 3× Very Fast) verified with instant clock and citizen response.
+   - Citizens exhibited coherent behaviors: farmers worked crops and hauled to buffer, woodcutters harvested timber, haulers cleared buffer stocks, citizens rested when exhausted and ate when hungry. Zero stuck loops or abandoned tasks.
+2. **Section 4B — Package 2F: Building Inspection, Workplace Management & Demolition:**
+   - Inspected House, Farm, and Storehouse via Building Inspector panel: verified coordinates, sizes, active states, 100 HP, worker rosters, and buffer saturation bars (Farm buffer 50/50 Food).
+   - Reassigned `citizen_1` from `farmer` to `woodcutter`: job and behavior updated immediately in live simulation.
+   - Built safe test Palisade at `(40, 40)` and executed player demolition: verified 50% refund returned atomically (`2 Gỗ, 1 Đá`), footprint cleared, unrelated structures, jobs, and inventories unaffected.
+3. **Section 4C — Package 2I: Settlement Building Upgrades:**
+   - **House Level 1 $\to$ 2:** Preflight cost `19 Wood, 8 Stone`, duration 4.0h. Initiated via HUD; 3 builder jobs registered and worked by citizens. Sức chứa nhà ở tăng từ 6 lên 8 (tổng định cư tăng từ 24 lên 26). Builder jobs cleaned up with 0 orphaned tasks.
+   - **Farm Level 1 $\to$ 2:** Preflight cost `23 Wood, 4 Stone`, duration 5.0h. Initiated and completed; production multiplier scaled from `1.00×` to `1.15×`.
+   - **Storehouse Level 1 $\to$ 2:** Preflight cost `30 Wood, 19 Stone`, duration 6.0h. Completed cleanly; storage capacities updated: Food/Wood/Stone `1500 -> 1625` (+125), Ore/Metal `900 -> 975` (+75).
+   - **Save/Load Mid-Upgrade Invariant:** Saved while House upgrade was in progress. Reloaded via `SaveManager`; verified progress (4.0h), cost, target level (2), and 3 builder jobs preserved with 0 duplicate nodes or jobs. Upgrade completed after reload with 0 capacity drift.
+4. **Section 4D — Package 2H: Dynamic Market Pricing:**
+   - Caravans observed visiting the settlement at Day 28 and Day 33 (`Đoàn Buôn Phương Nam`).
+   - Inspected real-time price quotes: dynamic breakdown reflected local supply/demand pressure, caravan stock pressure, market multiplier, and faction opinion.
+   - Executed Buy: 10 Stone @ 4 Gold/unit (Settlement Gold 300 $\to$ 260, Stone 28 $\to$ 38; Caravan Gold 516 $\to$ 556, Stone 28 $\to$ 18).
+   - Executed Sell: 10 Wood @ 2 Gold/unit (Settlement Gold 260 $\to$ 280, Wood 1625 $\to$ 1615; Caravan Gold 556 $\to$ 536, Wood 21 $\to$ 31).
+   - Post-trade quotes dynamically refreshed based on updated stock ratios. Zero duplication or phantom currency.
+5. **Section 4E — Package 2G: Outpost & Territorial Control:**
+   - Surveyed all 3 world outposts: `outpost_neutral_tribe` (16, 48), `outpost_rival_merchant` (44, 22), `outpost_rival_military` (13, 14).
+   - Verified banner visual rendering, HP bars (200-300 HP), and garrison sizes (2-4 units).
+   - Outpost capture in live peaceful acceptance campaign recorded as **NOT VERIFIED (Documented Constraint)** per instructions, as legitimate capture requires high-tier military expedition, prolonged siege, and war declaration. Fully verified via automated test suite.
+6. **Section 4F — Time, Events & Overall Economy (Day 1 to Day 35):**
+   - Simulation progressed across 35 in-game days, completing a full annual seasonal cycle: Spring $\to$ Summer $\to$ Autumn $\to$ Winter.
+   - Population grew from 24 to 26 via scheduled immigration. Zero citizen deaths recorded (`deceased_count = 0`).
+   - Economic ledger remained strictly balanced: Food 699/1625, Wood 1625/1625, Stone 18/1625, Metal 7/975, Gold 200/999999. Zero negative stock or storage drift.
+   - Second full save/load cycle at Day 35 verified 100% roundtrip fidelity (`32,375 bytes` written, 26 citizens, 9 buildings, winter season preserved).
+
+### Visual Validation Artifacts Captured
+Saved under `docs/visual_validation/rc2_live_acceptance/`:
+1. `01_main_menu.png`: Main menu and new world configuration (Seed 12345).
+2. `02_initial_settlement_and_hud.png`: 64×64 isometric world and starter settlement.
+3. `03_hud_active_citizens_resources.png`: HUD with active citizens and economic ledger.
+4. `04_building_inspector_level1.png`: Building Inspector at Level 1 (House).
+5. `05_upgrade_in_progress.png`: Upgrade in progress with active builder workforce and progress bar.
+6. `06_save_load_result.png`: Restored world state after disk roundtrip during upgrade.
+7. `07_building_inspector_after_upgrade.png`: Building Inspector showing Storehouse Level 2 (+125/+75 capacities).
+8. `08_caravan_trade_panel.png`: Caravan trade panel with dynamic buy/sell quotes and supply-demand breakdown.
+9. `09_outpost_ownership_display.png`: Outpost banner, HP bar, and garrison display in live world.
+10. `10_day35_winter_settlement.png`: World at Day 35 (Winter) with 26 citizens, active Barracks, upgraded buildings.
+
+### Test Execution & Exit Codes
+1. `scripts/test/test_building_management.gd`: **53/53 PASSED (Exit Code 0)**
+2. `scripts/test/test_market.gd`: **26/26 PASSED (Exit Code 0)**
+3. `scripts/test/test_outpost_territorial_control.gd`: **200/200 assertions PASSED (Exit Code 0)**
+4. Runtime error log (`get_runtime_log`): **0 errors, 0 warnings**.
+
+### Next Exact Step
+- Stage documentation updates (`docs/SMOKE_TEST_CHECKLIST.md`, `docs/TEST_PLAN.md`, `docs/WORKLOG.md`), commit to `qa/rc2-live-gameplay-acceptance`, push to `origin`, and provide the final report in Vietnamese.
+

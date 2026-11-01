@@ -861,3 +861,68 @@ When Godot Editor is running with the MCP plugin:
       - Case B: No primary file exists, both `.bak` (balance 300) and `.bak.old` (balance 150) are valid. Verifies manager gives precedence to `.bak` (balance 300). Verifies transaction (claim reward +50) creates primary with 350, removes obsolete `.bak.old`, and preserves `.bak` (300). Verifies restart with primary removed recovers balance 300 from `.bak`.
     - **Byte-for-Byte Exact Backup Preservation (FIX-1Z-Y):** In Expanded Test 25, captured `PackedByteArray` of `.bak` before restore-copy failure and asserted strict byte-for-byte identity against `.bak` bytes after failure, proving backup remains completely unchanged. Test cleanup helpers also updated to purge `.bak.old` and `.bak.tmp`.
   - *Status:* **PASSED** (2026-10-31, Exit Code 0: 43/43 tests passed across all scenarios).
+
+---
+
+## 3. RC2 Live Gameplay Verification & Acceptance (Post-Package 2I)
+
+- **Verification Date:** 2026-11-02
+- **Baseline Git Checkpoint:** `628ddb4780da59bb1a39896e91b62ee03a03ec2f` (`fix(buildings): preserve upgrades when completion is blocked`)
+- **Godot Version:** 4.7.stable (Windows x64)
+- **Live Bridge:** Godot MCP (WebSocket port 6505, detached runtime process)
+- **World Configuration:** Dedicated test world `RC2_Acceptance_Realm`, Fixed seed `12345`, Standard difficulty (GDD v1.0), 64×64 diamond isometric grid.
+- **Duration Observed:** 35 In-game days (Day 1 to Day 35, through full seasonal cycle: Spring $\to$ Summer $\to$ Autumn $\to$ Winter).
+
+### 3.1 Live-Tested Gameplay Operations (Observed in Real Simulation)
+1. **New World Flow & Settlement Foundation:**
+   - Main menu input seed `12345`, standard difficulty, start world.
+   - Initialized 64×64 world view, camera focused at `(32, 32)`.
+   - 24 starter citizens spawned with canonical role distribution (5 farmers, 4 woodcutters, 3 builders, 3 haulers, 9 idle).
+   - Starter settlement buildings verified: Town Hall (3×3), Storehouse (2×2), Farm (2×2), Woodcutter (2×2), 4 Houses (2×2 each).
+2. **Package 2F — Building Inspector & Dynamic Workplace:**
+   - Inspected House (26, 25), Farm (36, 35), Storehouse (36, 30).
+   - Verified coordinates, sizes, HP, active status, worker counts, buffer saturation bars (Farm buffer 50/50).
+   - Reassigned citizen role (`farmer` $\to$ `woodcutter`), verified instantaneous job and behavior transition.
+   - Built test Palisade at `(40, 40)` and executed player demolition: 50% refund returned atomically (`2 Gỗ, 1 Đá`), footprint erased, unrelated structures and jobs unaffected.
+3. **Package 2I — Building Upgrades (Live HUD Flow):**
+   - House Level 1 $\to$ 2: Preflight cost `19 Wood, 8 Stone`, duration 4.0h. Started via HUD; 3 builder jobs registered and worked by citizens. Housing capacity scaled from 24 to 26 upon completion. Zero orphaned jobs.
+   - Farm Level 1 $\to$ 2: Preflight cost `23 Wood, 4 Stone`, duration 5.0h. Multiplier updated from `1.00×` to `1.15×`.
+   - Storehouse Level 1 $\to$ 2: Preflight cost `30 Wood, 19 Stone`, duration 6.0h. Capacities increased: Food/Wood/Stone `1500 -> 1625` (+125), Ore/Metal `900 -> 975` (+75).
+4. **Save/Load Mid-Upgrade Invariant:**
+   - World saved to disk (`rc2_live_acceptance_save.json`) while House upgrade was in-progress.
+   - Reloaded into active world: progress (4.0h), cost, target level (2), and 3 builder jobs preserved with 0 duplicate nodes or jobs.
+   - Completed upgrade cleanly after load with 0 capacity drift.
+5. **Package 2H — Dynamic Market Pricing & Caravans:**
+   - Caravans observed at Day 28 and Day 33 (`Đoàn Buôn Phương Nam`).
+   - Dynamic price breakdown verified: local pressure, caravan pressure, market multiplier, opinion adjustment.
+   - Executed Buy: 10 Stone @ 4 Gold/unit (Settlement Gold -40, Stone +10; Caravan Gold +40, Stone -10).
+   - Executed Sell: 10 Wood @ 2 Gold/unit (Settlement Gold +20, Wood -10; Caravan Gold -20, Wood +10).
+   - Post-trade quotes dynamically refreshed based on updated supply ratios. Zero currency or good duplication.
+6. **Economy & Seasonal Survival (35 Days):**
+   - Daily food upkeep consumed smoothly; 0 deaths across 35 days.
+   - Immigration arrived on schedule: population grew from 24 to 26.
+   - Transitioned through Spring, Summer, Autumn into Winter; no negative stocks or ledger drift.
+
+### 3.2 Headless-Tested Suites (Deterministic Automated Verification)
+1. `scripts/test/test_building_management.gd`: **53/53 PASSED (Exit Code 0)** — Covers Packages 2F & 2I, building selection, buffers, demolition, upgrades, and fail-closed branches.
+2. `scripts/test/test_market.gd`: **26/26 PASSED (Exit Code 0)** — Covers Package 2H, market blueprints, docking, elasticity, wartime surcharge, and atomic trades.
+3. `scripts/test/test_outpost_territorial_control.gd`: **200/200 assertions PASSED (Exit Code 0)** — Covers Package 2G, NPC/player sieges, transfer signals, idempotency, and save/load persistence.
+
+### 3.3 Visually Reviewed Artifacts (Screen Captures in `docs/visual_validation/rc2_live_acceptance/`)
+1. `01_main_menu.png`: Main menu layout, new world dialog, seed `12345`.
+2. `02_initial_settlement_and_hud.png`: 64×64 isometric world, starter settlement, initial HUD.
+3. `03_hud_active_citizens_resources.png`: HUD with 24 active citizens and economic ledger.
+4. `04_building_inspector_level1.png`: Building Inspector at Level 1 (House).
+5. `05_upgrade_in_progress.png`: Upgrade in progress with active builder workforce and progress bar.
+6. `06_save_load_result.png`: Restored world state after disk roundtrip during upgrade.
+7. `07_building_inspector_after_upgrade.png`: Building Inspector showing Storehouse Level 2 (+125/+75 capacities).
+8. `08_caravan_trade_panel.png`: Caravan trade panel with dynamic buy/sell quotes and supply-demand breakdown.
+9. `09_outpost_ownership_display.png`: Outpost banner, HP bar (250 HP), and garrison display in live world.
+10. `10_day35_winter_settlement.png`: World at Day 35 (Winter) with 26 citizens, active Barracks, upgraded buildings.
+
+### 3.4 Unverified Items & Documented Architectural Boundaries
+1. **Package 2G Outpost Capture in Live Normal Gameplay:**
+   - *Status:* **NOT VERIFIED IN LIVE PLAYTHROUGH (Documented Constraint)**.
+   - *Reason:* Capturing an outpost in normal gameplay requires constructing a Barracks (completed at Day 35), recruiting a large expeditionary army (requires sustained metal smelting, weapons, and tools), declaring war against the owning faction via Diplomacy, and marching across the map to defeat a 2-4 unit garrison and deplete a 200-300 HP structure. Within an initial 15-35 day peaceful settlement acceptance run, attempting an unsupplied military assault would lead to total army wipeout and retaliatory settlement raids. Direct state mutation or debug cheats were strictly prohibited by prompt rules.
+   - *Verification Evidence:* Fully verified through headless automated suite `test_outpost_territorial_control.gd` (200 assertions, Exit Code 0) and live visual inspection of the outpost actor (`09_outpost_ownership_display.png`).
+
