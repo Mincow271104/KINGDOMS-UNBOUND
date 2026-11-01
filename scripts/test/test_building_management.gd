@@ -1664,7 +1664,8 @@ func _snapshot_resource_manager(rm: Node) -> Dictionary:
 		"_daily_consumption_tallies": rm._daily_consumption_tallies.duplicate(true),
 		"_last_day_production": rm._last_day_production.duplicate(true),
 		"_last_day_consumption": rm._last_day_consumption.duplicate(true),
-		"_is_starving": rm._is_starving
+		"_is_starving": rm._is_starving,
+		"active_population": rm.active_population
 	}
 
 func _restore_resource_manager(rm: Node, snap: Dictionary) -> void:
@@ -1678,6 +1679,8 @@ func _restore_resource_manager(rm: Node, snap: Dictionary) -> void:
 	rm._last_day_production = snap["_last_day_production"].duplicate(true)
 	rm._last_day_consumption = snap["_last_day_consumption"].duplicate(true)
 	rm._is_starving = snap["_is_starving"]
+	if snap.has("active_population"):
+		rm.active_population = snap["active_population"]
 
 func _assert_resource_manager_matches_snapshot(rm: Node, snap: Dictionary, test_name: String) -> int:
 	if rm == null:
@@ -1710,11 +1713,22 @@ func _snapshot_citizen_state(cit: Node) -> Dictionary:
 		return {}
 	var snap := {
 		"citizen_id": cit.get("citizen_id"),
+		"citizen_name": cit.get("citizen_name"),
 		"role": cit.get("role"),
+		"workplace_id": cit.get("workplace_id"),
 		"current_state": cit.get("current_state"),
+		"status_reason": cit.get("status_reason"),
+		"current_cell": cit.get("current_cell"),
+		"position": cit.get("position"),
+		"current_path": (cit.get("current_path") as Array).duplicate() if cit.get("current_path") != null else [],
+		"hunger": cit.get("hunger"),
+		"fatigue": cit.get("fatigue"),
+		"health": cit.get("health"),
+		"morale": cit.get("morale"),
 		"carrying_amount": cit.get("carrying_amount"),
 		"carrying_resource": cit.get("carrying_resource"),
 		"carrying_source_workplace_id": cit.get("carrying_source_workplace_id"),
+		"carry_capacity": cit.get("carry_capacity"),
 		"xp": {}
 	}
 	if cit.has_method("get_skill_data") and cit.get_skill_data() != null:
@@ -1751,13 +1765,35 @@ func _restore_citizen_state(cid: String, snap: Dictionary, test_name: String) ->
 	cit.set("role", snap.get("role", "farmer"))
 	if snap.has("current_state"):
 		cit.set("current_state", snap["current_state"])
+	if snap.has("status_reason"):
+		cit.set("status_reason", snap["status_reason"])
+	if snap.has("workplace_id"):
+		cit.set("workplace_id", snap["workplace_id"])
+	if snap.has("hunger"):
+		cit.set("hunger", snap["hunger"])
+	if snap.has("fatigue"):
+		cit.set("fatigue", snap["fatigue"])
+	if snap.has("health"):
+		cit.set("health", snap["health"])
+	if snap.has("morale"):
+		cit.set("morale", snap["morale"])
 	if snap.has("carrying_amount"):
 		cit.set("carrying_amount", snap["carrying_amount"])
 	if snap.has("carrying_resource"):
 		cit.set("carrying_resource", snap["carrying_resource"])
 	if snap.has("carrying_source_workplace_id"):
 		cit.set("carrying_source_workplace_id", snap["carrying_source_workplace_id"])
+	if snap.has("carry_capacity"):
+		cit.set("carry_capacity", snap["carry_capacity"])
 	cit.active_job = null
+	if snap.has("current_path") and snap["current_path"] is Array:
+		cit.current_path = (snap["current_path"] as Array).duplicate()
+	else:
+		cit.current_path = []
+
+	if snap.has("current_cell"):
+		cit.set("current_cell", snap["current_cell"])
+		cit.position = IsoMathScript.map_to_local(snap["current_cell"])
 
 	if snap.has("xp") and cit.has_method("get_skill_data") and cit.get_skill_data() != null:
 		cit.get_skill_data()._xp = snap["xp"].duplicate(true)
@@ -1765,6 +1801,26 @@ func _restore_citizen_state(cid: String, snap: Dictionary, test_name: String) ->
 	if cit.get("role") != snap.get("role"):
 		printerr("FAIL %s: Citizen %s role not restored: %s != %s" % [test_name, cid, cit.get("role"), snap.get("role")])
 		failures += 1
+
+	if snap.has("current_cell"):
+		if cit.get("current_cell") != snap["current_cell"]:
+			printerr("FAIL %s: Citizen %s current_cell not restored: %s != %s" % [test_name, cid, str(cit.get("current_cell")), str(snap["current_cell"])])
+			failures += 1
+		var expected_pos: Vector2 = IsoMathScript.map_to_local(snap["current_cell"])
+		if cit.position != expected_pos:
+			printerr("FAIL %s: Citizen %s position not synchronized: %s != %s" % [test_name, cid, str(cit.position), str(expected_pos)])
+			failures += 1
+
+	if snap.has("carrying_amount") and cit.get("carrying_amount") != snap["carrying_amount"]:
+		printerr("FAIL %s: Citizen %s carrying_amount not restored: %s != %s" % [test_name, cid, str(cit.get("carrying_amount")), str(snap["carrying_amount"])])
+		failures += 1
+	if snap.has("carrying_resource") and cit.get("carrying_resource") != snap["carrying_resource"]:
+		printerr("FAIL %s: Citizen %s carrying_resource not restored: %s != %s" % [test_name, cid, str(cit.get("carrying_resource")), str(snap["carrying_resource"])])
+		failures += 1
+	if snap.has("carrying_source_workplace_id") and cit.get("carrying_source_workplace_id") != snap["carrying_source_workplace_id"]:
+		printerr("FAIL %s: Citizen %s carrying_source_workplace_id not restored: %s != %s" % [test_name, cid, str(cit.get("carrying_source_workplace_id")), str(snap["carrying_source_workplace_id"])])
+		failures += 1
+
 	if snap.has("xp") and cit.has_method("get_skill_data") and cit.get_skill_data() != null:
 		for voc in snap["xp"]:
 			if cit.get_skill_data().get_xp(voc) != snap["xp"][voc]:
@@ -1807,331 +1863,346 @@ func _test_tc_bm_31_workshop_pause_channels() -> bool:
 
 	var smelt_wp = wp_mgr.get_workplace("workshop_test_pause_smelt")
 	var craft_wp = wp_mgr.get_workplace("workshop_test_pause_craft")
-	if smelt_wp == null or craft_wp == null:
+	var channels_valid: bool = (smelt_wp != null and craft_wp != null)
+	if not channels_valid:
 		printerr("FAIL: Both workshop channels must exist on registration")
-		return false
+		failures += 1
 
-	smelt_wp.buffer_amount = 6
-	craft_wp.buffer_amount = 4
-
-	# B1: Retrieve the actual registered smelt and craft jobs from jm.get_jobs_for_building()
-	var registered_jobs: Array = jm.get_jobs_for_building("workshop_test_pause")
+	var jobs_valid: bool = false
 	var job_smelt: JobData = null
 	var job_craft: JobData = null
-	for j in registered_jobs:
-		if j.recipe_id == "smelt_metal" and j.workplace_channel_id == "workshop_test_pause_smelt" and job_smelt == null:
-			job_smelt = j
-		elif j.recipe_id == "craft_tools" and j.workplace_channel_id == "workshop_test_pause_craft" and job_craft == null:
-			job_craft = j
+	var job_haul: JobData = null
 
-	if job_smelt == null or job_craft == null:
-		printerr("FAIL B1: Real registered workshop jobs not found in JobManager: smelt=%s, craft=%s" % [str(job_smelt), str(job_craft)])
-		return false
+	if channels_valid:
+		smelt_wp.buffer_amount = 6
+		craft_wp.buffer_amount = 4
 
-	var job_haul = jm.create_hauling_job("workshop_test_pause_smelt", smelt_wp.access_cell, Vector2i(31, 34), "metal", 5, "Haul smelted metal", 2)
+		# B1: Retrieve the actual registered smelt and craft jobs from jm.get_jobs_for_building()
+		var registered_jobs: Array = jm.get_jobs_for_building("workshop_test_pause")
+		for j in registered_jobs:
+			if j.recipe_id == "smelt_metal" and j.workplace_channel_id == "workshop_test_pause_smelt" and job_smelt == null:
+				job_smelt = j
+			elif j.recipe_id == "craft_tools" and j.workplace_channel_id == "workshop_test_pause_craft" and job_craft == null:
+				job_craft = j
 
-	# Provide crafting materials for input checks and actual production
-	rm.add_resource("ore", 10)
-	rm.add_resource("metal", 10)
-	rm.add_resource("wood", 10)
+		if job_smelt == null or job_craft == null:
+			printerr("FAIL B1: Real registered workshop jobs not found in JobManager: smelt=%s, craft=%s" % [str(job_smelt), str(job_craft)])
+			failures += 1
+		else:
+			jobs_valid = true
 
-	# 1. Active: jobs are executable and actual production works on both channels
-	if not jm._is_job_executable(job_smelt, wp_mgr, rm, Callable(), world_instance.nav):
-		printerr("FAIL: Smelt job should be executable when workshop is active")
-		failures += 1
-	if not jm._is_job_executable(job_craft, wp_mgr, rm, Callable(), world_instance.nav):
-		printerr("FAIL: Craft job should be executable when workshop is active")
-		failures += 1
+	if jobs_valid:
+		job_haul = jm.create_hauling_job("workshop_test_pause_smelt", smelt_wp.access_cell, Vector2i(31, 34), "metal", 5, "Haul smelted metal", 2)
 
-	var pre_prod_ore: int = rm.get_resource("ore")
-	var pre_prod_metal: int = rm.get_resource("metal")
-	var pre_prod_wood: int = rm.get_resource("wood")
+		# Provide crafting materials for input checks and actual production
+		rm.add_resource("ore", 10)
+		rm.add_resource("metal", 10)
+		rm.add_resource("wood", 10)
 
-	# Real production to buffer: Smelt channel consumes 2 ore and produces 1 metal to buffer
-	var produced_smelt = wp_mgr.produce_to_buffer("workshop_test_pause_smelt", 1.0, rm)
-	if produced_smelt != 1 or smelt_wp.buffer_amount != 7:
-		printerr("FAIL: Active smelt production failed: produced=%d, buffer=%d" % [produced_smelt, smelt_wp.buffer_amount])
-		failures += 1
-	if rm.get_resource("ore") != pre_prod_ore - 2:
-		printerr("FAIL: Smelt production did not consume 2 ore! %d -> %d" % [pre_prod_ore, rm.get_resource("ore")])
-		failures += 1
-
-	# Real production to buffer: Craft channel consumes 2 metal, 1 wood and produces 1 tool to buffer
-	var produced_craft = wp_mgr.produce_to_buffer("workshop_test_pause_craft", 1.0, rm)
-	if produced_craft != 1 or craft_wp.buffer_amount != 5:
-		printerr("FAIL: Active craft production failed: produced=%d, buffer=%d" % [produced_craft, craft_wp.buffer_amount])
-		failures += 1
-	if rm.get_resource("metal") != pre_prod_metal - 2 or rm.get_resource("wood") != pre_prod_wood - 1:
-		printerr("FAIL: Craft production input consumption incorrect: metal=%d, wood=%d" % [rm.get_resource("metal"), rm.get_resource("wood")])
-		failures += 1
-
-	# Objective D: Assign genuine 'smith' role to workers while assigned to Workshop jobs
-	cit0.role = "smith"
-	job_smelt.state = JobState.IN_PROGRESS
-	job_smelt.worker_id = cit0.citizen_id
-	cit0.active_job = job_smelt
-	cit0.current_state = CitizenController.State.WORKING
-	if cit0.role != "smith":
-		printerr("FAIL Objective D: cit0 role was not set to 'smith'")
-		failures += 1
-
-	if cit1 != null:
-		cit1.role = "smith"
-		job_craft.state = JobState.IN_PROGRESS
-		job_craft.worker_id = cit1.citizen_id
-		cit1.active_job = job_craft
-		cit1.current_state = CitizenController.State.WORKING
-		if cit1.role != "smith":
-			printerr("FAIL Objective D: cit1 role was not set to 'smith'")
+		# 1. Active: jobs are executable and actual production works on both channels
+		if not jm._is_job_executable(job_smelt, wp_mgr, rm, Callable(), world_instance.nav):
+			printerr("FAIL: Smelt job should be executable when workshop is active")
+			failures += 1
+		if not jm._is_job_executable(job_craft, wp_mgr, rm, Callable(), world_instance.nav):
+			printerr("FAIL: Craft job should be executable when workshop is active")
 			failures += 1
 
-	# B2. Parent pause: both channels paused, buffers unchanged, workers safely released to IDLE, jobs available/unassigned
-	var pre_pause_ore = rm.get_resource("ore")
-	var pre_pause_metal = rm.get_resource("metal")
-	var pre_pause_wood = rm.get_resource("wood")
+		var pre_prod_ore: int = rm.get_resource("ore")
+		var pre_prod_metal: int = rm.get_resource("metal")
+		var pre_prod_wood: int = rm.get_resource("wood")
 
-	world_instance.set_building_state("workshop_test_pause", "paused")
-	if not wp_mgr.is_workplace_paused("workshop_test_pause_smelt") or not wp_mgr.is_workplace_paused("workshop_test_pause_craft"):
-		printerr("FAIL: Both workshop sub-channels must be paused")
-		failures += 1
-
-	if smelt_wp.buffer_amount != 7 or craft_wp.buffer_amount != 5:
-		printerr("FAIL: Buffers must remain unchanged while paused: smelt=%d, craft=%d" % [smelt_wp.buffer_amount, craft_wp.buffer_amount])
-		failures += 1
-
-	if cit0.current_state != CitizenController.State.IDLE or cit0.active_job != null:
-		printerr("FAIL: Active smith worker cit0 not released to IDLE on pause")
-		failures += 1
-	if cit1 != null and (cit1.current_state != CitizenController.State.IDLE or cit1.active_job != null):
-		printerr("FAIL: Active smith worker cit1 not released to IDLE on pause")
-		failures += 1
-
-	if job_smelt.state != JobState.AVAILABLE or job_smelt.worker_id != "":
-		printerr("FAIL B2: job_smelt not returned to AVAILABLE unassigned state: state=%d, worker=%s" % [job_smelt.state, job_smelt.worker_id])
-		failures += 1
-	if job_craft.state != JobState.AVAILABLE or job_craft.worker_id != "":
-		printerr("FAIL B2: job_craft not returned to AVAILABLE unassigned state: state=%d, worker=%s" % [job_craft.state, job_craft.worker_id])
-		failures += 1
-
-	# Production to buffer during pause must return 0 and consume no inputs
-	var paused_smelt_prod = wp_mgr.produce_to_buffer("workshop_test_pause_smelt", 1.0, rm)
-	var paused_craft_prod = wp_mgr.produce_to_buffer("workshop_test_pause_craft", 1.0, rm)
-	if paused_smelt_prod != 0 or paused_craft_prod != 0:
-		printerr("FAIL: produce_to_buffer must return 0 while paused! got smelt=%d, craft=%d" % [paused_smelt_prod, paused_craft_prod])
-		failures += 1
-	if smelt_wp.buffer_amount != 7 or craft_wp.buffer_amount != 5:
-		printerr("FAIL: Buffers mutated during paused produce_to_buffer!")
-		failures += 1
-	if rm.get_resource("ore") != pre_pause_ore or rm.get_resource("metal") != pre_pause_metal or rm.get_resource("wood") != pre_pause_wood:
-		printerr("FAIL B2: Input resources mutated during paused production calls!")
-		failures += 1
-
-	# Smith jobs non-executable while paused, hauler jobs remain executable
-	if jm._is_job_executable(job_smelt, wp_mgr, rm, Callable(), world_instance.nav):
-		printerr("FAIL: Smelt job should NOT be executable when paused")
-		failures += 1
-	if jm._is_job_executable(job_craft, wp_mgr, rm, Callable(), world_instance.nav):
-		printerr("FAIL: Craft job should NOT be executable when paused")
-		failures += 1
-	if not jm._is_job_executable(job_haul, wp_mgr, rm, Callable(), world_instance.nav):
-		printerr("FAIL: Hauler job should remain executable for paused workshop channel")
-		failures += 1
-
-	# Clean up transient hauler test job before persisting building state
-	if jm != null and job_haul != null and job_haul in jm._jobs:
-		jm._jobs.erase(job_haul)
-
-	# B3. Save/load exact identity comparison
-	var build_job_snapshot := func() -> Array:
-		var snap: Array = []
-		for j in jm.get_jobs_for_building("workshop_test_pause"):
-			snap.append({
-				"id": j.id,
-				"type": j.type,
-				"target_building_id": j.target_building_id,
-				"recipe_id": j.recipe_id,
-				"workplace_channel_id": j.workplace_channel_id,
-				"is_recurring": j.is_recurring,
-				"state": j.state,
-				"worker_id": j.worker_id
-			})
-		snap.sort_custom(func(a, b): return a["id"] < b["id"])
-		return snap
-
-	var pre_save_snapshot: Array = build_job_snapshot.call()
-	var temp_save_path := "user://test_workshop_pause_save.json"
-	var s_res = SaveManagerScript.save_to_file(world_instance, temp_save_path)
-	if not s_res.get("success", false):
-		printerr("FAIL: Save failed during workshop pause test")
-		failures += 1
-	var l_res = SaveManagerScript.load_from_file(temp_save_path)
-	if not l_res.get("success", false):
-		printerr("FAIL: Load failed during workshop pause test")
-		failures += 1
-	var a_res = SaveManagerScript.apply_loaded_state_to_world(world_instance, l_res["data"])
-	if not a_res.get("success", false):
-		printerr("FAIL: Apply loaded state failed during workshop pause test")
-		failures += 1
-
-	if FileAccess.file_exists(temp_save_path):
-		DirAccess.remove_absolute(temp_save_path)
-	if FileAccess.file_exists(temp_save_path + ".bak"):
-		DirAccess.remove_absolute(temp_save_path + ".bak")
-
-	# Re-fetch managers after load
-	wp_mgr = world_instance.workplace_mgr
-	jm = world_instance.job_mgr
-	rm = world_instance.get_node_or_null("/root/ResourceManager")
-
-	if not BuildingSystemScript.is_building_paused_by_id("workshop_test_pause", world_instance.world_data):
-		printerr("FAIL: Workshop should remain paused after load")
-		failures += 1
-	if not wp_mgr.is_workplace_paused("workshop_test_pause_smelt") or not wp_mgr.is_workplace_paused("workshop_test_pause_craft"):
-		printerr("FAIL: Workshop sub-channels should remain paused after load")
-		failures += 1
-
-	# Verify exactly two WorkplaceData channels exist and preserve channel IDs and recipe metadata (B3)
-	var ws_channels: Array = []
-	for wp in wp_mgr.get_all_workplaces():
-		if wp.parent_building_id == "workshop_test_pause":
-			ws_channels.append(wp)
-	if ws_channels.size() != 2:
-		printerr("FAIL B3: Channel count mismatch after load: expected 2, got %d" % ws_channels.size())
-		failures += 1
-	var found_smelt := false
-	var found_craft := false
-	for wp in ws_channels:
-		if wp.id == "workshop_test_pause_smelt" and wp.recipe_id == "smelt_metal" and wp.buffer_amount == 7:
-			found_smelt = true
-		elif wp.id == "workshop_test_pause_craft" and wp.recipe_id == "craft_tools" and wp.buffer_amount == 5:
-			found_craft = true
-	if not found_smelt or not found_craft:
-		printerr("FAIL B3: Loaded channels lack correct channel IDs, recipe metadata, or buffer amounts")
-		failures += 1
-
-	# Compare complete job identity and state snapshot (B3)
-	var post_load_snapshot: Array = build_job_snapshot.call()
-	if post_load_snapshot.size() != pre_save_snapshot.size():
-		printerr("FAIL B3: Workshop job count mismatch after load: pre=%d, post=%d" % [pre_save_snapshot.size(), post_load_snapshot.size()])
-		failures += 1
-	else:
-		for i in range(pre_save_snapshot.size()):
-			var s_pre: Dictionary = pre_save_snapshot[i]
-			var s_post: Dictionary = post_load_snapshot[i]
-			for k in s_pre:
-				if s_pre[k] != s_post.get(k, null):
-					printerr("FAIL B3: Job identity/state mismatch for job %s key '%s': pre=%s, post=%s" % [s_pre["id"], k, str(s_pre[k]), str(s_post.get(k))])
-					failures += 1
-
-	# Objective D: Verify reconstructed citizens preserved 'smith' role across save/load
-	var cit0_post_load = _find_citizen_by_id(snap_cit0["citizen_id"])
-	if cit0_post_load == null or cit0_post_load.role != "smith":
-		printerr("FAIL Objective D: cit0 role 'smith' was not preserved across save/load: %s" % (cit0_post_load.role if cit0_post_load else "null"))
-		failures += 1
-	if not snap_cit1.is_empty():
-		var cit1_post_load = _find_citizen_by_id(snap_cit1["citizen_id"])
-		if cit1_post_load == null or cit1_post_load.role != "smith":
-			printerr("FAIL Objective D: cit1 role 'smith' was not preserved across save/load: %s" % (cit1_post_load.role if cit1_post_load else "null"))
+		# Real production to buffer: Smelt channel consumes 2 ore and produces 1 metal to buffer
+		var produced_smelt = wp_mgr.produce_to_buffer("workshop_test_pause_smelt", 1.0, rm)
+		if produced_smelt != 1 or smelt_wp.buffer_amount != 7:
+			printerr("FAIL: Active smelt production failed: produced=%d, buffer=%d" % [produced_smelt, smelt_wp.buffer_amount])
+			failures += 1
+		if rm.get_resource("ore") != pre_prod_ore - 2:
+			printerr("FAIL: Smelt production did not consume 2 ore! %d -> %d" % [pre_prod_ore, rm.get_resource("ore")])
 			failures += 1
 
-	# B4. Resume lifecycle: resume through actual world API
-	world_instance.set_building_state("workshop_test_pause", "active")
-	if not BuildingSystemScript.is_building_active_by_id("workshop_test_pause", world_instance.world_data):
-		printerr("FAIL: Workshop should be active after resume")
-		failures += 1
-	if wp_mgr.is_workplace_paused("workshop_test_pause_smelt") or wp_mgr.is_workplace_paused("workshop_test_pause_craft"):
-		printerr("FAIL: Workshop sub-channels should not be paused after resume")
-		failures += 1
+		# Real production to buffer: Craft channel consumes 2 metal, 1 wood and produces 1 tool to buffer
+		var produced_craft = wp_mgr.produce_to_buffer("workshop_test_pause_craft", 1.0, rm)
+		if produced_craft != 1 or craft_wp.buffer_amount != 5:
+			printerr("FAIL: Active craft production failed: produced=%d, buffer=%d" % [produced_craft, craft_wp.buffer_amount])
+			failures += 1
+		if rm.get_resource("metal") != pre_prod_metal - 2 or rm.get_resource("wood") != pre_prod_wood - 1:
+			printerr("FAIL: Craft production input consumption incorrect: metal=%d, wood=%d" % [rm.get_resource("metal"), rm.get_resource("wood")])
+			failures += 1
 
-	var smelt_wp_loaded = wp_mgr.get_workplace("workshop_test_pause_smelt")
-	var craft_wp_loaded = wp_mgr.get_workplace("workshop_test_pause_craft")
-	var pre_resume_ore = rm.get_resource("ore")
-	var pre_resume_metal = rm.get_resource("metal")
-	var pre_resume_wood = rm.get_resource("wood")
+		# Objective D: Assign genuine 'smith' role to workers while assigned to Workshop jobs
+		cit0.role = "smith"
+		job_smelt.state = JobState.IN_PROGRESS
+		job_smelt.worker_id = cit0.citizen_id
+		cit0.active_job = job_smelt
+		cit0.current_state = CitizenController.State.WORKING
+		if cit0.role != "smith":
+			printerr("FAIL Objective D: cit0 role was not set to 'smith'")
+			failures += 1
 
-	var res_smelt_prod = wp_mgr.produce_to_buffer("workshop_test_pause_smelt", 1.0, rm)
-	var res_craft_prod = wp_mgr.produce_to_buffer("workshop_test_pause_craft", 1.0, rm)
-	if res_smelt_prod != 1 or smelt_wp_loaded.buffer_amount != 8:
-		printerr("FAIL: Production after resume failed on smelt: produced=%d, buffer=%d" % [res_smelt_prod, smelt_wp_loaded.buffer_amount])
-		failures += 1
-	if rm.get_resource("ore") != pre_resume_ore - 2:
-		printerr("FAIL: Smelt after resume did not consume 2 ore! %d -> %d" % [pre_resume_ore, rm.get_resource("ore")])
-		failures += 1
+		if cit1 != null:
+			cit1.role = "smith"
+			job_craft.state = JobState.IN_PROGRESS
+			job_craft.worker_id = cit1.citizen_id
+			cit1.active_job = job_craft
+			cit1.current_state = CitizenController.State.WORKING
+			if cit1.role != "smith":
+				printerr("FAIL Objective D: cit1 role was not set to 'smith'")
+				failures += 1
 
-	if res_craft_prod != 1 or craft_wp_loaded.buffer_amount != 6:
-		printerr("FAIL: Production after resume failed on craft: produced=%d, buffer=%d" % [res_craft_prod, craft_wp_loaded.buffer_amount])
-		failures += 1
-	if rm.get_resource("metal") != pre_resume_metal - 2 or rm.get_resource("wood") != pre_resume_wood - 1:
-		printerr("FAIL: Craft after resume did not consume inputs correctly: metal=%d, wood=%d" % [pre_resume_metal, rm.get_resource("metal")])
-		failures += 1
+		# B2. Parent pause: both channels paused, buffers unchanged, workers safely released to IDLE, jobs available/unassigned
+		var pre_pause_ore = rm.get_resource("ore")
+		var pre_pause_metal = rm.get_resource("metal")
+		var pre_pause_wood = rm.get_resource("wood")
 
-	# Compare job identity/state snapshot after resume (B4)
-	var post_resume_snapshot: Array = build_job_snapshot.call()
-	if post_resume_snapshot.size() != post_load_snapshot.size():
-		printerr("FAIL B4: Workshop job count changed after resume: %d vs %d" % [post_load_snapshot.size(), post_resume_snapshot.size()])
-		failures += 1
-	else:
-		for i in range(post_load_snapshot.size()):
-			var s_load: Dictionary = post_load_snapshot[i]
-			var s_resume: Dictionary = post_resume_snapshot[i]
-			for k in s_load:
-				if s_load[k] != s_resume.get(k, null):
-					printerr("FAIL B4: Job snapshot changed after resume for job %s key '%s': %s vs %s" % [s_load["id"], k, str(s_load[k]), str(s_resume.get(k))])
-					failures += 1
+		world_instance.set_building_state("workshop_test_pause", "paused")
+		if not wp_mgr.is_workplace_paused("workshop_test_pause_smelt") or not wp_mgr.is_workplace_paused("workshop_test_pause_craft"):
+			printerr("FAIL: Both workshop sub-channels must be paused")
+			failures += 1
 
-	# Check channel count remains strictly 2 (B4)
-	var resume_ch_count := 0
-	for wp in wp_mgr.get_all_workplaces():
-		if wp.parent_building_id == "workshop_test_pause":
-			resume_ch_count += 1
-	if resume_ch_count != 2:
-		printerr("FAIL B4: Channel count duplicated after resume: %d" % resume_ch_count)
-		failures += 1
+		if smelt_wp.buffer_amount != 7 or craft_wp.buffer_amount != 5:
+			printerr("FAIL: Buffers must remain unchanged while paused: smelt=%d, craft=%d" % [smelt_wp.buffer_amount, craft_wp.buffer_amount])
+			failures += 1
 
-	# Find reloaded jobs and test executability
-	var reloaded_jobs = jm.get_jobs_for_building("workshop_test_pause")
-	var reloaded_smelt: JobData = null
-	var reloaded_craft: JobData = null
-	for j in reloaded_jobs:
-		if j.recipe_id == "smelt_metal" and j.workplace_channel_id == "workshop_test_pause_smelt" and reloaded_smelt == null:
-			reloaded_smelt = j
-		elif j.recipe_id == "craft_tools" and j.workplace_channel_id == "workshop_test_pause_craft" and reloaded_craft == null:
-			reloaded_craft = j
+		if cit0.current_state != CitizenController.State.IDLE or cit0.active_job != null:
+			printerr("FAIL: Active smith worker cit0 not released to IDLE on pause")
+			failures += 1
+		if cit1 != null and (cit1.current_state != CitizenController.State.IDLE or cit1.active_job != null):
+			printerr("FAIL: Active smith worker cit1 not released to IDLE on pause")
+			failures += 1
 
-	if reloaded_smelt == null or not jm._is_job_executable(reloaded_smelt, wp_mgr, rm, Callable(), world_instance.nav):
-		printerr("FAIL: Smelt job should be executable after resume")
-		failures += 1
-	if reloaded_craft == null or not jm._is_job_executable(reloaded_craft, wp_mgr, rm, Callable(), world_instance.nav):
-		printerr("FAIL: Craft job should be executable after resume")
-		failures += 1
+		if job_smelt.state != JobState.AVAILABLE or job_smelt.worker_id != "":
+			printerr("FAIL B2: job_smelt not returned to AVAILABLE unassigned state: state=%d, worker=%s" % [job_smelt.state, job_smelt.worker_id])
+			failures += 1
+		if job_craft.state != JobState.AVAILABLE or job_craft.worker_id != "":
+			printerr("FAIL B2: job_craft not returned to AVAILABLE unassigned state: state=%d, worker=%s" % [job_craft.state, job_craft.worker_id])
+			failures += 1
+
+		# Production to buffer during pause must return 0 and consume no inputs
+		var paused_smelt_prod = wp_mgr.produce_to_buffer("workshop_test_pause_smelt", 1.0, rm)
+		var paused_craft_prod = wp_mgr.produce_to_buffer("workshop_test_pause_craft", 1.0, rm)
+		if paused_smelt_prod != 0 or paused_craft_prod != 0:
+			printerr("FAIL: produce_to_buffer must return 0 while paused! got smelt=%d, craft=%d" % [paused_smelt_prod, paused_craft_prod])
+			failures += 1
+		if smelt_wp.buffer_amount != 7 or craft_wp.buffer_amount != 5:
+			printerr("FAIL: Buffers mutated during paused produce_to_buffer!")
+			failures += 1
+		if rm.get_resource("ore") != pre_pause_ore or rm.get_resource("metal") != pre_pause_metal or rm.get_resource("wood") != pre_pause_wood:
+			printerr("FAIL B2: Input resources mutated during paused production calls!")
+			failures += 1
+
+		# Smith jobs non-executable while paused, hauler jobs remain executable
+		if jm._is_job_executable(job_smelt, wp_mgr, rm, Callable(), world_instance.nav):
+			printerr("FAIL: Smelt job should NOT be executable when paused")
+			failures += 1
+		if jm._is_job_executable(job_craft, wp_mgr, rm, Callable(), world_instance.nav):
+			printerr("FAIL: Craft job should NOT be executable when paused")
+			failures += 1
+		if not jm._is_job_executable(job_haul, wp_mgr, rm, Callable(), world_instance.nav):
+			printerr("FAIL: Hauler job should remain executable for paused workshop channel")
+			failures += 1
+
+		# Clean up transient hauler test job before persisting building state
+		if jm != null and job_haul != null and job_haul in jm._jobs:
+			jm._jobs.erase(job_haul)
+
+		# B3. Save/load exact identity comparison
+		var build_job_snapshot := func() -> Array:
+			var snap: Array = []
+			for j in jm.get_jobs_for_building("workshop_test_pause"):
+				snap.append({
+					"id": j.id,
+					"type": j.type,
+					"target_building_id": j.target_building_id,
+					"recipe_id": j.recipe_id,
+					"workplace_channel_id": j.workplace_channel_id,
+					"is_recurring": j.is_recurring,
+					"state": j.state,
+					"worker_id": j.worker_id
+				})
+			snap.sort_custom(func(a, b): return a["id"] < b["id"])
+			return snap
+
+		var pre_save_snapshot: Array = build_job_snapshot.call()
+		var temp_save_path := "user://test_workshop_pause_save.json"
+		var s_res = SaveManagerScript.save_to_file(world_instance, temp_save_path)
+		if not s_res.get("success", false):
+			printerr("FAIL: Save failed during workshop pause test")
+			failures += 1
+		var l_res = SaveManagerScript.load_from_file(temp_save_path)
+		if not l_res.get("success", false):
+			printerr("FAIL: Load failed during workshop pause test")
+			failures += 1
+		var a_res = SaveManagerScript.apply_loaded_state_to_world(world_instance, l_res["data"])
+		if not a_res.get("success", false):
+			printerr("FAIL: Apply loaded state failed during workshop pause test")
+			failures += 1
+
+		if FileAccess.file_exists(temp_save_path):
+			DirAccess.remove_absolute(temp_save_path)
+		if FileAccess.file_exists(temp_save_path + ".bak"):
+			DirAccess.remove_absolute(temp_save_path + ".bak")
+
+		# Re-fetch managers after load
+		wp_mgr = world_instance.workplace_mgr
+		jm = world_instance.job_mgr
+		rm = world_instance.get_node_or_null("/root/ResourceManager")
+
+		if not BuildingSystemScript.is_building_paused_by_id("workshop_test_pause", world_instance.world_data):
+			printerr("FAIL: Workshop should remain paused after load")
+			failures += 1
+		if not wp_mgr.is_workplace_paused("workshop_test_pause_smelt") or not wp_mgr.is_workplace_paused("workshop_test_pause_craft"):
+			printerr("FAIL: Workshop sub-channels should remain paused after load")
+			failures += 1
+
+		# Verify exactly two WorkplaceData channels exist and preserve channel IDs and recipe metadata (B3)
+		var ws_channels: Array = []
+		for wp in wp_mgr.get_all_workplaces():
+			if wp.parent_building_id == "workshop_test_pause":
+				ws_channels.append(wp)
+		if ws_channels.size() != 2:
+			printerr("FAIL B3: Channel count mismatch after load: expected 2, got %d" % ws_channels.size())
+			failures += 1
+		var found_smelt := false
+		var found_craft := false
+		for wp in ws_channels:
+			if wp.id == "workshop_test_pause_smelt" and wp.recipe_id == "smelt_metal" and wp.buffer_amount == 7:
+				found_smelt = true
+			elif wp.id == "workshop_test_pause_craft" and wp.recipe_id == "craft_tools" and wp.buffer_amount == 5:
+				found_craft = true
+		if not found_smelt or not found_craft:
+			printerr("FAIL B3: Loaded channels lack correct channel IDs, recipe metadata, or buffer amounts")
+			failures += 1
+
+		# Compare complete job identity and state snapshot (B3)
+		var post_load_snapshot: Array = build_job_snapshot.call()
+		if post_load_snapshot.size() != pre_save_snapshot.size():
+			printerr("FAIL B3: Workshop job count mismatch after load: pre=%d, post=%d" % [pre_save_snapshot.size(), post_load_snapshot.size()])
+			failures += 1
+		else:
+			for i in range(pre_save_snapshot.size()):
+				var s_pre: Dictionary = pre_save_snapshot[i]
+				var s_post: Dictionary = post_load_snapshot[i]
+				for k in s_pre:
+					if s_pre[k] != s_post.get(k, null):
+						printerr("FAIL B3: Job identity/state mismatch for job %s key '%s': pre=%s, post=%s" % [s_pre["id"], k, str(s_pre[k]), str(s_post.get(k))])
+						failures += 1
+
+		# Objective D: Verify reconstructed citizens preserved 'smith' role across save/load
+		var cit0_post_load = _find_citizen_by_id(snap_cit0["citizen_id"])
+		if cit0_post_load == null or cit0_post_load.role != "smith":
+			printerr("FAIL Objective D: cit0 role 'smith' was not preserved across save/load: %s" % (cit0_post_load.role if cit0_post_load else "null"))
+			failures += 1
+		if not snap_cit1.is_empty():
+			var cit1_post_load = _find_citizen_by_id(snap_cit1["citizen_id"])
+			if cit1_post_load == null or cit1_post_load.role != "smith":
+				printerr("FAIL Objective D: cit1 role 'smith' was not preserved across save/load: %s" % (cit1_post_load.role if cit1_post_load else "null"))
+				failures += 1
+
+		# B4. Resume lifecycle: resume through actual world API
+		world_instance.set_building_state("workshop_test_pause", "active")
+		if not BuildingSystemScript.is_building_active_by_id("workshop_test_pause", world_instance.world_data):
+			printerr("FAIL: Workshop should be active after resume")
+			failures += 1
+		if wp_mgr.is_workplace_paused("workshop_test_pause_smelt") or wp_mgr.is_workplace_paused("workshop_test_pause_craft"):
+			printerr("FAIL: Workshop sub-channels should not be paused after resume")
+			failures += 1
+
+		var smelt_wp_loaded = wp_mgr.get_workplace("workshop_test_pause_smelt")
+		var craft_wp_loaded = wp_mgr.get_workplace("workshop_test_pause_craft")
+		var pre_resume_ore = rm.get_resource("ore")
+		var pre_resume_metal = rm.get_resource("metal")
+		var pre_resume_wood = rm.get_resource("wood")
+
+		var res_smelt_prod = wp_mgr.produce_to_buffer("workshop_test_pause_smelt", 1.0, rm)
+		var res_craft_prod = wp_mgr.produce_to_buffer("workshop_test_pause_craft", 1.0, rm)
+		if res_smelt_prod != 1 or smelt_wp_loaded.buffer_amount != 8:
+			printerr("FAIL: Production after resume failed on smelt: produced=%d, buffer=%d" % [res_smelt_prod, smelt_wp_loaded.buffer_amount])
+			failures += 1
+		if rm.get_resource("ore") != pre_resume_ore - 2:
+			printerr("FAIL: Smelt after resume did not consume 2 ore! %d -> %d" % [pre_resume_ore, rm.get_resource("ore")])
+			failures += 1
+
+		if res_craft_prod != 1 or craft_wp_loaded.buffer_amount != 6:
+			printerr("FAIL: Production after resume failed on craft: produced=%d, buffer=%d" % [res_craft_prod, craft_wp_loaded.buffer_amount])
+			failures += 1
+		if rm.get_resource("metal") != pre_resume_metal - 2 or rm.get_resource("wood") != pre_resume_wood - 1:
+			printerr("FAIL: Craft after resume did not consume inputs correctly: metal=%d, wood=%d" % [pre_resume_metal, rm.get_resource("metal")])
+			failures += 1
+
+		# Compare job identity/state snapshot after resume (B4)
+		var post_resume_snapshot: Array = build_job_snapshot.call()
+		if post_resume_snapshot.size() != post_load_snapshot.size():
+			printerr("FAIL B4: Workshop job count changed after resume: %d vs %d" % [post_load_snapshot.size(), post_resume_snapshot.size()])
+			failures += 1
+		else:
+			for i in range(post_load_snapshot.size()):
+				var s_load: Dictionary = post_load_snapshot[i]
+				var s_resume: Dictionary = post_resume_snapshot[i]
+				for k in s_load:
+					if s_load[k] != s_resume.get(k, null):
+						printerr("FAIL B4: Job snapshot changed after resume for job %s key '%s': %s vs %s" % [s_load["id"], k, str(s_load[k]), str(s_resume.get(k))])
+						failures += 1
+
+		# Check channel count remains strictly 2 (B4)
+		var resume_ch_count := 0
+		for wp in wp_mgr.get_all_workplaces():
+			if wp.parent_building_id == "workshop_test_pause":
+				resume_ch_count += 1
+		if resume_ch_count != 2:
+			printerr("FAIL B4: Channel count duplicated after resume: %d" % resume_ch_count)
+			failures += 1
+
+		# Find reloaded jobs and test executability
+		var reloaded_jobs = jm.get_jobs_for_building("workshop_test_pause")
+		var reloaded_smelt: JobData = null
+		var reloaded_craft: JobData = null
+		for j in reloaded_jobs:
+			if j.recipe_id == "smelt_metal" and j.workplace_channel_id == "workshop_test_pause_smelt" and reloaded_smelt == null:
+				reloaded_smelt = j
+			elif j.recipe_id == "craft_tools" and j.workplace_channel_id == "workshop_test_pause_craft" and reloaded_craft == null:
+				reloaded_craft = j
+
+		if reloaded_smelt == null or not jm._is_job_executable(reloaded_smelt, wp_mgr, rm, Callable(), world_instance.nav):
+			printerr("FAIL: Smelt job should be executable after resume")
+			failures += 1
+		if reloaded_craft == null or not jm._is_job_executable(reloaded_craft, wp_mgr, rm, Callable(), world_instance.nav):
+			printerr("FAIL: Craft job should be executable after resume")
+			failures += 1
 
 	# Clean up hauler job from jm if present
 	if jm != null and job_haul != null and job_haul in jm._jobs:
 		jm._jobs.erase(job_haul)
 
-	# Objective A: Teardown Workshop through the real world demolition API
+	# Objective A & C: Teardown Workshop through the real world demolition API
 	var dem_res = world_instance.demolish_building_project("workshop_test_pause")
 	if not dem_res.get("success", false):
 		printerr("FAIL Objective A: Workshop demolition failed: %s" % dem_res.get("reason", ""))
 		failures += 1
 
-	# Verify demolition succeeds and the fixture building/workplaces/jobs are removed
+	# Fallback safe removal if demolition failed or was partial
 	var b_check = BuildingSystemScript.get_building_by_id("workshop_test_pause", world_instance.world_data)
 	if not b_check.is_empty():
 		printerr("FAIL Objective A: Workshop building record still present in world_data after teardown")
+		world_instance.world_data.buildings.erase(b_check)
 		failures += 1
 
-	if wp_mgr.get_workplace("workshop_test_pause_smelt") != null:
-		printerr("FAIL Objective A: Workshop smelt channel still present in WorkplaceManager after teardown")
-		failures += 1
-	if wp_mgr.get_workplace("workshop_test_pause_craft") != null:
-		printerr("FAIL Objective A: Workshop craft channel still present in WorkplaceManager after teardown")
-		failures += 1
+	if wp_mgr != null:
+		if wp_mgr.get_workplace("workshop_test_pause_smelt") != null:
+			printerr("FAIL Objective A: Workshop smelt channel still present in WorkplaceManager after teardown")
+			wp_mgr.unregister_workplace("workshop_test_pause_smelt")
+			failures += 1
+		if wp_mgr.get_workplace("workshop_test_pause_craft") != null:
+			printerr("FAIL Objective A: Workshop craft channel still present in WorkplaceManager after teardown")
+			wp_mgr.unregister_workplace("workshop_test_pause_craft")
+			failures += 1
+		wp_mgr.unregister_workplace("workshop_test_pause")
 
-	var remaining_jobs = jm.get_jobs_for_building("workshop_test_pause")
-	if remaining_jobs.size() > 0:
-		printerr("FAIL Objective A: Workshop jobs still present in JobManager after teardown: %d jobs" % remaining_jobs.size())
-		failures += 1
+	if jm != null:
+		var remaining_jobs = jm.get_jobs_for_building("workshop_test_pause")
+		if remaining_jobs.size() > 0:
+			printerr("FAIL Objective A: Workshop jobs still present in JobManager after teardown: %d jobs" % remaining_jobs.size())
+			jm.remove_jobs_for_building("workshop_test_pause")
+			failures += 1
 
 	# ONLY AFTER fixture teardown, restore the exact ResourceManager snapshot
 	_restore_resource_manager(rm, init_rm_snapshot)
@@ -2143,12 +2214,58 @@ func _test_tc_bm_31_workshop_pause_channels() -> bool:
 		failures += _restore_citizen_state(snap_cit1["citizen_id"], snap_cit1, "TC-BM.31 cit1")
 
 	var final_cit0_31 = _find_citizen_by_id(snap_cit0["citizen_id"])
-	if final_cit0_31 == null or final_cit0_31.role != snap_cit0["role"]:
-		printerr("FAIL Objective D: final_cit0_31 role not restored to '%s', got '%s'" % [snap_cit0["role"], final_cit0_31.role if final_cit0_31 else "null"])
+	if final_cit0_31 == null:
+		printerr("FAIL Objective D: final_cit0_31 not found after cleanup")
 		failures += 1
-	if snap_cit0["role"] != "smith" and final_cit0_31 != null and final_cit0_31.role == "smith":
-		printerr("FAIL Objective D: final_cit0_31 still retains temporary 'smith' role")
-		failures += 1
+	else:
+		if jobs_valid and final_cit0_31 == cit0:
+			printerr("FAIL Objective D: final_cit0_31 is pointing to stale pre-load instance")
+			failures += 1
+		if not final_cit0_31 in world_instance.citizen_list:
+			printerr("FAIL Objective D: final_cit0_31 not in world_view.citizen_list")
+			failures += 1
+		if world_instance.citizens_by_id.get(snap_cit0["citizen_id"]) != final_cit0_31:
+			printerr("FAIL Objective D: citizens_by_id does not point to final_cit0_31")
+			failures += 1
+		if final_cit0_31.current_cell != snap_cit0["current_cell"]:
+			printerr("FAIL Objective D: final_cit0_31 current_cell not restored: %s != %s" % [str(final_cit0_31.current_cell), str(snap_cit0["current_cell"])])
+			failures += 1
+		var expected_pos_31: Vector2 = IsoMathScript.map_to_local(snap_cit0["current_cell"])
+		if final_cit0_31.position != expected_pos_31:
+			printerr("FAIL Objective D: final_cit0_31 position not synchronized: %s != %s" % [str(final_cit0_31.position), str(expected_pos_31)])
+			failures += 1
+		if final_cit0_31.role != snap_cit0["role"]:
+			printerr("FAIL Objective D: final_cit0_31 role not restored to '%s', got '%s'" % [snap_cit0["role"], final_cit0_31.role])
+			failures += 1
+		if snap_cit0["role"] != "smith" and final_cit0_31.role == "smith":
+			printerr("FAIL Objective D: final_cit0_31 still retains temporary 'smith' role")
+			failures += 1
+
+	if not snap_cit1.is_empty():
+		var final_cit1_31 = _find_citizen_by_id(snap_cit1["citizen_id"])
+		if final_cit1_31 != null:
+			if jobs_valid and final_cit1_31 == cit1:
+				printerr("FAIL Objective D: final_cit1_31 is pointing to stale pre-load instance")
+				failures += 1
+			if not final_cit1_31 in world_instance.citizen_list:
+				printerr("FAIL Objective D: final_cit1_31 not in world_view.citizen_list")
+				failures += 1
+			if world_instance.citizens_by_id.get(snap_cit1["citizen_id"]) != final_cit1_31:
+				printerr("FAIL Objective D: citizens_by_id does not point to final_cit1_31")
+				failures += 1
+			if final_cit1_31.current_cell != snap_cit1["current_cell"]:
+				printerr("FAIL Objective D: final_cit1_31 current_cell not restored: %s != %s" % [str(final_cit1_31.current_cell), str(snap_cit1["current_cell"])])
+				failures += 1
+			var expected_pos1_31: Vector2 = IsoMathScript.map_to_local(snap_cit1["current_cell"])
+			if final_cit1_31.position != expected_pos1_31:
+				printerr("FAIL Objective D: final_cit1_31 position not synchronized: %s != %s" % [str(final_cit1_31.position), str(expected_pos1_31)])
+				failures += 1
+			if final_cit1_31.role != snap_cit1["role"]:
+				printerr("FAIL Objective D: final_cit1_31 role not restored to '%s', got '%s'" % [snap_cit1["role"], final_cit1_31.role])
+				failures += 1
+			if snap_cit1["role"] != "smith" and final_cit1_31.role == "smith":
+				printerr("FAIL Objective D: final_cit1_31 still retains temporary 'smith' role")
+				failures += 1
 
 	if failures == 0:
 		print("  [PASS] TC-BM.31: Dual-channel workshop pause/resume lifecycle & save/load verified.")
@@ -2893,7 +3010,7 @@ func _test_tc_bm_33_cargo_conservation_scenarios() -> bool:
 	if cit1_stable_id != "":
 		failures += _restore_citizen_state(cit1_stable_id, snap_cit1, "TC-BM.33 cit1")
 
-	# Objective B: Explicitly assert that the current valid citizen no longer has temporary hauler role or XP changes
+	# Objective B & A: Explicitly assert that the current valid citizen no longer has temporary hauler role, cell, pos, or XP changes
 	var final_cit0 = _find_citizen_by_id(cit0_stable_id)
 	if final_cit0 == null:
 		printerr("FAIL Objective B: final_cit0 not found after cleanup")
@@ -2901,6 +3018,19 @@ func _test_tc_bm_33_cargo_conservation_scenarios() -> bool:
 	else:
 		if final_cit0 == cit0:
 			printerr("FAIL Objective B: final_cit0 is still pointing to stale pre-load instance")
+			failures += 1
+		if not final_cit0 in world_instance.citizen_list:
+			printerr("FAIL Objective A: final_cit0 is not in world_view.citizen_list")
+			failures += 1
+		if world_instance.citizens_by_id.get(cit0_stable_id) != final_cit0:
+			printerr("FAIL Objective A: citizens_by_id does not point to final_cit0")
+			failures += 1
+		if final_cit0.current_cell != snap_cit0["current_cell"]:
+			printerr("FAIL Objective A: final_cit0 current_cell not restored: %s != %s" % [str(final_cit0.current_cell), str(snap_cit0["current_cell"])])
+			failures += 1
+		var expected_pos0: Vector2 = IsoMathScript.map_to_local(snap_cit0["current_cell"])
+		if final_cit0.position != expected_pos0:
+			printerr("FAIL Objective A: final_cit0 position not synchronized: %s != %s" % [str(final_cit0.position), str(expected_pos0)])
 			failures += 1
 		if final_cit0.role != orig_role0:
 			printerr("FAIL Objective B: final_cit0 role not restored to '%s', got '%s'" % [orig_role0, final_cit0.role])
@@ -2919,6 +3049,19 @@ func _test_tc_bm_33_cargo_conservation_scenarios() -> bool:
 		if final_cit1 != null:
 			if final_cit1 == cit1:
 				printerr("FAIL Objective B: final_cit1 is still pointing to stale pre-load instance")
+				failures += 1
+			if not final_cit1 in world_instance.citizen_list:
+				printerr("FAIL Objective A: final_cit1 is not in world_view.citizen_list")
+				failures += 1
+			if world_instance.citizens_by_id.get(cit1_stable_id) != final_cit1:
+				printerr("FAIL Objective A: citizens_by_id does not point to final_cit1")
+				failures += 1
+			if final_cit1.current_cell != snap_cit1["current_cell"]:
+				printerr("FAIL Objective A: final_cit1 current_cell not restored: %s != %s" % [str(final_cit1.current_cell), str(snap_cit1["current_cell"])])
+				failures += 1
+			var expected_pos1: Vector2 = IsoMathScript.map_to_local(snap_cit1["current_cell"])
+			if final_cit1.position != expected_pos1:
+				printerr("FAIL Objective A: final_cit1 position not synchronized: %s != %s" % [str(final_cit1.position), str(expected_pos1)])
 				failures += 1
 			if final_cit1.role != orig_role1:
 				printerr("FAIL Objective B: final_cit1 role not restored to '%s', got '%s'" % [orig_role1, final_cit1.role])

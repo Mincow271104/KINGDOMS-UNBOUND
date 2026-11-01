@@ -8733,3 +8733,65 @@ Distinguishing test cases, checks, and assertions as reported by respective suit
 
 ### Next Exact Step
 - Create Round 6 commit, push to `feature/package-2f-building-inspection-and-management` on remote `origin`, and await ChatGPT independent review. Do NOT proceed to Package 2G.
+
+---
+
+## 2026-11-01 — Package 2F Round 7: Complete Citizen Position Restoration, ResourceManager Contract & TC-BM.31 Failure-Path Cleanup
+
+### Task Description
+Address findings from independent review of Round 6:
+1. **Objective A — Fix TC-BM.33 Citizen Position Leakage:** Capture exact pre-test `current_cell` in `_snapshot_citizen_state()`, restore `current_cell` on the living reconstructed citizen in `_restore_citizen_state()`, synchronize `position` using `IsoMathScript.map_to_local()`, audit all modified fields, and add explicit assertions (reconstructed instance, `citizen_list` presence, `citizens_by_id` pointer, `current_cell` match, `position` map sync).
+2. **Objective B — Complete ResourceManager Snapshot Contract:** Add `active_population` to `_snapshot_resource_manager()`, `_restore_resource_manager()`, and `_assert_resource_manager_matches_snapshot()`, preserving the existing 8 fields and exact-value assertions without altering production code.
+3. **Objective C — TC-BM.31 Failure-Path Cleanup:** Eliminate early `return false` exits that leave `workshop_test_pause` or partially registered channels/jobs behind. Structure execution into validated phases with guaranteed demolition/unregistration teardown and snapshot restoration on all paths.
+4. **Objective D — Regression Verification:** Run all 16 regression suites using Godot 4.7 stable headless execution. Log output to `scratch/round7_logs/` and verify 0 failures.
+5. **Objective E — Review Discipline & Commit:** Verify clean git diff, preserve protected files (`project.godot`, 92 historical untracked files, user saves), and commit explicitly.
+
+### Implementation Summary
+1. **Citizen State Snapshot & Restoration (`scripts/test/test_building_management.gd`):**
+   - Extended `_snapshot_citizen_state()` to capture `current_cell`, `position`, `status_reason`, `workplace_id`, `hunger`, `fatigue`, `health`, `morale`, `current_path`, `carrying_amount`, `carrying_resource`, `carrying_source_workplace_id`, `carry_capacity`, and `xp`.
+   - Updated `_restore_citizen_state()` to restore `current_cell` on the living reconstructed citizen resolved by stable ID and synchronize `cit.position = IsoMathScript.map_to_local(snap["current_cell"])`.
+   - Audited all modified fields and ensured every property is restored exactly rather than assuming defaults.
+2. **ResourceManager Snapshot Contract (`scripts/test/test_building_management.gd`):**
+   - Extended `_snapshot_resource_manager()` to include `"active_population": rm.active_population`.
+   - Extended `_restore_resource_manager()` to restore `rm.active_population = snap["active_population"]`.
+   - Verified that `_assert_resource_manager_matches_snapshot()` checks exact-value equality for `active_population` alongside the 8 existing dictionary/flag properties.
+3. **TC-BM.31 Failure-Path Cleanup (`scripts/test/test_building_management.gd`):**
+   - Replaced early returns on channel and job lookup with structured phase validation (`channels_valid`, `jobs_valid`).
+   - Ensured test execution occurs only when fixtures are valid, while teardown, demolition, fallback unregistration, and snapshot restorations run unconditionally on all exit paths.
+   - Added explicit post-cleanup assertions for living reconstructed citizen instances and coordinate restoration.
+4. **TC-BM.33 Post-Cleanup Coordinate & Instance Assertions (`scripts/test/test_building_management.gd`):**
+   - Asserted that `final_cit0` is the reconstructed instance (`final_cit0 != cit0`).
+   - Asserted that `final_cit0` remains registered in `world_instance.citizen_list`.
+   - Asserted that `world_instance.citizens_by_id[cit0_stable_id] == final_cit0`.
+   - Asserted that `final_cit0.current_cell == snap_cit0["current_cell"]`.
+   - Asserted that `final_cit0.position == IsoMathScript.map_to_local(snap_cit0["current_cell"])`.
+   - Applied identical comprehensive checks for `final_cit1`.
+
+### Regression Verification Matrix (16 Suites, 0 Failures)
+All suites executed via `E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe --headless -s res://scripts/test/<test_script>.gd`:
+1. `scripts/test/test_autonomous_faction_conflict.gd`: 205 checks passed (Exit Code 0) — Log: `scratch/round7_logs/01_test_autonomous_faction_conflict.log`
+2. `scripts/test/test_faction_relation_matrix.gd`: 162 checks passed (Exit Code 0) — Log: `scratch/round7_logs/02_test_faction_relation_matrix.log`
+3. `scripts/test/test_save_load.gd`: 182 assertions passed (Exit Code 0) — Log: `scratch/round7_logs/03_test_save_load.log`
+4. `scripts/test/test_faction_diplomacy_ai.gd`: 437 checks passed (Exit Code 0) — Log: `scratch/round7_logs/04_test_faction_diplomacy_ai.log`
+5. `scripts/test/test_faction_strategy_execution.gd`: 951 checks passed (Exit Code 0) — Log: `scratch/round7_logs/05_test_faction_strategy_execution.log`
+6. `scripts/test/test_market.gd`: 15 test cases passed (Exit Code 0) — Log: `scratch/round7_logs/06_test_market.log`
+7. `scripts/test/test_field_siege.gd`: 16 test cases, 98 assertions passed (Exit Code 0) — Log: `scratch/round7_logs/07_test_field_siege.log`
+8. `scripts/test/test_surplus_treasury_conversion.gd`: 15 requirements, 124 checks passed (Exit Code 0) — Log: `scratch/round7_logs/08_test_surplus_treasury_conversion.log`
+9. `scripts/test/test_player_field_guide.gd`: 9 test groups, 130 checks passed (Exit Code 0) — Log: `scratch/round7_logs/09_test_player_field_guide.log`
+10. `scripts/test/test_workshop.gd`: 7 test groups passed (Exit Code 0) — Log: `scratch/round7_logs/10_test_workshop.log`
+11. `scripts/test/test_research_hall.gd`: 7 test groups passed (Exit Code 0) — Log: `scratch/round7_logs/11_test_research_hall.log`
+12. `scripts/test/test_barracks.gd`: 7 test groups passed (Exit Code 0) — Log: `scratch/round7_logs/12_test_barracks.log`
+13. `scripts/test/test_watchtower.gd`: 9 test groups passed (Exit Code 0) — Log: `scratch/round7_logs/13_test_watchtower.log`
+14. `scripts/test/test_citizen_skills.gd`: 27 test cases passed (Exit Code 0) — Log: `scratch/round7_logs/14_test_citizen_skills.log`
+15. `scripts/test/test_tactical_military.gd`: 11 groups, 419 assertions passed (Exit Code 0) — Log: `scratch/round7_logs/15_test_tactical_military.log`
+16. `scripts/test/test_building_management.gd`: 34 test cases passed (Exit Code 0) — Log: `scratch/round7_logs/16_test_building_management.log`
+
+Total: 2,824 checks/assertions/tests passed (0 failures, 0 skipped, 16/16 suites Exit Code 0).
+
+### Files Modified & Protected
+- `scripts/test/test_building_management.gd` (Updated `_snapshot_resource_manager`, `_restore_resource_manager`, `_assert_resource_manager_matches_snapshot`, `_snapshot_citizen_state`, `_restore_citizen_state`; hardened TC-BM.31 failure path teardown; added TC-BM.33 position restoration and post-cleanup assertions).
+- `docs/WORKLOG.md` (Updated with Round 7 milestone details).
+- Protected assets (`project.godot`, 92 historical untracked files, user saves) strictly preserved.
+
+### Next Exact Step
+- Create Round 7 commit, push to `feature/package-2f-building-inspection-and-management` on remote `origin`, and await ChatGPT independent review. Do NOT proceed to Package 2G.
