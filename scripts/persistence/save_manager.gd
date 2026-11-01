@@ -747,35 +747,75 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 			return {"valid": false, "error": "Tiến độ thi công của '%s' nằm ngoài phạm vi hợp lệ [0, %f]: %f." % [b_type, b_hours, b_prog]}
 
 		# Validate building upgrades data (Package 2I)
-		if b.has("upgrade_level"):
+		var has_upgrade_level: bool = b.has("upgrade_level")
+		var current_ul: int = 1
+		if has_upgrade_level:
 			var ul_val = b.get("upgrade_level")
 			if not (ul_val is int or (ul_val is float and float(ul_val) == float(int(ul_val)))):
 				return {"valid": false, "error": "Cấp độ nâng cấp 'upgrade_level' của '%s' phải là số nguyên." % b_type}
-			var ul: int = int(ul_val)
-			if ul < 1 or ul > EconomyConfig.MAX_BUILDING_LEVEL:
-				return {"valid": false, "error": "Cấp độ nâng cấp 'upgrade_level' của '%s' nằm ngoài phạm vi [1, %d]: %d." % [b_type, EconomyConfig.MAX_BUILDING_LEVEL, ul]}
+			current_ul = int(ul_val)
+			if current_ul < 1 or current_ul > EconomyConfig.MAX_BUILDING_LEVEL:
+				return {"valid": false, "error": "Cấp độ nâng cấp 'upgrade_level' của '%s' nằm ngoài phạm vi [1, %d]: %d." % [b_type, EconomyConfig.MAX_BUILDING_LEVEL, current_ul]}
 
 		if b.has("is_upgrading") and bool(b.get("is_upgrading")):
+			# 1. upgrade_level must exist when is_upgrading == true
+			if not has_upgrade_level:
+				return {"valid": false, "error": "Công trình '%s' đang nâng cấp nhưng thiếu trường 'upgrade_level'." % b_type}
+
+			# 2. Building type must be upgradeable
 			if not EconomyConfig.is_building_upgradeable(b_type):
 				return {"valid": false, "error": "Công trình '%s' không hỗ trợ nâng cấp." % b_type}
+
+			# 3. Current level must be strictly lower than MAX_BUILDING_LEVEL
+			if current_ul >= EconomyConfig.MAX_BUILDING_LEVEL:
+				return {"valid": false, "error": "Công trình '%s' đã đạt cấp tối đa (%d), không thể ở trạng thái nâng cấp." % [b_type, EconomyConfig.MAX_BUILDING_LEVEL]}
+
+			# 4. upgrade_target_level must exist, be an integer, and equal exactly current_ul + 1
+			if not b.has("upgrade_target_level"):
+				return {"valid": false, "error": "Công trình '%s' đang nâng cấp nhưng thiếu trường 'upgrade_target_level'." % b_type}
 			var tgt_val = b.get("upgrade_target_level")
 			if not (tgt_val is int or (tgt_val is float and float(tgt_val) == float(int(tgt_val)))):
 				return {"valid": false, "error": "Cấp độ đích nâng cấp 'upgrade_target_level' của '%s' phải là số nguyên." % b_type}
 			var tgt_lvl: int = int(tgt_val)
-			if tgt_lvl < 2 or tgt_lvl > EconomyConfig.MAX_BUILDING_LEVEL:
-				return {"valid": false, "error": "Cấp độ đích nâng cấp 'upgrade_target_level' nằm ngoài phạm vi [2, %d]: %d." % [EconomyConfig.MAX_BUILDING_LEVEL, tgt_lvl]}
+			if tgt_lvl != current_ul + 1:
+				return {"valid": false, "error": "Cấp độ đích 'upgrade_target_level' (%d) của '%s' phải đúng bằng cấp độ hiện tại + 1 (%d)." % [tgt_lvl, b_type, current_ul + 1]}
+			if tgt_lvl > EconomyConfig.MAX_BUILDING_LEVEL:
+				return {"valid": false, "error": "Cấp độ đích nâng cấp 'upgrade_target_level' vượt quá cấp tối đa [2, %d]: %d." % [EconomyConfig.MAX_BUILDING_LEVEL, tgt_lvl]}
+
+			# 5. upgrade_required_hours must be a positive finite float/int
+			if not b.has("upgrade_required_hours"):
+				return {"valid": false, "error": "Công trình '%s' đang nâng cấp nhưng thiếu trường 'upgrade_required_hours'." % b_type}
 			var req_h_val = b.get("upgrade_required_hours")
 			if not (req_h_val is int or req_h_val is float) or float(req_h_val) <= 0.0 or is_nan(float(req_h_val)) or is_inf(float(req_h_val)):
 				return {"valid": false, "error": "Thời gian yêu cầu nâng cấp 'upgrade_required_hours' phải là số dương hữu hạn."}
 			var req_h: float = float(req_h_val)
+
+			# 6. upgrade_progress must be a finite float/int within [0.0, req_h + 0.001]
+			if not b.has("upgrade_progress"):
+				return {"valid": false, "error": "Công trình '%s' đang nâng cấp nhưng thiếu trường 'upgrade_progress'." % b_type}
 			var up_prog_val = b.get("upgrade_progress")
 			if not (up_prog_val is int or up_prog_val is float) or is_nan(float(up_prog_val)) or is_inf(float(up_prog_val)):
 				return {"valid": false, "error": "Tiến độ nâng cấp 'upgrade_progress' phải là số hữu hạn."}
 			var up_prog: float = float(up_prog_val)
 			if up_prog < 0.0 or up_prog > (req_h + 0.001):
 				return {"valid": false, "error": "Tiến độ nâng cấp nằm ngoài phạm vi [0, %f]: %f." % [req_h, up_prog]}
-			if b.has("upgrade_cost") and not (b.get("upgrade_cost") is Dictionary):
+
+			# 7. upgrade_cost must be a Dictionary with valid resource IDs and non-negative integer amounts
+			if not b.has("upgrade_cost") or not (b.get("upgrade_cost") is Dictionary):
 				return {"valid": false, "error": "Dữ liệu chi phí nâng cấp 'upgrade_cost' phải là Dictionary."}
+			var cost_dict: Dictionary = b.get("upgrade_cost")
+			for res_k in cost_dict:
+				if not (res_k is String) or String(res_k).strip_edges() == "":
+					return {"valid": false, "error": "Mã tài nguyên trong 'upgrade_cost' không hợp lệ."}
+				var res_id_str: String = String(res_k)
+				if not EconomyConfig.ALL_RESOURCES.has(res_id_str):
+					return {"valid": false, "error": "Mã tài nguyên '%s' trong 'upgrade_cost' không được định nghĩa." % res_id_str}
+				var amt_val = cost_dict[res_k]
+				if not (amt_val is int or (amt_val is float and float(amt_val) == float(int(amt_val)))):
+					return {"valid": false, "error": "Số lượng tài nguyên '%s' trong 'upgrade_cost' phải là số nguyên." % res_id_str}
+				var amt: int = int(amt_val)
+				if amt < 0:
+					return {"valid": false, "error": "Số lượng tài nguyên '%s' trong 'upgrade_cost' không được âm: %d." % [res_id_str, amt]}
 
 	# Validate citizens array and optional skills data (Package 2B)
 	var citizens_sec = json_dict.get("citizens")
@@ -1821,7 +1861,7 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 			}
 			if bool(b.get("is_upgrading", false)):
 				b_dict["is_upgrading"] = true
-				b_dict["upgrade_target_level"] = clampi(int(b.get("upgrade_target_level", 2)), 2, EconomyConfig.MAX_BUILDING_LEVEL)
+				b_dict["upgrade_target_level"] = int(b.get("upgrade_target_level", int(b_dict["upgrade_level"]) + 1))
 				b_dict["upgrade_progress"] = float(b.get("upgrade_progress", 0.0))
 				b_dict["upgrade_required_hours"] = float(b.get("upgrade_required_hours", 2.0))
 				b_dict["upgrade_cost"] = b.get("upgrade_cost", {}).duplicate()

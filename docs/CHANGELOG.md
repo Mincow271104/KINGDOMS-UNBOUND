@@ -26,8 +26,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - Fail-closed safety: All 5 BuildingSystem upgrade APIs (`can_start_upgrade`, `start_upgrade`, `complete_building_upgrade`, `can_cancel_upgrade`, `cancel_upgrade`) strictly fail closed without mutating state when `ResourceManager` is unavailable or lacks required methods.
   - Starter Farm Upgrade Restore: In `WorldView.sync_workplaces_after_load`, `farm_starter` falls through to `register_upgrade_jobs` when in-progress upgrade is loaded, preserving both builder jobs and 5 starter farmer jobs without duplication.
   - HUD Building Inspector: Added `UpgradeSection` with level badge, current effect label, next effect preview, cost & duration, upgrade button (with affordability check), progress bar, builder count, cancel button, and max level label.
-  - Save/Load compatibility: Persists upgrade state fields with fail-closed validation; legacy saves lacking `upgrade_level` safely default to Level 1.
-  - Automated test suite expansion in `scripts/test/test_building_management.gd`: Added TC-BM.35 through TC-BM.51 (51/51 tests passed, Exit Code 0).
+  - Save/Load compatibility: Persists upgrade state fields with strict sequential upgrade tier validation in `validate_save_data()` (enforces `upgrade_target_level == upgrade_level + 1`, finite duration/progress, non-negative valid resource costs, rejecting tier skipping, same-tier, or max-tier upgrades); runtime tier guards in `complete_building_upgrade()`; legacy saves lacking `upgrade_level` safely default to Level 1.
+  - Automated test suite expansion in `scripts/test/test_building_management.gd`: Added TC-BM.35 through TC-BM.52 (52/52 tests passed, Exit Code 0).
 
 ### [Package 2H] - 2026-11-02
 #### Added

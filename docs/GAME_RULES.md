@@ -619,7 +619,9 @@ Upgrades cost a deterministic ratio of the original blueprint cost and take real
   - Refunds exactly 50% of upgrade cost (`floor(cost * 0.5)`).
   - Storage space is preflighted in `ResourceManager` before refunding; fails closed atomically if storage cannot hold the refund.
   - Assigned builder jobs are cleanly cancelled and removed from `JobManager`.
-- **Save/Load Compatibility:**
+- **Save/Load Compatibility & Sequential Tier Integrity:**
   - Persists `upgrade_level`, `is_upgrading`, `upgrade_target_level`, `upgrade_progress`, `upgrade_required_hours`, `upgrade_cost`.
   - Old saves without `upgrade_level` automatically default to Level 1.
   - In-progress upgrades resume seamlessly after loading without loss of progress or duplicate builder jobs.
+  - Strict save validation requires `upgrade_target_level == upgrade_level + 1` with `upgrade_level < MAX_BUILDING_LEVEL` for active upgrades; tier skipping (e.g., 1 -> 3), invalid tiers, negative costs, or unknown resource types are strictly rejected.
+  - `BuildingSystem.complete_building_upgrade()` enforces strict sequential tier integrity and fail-closed validation before mutating building state or resource capacities.

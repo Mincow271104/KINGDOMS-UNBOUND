@@ -951,20 +951,54 @@ static func complete_building_upgrade(b_data_or_id, world_data: WorldGenerator.W
 	if b_data.is_empty():
 		return {"success": false, "reason": "Công trình không tồn tại", "building": {}}
 
+	# 1. Building type must be upgradeable
+	var type: String = b_data.get("type", "")
+	if not EconomyConfig.is_building_upgradeable(type):
+		return {"success": false, "reason": "Loại công trình '%s' không hỗ trợ nâng cấp" % type, "building": b_data}
+
+	# 2. Upgrade state must be active
 	if not bool(b_data.get("is_upgrading", false)):
 		return {"success": false, "reason": "Công trình không ở trạng thái nâng cấp", "building": b_data}
 
-	var total_hours: float = float(b_data.get("upgrade_required_hours", 2.0))
-	var cur_prog: float = float(b_data.get("upgrade_progress", 0.0))
+	# 3. Current level must be valid and lower than MAX_BUILDING_LEVEL
+	if not b_data.has("upgrade_level"):
+		return {"success": false, "reason": "Thiếu dữ liệu cấp độ công trình 'upgrade_level'", "building": b_data}
+	var ul_val = b_data.get("upgrade_level")
+	if not (ul_val is int or (ul_val is float and float(ul_val) == float(int(ul_val)))):
+		return {"success": false, "reason": "Cấp độ công trình 'upgrade_level' phải là số nguyên", "building": b_data}
+	var old_level: int = int(ul_val)
+	if old_level < 1 or old_level >= EconomyConfig.MAX_BUILDING_LEVEL:
+		return {"success": false, "reason": "Cấp độ công trình (%d) không hợp lệ để hoàn thành nâng cấp" % old_level, "building": b_data}
+
+	# 4. Target level must be exactly old_level + 1 and not exceed MAX_BUILDING_LEVEL
+	if not b_data.has("upgrade_target_level"):
+		return {"success": false, "reason": "Thiếu dữ liệu cấp độ đích 'upgrade_target_level'", "building": b_data}
+	var tgt_val = b_data.get("upgrade_target_level")
+	if not (tgt_val is int or (tgt_val is float and float(tgt_val) == float(int(tgt_val)))):
+		return {"success": false, "reason": "Cấp độ đích 'upgrade_target_level' phải là số nguyên", "building": b_data}
+	var target_level: int = int(tgt_val)
+	if target_level != old_level + 1:
+		return {"success": false, "reason": "Cấp độ đích (%d) phải đúng bằng cấp độ hiện tại + 1 (%d)" % [target_level, old_level + 1], "building": b_data}
+	if target_level > EconomyConfig.MAX_BUILDING_LEVEL:
+		return {"success": false, "reason": "Cấp độ đích (%d) vượt quá cấp tối đa (%d)" % [target_level, EconomyConfig.MAX_BUILDING_LEVEL], "building": b_data}
+
+	# 5. Required hours and progress verification
+	if not b_data.has("upgrade_required_hours"):
+		return {"success": false, "reason": "Thiếu thời gian yêu cầu nâng cấp 'upgrade_required_hours'", "building": b_data}
+	var req_h_val = b_data.get("upgrade_required_hours")
+	if not (req_h_val is int or req_h_val is float) or float(req_h_val) <= 0.0 or is_nan(float(req_h_val)) or is_inf(float(req_h_val)):
+		return {"success": false, "reason": "Thời gian yêu cầu nâng cấp không hợp lệ", "building": b_data}
+	var total_hours: float = float(req_h_val)
+
+	var cur_prog_val = b_data.get("upgrade_progress", 0.0)
+	if not (cur_prog_val is int or cur_prog_val is float) or is_nan(float(cur_prog_val)) or is_inf(float(cur_prog_val)):
+		return {"success": false, "reason": "Tiến độ nâng cấp không hợp lệ", "building": b_data}
+	var cur_prog: float = float(cur_prog_val)
 	const PROGRESS_TOLERANCE: float = 0.001
 	if cur_prog < (total_hours - PROGRESS_TOLERANCE):
-		return {"success": false, "reason": "Chưa hoàn thành thời gian thi công nâng cấp", "building": b_data}
+		return {"success": false, "reason": "Chưa hoàn thành thời gian thi công nâng cấp (%f / %f)" % [cur_prog, total_hours], "building": b_data}
 
-	var old_level: int = clampi(int(b_data.get("upgrade_level", 1)), 1, EconomyConfig.MAX_BUILDING_LEVEL)
-	var target_level: int = clampi(int(b_data.get("upgrade_target_level", old_level + 1)), 1, EconomyConfig.MAX_BUILDING_LEVEL)
-	var type: String = b_data.get("type", "")
-
-	# If storehouse, apply capacity delta (fail closed if resource_mgr is unavailable)
+	# 6. If storehouse, apply capacity delta (fail closed before mutating state if resource_mgr is unavailable)
 	if type == "storehouse":
 		if resource_mgr == null or not is_instance_valid(resource_mgr) or not resource_mgr.has_method("add_storage_capacity"):
 			return {
@@ -976,7 +1010,7 @@ static func complete_building_upgrade(b_data_or_id, world_data: WorldGenerator.W
 		for res_id in delta:
 			resource_mgr.add_storage_capacity(res_id, int(delta[res_id]))
 
-	# Apply new level and clear upgrade status
+	# 7. Apply new level and clear upgrade status
 	b_data["upgrade_level"] = target_level
 	b_data["is_upgrading"] = false
 	b_data.erase("upgrade_target_level")

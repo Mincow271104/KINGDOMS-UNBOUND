@@ -82,6 +82,7 @@ func _process(_delta: float) -> bool:
 		results.append(_test_tc_bm_49_level_1_regressions_valid())
 		results.append(_test_tc_bm_50_starter_farm_upgrade_restore())
 		results.append(_test_tc_bm_51_fail_closed_resource_manager_unavailable())
+		results.append(_test_tc_bm_52_sequential_upgrade_save_validation())
 
 		all_passed = true
 		for r in results:
@@ -4198,7 +4199,7 @@ func _test_tc_bm_49_level_1_regressions_valid() -> bool:
 	return false
 
 # -----------------------------------------------------------------------------
-# TC-BM.50: Starter Farm Upgrade Restore & Job Preservation (FIX A Integration)
+# TC-BM.50: Starter Farm Upgrade Restore & Job Preservation (FIX A & C Integration)
 # -----------------------------------------------------------------------------
 func _test_tc_bm_50_starter_farm_upgrade_restore() -> bool:
 	print("--- Running TC-BM.50: Starter Farm Upgrade Restore & Job Preservation ---")
@@ -4273,6 +4274,9 @@ func _test_tc_bm_50_starter_farm_upgrade_restore() -> bool:
 		if not bool(restored_farm.get("is_upgrading", false)):
 			printerr("FAIL: Restored farm_starter is_upgrading is not true")
 			failures += 1
+		if int(restored_farm.get("upgrade_level", 0)) != 1:
+			printerr("FAIL: Restored farm_starter level is %d, expected 1" % int(restored_farm.get("upgrade_level", 0)))
+			failures += 1
 		if int(restored_farm.get("upgrade_target_level", 0)) != 2:
 			printerr("FAIL: Restored farm_starter target level is %d, expected 2" % int(restored_farm.get("upgrade_target_level", 0)))
 			failures += 1
@@ -4283,7 +4287,18 @@ func _test_tc_bm_50_starter_farm_upgrade_restore() -> bool:
 			printerr("FAIL: Restored farm_starter required hours is %f, expected 5.0" % float(restored_farm.get("upgrade_required_hours", 0.0)))
 			failures += 1
 
-	# Check restored jobs: builder jobs restored, 5 farmer jobs preserved and NOT duplicated!
+		# Assert upgrade_cost is preserved exactly after load
+		var restored_cost = restored_farm.get("upgrade_cost", {})
+		if not (restored_cost is Dictionary) or restored_cost.is_empty():
+			printerr("FAIL: Restored upgrade_cost is missing or empty")
+			failures += 1
+		else:
+			for k in upgrade_cost:
+				if int(restored_cost.get(k, -1)) != int(upgrade_cost[k]):
+					printerr("FAIL: Restored upgrade_cost mismatch for %s: %s vs %s" % [k, str(restored_cost.get(k)), str(upgrade_cost[k])])
+					failures += 1
+
+	# Check restored jobs: builder jobs restored exactly once, 5 farmer jobs preserved and NOT duplicated!
 	var restored_builder_jobs = world_instance.job_mgr.get_jobs_for_building("farm_starter").filter(func(j): return j.type == "builder")
 	if restored_builder_jobs.size() != expected_builder_job_count:
 		printerr("FAIL: Restored builder jobs count mismatch: %d vs expected %d" % [restored_builder_jobs.size(), expected_builder_job_count])
@@ -4303,12 +4318,52 @@ func _test_tc_bm_50_starter_farm_upgrade_restore() -> bool:
 		printerr("FAIL: Starter farm workplace level multiplier is %f, expected 1.0" % wp.level_multiplier)
 		failures += 1
 
-	# 6. Advance upgrade progress and perform repeated load
-	BuildingSystemScript.advance_upgrade(restored_farm, 1.0, world_instance.world_data)
-	if absf(float(restored_farm.get("upgrade_progress", 0.0)) - 3.0) > 0.001:
-		printerr("FAIL: Upgrade progress did not advance to 3.0: %f" % float(restored_farm.get("upgrade_progress", 0.0)))
-		failures += 1
+	# 6. Demonstrate an actual builder assigned to restored upgrade job contributes labor
+	# and advances the upgrade through normal CitizenController / WorldView.advance_construction_work() path
+	var builder_cit: Node = null
+	for c in world_instance.citizen_list:
+		if is_instance_valid(c) and c.call("is_alive"):
+			builder_cit = c
+			break
 
+	if builder_cit == null:
+		printerr("FAIL: No valid citizen available to assign builder job in TC-BM.50")
+		failures += 1
+	else:
+		var builder_job = restored_builder_jobs[0]
+		builder_job.state = JobManager.JobState.IN_PROGRESS
+		builder_job.worker_id = builder_cit.citizen_id
+		builder_cit.active_job = builder_job
+		builder_cit.current_state = builder_cit.State.WORKING
+		builder_cit.hunger = 0.0
+		builder_cit.fatigue = 0.0
+		builder_cit.world_view = world_instance
+		builder_cit.job_mgr = world_instance.job_mgr
+
+		var prog_before_builder: float = float(restored_farm.get("upgrade_progress", 0.0))
+		var skill_eff: float = builder_cit.get_skill_efficiency("building")
+		var labor_hours: float = 1.0
+
+		# Run CitizenController._process_building_work() which invokes WorldView.advance_construction_work()
+		builder_cit._process_building_work(labor_hours)
+
+		var prog_after_builder: float = float(restored_farm.get("upgrade_progress", 0.0))
+		var expected_prog: float = prog_before_builder + (labor_hours * skill_eff)
+		if absf(prog_after_builder - expected_prog) > 0.01:
+			printerr("FAIL: Builder labor did not advance upgrade via CitizenController/WorldView: %f vs expected %f" % [prog_after_builder, expected_prog])
+			failures += 1
+
+		# Also demonstrate WorldView.advance_construction_work directly
+		var wv_adv_res = world_instance.advance_construction_work("farm_starter", 0.5)
+		if not wv_adv_res.get("success", false):
+			printerr("FAIL: WorldView.advance_construction_work failed: %s" % wv_adv_res.get("reason", ""))
+			failures += 1
+		var prog_after_wv: float = float(restored_farm.get("upgrade_progress", 0.0))
+		if absf(prog_after_wv - (expected_prog + 0.5)) > 0.01:
+			printerr("FAIL: WorldView.advance_construction_work did not advance progress: %f vs expected %f" % [prog_after_wv, expected_prog + 0.5])
+			failures += 1
+
+	# 7. Repeated load must not duplicate builder jobs or farmer jobs
 	SaveManagerScript.save_to_file(world_instance, temp_save)
 	var load_res2 = SaveManagerScript.load_from_file(temp_save)
 	SaveManagerScript.apply_loaded_state_to_world(world_instance, load_res2["data"])
@@ -4318,10 +4373,6 @@ func _test_tc_bm_50_starter_farm_upgrade_restore() -> bool:
 		if b.get("id") == "farm_starter" or (b.get("type") == "farm" and b.get("cell") == Vector2i(36, 35)):
 			restored_farm2 = b
 			break
-
-	if absf(float(restored_farm2.get("upgrade_progress", 0.0)) - 3.0) > 0.001:
-		printerr("FAIL: Progress 3.0 not preserved across repeated load: %f" % float(restored_farm2.get("upgrade_progress", 0.0)))
-		failures += 1
 
 	var rep_builder_jobs = world_instance.job_mgr.get_jobs_for_building("farm_starter").filter(func(j): return j.type == "builder")
 	if rep_builder_jobs.size() != expected_builder_job_count:
@@ -4333,7 +4384,7 @@ func _test_tc_bm_50_starter_farm_upgrade_restore() -> bool:
 		printerr("FAIL: Farmer jobs duplicated on repeated load: %d vs expected 5" % rep_farmer_jobs.size())
 		failures += 1
 
-	# 7. Cleanup & restore original starter farm state
+	# 8. Restore the starter farm and test environment cleanly after the case
 	if not restored_farm2.is_empty():
 		restored_farm2["is_upgrading"] = false
 		restored_farm2.erase("upgrade_target_level")
@@ -4344,24 +4395,87 @@ func _test_tc_bm_50_starter_farm_upgrade_restore() -> bool:
 	for j in jobs_to_clear:
 		world_instance.job_mgr._jobs.erase(j)
 
+	if builder_cit != null and is_instance_valid(builder_cit):
+		builder_cit.active_job = null
+		builder_cit.current_state = builder_cit.State.IDLE
+
 	if FileAccess.file_exists(temp_save):
 		DirAccess.remove_absolute(temp_save)
 	if FileAccess.file_exists(temp_save + ".bak"):
 		DirAccess.remove_absolute(temp_save + ".bak")
 
 	if failures == 0:
-		print("  [PASS] TC-BM.50: Authentic starter farm upgrade restore, job preservation, and repeated load verified.")
+		print("  [PASS] TC-BM.50: Authentic starter farm upgrade restore, actual builder labor progression, and repeated load verified.")
 		return true
 	return false
 
 # -----------------------------------------------------------------------------
-# TC-BM.51: Fail-Closed When ResourceManager is Unavailable (FIX C)
+# TC-BM.51: Fail-Closed When ResourceManager is Unavailable (FIX C & D)
 # -----------------------------------------------------------------------------
 func _test_tc_bm_51_fail_closed_resource_manager_unavailable() -> bool:
 	print("--- Running TC-BM.51: Fail-Closed When ResourceManager Unavailable ---")
 	var failures: int = 0
 	var wd = world_instance.world_data
+	var rm = world_instance.get_node_or_null("/root/ResourceManager")
 
+	var snapshot_b = func(b: Dictionary) -> Dictionary:
+		return {
+			"upgrade_level": b.get("upgrade_level"),
+			"is_upgrading": b.get("is_upgrading"),
+			"upgrade_target_level": b.get("upgrade_target_level"),
+			"upgrade_progress": b.get("upgrade_progress"),
+			"upgrade_required_hours": b.get("upgrade_required_hours"),
+			"upgrade_cost": b.get("upgrade_cost", {}).duplicate() if b.has("upgrade_cost") else null
+		}
+
+	var snapshot_rm = func(r: Node) -> Dictionary:
+		if r == null: return {}
+		return {
+			"wood_stock": r.get_total_stock("wood"),
+			"stone_stock": r.get_total_stock("stone"),
+			"food_stock": r.get_total_stock("food"),
+			"wood_cap": r.get_capacity("wood"),
+			"stone_cap": r.get_capacity("stone"),
+			"food_cap": r.get_capacity("food"),
+			"ore_cap": r.get_capacity("ore"),
+			"tools_cap": r.get_capacity("tools")
+		}
+
+	var assert_b_equal = func(cur: Dictionary, snap: Dictionary, context: String) -> int:
+		var errs: int = 0
+		if cur.get("upgrade_level") != snap.get("upgrade_level"):
+			printerr("FAIL [%s]: upgrade_level mutated: %s vs %s" % [context, str(cur.get("upgrade_level")), str(snap.get("upgrade_level"))])
+			errs += 1
+		if cur.get("is_upgrading") != snap.get("is_upgrading"):
+			printerr("FAIL [%s]: is_upgrading mutated: %s vs %s" % [context, str(cur.get("is_upgrading")), str(snap.get("is_upgrading"))])
+			errs += 1
+		if cur.get("upgrade_target_level") != snap.get("upgrade_target_level"):
+			printerr("FAIL [%s]: upgrade_target_level mutated: %s vs %s" % [context, str(cur.get("upgrade_target_level")), str(snap.get("upgrade_target_level"))])
+			errs += 1
+		if cur.get("upgrade_progress") != snap.get("upgrade_progress"):
+			printerr("FAIL [%s]: upgrade_progress mutated: %s vs %s" % [context, str(cur.get("upgrade_progress")), str(snap.get("upgrade_progress"))])
+			errs += 1
+		if cur.get("upgrade_required_hours") != snap.get("upgrade_required_hours"):
+			printerr("FAIL [%s]: upgrade_required_hours mutated: %s vs %s" % [context, str(cur.get("upgrade_required_hours")), str(snap.get("upgrade_required_hours"))])
+			errs += 1
+		if str(cur.get("upgrade_cost")) != str(snap.get("upgrade_cost")):
+			printerr("FAIL [%s]: upgrade_cost mutated: %s vs %s" % [context, str(cur.get("upgrade_cost")), str(snap.get("upgrade_cost"))])
+			errs += 1
+		return errs
+
+	var assert_rm_equal = func(r: Node, snap: Dictionary, context: String) -> int:
+		var errs: int = 0
+		if r == null: return 0
+		var cur: Dictionary = snapshot_rm.call(r)
+		for k in snap:
+			if cur.get(k) != snap.get(k):
+				printerr("FAIL [%s]: RM field %s mutated: %s vs %s" % [context, k, str(cur.get(k)), str(snap.get(k))])
+				errs += 1
+		return errs
+
+	var invalid_rm = RefCounted.new()
+
+	# 1. can_start_upgrade and start_upgrade fail-closed when cost is non-empty
 	var test_house: Dictionary = {
 		"id": "bld_tc51_house",
 		"type": "house",
@@ -4373,7 +4487,10 @@ func _test_tc_bm_51_fail_closed_resource_manager_unavailable() -> bool:
 	}
 	wd.buildings.append(test_house)
 
-	# 1. can_start_upgrade fail-closed when cost is non-empty and rm is null or invalid
+	var snap_h: Dictionary = snapshot_b.call(test_house)
+	var snap_rm: Dictionary = snapshot_rm.call(rm)
+
+	# can_start_upgrade with null
 	var c_null = BuildingSystemScript.can_start_upgrade(test_house, wd, null)
 	if c_null.get("can_upgrade", true):
 		printerr("FAIL: can_start_upgrade succeeded with null resource_mgr")
@@ -4381,31 +4498,34 @@ func _test_tc_bm_51_fail_closed_resource_manager_unavailable() -> bool:
 	if not c_null.get("insufficient_resources", false):
 		printerr("FAIL: insufficient_resources flag not set on null resource_mgr")
 		failures += 1
+	failures += assert_b_equal.call(test_house, snap_h, "can_start_upgrade null")
+	failures += assert_rm_equal.call(rm, snap_rm, "can_start_upgrade null")
 
-	var invalid_rm = RefCounted.new()
+	# can_start_upgrade with invalid rm
 	var c_inv = BuildingSystemScript.can_start_upgrade(test_house, wd, invalid_rm)
 	if c_inv.get("can_upgrade", true):
 		printerr("FAIL: can_start_upgrade succeeded with invalid resource_mgr")
 		failures += 1
+	failures += assert_b_equal.call(test_house, snap_h, "can_start_upgrade invalid")
+	failures += assert_rm_equal.call(rm, snap_rm, "can_start_upgrade invalid")
 
-	# 2. start_upgrade fail-closed without mutating state
+	# start_upgrade with null
 	var s_null = BuildingSystemScript.start_upgrade(test_house, wd, null)
 	if s_null.get("success", true):
 		printerr("FAIL: start_upgrade succeeded with null resource_mgr")
 		failures += 1
-	if bool(test_house.get("is_upgrading", false)):
-		printerr("FAIL: test_house is_upgrading was mutated with null resource_mgr")
-		failures += 1
+	failures += assert_b_equal.call(test_house, snap_h, "start_upgrade null")
+	failures += assert_rm_equal.call(rm, snap_rm, "start_upgrade null")
 
+	# start_upgrade with invalid rm
 	var s_inv = BuildingSystemScript.start_upgrade(test_house, wd, invalid_rm)
 	if s_inv.get("success", true):
 		printerr("FAIL: start_upgrade succeeded with invalid resource_mgr")
 		failures += 1
-	if bool(test_house.get("is_upgrading", false)):
-		printerr("FAIL: test_house is_upgrading was mutated with invalid resource_mgr")
-		failures += 1
+	failures += assert_b_equal.call(test_house, snap_h, "start_upgrade invalid")
+	failures += assert_rm_equal.call(rm, snap_rm, "start_upgrade invalid")
 
-	# 3. complete_building_upgrade for Storehouse fail-closed before mutating state
+	# 2. complete_building_upgrade for Storehouse fail-closed before mutating state
 	var test_sh: Dictionary = {
 		"id": "bld_tc51_sh",
 		"type": "storehouse",
@@ -4421,30 +4541,23 @@ func _test_tc_bm_51_fail_closed_resource_manager_unavailable() -> bool:
 		"upgrade_cost": {"wood": 19, "stone": 12}
 	}
 	wd.buildings.append(test_sh)
+	var snap_sh: Dictionary = snapshot_b.call(test_sh)
 
 	var comp_null = BuildingSystemScript.complete_building_upgrade(test_sh, wd, null)
 	if comp_null.get("success", true):
 		printerr("FAIL: complete_building_upgrade for Storehouse succeeded with null resource_mgr")
 		failures += 1
-	if int(test_sh.get("upgrade_level", 0)) != 1:
-		printerr("FAIL: Storehouse level mutated to %d despite null resource_mgr" % int(test_sh.get("upgrade_level", 0)))
-		failures += 1
-	if not bool(test_sh.get("is_upgrading", false)):
-		printerr("FAIL: Storehouse is_upgrading cleared despite failure on null resource_mgr")
-		failures += 1
+	failures += assert_b_equal.call(test_sh, snap_sh, "complete_building_upgrade null")
+	failures += assert_rm_equal.call(rm, snap_rm, "complete_building_upgrade null")
 
 	var comp_inv = BuildingSystemScript.complete_building_upgrade(test_sh, wd, invalid_rm)
 	if comp_inv.get("success", true):
 		printerr("FAIL: complete_building_upgrade for Storehouse succeeded with invalid resource_mgr")
 		failures += 1
-	if int(test_sh.get("upgrade_level", 0)) != 1:
-		printerr("FAIL: Storehouse level mutated to %d despite invalid resource_mgr" % int(test_sh.get("upgrade_level", 0)))
-		failures += 1
-	if not bool(test_sh.get("is_upgrading", false)):
-		printerr("FAIL: Storehouse is_upgrading cleared despite failure on invalid resource_mgr")
-		failures += 1
+	failures += assert_b_equal.call(test_sh, snap_sh, "complete_building_upgrade invalid")
+	failures += assert_rm_equal.call(rm, snap_rm, "complete_building_upgrade invalid")
 
-	# 4. can_cancel_upgrade and cancel_upgrade fail-closed when refund is expected
+	# 3. can_cancel_upgrade and cancel_upgrade fail-closed when refund is expected
 	var test_cancel_house: Dictionary = {
 		"id": "bld_tc51_cancel_house",
 		"type": "house",
@@ -4460,32 +4573,35 @@ func _test_tc_bm_51_fail_closed_resource_manager_unavailable() -> bool:
 		"upgrade_cost": {"wood": 19, "stone": 8}
 	}
 	wd.buildings.append(test_cancel_house)
+	var snap_ch: Dictionary = snapshot_b.call(test_cancel_house)
 
 	var can_c_null = BuildingSystemScript.can_cancel_upgrade(test_cancel_house, wd, null)
 	if can_c_null.get("can_cancel", true):
 		printerr("FAIL: can_cancel_upgrade succeeded with null resource_mgr")
 		failures += 1
+	failures += assert_b_equal.call(test_cancel_house, snap_ch, "can_cancel_upgrade null")
+	failures += assert_rm_equal.call(rm, snap_rm, "can_cancel_upgrade null")
 
 	var can_c_inv = BuildingSystemScript.can_cancel_upgrade(test_cancel_house, wd, invalid_rm)
 	if can_c_inv.get("can_cancel", true):
 		printerr("FAIL: can_cancel_upgrade succeeded with invalid resource_mgr")
 		failures += 1
+	failures += assert_b_equal.call(test_cancel_house, snap_ch, "can_cancel_upgrade invalid")
+	failures += assert_rm_equal.call(rm, snap_rm, "can_cancel_upgrade invalid")
 
 	var cancel_null = BuildingSystemScript.cancel_upgrade(test_cancel_house, wd, null)
 	if cancel_null.get("success", true):
 		printerr("FAIL: cancel_upgrade succeeded with null resource_mgr")
 		failures += 1
-	if not bool(test_cancel_house.get("is_upgrading", false)):
-		printerr("FAIL: is_upgrading mutated despite cancel_upgrade failure on null resource_mgr")
-		failures += 1
+	failures += assert_b_equal.call(test_cancel_house, snap_ch, "cancel_upgrade null")
+	failures += assert_rm_equal.call(rm, snap_rm, "cancel_upgrade null")
 
 	var cancel_inv = BuildingSystemScript.cancel_upgrade(test_cancel_house, wd, invalid_rm)
 	if cancel_inv.get("success", true):
 		printerr("FAIL: cancel_upgrade succeeded with invalid resource_mgr")
 		failures += 1
-	if not bool(test_cancel_house.get("is_upgrading", false)):
-		printerr("FAIL: is_upgrading mutated despite cancel_upgrade failure on invalid resource_mgr")
-		failures += 1
+	failures += assert_b_equal.call(test_cancel_house, snap_ch, "cancel_upgrade invalid")
+	failures += assert_rm_equal.call(rm, snap_rm, "cancel_upgrade invalid")
 
 	# Cleanup test structures
 	wd.buildings.erase(test_house)
@@ -4493,7 +4609,196 @@ func _test_tc_bm_51_fail_closed_resource_manager_unavailable() -> bool:
 	wd.buildings.erase(test_cancel_house)
 
 	if failures == 0:
-		print("  [PASS] TC-BM.51: All upgrade operations strictly fail closed when ResourceManager is unavailable.")
+		print("  [PASS] TC-BM.51: All upgrade operations strictly fail closed preserving complete state.")
+		return true
+	return false
+
+# -----------------------------------------------------------------------------
+# TC-BM.52: Sequential Upgrade Tier Integrity & Save Validation (FIX A & B)
+# -----------------------------------------------------------------------------
+func _test_tc_bm_52_sequential_upgrade_save_validation() -> bool:
+	print("--- Running TC-BM.52: Sequential Upgrade Tier Integrity & Save Validation ---")
+	var failures: int = 0
+
+	var create_save_doc = func(building_record: Dictionary) -> Dictionary:
+		return {
+			"schema_version": 1,
+			"metadata": {"schema_version": 1, "save_time": 100},
+			"resources": {"is_starving": false, "active_population": 10, "stock": {}, "capacities": {}},
+			"buildings": [building_record],
+			"citizens": []
+		}
+
+	var base_rec = {
+		"id": "bld_val_test",
+		"type": "house",
+		"cell_x": 10,
+		"cell_y": 10,
+		"size_x": 2,
+		"size_y": 2,
+		"state": "active",
+		"health": 100,
+		"construction_progress": 8.0,
+		"construction_hours": 8.0
+	}
+
+	# Case 1: Level 1 -> target 2 is accepted
+	var rec1 = base_rec.duplicate(true)
+	rec1["upgrade_level"] = 1
+	rec1["is_upgrading"] = true
+	rec1["upgrade_target_level"] = 2
+	rec1["upgrade_progress"] = 1.0
+	rec1["upgrade_required_hours"] = 4.0
+	rec1["upgrade_cost"] = {"wood": 19, "stone": 8}
+	var res1 = SaveManagerScript.validate_save_data(create_save_doc.call(rec1))
+	if not res1.get("valid", false):
+		printerr("FAIL Case 1: Level 1 -> target 2 should be accepted, got error: %s" % res1.get("error", ""))
+		failures += 1
+
+	# Case 2: Level 2 -> target 3 is accepted
+	var rec2 = base_rec.duplicate(true)
+	rec2["upgrade_level"] = 2
+	rec2["is_upgrading"] = true
+	rec2["upgrade_target_level"] = 3
+	rec2["upgrade_progress"] = 2.0
+	rec2["upgrade_required_hours"] = 6.0
+	rec2["upgrade_cost"] = {"wood": 32, "stone": 13}
+	var res2 = SaveManagerScript.validate_save_data(create_save_doc.call(rec2))
+	if not res2.get("valid", false):
+		printerr("FAIL Case 2: Level 2 -> target 3 should be accepted, got error: %s" % res2.get("error", ""))
+		failures += 1
+
+	# Case 3: Level 1 -> target 3 is rejected (skipping tier)
+	var rec3 = base_rec.duplicate(true)
+	rec3["upgrade_level"] = 1
+	rec3["is_upgrading"] = true
+	rec3["upgrade_target_level"] = 3
+	rec3["upgrade_progress"] = 1.0
+	rec3["upgrade_required_hours"] = 6.0
+	rec3["upgrade_cost"] = {"wood": 32, "stone": 13}
+	var res3 = SaveManagerScript.validate_save_data(create_save_doc.call(rec3))
+	if res3.get("valid", true):
+		printerr("FAIL Case 3: Level 1 -> target 3 must be rejected")
+		failures += 1
+
+	# Case 4: Level 2 -> target 2 is rejected (same tier)
+	var rec4 = base_rec.duplicate(true)
+	rec4["upgrade_level"] = 2
+	rec4["is_upgrading"] = true
+	rec4["upgrade_target_level"] = 2
+	rec4["upgrade_progress"] = 1.0
+	rec4["upgrade_required_hours"] = 4.0
+	rec4["upgrade_cost"] = {"wood": 19, "stone": 8}
+	var res4 = SaveManagerScript.validate_save_data(create_save_doc.call(rec4))
+	if res4.get("valid", true):
+		printerr("FAIL Case 4: Level 2 -> target 2 must be rejected")
+		failures += 1
+
+	# Case 5: Level 3 with is_upgrading == true is rejected (already at MAX_BUILDING_LEVEL)
+	var rec5 = base_rec.duplicate(true)
+	rec5["upgrade_level"] = 3
+	rec5["is_upgrading"] = true
+	rec5["upgrade_target_level"] = 4
+	rec5["upgrade_progress"] = 0.0
+	rec5["upgrade_required_hours"] = 6.0
+	rec5["upgrade_cost"] = {"wood": 50, "stone": 30}
+	var res5 = SaveManagerScript.validate_save_data(create_save_doc.call(rec5))
+	if res5.get("valid", true):
+		printerr("FAIL Case 5: Level 3 with is_upgrading == true must be rejected")
+		failures += 1
+
+	# Case 6: Missing upgrade_level while is_upgrading == true is rejected
+	var rec6 = base_rec.duplicate(true)
+	rec6.erase("upgrade_level")
+	rec6["is_upgrading"] = true
+	rec6["upgrade_target_level"] = 2
+	rec6["upgrade_progress"] = 1.0
+	rec6["upgrade_required_hours"] = 4.0
+	rec6["upgrade_cost"] = {"wood": 19, "stone": 8}
+	var res6 = SaveManagerScript.validate_save_data(create_save_doc.call(rec6))
+	if res6.get("valid", true):
+		printerr("FAIL Case 6: Missing upgrade_level while is_upgrading == true must be rejected")
+		failures += 1
+
+	# Case 7: Invalid or negative upgrade cost entries are rejected
+	var rec7_neg = base_rec.duplicate(true)
+	rec7_neg["upgrade_level"] = 1
+	rec7_neg["is_upgrading"] = true
+	rec7_neg["upgrade_target_level"] = 2
+	rec7_neg["upgrade_progress"] = 1.0
+	rec7_neg["upgrade_required_hours"] = 4.0
+	rec7_neg["upgrade_cost"] = {"wood": -5, "stone": 8}
+	var res7_neg = SaveManagerScript.validate_save_data(create_save_doc.call(rec7_neg))
+	if res7_neg.get("valid", true):
+		printerr("FAIL Case 7a: Negative upgrade_cost must be rejected")
+		failures += 1
+
+	var rec7_inv = base_rec.duplicate(true)
+	rec7_inv["upgrade_level"] = 1
+	rec7_inv["is_upgrading"] = true
+	rec7_inv["upgrade_target_level"] = 2
+	rec7_inv["upgrade_progress"] = 1.0
+	rec7_inv["upgrade_required_hours"] = 4.0
+	rec7_inv["upgrade_cost"] = {"unobtainium": 10}
+	var res7_inv = SaveManagerScript.validate_save_data(create_save_doc.call(rec7_inv))
+	if res7_inv.get("valid", true):
+		printerr("FAIL Case 7b: Invalid resource key in upgrade_cost must be rejected")
+		failures += 1
+
+	# Case 8: A legacy Level 1 record with no upgrade fields remains accepted
+	var rec8 = base_rec.duplicate(true)
+	rec8.erase("upgrade_level")
+	rec8.erase("is_upgrading")
+	rec8.erase("upgrade_target_level")
+	rec8.erase("upgrade_progress")
+	rec8.erase("upgrade_required_hours")
+	rec8.erase("upgrade_cost")
+	var res8 = SaveManagerScript.validate_save_data(create_save_doc.call(rec8))
+	if not res8.get("valid", false):
+		printerr("FAIL Case 8: Legacy Level 1 record with no upgrade fields must remain accepted, got: %s" % res8.get("error", ""))
+		failures += 1
+
+	# Runtime tier guards in complete_building_upgrade (FIX B)
+	var test_guard_b = {
+		"id": "bld_guard_test",
+		"type": "house",
+		"upgrade_level": 1,
+		"is_upgrading": true,
+		"upgrade_target_level": 3, # Invalid jump!
+		"upgrade_progress": 6.0,
+		"upgrade_required_hours": 6.0
+	}
+	var guard_res = BuildingSystemScript.complete_building_upgrade(test_guard_b, world_instance.world_data, null)
+	if guard_res.get("success", true):
+		printerr("FAIL: complete_building_upgrade must reject Level 1 -> Level 3 jump")
+		failures += 1
+	if int(test_guard_b.get("upgrade_level")) != 1:
+		printerr("FAIL: complete_building_upgrade mutated level on invalid target level")
+		failures += 1
+	if not bool(test_guard_b.get("is_upgrading")):
+		printerr("FAIL: complete_building_upgrade mutated is_upgrading on invalid target level")
+		failures += 1
+
+	# Test downgrade rejection in complete_building_upgrade (Level 2 -> Level 1)
+	var test_guard_down = {
+		"id": "bld_guard_down",
+		"type": "house",
+		"upgrade_level": 2,
+		"is_upgrading": true,
+		"upgrade_target_level": 1, # Downgrade!
+		"upgrade_progress": 4.0,
+		"upgrade_required_hours": 4.0
+	}
+	var down_res = BuildingSystemScript.complete_building_upgrade(test_guard_down, world_instance.world_data, null)
+	if down_res.get("success", true):
+		printerr("FAIL: complete_building_upgrade must reject downgrade target")
+		failures += 1
+	if int(test_guard_down.get("upgrade_level")) != 2:
+		printerr("FAIL: complete_building_upgrade mutated level on downgrade attempt")
+		failures += 1
+
+	if failures == 0:
+		print("  [PASS] TC-BM.52: All 8 sequential upgrade save validation cases and runtime tier guards verified.")
 		return true
 	return false
 

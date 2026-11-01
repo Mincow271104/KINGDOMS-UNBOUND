@@ -9179,3 +9179,54 @@ Following independent source review of Package 2I (`ba0a1d7ddb94c7c74c845b35ad3d
 - Stage modified files explicitly (`scripts/economy/economy_config.gd`, `scripts/economy/building_system.gd`, `scripts/world/world_view.gd`, `scripts/test/test_building_management.gd`, `docs/GAME_RULES.md`, `docs/BACKLOG.md`, `docs/CHANGELOG.md`, `docs/WORKLOG.md`), commit with `fix(buildings): harden upgrade restore and accounting`, push branch `feature/package-2i-settlement-building-upgrades` to `origin`, and deliver the handoff report in Vietnamese.
 
 
+
+---
+
+## 2026-11-02 — Package 2I Final Correction: Strict Upgrade Tier Validation & Completion Integrity (Completed)
+
+### Context & Independent Review Objectives
+Following independent source review of Package 2I candidate (`0d32027eb8c792cfeded8b59ea2b7b564a30f4c6`), one production-level integrity defect and test-evidence gaps were resolved:
+1. **FIX A — Enforce Sequential Upgrade Validation in `SaveManager.validate_save_data()`:**
+   - For every building with `is_upgrading == true`:
+     - Enforced `upgrade_level` exists and is a valid integer in `[1, MAX_BUILDING_LEVEL]`.
+     - Enforced building type is upgradeable (`EconomyConfig.is_building_upgradeable()`).
+     - Enforced current level is strictly lower than `MAX_BUILDING_LEVEL` (cannot upgrade already maxed building).
+     - Enforced sequential progression: `upgrade_target_level` must equal exactly `upgrade_level + 1`.
+     - Enforced finite progress and duration: `upgrade_progress` and `upgrade_required_hours` must be finite numbers within `[0.0, req_h + 0.001]`.
+     - Enforced `upgrade_cost` dictionary with canonical resources (`EconomyConfig.ALL_RESOURCES`) and non-negative integer amounts.
+     - Strictly fail closed without silent clamping or data loss.
+     - Legacy saves lacking `upgrade_level` without active upgrade safely default to Level 1.
+2. **FIX B — Harden `BuildingSystem.complete_building_upgrade()`:**
+   - Added independent runtime tier integrity guards before mutating any building fields or storage capacities.
+   - Enforces building upgradeability, current level valid and `< MAX_BUILDING_LEVEL`, target level strictly equal to `current_level + 1` and `<= MAX_BUILDING_LEVEL`, active upgrading state, and progress criteria.
+   - Rejects invalid state transitions (such as tier skips Level 1 -> 3 or tier downgrades Level 2 -> 1) fail-closed with zero state or capacity side effects.
+3. **FIX C — Complete TC-BM.50 Evidence:**
+   - Asserted `upgrade_cost` is preserved exactly after load.
+   - Asserted required hours (`5.0`) and progress fields (`2.0`).
+   - Verified builder jobs are recreated exactly once and starter farmer jobs remain exactly 5.
+   - Demonstrated that an actual builder assigned to the restored upgrade job contributes labor and advances progress through authentic `CitizenController._process_building_work()` and `WorldView.advance_construction_work()`.
+   - Verified repeated load does not duplicate builder or farmer jobs.
+   - Restored starter farm and test environment cleanly.
+4. **FIX D — Strengthen TC-BM.51 State Immutability Assertions:**
+   - Captured full building snapshot (`upgrade_level`, `is_upgrading`, `upgrade_target_level`, `upgrade_progress`, `upgrade_required_hours`, `upgrade_cost`) and `ResourceManager` snapshot (stocks and capacities).
+   - Verified 100% state immutability across all 5 upgrade APIs when `ResourceManager` is null or invalid.
+5. **FIX E — Save Validation Test Cases (TC-BM.52):**
+   - Implemented `TC-BM.52` covering all 8 specified save validation test cases:
+     - Case 1: Level 1 -> 2 accepted.
+     - Case 2: Level 2 -> 3 accepted.
+     - Case 3: Level 1 -> 3 rejected (tier skip).
+     - Case 4: Level 2 -> 2 rejected (same tier).
+     - Case 5: Level 3 upgrading rejected (already max).
+     - Case 6: Missing `upgrade_level` while `is_upgrading == true` rejected.
+     - Case 7: Negative amount or invalid resource ID in `upgrade_cost` rejected.
+     - Case 8: Legacy Level 1 record with no upgrade fields accepted.
+   - Enforced runtime tier transition guards: Level 1 -> 3 and Level 2 -> 1 rejected fail-closed in `complete_building_upgrade()`.
+
+### Verification & Regression Results
+1. `scripts/test/test_building_management.gd`: **52/52 tests PASSED (Exit Code 0)**
+2. `scripts/test/test_save_load.gd`: **182/182 assertions PASSED (Exit Code 0)**
+3. `scripts/test/test_market.gd`: **26/26 tests PASSED (Exit Code 0)**
+4. Headless Editor Parse Check (`Godot_v4.7-stable_win64_console.exe --headless --editor --quit`): **Exit Code 0, 0 errors**.
+
+### Next Exact Step
+- Stage modified files explicitly (`scripts/economy/building_system.gd`, `scripts/persistence/save_manager.gd`, `scripts/test/test_building_management.gd`, `docs/GAME_RULES.md`, `docs/BACKLOG.md`, `docs/CHANGELOG.md`, `docs/WORKLOG.md`), commit with `fix(buildings): enforce sequential upgrade tier integrity`, push branch `feature/package-2i-settlement-building-upgrades` to `origin`, and deliver the handoff report in Vietnamese.
