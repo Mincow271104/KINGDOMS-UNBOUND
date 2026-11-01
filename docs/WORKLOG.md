@@ -8680,3 +8680,56 @@ Distinguishing test cases, checks, and assertions as reported by respective suit
 
 ### Next Exact Step
 - Create Round 5 commit, push to `feature/package-2f-building-inspection-and-management` on remote `origin`, and await ChatGPT independent review. Do NOT proceed to Package 2G.
+
+---
+
+## [2026-11-01] Package 2F: Building Inspection, Workplace Management & Demolition System — Final Test Fixture Isolation and State Restoration (Round 6)
+
+### Context & Objectives
+Address all test fixture isolation, lifecycle restoration, and state conservation defects identified during Round 6 review of Package 2F:
+1. **Fix TC-BM.31 ResourceManager Fixture Cleanup (Objective A):**
+   - **Root Cause:** TC-BM.31 restored `_current_stock` from snapshot BEFORE calling `world_instance.demolish_building_project("workshop_test_pause")`. The demolition 50% refund (+10 Wood, +7 Stone, +2 Metal) was then credited, leaving test-generated excess materials. Accounting tallies (`_daily_production_tallies`, `_daily_consumption_tallies`) were also altered by recipe production and never restored.
+   - **Correction:** Snapshotted the complete authoritative ResourceManager state (`_current_stock`, `_reserved_stock`, `_capacities`, `_daily_production_tallies`, `_daily_consumption_tallies`, `_last_day_production`, `_last_day_consumption`, `_is_starving`) prior to test fixture setup. Executed Workshop demolition through the real world demolition API, verified demolition success and full removal of building, sub-channel workplaces, and jobs. Restored the exact ResourceManager snapshot strictly AFTER fixture teardown, asserting 100% dictionary/flag equality.
+2. **Fix TC-BM.33 Citizen Restoration After Save/Load (Objective B):**
+   - **Root Cause:** TC-BM.33 modified `cit0.role` and hauling XP, then saved and loaded the world. `SaveManager` reconstructed citizen instances during deserialization. The post-test cleanup mutated the stale pre-load `cit0` instance and assumed zero XP rather than restoring the valid reconstructed citizen from `citizens_by_id` / `citizen_list`.
+   - **Correction:** Recorded citizen stable IDs, original roles, and full vocation XP dictionaries prior to test mutation. Looked up reconstructed citizens post-load by stable ID via `_find_citizen_by_id()`. Verified reconstructed instances are valid, distinct from stale pre-load instances (`reloaded != pre_load`), and properly registered in `world_view.citizen_list` and `world_view.citizens_by_id`. Restored exact original roles and exact skill XP dictionaries on the valid living citizen instances, asserting no temporary `hauler` role or altered XP remains.
+3. **Fix TC-BM.33 Resource Cleanup Arithmetic (Objective C):**
+   - **Root Cause:** TC-BM.33 credited Food across 3 stages (+4 partial delivery, +6 remainder delivery, +10 demolition deposit = +20 total) and attempted hard-coded compensation via `rm.consume_resource("food", 16)`, leaving +4 Food surplus and un-restored daily tallies. Demolition refunds for farm and workshop materials were also unevenly handled.
+   - **Correction:** Eliminated all hard-coded arithmetic and `consume_resource()` shortcuts. Implemented an exact pre-test ResourceManager snapshot (`_snapshot_resource_manager()`) and post-teardown restoration (`_restore_resource_manager()`), asserting exact pre/post equality across all stock, reserved stock, capacities, production tallies, consumption tallies, last-day values, and starvation flags.
+4. **Strengthen Workshop Worker Role Authenticity (Objective D):**
+   - Workers assigned to Workshop jobs in TC-BM.31 now authentically receive the `smith` role (saving original roles beforehand).
+   - Verified worker role assignments, JobManager job state consistency (`WORKING`, `JobState.IN_PROGRESS`), safe release to `IDLE` / `JobState.AVAILABLE` on building pause, and persistence of authentic `smith` roles across save/load.
+   - Restored original roles on valid reconstructed citizen instances following test teardown, verifying citizens no longer hold temporary `smith` roles.
+5. **Preserved Core Production Architecture (Objective E):**
+   - Zero unnecessary changes made to `CitizenController`, `BuildingSystem`, `ResourceManager`, or `WorldView`.
+   - Test isolation helpers added purely within test scope in `scripts/test/test_building_management.gd`.
+6. **Regression Verification (Objective F):**
+   - Executed all 16 regression suites cleanly (2,824 total checks/assertions/tests, 0 failures, Exit Code 0 across all suites).
+   - Preserved persistent logs in `scratch/round6_logs/`.
+
+### Test Results & Matrix Verification (16 Suites, 0 Failures)
+Distinguishing test cases, checks, and assertions as reported by respective suite runners:
+1. `scripts/test/test_autonomous_faction_conflict.gd`: 205 checks (Exit Code 0) — Log: `scratch/round6_logs/01_test_autonomous_faction_conflict.log`
+2. `scripts/test/test_faction_relation_matrix.gd`: 162 checks (Exit Code 0) — Log: `scratch/round6_logs/02_test_faction_relation_matrix.log`
+3. `scripts/test/test_save_load.gd`: 182 assertions (Exit Code 0) — Log: `scratch/round6_logs/03_test_save_load.log`
+4. `scripts/test/test_faction_diplomacy_ai.gd`: 437 checks (Exit Code 0) — Log: `scratch/round6_logs/04_test_faction_diplomacy_ai.log`
+5. `scripts/test/test_faction_strategy_execution.gd`: 951 checks (Exit Code 0) — Log: `scratch/round6_logs/05_test_faction_strategy_execution.log`
+6. `scripts/test/test_market.gd`: 15 test cases (Exit Code 0) — Log: `scratch/round6_logs/06_test_market.log`
+7. `scripts/test/test_field_siege.gd`: 16 test cases, 98 assertions (Exit Code 0) — Log: `scratch/round6_logs/07_test_field_siege.log`
+8. `scripts/test/test_surplus_treasury_conversion.gd`: 15 requirements, 124 checks (Exit Code 0) — Log: `scratch/round6_logs/08_test_surplus_treasury_conversion.log`
+9. `scripts/test/test_player_field_guide.gd`: 9 test groups, 130 checks (Exit Code 0) — Log: `scratch/round6_logs/09_test_player_field_guide.log`
+10. `scripts/test/test_workshop.gd`: 7 test groups (Exit Code 0) — Log: `scratch/round6_logs/10_test_workshop.log`
+11. `scripts/test/test_research_hall.gd`: 7 test groups (Exit Code 0) — Log: `scratch/round6_logs/11_test_research_hall.log`
+12. `scripts/test/test_barracks.gd`: 7 test groups (Exit Code 0) — Log: `scratch/round6_logs/12_test_barracks.log`
+13. `scripts/test/test_watchtower.gd`: 9 test groups (Exit Code 0) — Log: `scratch/round6_logs/13_test_watchtower.log`
+14. `scripts/test/test_citizen_skills.gd`: 27 test cases (Exit Code 0) — Log: `scratch/round6_logs/14_test_citizen_skills.log`
+15. `scripts/test/test_tactical_military.gd`: 11 groups, 419 assertions (Exit Code 0) — Log: `scratch/round6_logs/15_test_tactical_military.log`
+16. `scripts/test/test_building_management.gd`: 34 test cases (Exit Code 0) — Log: `scratch/round6_logs/16_test_building_management.log`
+
+### Files Modified & Protected
+- `scripts/test/test_building_management.gd` (Updated: added `_snapshot_resource_manager`, `_restore_resource_manager`, `_assert_resource_manager_matches_snapshot`, `_snapshot_citizen_state`, `_find_citizen_by_id`, `_restore_citizen_state`; updated TC-BM.31, TC-BM.32, TC-BM.33)
+- `docs/WORKLOG.md` (Updated with Round 6 milestone details)
+- Protected assets (`project.godot`, 92 historical untracked files, user saves) strictly preserved.
+
+### Next Exact Step
+- Create Round 6 commit, push to `feature/package-2f-building-inspection-and-management` on remote `origin`, and await ChatGPT independent review. Do NOT proceed to Package 2G.

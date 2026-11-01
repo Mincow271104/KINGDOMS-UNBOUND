@@ -1651,6 +1651,129 @@ func _test_tc_bm_30_escape_key_hierarchy() -> bool:
 	return false
 
 # -----------------------------------------------------------------------------
+# Test Fixture State Snapshot & Isolation Helpers (Package 2F Round 6)
+# -----------------------------------------------------------------------------
+func _snapshot_resource_manager(rm: Node) -> Dictionary:
+	if rm == null:
+		return {}
+	return {
+		"_current_stock": rm._current_stock.duplicate(true),
+		"_reserved_stock": rm._reserved_stock.duplicate(true),
+		"_capacities": rm._capacities.duplicate(true),
+		"_daily_production_tallies": rm._daily_production_tallies.duplicate(true),
+		"_daily_consumption_tallies": rm._daily_consumption_tallies.duplicate(true),
+		"_last_day_production": rm._last_day_production.duplicate(true),
+		"_last_day_consumption": rm._last_day_consumption.duplicate(true),
+		"_is_starving": rm._is_starving
+	}
+
+func _restore_resource_manager(rm: Node, snap: Dictionary) -> void:
+	if rm == null or snap.is_empty():
+		return
+	rm._current_stock = snap["_current_stock"].duplicate(true)
+	rm._reserved_stock = snap["_reserved_stock"].duplicate(true)
+	rm._capacities = snap["_capacities"].duplicate(true)
+	rm._daily_production_tallies = snap["_daily_production_tallies"].duplicate(true)
+	rm._daily_consumption_tallies = snap["_daily_consumption_tallies"].duplicate(true)
+	rm._last_day_production = snap["_last_day_production"].duplicate(true)
+	rm._last_day_consumption = snap["_last_day_consumption"].duplicate(true)
+	rm._is_starving = snap["_is_starving"]
+
+func _assert_resource_manager_matches_snapshot(rm: Node, snap: Dictionary, test_name: String) -> int:
+	if rm == null:
+		printerr("FAIL %s: ResourceManager is null during snapshot assertion" % test_name)
+		return 1
+	var failures: int = 0
+	for key in snap:
+		var current_val = rm.get(key)
+		var expected_val = snap[key]
+		if typeof(expected_val) == TYPE_DICTIONARY:
+			if current_val == null or typeof(current_val) != TYPE_DICTIONARY:
+				printerr("FAIL %s: RM %s is not a dictionary" % [test_name, key])
+				failures += 1
+				continue
+			if current_val.size() != expected_val.size():
+				printerr("FAIL %s: RM %s dictionary size mismatch: %d != %d" % [test_name, key, current_val.size(), expected_val.size()])
+				failures += 1
+			for res in expected_val:
+				if not current_val.has(res) or current_val[res] != expected_val[res]:
+					printerr("FAIL %s: RM %s mismatch for '%s': got %s, expected %s" % [test_name, key, res, str(current_val.get(res)), str(expected_val[res])])
+					failures += 1
+		else:
+			if current_val != expected_val:
+				printerr("FAIL %s: RM %s mismatch: got %s, expected %s" % [test_name, key, str(current_val), str(expected_val)])
+				failures += 1
+	return failures
+
+func _snapshot_citizen_state(cit: Node) -> Dictionary:
+	if cit == null:
+		return {}
+	var snap := {
+		"citizen_id": cit.get("citizen_id"),
+		"role": cit.get("role"),
+		"current_state": cit.get("current_state"),
+		"carrying_amount": cit.get("carrying_amount"),
+		"carrying_resource": cit.get("carrying_resource"),
+		"carrying_source_workplace_id": cit.get("carrying_source_workplace_id"),
+		"xp": {}
+	}
+	if cit.has_method("get_skill_data") and cit.get_skill_data() != null:
+		snap["xp"] = cit.get_skill_data()._xp.duplicate(true)
+	return snap
+
+func _find_citizen_by_id(cid: String) -> Node:
+	if world_instance == null or cid == "":
+		return null
+	if world_instance.citizens_by_id != null and world_instance.citizens_by_id.has(cid):
+		var c = world_instance.citizens_by_id[cid]
+		if is_instance_valid(c):
+			return c
+	if world_instance.citizen_list != null:
+		for c in world_instance.citizen_list:
+			if is_instance_valid(c) and c.get("citizen_id") == cid:
+				return c
+	return null
+
+func _restore_citizen_state(cid: String, snap: Dictionary, test_name: String) -> int:
+	var failures: int = 0
+	var cit = _find_citizen_by_id(cid)
+	if cit == null:
+		printerr("FAIL %s: Could not find citizen with id '%s' for restoration" % [test_name, cid])
+		return 1
+
+	if not cit in world_instance.citizen_list:
+		printerr("FAIL %s: Citizen %s is not in world_view.citizen_list" % [test_name, cid])
+		failures += 1
+	if world_instance.citizens_by_id.get(cid) != cit:
+		printerr("FAIL %s: Citizen %s is not the instance in world_view.citizens_by_id" % [test_name, cid])
+		failures += 1
+
+	cit.set("role", snap.get("role", "farmer"))
+	if snap.has("current_state"):
+		cit.set("current_state", snap["current_state"])
+	if snap.has("carrying_amount"):
+		cit.set("carrying_amount", snap["carrying_amount"])
+	if snap.has("carrying_resource"):
+		cit.set("carrying_resource", snap["carrying_resource"])
+	if snap.has("carrying_source_workplace_id"):
+		cit.set("carrying_source_workplace_id", snap["carrying_source_workplace_id"])
+	cit.active_job = null
+
+	if snap.has("xp") and cit.has_method("get_skill_data") and cit.get_skill_data() != null:
+		cit.get_skill_data()._xp = snap["xp"].duplicate(true)
+
+	if cit.get("role") != snap.get("role"):
+		printerr("FAIL %s: Citizen %s role not restored: %s != %s" % [test_name, cid, cit.get("role"), snap.get("role")])
+		failures += 1
+	if snap.has("xp") and cit.has_method("get_skill_data") and cit.get_skill_data() != null:
+		for voc in snap["xp"]:
+			if cit.get_skill_data().get_xp(voc) != snap["xp"][voc]:
+				printerr("FAIL %s: Citizen %s skill %s not restored: %f != %f" % [test_name, cid, voc, cit.get_skill_data().get_xp(voc), snap["xp"][voc]])
+				failures += 1
+
+	return failures
+
+# -----------------------------------------------------------------------------
 # TC-BM.31: Workshop Dual-Channel Pause/Resume Integration Coverage
 # -----------------------------------------------------------------------------
 func _test_tc_bm_31_workshop_pause_channels() -> bool:
@@ -1660,13 +1783,14 @@ func _test_tc_bm_31_workshop_pause_channels() -> bool:
 	var wp_mgr = world_instance.workplace_mgr
 	var rm = world_instance.get_node_or_null("/root/ResourceManager")
 
-	# B5: Record original resource stock snapshot before adding test materials
-	var init_stock := {
-		"ore": rm.get_resource("ore"),
-		"metal": rm.get_resource("metal"),
-		"wood": rm.get_resource("wood"),
-		"tools": rm.get_resource("tools")
-	}
+	# Objective A: Snapshot complete ResourceManager state before test modifications
+	var init_rm_snapshot: Dictionary = _snapshot_resource_manager(rm)
+
+	# Objective D: Snapshot citizen state before modifying roles for authentic workshop assignment
+	var cit0 = world_instance.citizen_list[0]
+	var cit1 = world_instance.citizen_list[1] if world_instance.citizen_list.size() > 1 else null
+	var snap_cit0: Dictionary = _snapshot_citizen_state(cit0)
+	var snap_cit1: Dictionary = _snapshot_citizen_state(cit1) if cit1 != null else {}
 
 	# Setup workshop test fixture
 	var origin := Vector2i(28, 28)
@@ -1741,18 +1865,25 @@ func _test_tc_bm_31_workshop_pause_channels() -> bool:
 		printerr("FAIL: Craft production input consumption incorrect: metal=%d, wood=%d" % [rm.get_resource("metal"), rm.get_resource("wood")])
 		failures += 1
 
-	# B1: Assign actual registered JobManager jobs to actual citizens
-	var cit0 = world_instance.citizen_list[0]
-	var cit1 = world_instance.citizen_list[1] if world_instance.citizen_list.size() > 1 else null
+	# Objective D: Assign genuine 'smith' role to workers while assigned to Workshop jobs
+	cit0.role = "smith"
 	job_smelt.state = JobState.IN_PROGRESS
 	job_smelt.worker_id = cit0.citizen_id
 	cit0.active_job = job_smelt
 	cit0.current_state = CitizenController.State.WORKING
+	if cit0.role != "smith":
+		printerr("FAIL Objective D: cit0 role was not set to 'smith'")
+		failures += 1
+
 	if cit1 != null:
+		cit1.role = "smith"
 		job_craft.state = JobState.IN_PROGRESS
 		job_craft.worker_id = cit1.citizen_id
 		cit1.active_job = job_craft
 		cit1.current_state = CitizenController.State.WORKING
+		if cit1.role != "smith":
+			printerr("FAIL Objective D: cit1 role was not set to 'smith'")
+			failures += 1
 
 	# B2. Parent pause: both channels paused, buffers unchanged, workers safely released to IDLE, jobs available/unassigned
 	var pre_pause_ore = rm.get_resource("ore")
@@ -1892,6 +2023,17 @@ func _test_tc_bm_31_workshop_pause_channels() -> bool:
 					printerr("FAIL B3: Job identity/state mismatch for job %s key '%s': pre=%s, post=%s" % [s_pre["id"], k, str(s_pre[k]), str(s_post.get(k))])
 					failures += 1
 
+	# Objective D: Verify reconstructed citizens preserved 'smith' role across save/load
+	var cit0_post_load = _find_citizen_by_id(snap_cit0["citizen_id"])
+	if cit0_post_load == null or cit0_post_load.role != "smith":
+		printerr("FAIL Objective D: cit0 role 'smith' was not preserved across save/load: %s" % (cit0_post_load.role if cit0_post_load else "null"))
+		failures += 1
+	if not snap_cit1.is_empty():
+		var cit1_post_load = _find_citizen_by_id(snap_cit1["citizen_id"])
+		if cit1_post_load == null or cit1_post_load.role != "smith":
+			printerr("FAIL Objective D: cit1 role 'smith' was not preserved across save/load: %s" % (cit1_post_load.role if cit1_post_load else "null"))
+			failures += 1
+
 	# B4. Resume lifecycle: resume through actual world API
 	world_instance.set_building_state("workshop_test_pause", "active")
 	if not BuildingSystemScript.is_building_active_by_id("workshop_test_pause", world_instance.world_data):
@@ -1963,16 +2105,50 @@ func _test_tc_bm_31_workshop_pause_channels() -> bool:
 		printerr("FAIL: Craft job should be executable after resume")
 		failures += 1
 
-	# B5: Fixture cleanup - restore exact starting stock snapshot
-	for res_id in init_stock:
-		rm._current_stock[res_id] = init_stock[res_id]
-
 	# Clean up hauler job from jm if present
 	if jm != null and job_haul != null and job_haul in jm._jobs:
 		jm._jobs.erase(job_haul)
 
-	# Cleanup building & jobs
-	world_instance.demolish_building_project("workshop_test_pause")
+	# Objective A: Teardown Workshop through the real world demolition API
+	var dem_res = world_instance.demolish_building_project("workshop_test_pause")
+	if not dem_res.get("success", false):
+		printerr("FAIL Objective A: Workshop demolition failed: %s" % dem_res.get("reason", ""))
+		failures += 1
+
+	# Verify demolition succeeds and the fixture building/workplaces/jobs are removed
+	var b_check = BuildingSystemScript.get_building_by_id("workshop_test_pause", world_instance.world_data)
+	if not b_check.is_empty():
+		printerr("FAIL Objective A: Workshop building record still present in world_data after teardown")
+		failures += 1
+
+	if wp_mgr.get_workplace("workshop_test_pause_smelt") != null:
+		printerr("FAIL Objective A: Workshop smelt channel still present in WorkplaceManager after teardown")
+		failures += 1
+	if wp_mgr.get_workplace("workshop_test_pause_craft") != null:
+		printerr("FAIL Objective A: Workshop craft channel still present in WorkplaceManager after teardown")
+		failures += 1
+
+	var remaining_jobs = jm.get_jobs_for_building("workshop_test_pause")
+	if remaining_jobs.size() > 0:
+		printerr("FAIL Objective A: Workshop jobs still present in JobManager after teardown: %d jobs" % remaining_jobs.size())
+		failures += 1
+
+	# ONLY AFTER fixture teardown, restore the exact ResourceManager snapshot
+	_restore_resource_manager(rm, init_rm_snapshot)
+	failures += _assert_resource_manager_matches_snapshot(rm, init_rm_snapshot, "TC-BM.31")
+
+	# Objective D: Restore citizen authentic roles on current valid post-load citizen instances
+	failures += _restore_citizen_state(snap_cit0["citizen_id"], snap_cit0, "TC-BM.31 cit0")
+	if not snap_cit1.is_empty():
+		failures += _restore_citizen_state(snap_cit1["citizen_id"], snap_cit1, "TC-BM.31 cit1")
+
+	var final_cit0_31 = _find_citizen_by_id(snap_cit0["citizen_id"])
+	if final_cit0_31 == null or final_cit0_31.role != snap_cit0["role"]:
+		printerr("FAIL Objective D: final_cit0_31 role not restored to '%s', got '%s'" % [snap_cit0["role"], final_cit0_31.role if final_cit0_31 else "null"])
+		failures += 1
+	if snap_cit0["role"] != "smith" and final_cit0_31 != null and final_cit0_31.role == "smith":
+		printerr("FAIL Objective D: final_cit0_31 still retains temporary 'smith' role")
+		failures += 1
 
 	if failures == 0:
 		print("  [PASS] TC-BM.31: Dual-channel workshop pause/resume lifecycle & save/load verified.")
@@ -2001,6 +2177,9 @@ func _test_tc_bm_32_atomic_refund_failure_injection() -> bool:
 	var rm = world_instance.get_node_or_null("/root/ResourceManager")
 	var wd = world_instance.world_data
 	var jm = world_instance.job_mgr
+
+	# Snapshot complete ResourceManager state before test modifications
+	var init_rm_snapshot: Dictionary = _snapshot_resource_manager(rm)
 
 	# 1. Test production ResourceManager.add_resources_atomic preflight headroom check
 	var initial_wood = rm.get_resource("wood")
@@ -2293,10 +2472,13 @@ func _test_tc_bm_32_atomic_refund_failure_injection() -> bool:
 		printerr("FAIL: Builder job not removed after successful cancellation")
 		failures += 1
 
-	# Cleanup refunded resources
-	rm.consume_resource("wood", 10)
-	rm.consume_resource("stone", 7)
-	rm.consume_resource("metal", 2)
+	# Clean up failure injection seam and debug override
+	rm.set_test_fail_commit_resource("")
+	rm._debug_mode_override = null
+
+	# ONLY AFTER all demolition and cancellation tests, restore exact initial ResourceManager state
+	_restore_resource_manager(rm, init_rm_snapshot)
+	failures += _assert_resource_manager_matches_snapshot(rm, init_rm_snapshot, "TC-BM.32")
 
 	if failures == 0:
 		print("  [PASS] TC-BM.32: Real ResourceManager atomic failure-injection, commit rollback & unified construction cancellation verified.")
@@ -2315,8 +2497,22 @@ func _test_tc_bm_33_cargo_conservation_scenarios() -> bool:
 	var cit0 = world_instance.citizen_list[0]
 	var cit1 = world_instance.citizen_list[1] if world_instance.citizen_list.size() > 1 else null
 
+	# Objective C: Snapshot complete ResourceManager state before test modifications
+	var init_rm_snapshot: Dictionary = _snapshot_resource_manager(rm)
+
+	# Objective B: Snapshot citizen state (stable ID, role, skills, state) before modification
+	var snap_cit0: Dictionary = _snapshot_citizen_state(cit0)
+	var snap_cit1: Dictionary = _snapshot_citizen_state(cit1) if cit1 != null else {}
+
+	var orig_role0: String = snap_cit0["role"]
+	var orig_xp0: Dictionary = snap_cit0["xp"].duplicate(true)
+	var cit0_stable_id: String = snap_cit0["citizen_id"]
+
+	var cit1_stable_id: String = snap_cit1.get("citizen_id", "")
+	var orig_role1: String = snap_cit1.get("role", "")
+	var orig_xp1: Dictionary = snap_cit1.get("xp", {}).duplicate(true)
+
 	# Objective A1 & A2: Explicitly assign and verify hauler role, JobManager, and navigation reference
-	var orig_role0: String = cit0.role
 	cit0.role = "hauler"
 	cit0.job_mgr = jm
 	cit0.nav = world_instance.nav
@@ -2571,8 +2767,23 @@ func _test_tc_bm_33_cargo_conservation_scenarios() -> bool:
 		DirAccess.remove_absolute(temp_save_path + ".bak")
 
 	rm = world_instance.get_node_or_null("/root/ResourceManager")
-	var cit0_reloaded = world_instance.citizen_list[0]
-	var cit1_reloaded = world_instance.citizen_list[1] if world_instance.citizen_list.size() > 1 else null
+	wp_mgr = world_instance.workplace_mgr
+	jm = world_instance.job_mgr
+
+	# Objective B: Find reconstructed citizen by stable ID from current world_view
+	var cit0_reloaded = _find_citizen_by_id(cit0_stable_id)
+	var cit1_reloaded = _find_citizen_by_id(cit1_stable_id) if cit1_stable_id != "" else null
+
+	if cit0_reloaded == null:
+		printerr("FAIL Step 10: cit0 could not be found by stable ID after save/load: %s" % cit0_stable_id)
+		failures += 1
+	if cit0_reloaded == cit0:
+		printerr("FAIL Step 10: cit0 was not reconstructed as a new instance during save/load")
+		failures += 1
+	if not cit0_reloaded in world_instance.citizen_list or world_instance.citizens_by_id.get(cit0_stable_id) != cit0_reloaded:
+		printerr("FAIL Step 10: cit0_reloaded is not properly registered in citizen_list or citizens_by_id")
+		failures += 1
+
 	if cit0_reloaded.carrying_amount != 6 or cit0_reloaded.carrying_resource != "food":
 		printerr("FAIL Step 10: cit0 cargo not preserved across save/load! Amount: %d, Res: %s" % [cit0_reloaded.carrying_amount, cit0_reloaded.carrying_resource])
 		failures += 1
@@ -2580,6 +2791,12 @@ func _test_tc_bm_33_cargo_conservation_scenarios() -> bool:
 		printerr("FAIL Step 10: cit0 carrying_source_workplace_id not preserved across save/load! Got '%s'" % cit0_reloaded.carrying_source_workplace_id)
 		failures += 1
 	if cit1_reloaded != null:
+		if cit1_reloaded == cit1:
+			printerr("FAIL Step 10: cit1 was not reconstructed as a new instance during save/load")
+			failures += 1
+		if not cit1_reloaded in world_instance.citizen_list or world_instance.citizens_by_id.get(cit1_stable_id) != cit1_reloaded:
+			printerr("FAIL Step 10: cit1_reloaded is not properly registered in citizen_list or citizens_by_id")
+			failures += 1
 		if cit1_reloaded.carrying_amount != 4 or cit1_reloaded.carrying_resource != "food":
 			printerr("FAIL Step 10: cit1 cargo not preserved across save/load! Amount: %d" % cit1_reloaded.carrying_amount)
 			failures += 1
@@ -2604,8 +2821,16 @@ func _test_tc_bm_33_cargo_conservation_scenarios() -> bool:
 		printerr("FAIL Step 11: Food in storage did not increase by 10! %d -> %d" % [pre_dem_food, rm.get_resource("food")])
 		failures += 1
 
-	# Clean up food added from test
-	rm.consume_resource("food", 16) # 6 from earlier deposit + 10 from demolition
+	# Verify farm_cargo_test building, workplaces, and jobs are removed
+	if not BuildingSystemScript.get_building_by_id("farm_cargo_test", world_instance.world_data).is_empty():
+		printerr("FAIL Step 11: farm_cargo_test still exists in world_data after demolition")
+		failures += 1
+	if wp_mgr.get_workplace("farm_cargo_test") != null:
+		printerr("FAIL Step 11: farm_cargo_test workplace still exists in WorkplaceManager after demolition")
+		failures += 1
+	if jm.get_jobs_for_building("farm_cargo_test").size() > 0:
+		printerr("FAIL Step 11: farm_cargo_test jobs still exist in JobManager after demolition")
+		failures += 1
 
 	# STEP 12: Multi-channel recipes (workshop channels) resolve to parent building
 	var ws_origin := Vector2i(28, 28)
@@ -2648,14 +2873,60 @@ func _test_tc_bm_33_cargo_conservation_scenarios() -> bool:
 		printerr("FAIL Step 12: Citizen cargo and source workplace not cleared after workshop demolition")
 		failures += 1
 
-	rm.consume_resource("metal", 7)
-	rm.consume_resource("wood", 10)
-	rm.consume_resource("stone", 7)
-	rm._capacities["food"] = orig_cap
+	# Verify ws_channel_test building, channels, and jobs are removed
+	if not BuildingSystemScript.get_building_by_id("ws_channel_test", world_instance.world_data).is_empty():
+		printerr("FAIL Step 12: ws_channel_test still exists in world_data after demolition")
+		failures += 1
+	if wp_mgr.get_workplace("ws_channel_test_smelt") != null or wp_mgr.get_workplace("ws_channel_test_craft") != null:
+		printerr("FAIL Step 12: ws_channel_test workplace channels still exist after demolition")
+		failures += 1
+	if jm.get_jobs_for_building("ws_channel_test").size() > 0:
+		printerr("FAIL Step 12: ws_channel_test jobs still exist after demolition")
+		failures += 1
 
-	# Restore cit0 role and skill xp
-	cit0.role = orig_role0
-	cit0.get_skill_data()._xp["hauling"] = 0.0
+	# Objective C: Restore exact initial ResourceManager snapshot after all teardown is complete
+	_restore_resource_manager(rm, init_rm_snapshot)
+	failures += _assert_resource_manager_matches_snapshot(rm, init_rm_snapshot, "TC-BM.33")
+
+	# Objective B: Perform all citizen cleanup against the current valid post-load citizen object
+	failures += _restore_citizen_state(cit0_stable_id, snap_cit0, "TC-BM.33 cit0")
+	if cit1_stable_id != "":
+		failures += _restore_citizen_state(cit1_stable_id, snap_cit1, "TC-BM.33 cit1")
+
+	# Objective B: Explicitly assert that the current valid citizen no longer has temporary hauler role or XP changes
+	var final_cit0 = _find_citizen_by_id(cit0_stable_id)
+	if final_cit0 == null:
+		printerr("FAIL Objective B: final_cit0 not found after cleanup")
+		failures += 1
+	else:
+		if final_cit0 == cit0:
+			printerr("FAIL Objective B: final_cit0 is still pointing to stale pre-load instance")
+			failures += 1
+		if final_cit0.role != orig_role0:
+			printerr("FAIL Objective B: final_cit0 role not restored to '%s', got '%s'" % [orig_role0, final_cit0.role])
+			failures += 1
+		if orig_role0 != "hauler" and final_cit0.role == "hauler":
+			printerr("FAIL Objective B: final_cit0 still retains temporary 'hauler' role")
+			failures += 1
+		var cur_hauling_xp = final_cit0.get_skill_data().get_xp("hauling")
+		var orig_hauling_xp = orig_xp0.get("hauling", 0.0)
+		if cur_hauling_xp != orig_hauling_xp:
+			printerr("FAIL Objective B: final_cit0 hauling XP not restored: got %f, expected %f" % [cur_hauling_xp, orig_hauling_xp])
+			failures += 1
+
+	if cit1_stable_id != "":
+		var final_cit1 = _find_citizen_by_id(cit1_stable_id)
+		if final_cit1 != null:
+			if final_cit1 == cit1:
+				printerr("FAIL Objective B: final_cit1 is still pointing to stale pre-load instance")
+				failures += 1
+			if final_cit1.role != orig_role1:
+				printerr("FAIL Objective B: final_cit1 role not restored to '%s', got '%s'" % [orig_role1, final_cit1.role])
+				failures += 1
+			for voc in orig_xp1:
+				if final_cit1.get_skill_data().get_xp(voc) != orig_xp1[voc]:
+					printerr("FAIL Objective B: final_cit1 skill %s not restored" % voc)
+					failures += 1
 
 	if failures == 0:
 		print("  [PASS] TC-BM.33: All cargo conservation scenarios verified.")
