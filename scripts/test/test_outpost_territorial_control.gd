@@ -14,6 +14,8 @@ const FactionRelationDataScript = preload("res://scripts/factions/faction_relati
 const PlayerArmyManagerScript = preload("res://scripts/military/player_army_manager.gd")
 const TacticalMilitaryManagerScript = preload("res://scripts/military/tactical_military_manager.gd")
 const TacticalUnitScript = preload("res://scripts/military/tactical_unit.gd")
+const EnemyMilitaryManagerScript = preload("res://scripts/military/enemy_military_manager.gd")
+const EnemyTacticalUnitScript = preload("res://scripts/military/enemy_tactical_unit.gd")
 const SaveManagerScript = preload("res://scripts/persistence/save_manager.gd")
 
 var _tests_passed: int = 0
@@ -43,6 +45,7 @@ func _run_all_tests() -> void:
 	_test_group_6_duplicate_transaction_and_idempotency()
 	_test_group_7_invalid_objective_and_conflict_safety()
 	_test_group_8_save_load_persistence_and_recapture()
+	_test_group_9_garrison_ownership_release_and_recapture_safety()
 
 	print("========================================================")
 	if _tests_failed == 0:
@@ -665,6 +668,205 @@ func _test_group_8_save_load_persistence_and_recapture() -> void:
 	_assert(leg_restored.last_capture_tx_id == "", "G8.48: Legacy migration defaults last_capture_tx_id = empty")
 
 	live_world.queue_free()
+
+# -----------------------------------------------------------------------------
+# Group 9: Garrison Ownership Release & Recapture Safety (Review Correction)
+# -----------------------------------------------------------------------------
+
+func _test_group_9_garrison_ownership_release_and_recapture_safety() -> void:
+	print("\n--- Group 9: Garrison Ownership Release & Recapture Safety ---")
+
+	# -------------------------------------------------------------------------
+	# Test A: NPC conquest releases previous owner garrison
+	# -------------------------------------------------------------------------
+	var fm_a := FactionManagerScript.new()
+	var bcm_a := BattleCampaignManagerScript.new()
+	var fsm_a := FieldSiegeManagerScript.new()
+	var em_a := EnemyMilitaryManagerScript.new(null, fm_a)
+	fsm_a.set_faction_manager(fm_a)
+	fsm_a.set_enemy_military_manager(em_a)
+	em_a.set_field_siege_manager(fsm_a)
+	bcm_a.set_faction_manager(fm_a)
+	bcm_a.set_custom_field_siege_manager(fsm_a)
+
+	var def_outpost_a = fsm_a.register_objective("outpost_a_test", Vector2i(45, 20), "rival_merchant", 200.0, 2)
+	def_outpost_a.health = 20.0
+
+	var u_a1 = em_a.spawn_enemy_unit("rival_merchant", Vector2i(45, 21), "npc_garrison_1", 100.0, 20.0, true, "outpost_a_test")
+	var u_a2 = em_a.spawn_enemy_unit("rival_merchant", Vector2i(45, 19), "npc_garrison_2", 100.0, 20.0, true, "outpost_a_test")
+	def_outpost_a.defending_unit_ids.assign(["npc_garrison_1", "npc_garrison_2"])
+
+	var pre_garrison_a = em_a.get_garrison_defenders_by_objective("outpost_a_test")
+	_assert(pre_garrison_a.size() == 2, "G9.1: Pre-conquest garrison has 2 units assigned")
+
+	var atk_fac_a = fm_a.get_faction("rival_military")
+	var def_fac_a = fm_a.get_faction("rival_merchant")
+	atk_fac_a.military_power = 95.0
+	def_fac_a.military_power = 10.0
+	def_fac_a.stability = 60.0
+
+	bcm_a.set_custom_current_day(2)
+	fm_a.declare_war_between_factions("rival_military", "rival_merchant", "Border dispute", 2)
+
+	var p_key_a: String = FactionRelationDataScript.make_pair_key("rival_military", "rival_merchant")
+	var camp_a: Dictionary = bcm_a.get_pending_inter_faction_campaign_for_pair(p_key_a)
+	var camp_id_a: String = camp_a.get("campaign_id", "")
+	var sched_day_a: int = int(camp_a.get("scheduled_day", 4))
+	bcm_a.set_custom_current_day(sched_day_a)
+	var camp_res_a = bcm_a.resolve_inter_faction_campaign(camp_id_a, sched_day_a)
+
+	_assert(camp_res_a.get("success", false) == true, "G9.2: NPC campaign resolved successfully")
+	_assert(camp_res_a.get("report", {}).get("victor") == "attacker", "G9.3: Attacker won the campaign battle")
+	_assert(def_outpost_a.owning_faction_id == "rival_military", "G9.4: New faction owns the outpost")
+	_assert(u_a1.assigned_objective_id == "" and u_a2.assigned_objective_id == "", "G9.5: Old garrison units no longer assigned to objective")
+	_assert(u_a1.is_garrison_defender == false and u_a2.is_garrison_defender == false, "G9.6: Old units no longer marked as garrison defenders")
+	_assert(u_a1.owning_faction_id == "rival_merchant" and u_a2.owning_faction_id == "rival_merchant", "G9.7: Old units owning_faction_id unchanged")
+	_assert(u_a1.ai_state == 5 and u_a2.ai_state == 5, "G9.8: Surviving units entered RECOVER_RETREAT (state 5)")
+	_assert(em_a.get_garrison_defenders_by_objective("outpost_a_test").is_empty(), "G9.9: get_garrison_defenders_by_objective is empty after transfer")
+	_assert(u_a1.owning_faction_id != "rival_military" and u_a2.owning_faction_id != "rival_military", "G9.10: No old unit converted to new owner's faction")
+
+	# -------------------------------------------------------------------------
+	# Test B: Player conquest also releases garrison correctly
+	# -------------------------------------------------------------------------
+	var fm_b := FactionManagerScript.new()
+	var army_mgr_b := PlayerArmyManagerScript.new()
+	var tac_mgr_b := TacticalMilitaryManagerScript.new(null, army_mgr_b)
+	army_mgr_b.set_tactical_military_manager(tac_mgr_b)
+	army_mgr_b.soldier_count = 3
+	tac_mgr_b.sync_with_player_army()
+	for u in tac_mgr_b.get_all_units():
+		u.current_cell = Vector2i(15, 16)
+	army_mgr_b.current_cell = Vector2i(15, 16)
+	army_mgr_b.movement_state = PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD
+
+	var em_b := EnemyMilitaryManagerScript.new(null, fm_b)
+	var rm_b := MockResourceManager.new()
+	var fsm_b := FieldSiegeManagerScript.new(null, fm_b, army_mgr_b, em_b)
+	fsm_b.set_resource_manager(rm_b)
+	em_b.set_field_siege_manager(fsm_b)
+
+	var def_outpost_b = fsm_b.register_objective("outpost_b_test", Vector2i(15, 15), "rival_military", 100.0, 2)
+	var u_b1 = em_b.spawn_enemy_unit("rival_military", Vector2i(15, 14), "player_garrison_1", 100.0, 20.0, true, "outpost_b_test")
+	var u_b2 = em_b.spawn_enemy_unit("rival_military", Vector2i(16, 15), "player_garrison_2", 100.0, 20.0, true, "outpost_b_test")
+	def_outpost_b.defending_unit_ids.assign(["player_garrison_1", "player_garrison_2"])
+
+	var fac_b = fm_b.get_faction("rival_military")
+	fac_b.is_at_war = true
+
+	var b1_changes := {"count": 0}
+	var b2_changes := {"count": 0}
+	u_b1.ai_state_changed.connect(func(_eid, _old_st, new_st):
+		if new_st == 5:
+			b1_changes["count"] += 1
+	)
+	u_b2.ai_state_changed.connect(func(_eid, _old_st, new_st):
+		if new_st == 5:
+			b2_changes["count"] += 1
+	)
+
+	var launch_b = fsm_b.launch_field_siege("rival_military", "outpost_b_test")
+	_assert(launch_b.get("success", false) == true, "G9.11: Player siege launched against NPC outpost")
+
+	def_outpost_b.take_damage(150.0, "player_army")
+	var eval_b = fsm_b.evaluate_siege_status(launch_b.get("siege_id", ""))
+	_assert(eval_b.get("outcome") == "VICTORY", "G9.12: Player siege resolved as VICTORY")
+	_assert(def_outpost_b.owning_faction_id == "player", "G9.13: Outpost transferred to player")
+	_assert(u_b1.assigned_objective_id == "" and u_b2.assigned_objective_id == "", "G9.14: Player victory cleared assigned_objective_id")
+	_assert(u_b1.is_garrison_defender == false and u_b2.is_garrison_defender == false, "G9.15: Player victory cleared is_garrison_defender")
+	_assert(u_b1.owning_faction_id == "rival_military" and u_b2.owning_faction_id == "rival_military", "G9.16: Units retain original faction rival_military")
+	_assert(u_b1.ai_state == 5 and u_b2.ai_state == 5, "G9.17: Surviving garrison units routed to RECOVER_RETREAT (5)")
+	_assert(b1_changes["count"] == 1 and b2_changes["count"] == 1, "G9.18: RECOVER_RETREAT transitioned exactly once (no duplicate retreat operation)")
+
+	# -------------------------------------------------------------------------
+	# Test C: New owner siege never reuses former owner's defenders
+	# -------------------------------------------------------------------------
+	var fm_c := FactionManagerScript.new()
+	var em_c := EnemyMilitaryManagerScript.new(null, fm_c)
+	var army_mgr_c := PlayerArmyManagerScript.new()
+	var tac_mgr_c := TacticalMilitaryManagerScript.new(null, army_mgr_c)
+	army_mgr_c.set_tactical_military_manager(tac_mgr_c)
+	army_mgr_c.soldier_count = 3
+	tac_mgr_c.sync_with_player_army()
+	for u in tac_mgr_c.get_all_units():
+		u.current_cell = Vector2i(10, 11)
+	army_mgr_c.current_cell = Vector2i(10, 11)
+	army_mgr_c.movement_state = PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD
+
+	var fsm_c := FieldSiegeManagerScript.new(null, fm_c, army_mgr_c, em_c)
+	em_c.set_field_siege_manager(fsm_c)
+
+	var obj_c = fsm_c.register_objective("outpost_c_test", Vector2i(10, 10), "rival_merchant", 200.0, 2)
+	var old_unit_a = em_c.spawn_enemy_unit("rival_military", Vector2i(10, 9), "old_fac_a_unit", 100.0, 20.0, false, "")
+	old_unit_a.set_ai_state(5)
+
+	_assert(fsm_c.is_eligible_garrison_defender(old_unit_a, "rival_merchant", "outpost_c_test") == false, "G9.19: is_eligible_garrison_defender rejects unit belonging to different faction")
+
+	var old_unit_a_active = em_c.spawn_enemy_unit("rival_military", Vector2i(10, 8), "old_fac_a_active", 100.0, 20.0, false, "")
+	_assert(fsm_c.is_eligible_garrison_defender(old_unit_a_active, "rival_merchant", "outpost_c_test") == false, "G9.20: is_eligible_garrison_defender rejects active unit of former owner faction")
+
+	var fac_c = fm_c.get_faction("rival_merchant")
+	fac_c.is_at_war = true
+	var launch_c = fsm_c.launch_field_siege("rival_merchant", "outpost_c_test")
+	_assert(launch_c.get("success", false) == true, "G9.21: Siege launched against new owner faction B")
+
+	var s_id_c: String = launch_c.get("siege_id", "")
+	var siege_rec_c = fsm_c.active_sieges.get(s_id_c, {})
+	var c_defenders: Array = siege_rec_c.get("defending_unit_ids", [])
+	_assert(not c_defenders.has("old_fac_a_unit"), "G9.22: Siege defender list excludes former owner retreating unit")
+	_assert(not c_defenders.has("old_fac_a_active"), "G9.23: Siege defender list excludes former owner active unit")
+
+	var all_belong_to_merchant: bool = true
+	for d_id in c_defenders:
+		var d_unit = em_c.get_enemy(d_id)
+		if d_unit == null or d_unit.owning_faction_id != "rival_merchant":
+			all_belong_to_merchant = false
+	_assert(all_belong_to_merchant and not c_defenders.is_empty(), "G9.24: All recruited defenders belong exclusively to current owner rival_merchant")
+
+	# -------------------------------------------------------------------------
+	# Test D: Rejected and duplicate ownership transfers do not release garrison
+	# -------------------------------------------------------------------------
+	var fm_d := FactionManagerScript.new()
+	var em_d := EnemyMilitaryManagerScript.new(null, fm_d)
+	var fsm_d := FieldSiegeManagerScript.new(null, fm_d, null, em_d)
+	em_d.set_field_siege_manager(fsm_d)
+
+	var obj_d = fsm_d.register_objective("outpost_d_test", Vector2i(25, 25), "rival_military", 200.0, 2)
+	var u_d1 = em_d.spawn_enemy_unit("rival_military", Vector2i(25, 26), "guard_d1", 100.0, 20.0, true, "outpost_d_test")
+	u_d1.set_ai_state(0)
+	obj_d.defending_unit_ids.assign(["guard_d1"])
+
+	var res_d_ws = fsm_d.transfer_outpost_ownership("outpost_d_test", "player", "   ")
+	_assert(res_d_ws.get("success", true) == false, "G9.25: Whitespace tx_id rejected")
+	_assert(u_d1.is_garrison_defender == true, "G9.26: Whitespace tx_id did not clear is_garrison_defender")
+	_assert(u_d1.assigned_objective_id == "outpost_d_test", "G9.27: Whitespace tx_id did not clear assigned_objective_id")
+	_assert(u_d1.ai_state == 0, "G9.28: Whitespace tx_id did not mutate ai_state")
+
+	var res_d_inv_owner = fsm_d.transfer_outpost_ownership("outpost_d_test", "phantom_faction_999", "tx_d_01")
+	_assert(res_d_inv_owner.get("success", true) == false, "G9.29: Non-existent owner rejected")
+	_assert(u_d1.is_garrison_defender == true, "G9.30: Invalid owner did not clear is_garrison_defender")
+	_assert(u_d1.assigned_objective_id == "outpost_d_test", "G9.31: Invalid owner did not clear assigned_objective_id")
+	_assert(u_d1.ai_state == 0, "G9.32: Invalid owner did not mutate ai_state")
+
+	var res_d_same = fsm_d.transfer_outpost_ownership("outpost_d_test", "rival_military", "tx_d_02")
+	_assert(res_d_same.get("already_applied", false) == true, "G9.33: Same-owner transfer flagged already_applied")
+	_assert(u_d1.is_garrison_defender == true, "G9.34: Same-owner transfer did not clear is_garrison_defender")
+	_assert(u_d1.assigned_objective_id == "outpost_d_test", "G9.35: Same-owner transfer did not clear assigned_objective_id")
+	_assert(u_d1.ai_state == 0, "G9.36: Same-owner transfer did not mutate ai_state")
+
+	var res_d_valid = fsm_d.transfer_outpost_ownership("outpost_d_test", "player", "tx_d_apply_once")
+	_assert(res_d_valid.get("success", false) == true, "G9.37: Valid initial transfer succeeds")
+	_assert(u_d1.is_garrison_defender == false, "G9.38: Valid transfer cleared is_garrison_defender")
+	_assert(u_d1.ai_state == 5, "G9.39: Valid transfer routed guard to retreat (5)")
+
+	var u_d2 = em_d.spawn_enemy_unit("player", Vector2i(25, 24), "player_guard_1", 100.0, 20.0, true, "outpost_d_test")
+	u_d2.set_ai_state(0)
+	obj_d.defending_unit_ids.assign(["player_guard_1"])
+
+	var res_d_dup = fsm_d.transfer_outpost_ownership("outpost_d_test", "player", "tx_d_apply_once")
+	_assert(res_d_dup.get("already_applied", false) == true, "G9.40: Duplicate transaction ID flagged already_applied")
+	_assert(u_d2.is_garrison_defender == true, "G9.41: Duplicate transaction did not clear is_garrison_defender on current guard")
+	_assert(u_d2.assigned_objective_id == "outpost_d_test", "G9.42: Duplicate transaction did not clear assigned_objective_id on current guard")
+	_assert(u_d2.ai_state == 0, "G9.43: Duplicate transaction did not mutate current guard ai_state")
 
 # -----------------------------------------------------------------------------
 # Test Helper Doubles (Mock Classes)

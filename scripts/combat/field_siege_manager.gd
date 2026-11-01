@@ -54,6 +54,9 @@ func set_enemy_military_manager(enemy_mgr: Object) -> void:
 	enemy_military_mgr = enemy_mgr
 	if enemy_military_mgr != null and enemy_military_mgr.has_method("set_field_siege_manager"):
 		enemy_military_mgr.set_field_siege_manager(self)
+	for obj in objectives.values():
+		if obj != null and is_instance_valid(obj):
+			obj.set("enemy_military_manager", enemy_mgr)
 
 func set_resource_manager(rm: Object) -> void:
 	resource_mgr = rm
@@ -114,6 +117,7 @@ func register_objective(obj_id: String, cell: Vector2i, faction_id: String, max_
 	obj.health = max_hp
 	obj.garrison_count = garrison
 	obj.faction_manager = get_faction_manager()
+	obj.enemy_military_manager = get_enemy_military_manager()
 
 	obj.objective_destroyed.connect(_on_objective_destroyed)
 
@@ -139,6 +143,42 @@ func is_valid_owner_id(owner_id: String) -> bool:
 		return false
 	return false
 
+## Validates whether a unit can serve as a garrison defender for the target faction and objective.
+## Rejects dead units, units of a different faction, units in retreat/recovery state, and units assigned elsewhere.
+func is_eligible_garrison_defender(unit: Object, target_faction_id: String, objective_id: String = "") -> bool:
+	if unit == null or not is_instance_valid(unit):
+		return false
+	var alive_val = unit.get("is_alive")
+	if alive_val != null and not bool(alive_val):
+		return false
+	var hp_val = unit.get("health")
+	if hp_val != null and float(hp_val) <= 0.0:
+		return false
+	var fac_id: String = str(unit.get("owning_faction_id"))
+	if fac_id.is_empty():
+		fac_id = str(unit.get("faction_id"))
+	if fac_id != target_faction_id or target_faction_id.is_empty():
+		return false
+	var ai_st: int = int(unit.get("ai_state")) if unit.get("ai_state") != null else -1
+	# 5 = RECOVER_RETREAT (EnemyTacticalUnit.AIState.RECOVER_RETREAT)
+	if ai_st == 5:
+		return false
+	var assigned_obj: String = str(unit.get("assigned_objective_id"))
+	if not objective_id.is_empty() and not assigned_obj.is_empty() and assigned_obj != objective_id:
+		return false
+	return true
+
+## Releases any garrison defenders stationed at the outpost, routing them into retreat.
+func release_outpost_garrison(obj_id: String) -> Array:
+	var obj = get_objective(obj_id)
+	var em = get_enemy_military_manager()
+	if em != null and em.has_method("release_garrison_defenders"):
+		return em.release_garrison_defenders(obj_id, obj)
+	elif obj != null and is_instance_valid(obj):
+		if obj.get("defending_unit_ids") != null and obj.defending_unit_ids is Array:
+			obj.defending_unit_ids.clear()
+	return []
+
 ## Authoritative outpost territorial transfer method with strict idempotency and validation.
 func transfer_outpost_ownership(obj_id: String, new_owner_id: String, tx_id: String = "") -> Dictionary:
 	if tx_id.strip_edges().is_empty():
@@ -163,8 +203,33 @@ func transfer_outpost_ownership(obj_id: String, new_owner_id: String, tx_id: Str
 			"reason": "Chủ sở hữu mới không hợp lệ hoặc chưa được xác thực: %s" % new_owner_id
 		}
 
+	# Idempotency check: duplicate transaction ID
+	if obj.last_capture_tx_id == tx_id:
+		return {
+			"success": true,
+			"already_applied": true,
+			"reason": "Giao dịch %s đã được áp dụng trước đó" % tx_id,
+			"objective_id": obj_id,
+			"current_owner": obj.owning_faction_id
+		}
+
+	# Idempotency check: already owned by new owner
+	if obj.owning_faction_id == new_owner_id:
+		return {
+			"success": true,
+			"already_applied": true,
+			"reason": "Tiền đồn %s đã thuộc về %s" % [obj_id, new_owner_id],
+			"objective_id": obj_id,
+			"current_owner": obj.owning_faction_id
+		}
+
+	# Valid, non-duplicate transfer: release old garrison before ownership changes
+	release_outpost_garrison(obj_id)
+
 	if obj.get("faction_manager") == null:
 		obj.set("faction_manager", get_faction_manager())
+	if obj.get("enemy_military_manager") == null:
+		obj.set("enemy_military_manager", get_enemy_military_manager())
 
 	var prev_owner := str(obj.owning_faction_id)
 	var res: Dictionary = obj.transfer_ownership(new_owner_id, tx_id)
@@ -270,13 +335,13 @@ func launch_field_siege(target_faction_id: String, objective_id: String) -> Dict
 		var living_defenders: Array[TacticalUnit] = []
 		for uid in obj.defending_unit_ids:
 			var u = em.get_enemy(uid)
-			if u != null and is_instance_valid(u) and u.is_alive and not living_defenders.has(u):
+			if is_eligible_garrison_defender(u, target_faction_id, objective_id) and not living_defenders.has(u):
 				living_defenders.append(u)
 
 		if em.has_method("get_garrison_defenders_by_objective"):
 			var assigned = em.get_garrison_defenders_by_objective(objective_id)
 			for u in assigned:
-				if u != null and is_instance_valid(u) and u.is_alive and not living_defenders.has(u):
+				if is_eligible_garrison_defender(u, target_faction_id, objective_id) and not living_defenders.has(u):
 					living_defenders.append(u)
 
 		# If still below target garrison capacity, reuse unassigned faction units in proximity
@@ -285,7 +350,7 @@ func launch_field_siege(target_faction_id: String, objective_id: String) -> Dict
 			for u in faction_units:
 				if living_defenders.size() >= obj.garrison_count:
 					break
-				if u != null and is_instance_valid(u) and u.is_alive and not living_defenders.has(u):
+				if is_eligible_garrison_defender(u, target_faction_id, objective_id) and not living_defenders.has(u):
 					if not u.get("is_garrison_defender") or u.get("assigned_objective_id") == "":
 						var dist: int = IsoMath.grid_distance(u.current_cell, obj.current_cell)
 						if dist <= 8:
@@ -471,19 +536,7 @@ func _resolve_siege_outcome(siege_id: String, outcome: String) -> Dictionary:
 				plunder[r_type] = req_amt
 		details["plunder"] = plunder
 
-		# 3. Clean up / route surviving defenders of captured outpost
-		var em = get_enemy_military_manager()
-		if em != null and obj != null:
-			for uid in obj.defending_unit_ids:
-				var u = em.get_enemy(uid)
-				if u != null and is_instance_valid(u) and u.is_alive:
-					if u.has_method("retreat_and_despawn"):
-						u.retreat_and_despawn()
-					elif u.has_method("set_ai_state"):
-						u.set_ai_state(5) # 5 = RECOVER_RETREAT
-			obj.defending_unit_ids.clear()
-
-		# 4. Package 2G: Authoritative Outpost Ownership Transfer to Player
+		# 3. Package 2G: Authoritative Outpost Ownership Transfer to Player (centralized garrison release)
 		var tx_id: String = "player_siege_%s" % siege_id
 		var transfer_res: Dictionary = transfer_outpost_ownership(record.get("objective_id", ""), "player", tx_id)
 		details["ownership_transfer"] = transfer_res

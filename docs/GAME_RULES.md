@@ -494,3 +494,14 @@ Outpost banners dynamically display the heraldic colors and conquest markers of 
 ### 15.6 Fail-Closed Save/Load Schema & Migration
 - **Schema Validation:** `SaveManager.validate_save_data()` strictly validates the types and values of `original_owner_id` (String), `previous_owner_id` (String), `capture_revision` (non-negative int), and `last_capture_tx_id` (String).
 - **100% Backward-Compatible Migration:** Legacy saves without Package 2G metadata automatically default to `original_owner_id = owning_faction_id`, `previous_owner_id = ""`, `capture_revision = 0`, and `last_capture_tx_id = ""`.
+
+### 15.7 Garrison Ownership Lifecycle & Recapture Filtering
+- **Centralized Garrison Release:** Upon any successful, validated, non-duplicate outpost ownership transfer (`transfer_outpost_ownership`), the previous owner's garrison defenders are authoritatively unassigned:
+  - `is_garrison_defender` is set to `false`.
+  - `assigned_objective_id` is cleared (`""`).
+  - Combat and pursuit states are safely returned to idle (`clear_combat_and_pursuit_to_idle`).
+  - Units are transitioned into `RECOVER_RETREAT` state (state 5) to retreat toward the map border and despawn via the standard `EnemyMilitaryManager` lifecycle.
+  - The soldiers' original `owning_faction_id` is strictly preserved (never converted to the capturing faction).
+  - Surviving defenders are never deleted instantly, maintaining immersion and simulation consistency.
+- **Fail-Closed Garrison Protection:** Invalid transactions, non-existent owners, duplicate transaction IDs, and same-owner transfers strictly do not trigger garrison release or retreat state transitions.
+- **Defensive Faction Ownership Filtering during Siege Launch:** `FieldSiegeManager.launch_field_siege()` strictly filters candidate defenders from `defending_unit_ids`, `get_garrison_defenders_by_objective()`, and proximity reuse using `is_eligible_garrison_defender()`. A defender is only accepted if it belongs to `target_faction_id`, is alive, is not in `RECOVER_RETREAT`, and is not assigned to a different outpost. Soldiers of a former owner are never reused to defend an outpost for the current owner.

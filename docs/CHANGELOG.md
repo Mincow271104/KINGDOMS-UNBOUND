@@ -23,7 +23,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - Inter-faction warfare campaign integration: Attacking NPC victories dynamically resolve the defender's outpost, inflict siege damage, sack the outpost on breach, and transfer territorial ownership with unique campaign transaction IDs.
   - Collision avoidance: Campaigns strictly skip damaging or capturing outposts currently under active player siege (`is_under_active_siege == true`).
   - End-to-end `SaveManager` persistence & migration: Verified via live `WorldView` scene using `serialize_world_state()` and `apply_loaded_state_to_world()`. Deserializes legacy saves safely by defaulting `original_owner_id = owning_faction_id`, `previous_owner_id = ""`, `capture_revision = 0`, and `last_capture_tx_id = ""`.
-  - Automated test suite `scripts/test/test_outpost_territorial_control.gd` covering 8 mandatory test groups and 157 assertions (100% pass rate, Exit Code 0).
+  - Centralized garrison release lifecycle (`EnemyMilitaryManager.release_garrison_defenders()`, `FieldSiegeManager.release_outpost_garrison()`): Authoritatively unassigns former garrison units upon validated, non-duplicate ownership transfers (`is_garrison_defender = false`, `assigned_objective_id = ""`), resets combat and pursuit paths safely to idle, and routes units to `RECOVER_RETREAT` (5) while preserving their original faction without instant destruction or conversion.
+  - Defensive faction filtering during siege launch: `FieldSiegeManager.is_eligible_garrison_defender()` rejects former owner units, retreating units, and units assigned to other outposts across `defending_unit_ids`, `get_garrison_defenders_by_objective()`, and proximity reuse, preventing any former owner soldiers from defending a recaptured outpost.
+  - Automated test suite `scripts/test/test_outpost_territorial_control.gd` covering 9 test groups and 200 assertions (100% pass rate, Exit Code 0).
 
 ### [Package 2B] - 2026-10-31
 #### Added

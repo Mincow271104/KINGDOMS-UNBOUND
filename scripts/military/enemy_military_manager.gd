@@ -132,6 +132,71 @@ func get_garrison_defenders_by_objective(objective_id: String) -> Array:
 			result.append(e)
 	return result
 
+## Release all garrison defenders currently assigned to an objective upon ownership transfer.
+## Routes surviving units into RECOVER_RETREAT (5) while leaving their owning faction intact.
+func release_garrison_defenders(objective_id: String, objective: Object = null) -> Array:
+	var released_units: Array = []
+	if objective_id.strip_edges().is_empty():
+		return released_units
+
+	var obj = objective
+	if obj == null:
+		var fsm = get_field_siege_manager()
+		if fsm != null and fsm.has_method("get_objective"):
+			obj = fsm.get_objective(objective_id)
+
+	var candidates: Array = []
+	if obj != null and is_instance_valid(obj) and obj.get("defending_unit_ids") != null:
+		var uids = obj.get("defending_unit_ids")
+		if uids is Array:
+			for uid in uids:
+				var u = get_enemy(str(uid))
+				if u != null and is_instance_valid(u) and not candidates.has(u):
+					candidates.append(u)
+
+	var assigned = get_garrison_defenders_by_objective(objective_id)
+	for u in assigned:
+		if u != null and is_instance_valid(u) and not candidates.has(u):
+			candidates.append(u)
+
+	for unit in candidates:
+		if unit == null or not is_instance_valid(unit):
+			continue
+		var alive_val = unit.get("is_alive")
+		var is_alive: bool = bool(alive_val) if alive_val != null else true
+		var hp_val = unit.get("health")
+		var hp: float = float(hp_val) if hp_val != null else 1.0
+		if not is_alive or hp <= 0.0:
+			continue
+
+		if unit.has_method("clear_combat_and_pursuit_to_idle"):
+			unit.clear_combat_and_pursuit_to_idle()
+		else:
+			unit.set("target_actor", null)
+			unit.set("target_actor_id", "")
+			unit.set("order_state", TacticalUnit.OrderState.IDLE)
+			var p = unit.get("current_path")
+			if p != null and p is Array:
+				p.clear()
+			unit.set("target_cell", unit.get("current_cell"))
+
+		unit.set("is_garrison_defender", false)
+		unit.set("assigned_objective_id", "")
+
+		if unit.has_method("set_ai_state"):
+			unit.set_ai_state(EnemyTacticalUnitScript.AIState.RECOVER_RETREAT)
+		elif unit.get("ai_state") != null:
+			unit.set("ai_state", 5)
+
+		released_units.append(unit)
+
+	if obj != null and is_instance_valid(obj) and obj.get("defending_unit_ids") != null:
+		var uids = obj.get("defending_unit_ids")
+		if uids is Array:
+			uids.clear()
+
+	return released_units
+
 func get_authoritative_occupied_cells(extra_excluded: Array = []) -> Dictionary:
 	var occupied: Dictionary = {}
 

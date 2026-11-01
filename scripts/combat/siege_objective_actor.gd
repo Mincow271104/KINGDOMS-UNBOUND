@@ -28,6 +28,7 @@ signal objective_ownership_changed(obj_id: String, prev_owner: String, new_owner
 
 var damage_flash_timer: float = 0.0
 var faction_manager: Object = null
+var enemy_military_manager: Object = null
 
 func _get_faction_manager() -> Object:
 	if faction_manager != null:
@@ -38,6 +39,18 @@ func _get_faction_manager() -> Object:
 			return p.get("faction_mgr")
 		if p.get("faction_manager") != null:
 			return p.get("faction_manager")
+		p = p.get_parent()
+	return null
+
+func _get_enemy_military_manager() -> Object:
+	if enemy_military_manager != null and is_instance_valid(enemy_military_manager):
+		return enemy_military_manager
+	var p = get_parent()
+	while p != null:
+		if p.get("enemy_military_mgr") != null:
+			return p.get("enemy_military_mgr")
+		if p.get("enemy_military_manager") != null:
+			return p.get("enemy_military_manager")
 		p = p.get_parent()
 	return null
 
@@ -113,6 +126,12 @@ func transfer_ownership(new_owner_id: String, tx_id: String = "") -> Dictionary:
 			"objective_id": objective_id,
 			"current_owner": owning_faction_id
 		}
+
+	# Release old garrison before changing owner and clearing defending_unit_ids
+	if not defending_unit_ids.is_empty():
+		var em = _get_enemy_military_manager()
+		if em != null and em.has_method("release_garrison_defenders"):
+			em.release_garrison_defenders(objective_id, self)
 
 	var prev_owner := owning_faction_id
 	if original_owner_id.is_empty():

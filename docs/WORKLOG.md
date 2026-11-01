@@ -8933,3 +8933,55 @@ Address findings from independent review of Package 2G:
 
 ### Next Exact Step
 - Commit correction changes with `fix(outposts): harden territorial ownership validation`, push branch `feature/package-2g-outpost-territorial-control` to remote `origin`, and await independent review verification.
+
+---
+
+## 2026-11-01 — Package 2G: Outpost Garrison Ownership Cleanup & Recapture Safety (Completed)
+
+### Context & Objective
+Address final independent review finding regarding outpost garrison ownership persistence and recapture safety:
+1. **Root Cause:** When an outpost was captured, `SiegeObjectiveActor.transfer_ownership()` cleared its local `defending_unit_ids`, but the underlying soldier units registered in `EnemyMilitaryManager` still had `is_garrison_defender == true` and `assigned_objective_id == captured objective_id`.
+2. **Defect:** Subsequent sieges against the new owner queried `EnemyMilitaryManager.get_garrison_defenders_by_objective(objective_id)` without faction ownership filtering, causing soldiers of the former owner to defend the outpost for the capturing faction.
+3. **Objective:** Centralize garrison release upon successful ownership transfer across both player siege victory and NPC campaign conquest, route surviving former garrison units safely into `RECOVER_RETREAT` (5) while preserving their original faction, and add strict defensive faction filtering in `FieldSiegeManager.launch_field_siege()`.
+
+### Implementation Summary
+1. **Centralized Garrison Release Helper (`scripts/military/enemy_military_manager.gd`):**
+   - Implemented `release_garrison_defenders(objective_id: String, objective: Object = null) -> Array`.
+   - Identifies candidate units from both `objective.defending_unit_ids` and `get_garrison_defenders_by_objective(objective_id)`.
+   - Deduplicates and verifies alive/valid instances.
+   - Clears combat and pursuit paths safely to idle via `clear_combat_and_pursuit_to_idle()`.
+   - Clears `is_garrison_defender = false` and `assigned_objective_id = ""`.
+   - Routes units into `RECOVER_RETREAT` state (5) via `set_ai_state(5)`.
+   - Preserves original `owning_faction_id` (never converts units to capturing faction).
+   - Surviving soldiers are never destroyed instantly; standard retreat behavior and `enemy_retreated` signal handle eventual cleanup.
+   - Clears `objective.defending_unit_ids`.
+2. **Authoritative FieldSiegeManager Orchestration (`scripts/combat/field_siege_manager.gd`):**
+   - Added `release_outpost_garrison(obj_id: String) -> Array`, delegating to `EnemyMilitaryManager.release_garrison_defenders()`.
+   - Integrated into `transfer_outpost_ownership(obj_id, new_owner_id, tx_id)`: Garrison release executes exclusively on valid, non-duplicate, real ownership transfers.
+   - Fail-closed transaction safety: whitespace `tx_id`, invalid owners, duplicate `tx_id`, and same-owner transfers strictly do not release garrison.
+   - Removed redundant manual retreat loop from `_resolve_siege_outcome()`, establishing a unified, authoritative cleanup path with zero duplicate retreat operations or signals.
+   - In `set_enemy_military_manager()`, propagated `enemy_military_manager` to all registered objectives.
+3. **SiegeObjectiveActor Guarding (`scripts/combat/siege_objective_actor.gd`):**
+   - Added `enemy_military_manager` property and `_get_enemy_military_manager()` traversal helper.
+   - In `transfer_ownership()`, if `defending_unit_ids` is not empty, triggers `release_garrison_defenders()` as a defensive fallback.
+4. **Defensive Faction Ownership Filtering during Siege Launch (`scripts/combat/field_siege_manager.gd`):**
+   - Added `is_eligible_garrison_defender(unit: Object, target_faction_id: String, objective_id: String = "") -> bool`.
+   - In `launch_field_siege()`, candidate defenders from `obj.defending_unit_ids`, `get_garrison_defenders_by_objective()`, and proximity reuse are strictly required to belong to `target_faction_id`, be alive, not be in `RECOVER_RETREAT` (5), and not be assigned to a different outpost.
+5. **Test Suite Expansion (`scripts/test/test_outpost_territorial_control.gd`):**
+   - Added Group 9 containing 43 new assertions (G9.1 to G9.43), raising suite total from 157 to 200 assertions (100% pass rate):
+     - *Test A (G9.1–G9.10):* NPC campaign conquest releases previous owner garrison into `RECOVER_RETREAT` with unchanged faction.
+     - *Test B (G9.11–G9.18):* Player conquest releases garrison correctly with exactly one state transition (no duplicate operations/signals).
+     - *Test C (G9.19–G9.24):* New owner siege strictly rejects former owner soldiers and recruits only current owner defenders.
+     - *Test D (G9.25–G9.43):* Whitespace `tx_id`, invalid owners, same-owner transfers, and duplicate `tx_id` strictly do not mutate garrison flags or retreat states.
+6. **Documentation Synchronization:**
+   - Synchronized `docs/GAME_RULES.md` (Section 15.7), `docs/ARCHITECTURE.md` (Section 10.6), `docs/CHANGELOG.md`, and `docs/WORKLOG.md`.
+
+### Verification & Regression Results (Targeted Scope)
+1. `scripts/test/test_outpost_territorial_control.gd`: **200/200 assertions PASSED (Exit Code 0)**
+2. `scripts/test/test_field_siege.gd`: **98/98 assertions PASSED (Exit Code 0)**
+3. `scripts/test/test_autonomous_faction_conflict.gd`: **205/205 checks PASSED (Exit Code 0)**
+4. `scripts/test/test_save_load.gd`: **182/182 assertions PASSED (Exit Code 0)**
+5. Headless Editor Parse Check (`Godot_v4.7-stable_win64_console.exe --headless --editor --quit`): **Exit Code 0, 0 errors**.
+
+### Next Exact Step
+- Commit changes with `fix(outposts): release previous garrison on ownership transfer` and push branch `feature/package-2g-outpost-territorial-control` to `origin`. Await final independent review.
