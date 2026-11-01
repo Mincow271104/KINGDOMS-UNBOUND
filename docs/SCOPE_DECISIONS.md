@@ -652,9 +652,35 @@
 
 ---
 
+- **1.31 Settlement Building Upgrades & Infrastructure Progression (GDD §7.1, §7.2 — Package 2I):**
+  - **3-Tier Progression for Targeted Buildings:**
+    - Strictly limited to `house`, `farm`, and `storehouse`. All other civic, military, research, and defensive buildings (`townhall`, `barracks`, `workshop`, `research_hall`, `market`, `watchtower`, `palisade`) are immutable at Level 1.
+    - Level clamped to $[1, 3]$ (`MAX_BUILDING_LEVEL = 3`).
+    - Old saves without `upgrade_level` default to Level 1.
+  - **Deterministic Tier Cost & Duration Multipliers:**
+    - Level $1 \to 2$: Cost multiplier $0.75\times$ (`ceil`), duration multiplier $0.50\times$ ($\min 2.0$ hours).
+    - Level $2 \to 3$: Cost multiplier $1.25\times$ (`ceil`), duration multiplier $0.75\times$ ($\min 2.0$ hours).
+  - **Specialized Mechanical Effects:**
+    - `house`: 6 $\to$ 8 $\to$ 10 capacity.
+    - `farm`: $1.00\times \to 1.15\times \to 1.30\times$ cycle production output.
+    - `storehouse`: $1.00\times \to 1.25\times \to 1.50\times$ storage bonus (+125 food/wood/stone, +75 ore/metal delta per tier).
+  - **Continuous Operation & Real Builder Labor:**
+    - Upgrades require physical builder labor over time (not instant). The building operates at its previous tier during construction; new tier bonuses take effect only upon completion.
+  - **Cancellation & Demolition Safeguards:**
+    - Cancellation refunds 50% (`floor`) and preflights central storage; fails closed without state mutation if storage is full.
+    - Demolition is rejected while upgrading.
+    - Demolishing an upgraded storehouse deducts the current level's storage bonus accurately.
+  - **Explicit Non-Goals & Out of Scope:**
+    - No upgrading Town Hall, Barracks, Workshop, Research Hall, Market, Watchtower, or Palisade.
+    - No new resource types, blueprints, citizen jobs, or research technologies.
+    - No visual 3D asset overhauls; clean UI badges and HUD inspection reflection.
+
+---
+
 ## 2. Deferred & Excluded Scope for MVP
 | Feature | GDD Section | Status for MVP | Rationale |
 |---|---|---|---|
+| Settlement Building Upgrades & Infrastructure Progression | Phần VII | Implemented | Delivered end-to-end in Package 2I with 3-tier upgrade model for House, Farm, and Storehouse, builder construction routing, delta storage accounting, fail-closed cancellation, HUD controls, and 100% save compatibility |
 | Dynamic Market Pricing & Supply-Demand Economy | Phần VII & XI | Implemented | Delivered end-to-end in Package 2H with deterministic [0.80, 1.20] elasticity, reference baselines, spread invariant, unified price breakdown API, HUD tooltips, and 100% save compatibility |
 | Outpost Capture & Territorial Control | Phần X & XI | Implemented | Delivered end-to-end in Package 2G with persistent ownership, 35% health recovery, heraldic banners, friendly siege prevention, NPC sacking, collision avoidance, and fail-closed persistence |
 | Autonomous Faction Conflict & Inter-Faction Warfare | Phần X & XI | Implemented | Delivered end-to-end in Package 2E with pairwise war/peace AI, BattleResolver campaigns, resource plunder conservation, outpost siege damage, truce cooldowns, caravan surcharges, and Section 3 UI |

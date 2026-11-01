@@ -9067,3 +9067,79 @@ Execute a narrow correction round on branch `feature/package-2h-dynamic-market-p
 ### Next Exact Step
 - Stage modified files explicitly (`git add scripts/ui/hud.gd scripts/test/test_market.gd docs/WORKLOG.md`), commit with `fix(trade): synchronize dynamic market quotes and coverage`, push to `origin/feature/package-2h-dynamic-market-pricing`, and deliver the handoff report in Vietnamese.
 
+---
+
+## 2026-11-02 — Package 2I: Settlement Building Upgrades & Infrastructure Progression (Completed)
+
+### Context & Objective
+Implement a robust, data-driven 3-tier building upgrade system for KINGDOMS UNBOUND under Package 2I:
+1. **Target Buildings:** Strictly limited to `house`, `farm`, and `storehouse`. (Town Hall, Barracks, Workshop, Research Hall, Market, Watchtower, Palisade cannot be upgraded).
+2. **Tier Model:** 3 levels (`MAX_BUILDING_LEVEL = 3`), clamped to $[1, 3]$. Existing Level 1 performance remains 100% identical. Old saves without `upgrade_level` safely default to Level 1.
+3. **Upgrade Costs & Durations:**
+   - Level $1 \to 2$: Cost multiplier $0.75\times$ (`ceil`), duration multiplier $0.50\times$ (`max(duration * 0.50, 2.0)` hours).
+   - Level $2 \to 3$: Cost multiplier $1.25\times$ (`ceil`), duration multiplier $0.75\times$ (`max(duration * 0.75, 2.0)` hours).
+4. **Building Effects:**
+   - `house`: Level 1 = 6 capacity, Level 2 = 8 capacity, Level 3 = 10 capacity. Housing capacity sums active houses dynamically via `EconomyConfig.get_house_capacity(lvl)`.
+   - `farm`: Level 1 = $1.00\times$, Level 2 = $1.15\times$, Level 3 = $1.30\times$ applied to cycle production output.
+   - `storehouse`: Level 1 = $1.00\times$, Level 2 = $1.25\times$, Level 3 = $1.50\times$ storage bonus (+125 food/wood/stone, +75 ore/metal per tier). On completion, only delta capacity is added; on demolition, current level capacity is deducted.
+5. **Construction Work Routing:** Upgrades take time via builders. The building remains operational at previous level during construction; effects apply only upon completion.
+6. **Cancellation & Demolition:**
+   - 50% refund (`floor`). Preflights central storage capacity before refund; strictly fails closed on insufficient storage space.
+   - Builder jobs cleanly unregistered on cancellation or completion.
+   - Demolition is rejected while upgrading.
+7. **HUD Inspector:** Added `UpgradeSection` to `BuildingInspectPanel` with level label, current effect, next tier preview, cost/duration, upgrade button (with affordability check), in-progress progress bar & cancel button, and max level label.
+8. **Save/Load Compatibility:** Serializes `upgrade_level`, `is_upgrading`, `upgrade_target_level`, `upgrade_progress`, `upgrade_required_hours`, `upgrade_cost`. Fail-closed validation in `validate_save_data`. 100% backward compatible with legacy saves.
+
+### Implementation Summary
+1. **Data-Driven Configuration (`scripts/economy/economy_config.gd`):**
+   - Added constants: `UPGRADEABLE_BUILDINGS`, `MAX_BUILDING_LEVEL = 3`, `MIN_UPGRADE_DURATION_HOURS = 2.0`, `UPGRADE_TIERS`, `UPGRADE_PROFILES`.
+   - Added static helper methods: `is_building_upgradeable()`, `get_upgrade_cost()`, `get_upgrade_duration()`, `get_house_capacity()`, `get_farm_multiplier()`, `get_storehouse_multiplier()`, `get_storehouse_bonus()`, `get_storehouse_bonus_delta()`, `get_building_storage_bonus()`.
+2. **Workplace & Citizen Scaling (`scripts/economy/workplace_manager.gd`, `scripts/entities/citizen_controller.gd`):**
+   - Added `level_multiplier: float = 1.0` to `WorkplaceData`. Scaled cycle production and expectations by `wp.level_multiplier`.
+   - Integrated `wp_obj.get("level_multiplier", 1.0)` into `CitizenController`.
+3. **Building Lifecycle & Construction Routing (`scripts/economy/building_system.gd`, `scripts/world/world_view.gd`):**
+   - Default `upgrade_level = 1` in `place_building`.
+   - Updated `is_building_under_construction` to return true if upgrading; added `is_building_upgrading`.
+   - Updated `can_demolish_building` and `demolish_building` to calculate storage bonus from `EconomyConfig.get_building_storage_bonus(type, level)`. Reject demolition while upgrading.
+   - Updated `get_total_housing_capacity` to query `EconomyConfig.get_house_capacity(lvl)`.
+   - Implemented `can_start_upgrade`, `start_upgrade`, `advance_upgrade`, `complete_building_upgrade`, `can_cancel_upgrade`, `cancel_upgrade`.
+   - In `world_view.gd`, `advance_construction_work` routes progress to `advance_upgrade` when `is_upgrading == true` and completes via `complete_upgrade`. Added `start_building_upgrade`, `cancel_building_upgrade`, `complete_upgrade`, and `register_upgrade_jobs`.
+   - Re-registers upgrade builder jobs and restores farm multipliers in `sync_workplaces_after_load`.
+4. **Save/Load Schema Persistence & Migration (`scripts/persistence/save_manager.gd`):**
+   - Persists `upgrade_level`, `is_upgrading`, `upgrade_target_level`, `upgrade_progress`, `upgrade_required_hours`, `upgrade_cost`.
+   - Enforces fail-closed schema validation in `validate_save_data`.
+   - Fully backward-compatible: safely defaults legacy saves to Level 1.
+5. **In-Game HUD Integration (`scenes/ui/hud.tscn`, `scripts/ui/hud.gd`):**
+   - Added `UpgradeSection` with level label, current effect, next effect preview, cost/duration label, upgrade button, reason label, progress bar, cancel button, and max level label.
+   - Connected buttons in `_ready()` and updated `refresh_building_inspector()` to display `[ĐANG NÂNG CẤP]` and call `_refresh_upgrade_inspector`.
+   - Formatted civic descriptions dynamically with upgraded housing and storage capacities.
+6. **Automated Test Suite Expansion (`scripts/test/test_building_management.gd`):**
+   - Added TC-BM.35 through TC-BM.49 covering all 15 required verification areas:
+     - TC-BM.35: Legacy building defaults to Level 1.
+     - TC-BM.36: House Level 1->2->3 capacity (6->8->10).
+     - TC-BM.37: Farm Level 1->2->3 production multipliers (1.00x->1.15x->1.30x).
+     - TC-BM.38: Storehouse capacity deltas (+125 basic, +75 refined per tier).
+     - TC-BM.39: Upgrade costs (0.75x ceil, 1.25x ceil) and durations.
+     - TC-BM.40: Insufficient resources upgrade rejection.
+     - TC-BM.41: Upgrade progress advances cleanly and rejects zero delta.
+     - TC-BM.42: Upgrade completion applies delta effect accurately once.
+     - TC-BM.43: Duplicate completion rejected idempotently without capacity drift.
+     - TC-BM.44: Upgrade cancellation refunds 50% and cleans up builder jobs.
+     - TC-BM.45: Cancellation with full storage fails closed atomically.
+     - TC-BM.46: Save/load in-progress upgrade persistence and roundtrip.
+     - TC-BM.47: Repeated save/load zero drift.
+     - TC-BM.48: Demolishing upgraded storehouse accurately deducts current-tier capacity.
+     - TC-BM.49: Existing Level 1 baseline construction, workplace, and demolition regressions valid.
+7. **Documentation Synchronization:**
+   - Synchronized `docs/BACKLOG.md` (Package 2I tasks), `docs/GAME_RULES.md` (Section 17), `docs/SCOPE_DECISIONS.md` (Section 1.31 & MVP table), `docs/CHANGELOG.md` (Package 2I), and `docs/WORKLOG.md`.
+
+### Verification & Regression Results
+1. `scripts/test/test_building_management.gd`: **49/49 tests PASSED (Exit Code 0)**
+2. `scripts/test/test_save_load.gd`: **182/182 assertions PASSED (Exit Code 0)**
+3. `scripts/test/test_market.gd`: **26/26 tests PASSED (Exit Code 0)**
+4. Headless Editor Parse Check (`Godot_v4.7-stable_win64_console.exe --headless --editor --quit`): **Exit Code 0, 0 errors**.
+
+### Next Exact Step
+- Stage modified production, scene, test, and documentation files explicitly (`git add scripts/ scenes/ docs/`), commit with `feat(buildings): add settlement building upgrades`, push branch `feature/package-2i-settlement-building-upgrades` to `origin`, and deliver the handoff report in Vietnamese.
+
+

@@ -21,6 +21,7 @@ class WorkplaceData:
 	var recipe_id: String = ""
 	var required_inputs: Dictionary = {}
 	var output_amount: int = 1
+	var level_multiplier: float = 1.0
 	var is_paused: bool = false
 
 class DropoffData:
@@ -207,7 +208,7 @@ func produce_to_buffer(workplace_id: String, season_modifier: float = 1.0, resou
 		return wp.output_amount
 
 	# 2. Standard resource gathering production (Farm, Woodcutter, Quarry, Mine)
-	var prod: float = wp.base_production_per_cycle
+	var prod: float = wp.base_production_per_cycle * wp.level_multiplier
 	if wp.output_resource == EconomyConfig.RES_FOOD:
 		prod *= season_modifier
 
@@ -228,7 +229,7 @@ func get_expected_cycle_production(workplace_id: String, season_modifier: float 
 		return 0
 	if not wp.required_inputs.is_empty() or wp.recipe_id != "":
 		return wp.output_amount
-	var prod: float = wp.base_production_per_cycle
+	var prod: float = wp.base_production_per_cycle * wp.level_multiplier
 	if wp.output_resource == EconomyConfig.RES_FOOD:
 		prod *= season_modifier
 	return maxi(1, int(round(prod)))

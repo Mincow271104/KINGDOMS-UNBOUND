@@ -576,6 +576,96 @@ theme_override_font_sizes/font_size = 11
 text = "Thông số..."
 autowrap_mode = 2
 
+[node name="UpgradeSection" type="VBoxContainer" parent="BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="HSeparatorUpgrade" type="HSeparator" parent="BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/UpgradeSection"]
+layout_mode = 2
+
+[node name="UpgradeTitleLabel" type="Label" parent="BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/UpgradeSection"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.9, 0.85, 0.6, 1)
+theme_override_font_sizes/font_size = 12
+text = "NÂNG CẤP CÔNG TRÌNH"
+
+[node name="UpgradeLevelLabel" type="Label" parent="BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/UpgradeSection"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 11
+text = "Cấp độ: Cấp 1 / 3"
+
+[node name="UpgradeCurrentEffectLabel" type="Label" parent="BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/UpgradeSection"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 11
+text = "Hiệu ứng hiện tại: ..."
+autowrap_mode = 2
+
+[node name="UpgradeNextEffectLabel" type="Label" parent="BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/UpgradeSection"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 11
+text = "Cấp tiếp theo: ..."
+autowrap_mode = 2
+
+[node name="UpgradeCostLabel" type="Label" parent="BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/UpgradeSection"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 11
+text = "Chi phí: ..."
+autowrap_mode = 2
+
+[node name="UpgradeBtn" type="Button" parent="BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/UpgradeSection"]
+custom_minimum_size = Vector2(0, 26)
+layout_mode = 2
+theme_override_font_sizes/font_size = 11
+text = "Nâng Cấp"
+
+[node name="UpgradeReasonLabel" type="Label" parent="BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/UpgradeSection"]
+visible = false
+layout_mode = 2
+theme_override_colors/font_color = Color(0.95, 0.45, 0.45, 1)
+theme_override_font_sizes/font_size = 10
+text = "Không đủ tài nguyên"
+autowrap_mode = 2
+
+[node name="UpgradeProgressBox" type="VBoxContainer" parent="BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/UpgradeSection"]
+visible = false
+layout_mode = 2
+theme_override_constants/separation = 3
+
+[node name="UpgradeProgressLabel" type="Label" parent="BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/UpgradeSection/UpgradeProgressBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 11
+text = "Tiến độ: 0.0 / 0.0 giờ (0%)"
+
+[node name="UpgradeProgressBar" type="ProgressBar" parent="BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/UpgradeSection/UpgradeProgressBox"]
+custom_minimum_size = Vector2(0, 14)
+layout_mode = 2
+show_percentage = false
+
+[node name="UpgradeBuildersLabel" type="Label" parent="BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/UpgradeSection/UpgradeProgressBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 10
+text = "Thợ xây đang nâng cấp: 0 / 2"
+
+[node name="CancelUpgradeBtn" type="Button" parent="BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/UpgradeSection/UpgradeProgressBox"]
+custom_minimum_size = Vector2(0, 24)
+layout_mode = 2
+theme_override_font_sizes/font_size = 11
+text = "Hủy Nâng Cấp (Hoàn 50%)"
+
+[node name="UpgradeMaxLabel" type="Label" parent="BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/UpgradeSection"]
+visible = false
+layout_mode = 2
+theme_override_colors/font_color = Color(0.4, 0.9, 0.4, 1)
+theme_override_font_sizes/font_size = 11
+text = "★ Đã đạt cấp tối đa (Cấp 3)"
+
+[node name="UpgradeNotAvailableLabel" type="Label" parent="BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/UpgradeSection"]
+visible = false
+layout_mode = 2
+theme_override_colors/font_color = Color(0.6, 0.6, 0.6, 1)
+theme_override_font_sizes/font_size = 11
+text = "Công trình này không hỗ trợ nâng cấp"
+
 [node name="HSeparator2" type="HSeparator" parent="BuildingInspectPanel/MarginContainer/VBoxContainer"]
 layout_mode = 2
 

@@ -256,3 +256,98 @@ const ARMY_RECRUIT_COST: Dictionary = {
 const ARMY_DAILY_FOOD_UPKEEP: int = 1
 const ARMY_MORALE_SUPPLIED: float = 70.0
 const ARMY_MORALE_UNSUPPLIED: float = 45.0
+
+# -----------------------------------------------------------------------------
+# Settlement Building Upgrades Configuration (Package 2I)
+# -----------------------------------------------------------------------------
+const UPGRADEABLE_BUILDINGS: Array[String] = ["house", "farm", "storehouse"]
+const MAX_BUILDING_LEVEL: int = 3
+const MIN_UPGRADE_DURATION_HOURS: float = 2.0
+
+const UPGRADE_TIERS: Dictionary = {
+	2: {
+		"cost_mult": 0.75,
+		"duration_mult": 0.50
+	},
+	3: {
+		"cost_mult": 1.25,
+		"duration_mult": 0.75
+	}
+}
+
+const UPGRADE_PROFILES: Dictionary = {
+	"house": {
+		"capacities": {1: 6, 2: 8, 3: 10}
+	},
+	"farm": {
+		"multipliers": {1: 1.00, 2: 1.15, 3: 1.30}
+	},
+	"storehouse": {
+		"multipliers": {1: 1.00, 2: 1.25, 3: 1.50}
+	}
+}
+
+static func is_building_upgradeable(type: String) -> bool:
+	return type in UPGRADEABLE_BUILDINGS
+
+static func get_upgrade_cost(type: String, target_level: int) -> Dictionary:
+	if not is_building_upgradeable(type) or target_level < 2 or target_level > MAX_BUILDING_LEVEL:
+		return {}
+	var tier_cfg: Dictionary = UPGRADE_TIERS.get(target_level, {})
+	var cost_mult: float = float(tier_cfg.get("cost_mult", 1.0))
+	var bp: Dictionary = BLUEPRINTS.get(type, {})
+	var base_cost: Dictionary = bp.get("cost", {})
+	var result: Dictionary = {}
+	for res_id in base_cost:
+		result[res_id] = int(ceil(float(base_cost[res_id]) * cost_mult))
+	return result
+
+static func get_upgrade_duration(type: String, target_level: int) -> float:
+	if not is_building_upgradeable(type) or target_level < 2 or target_level > MAX_BUILDING_LEVEL:
+		return 0.0
+	var tier_cfg: Dictionary = UPGRADE_TIERS.get(target_level, {})
+	var duration_mult: float = float(tier_cfg.get("duration_mult", 0.5))
+	var bp: Dictionary = BLUEPRINTS.get(type, {})
+	var base_hours: float = float(bp.get("construction_hours", 12.0))
+	return maxf(MIN_UPGRADE_DURATION_HOURS, base_hours * duration_mult)
+
+static func get_house_capacity(level: int) -> int:
+	var lvl: int = clampi(level, 1, MAX_BUILDING_LEVEL)
+	var caps: Dictionary = UPGRADE_PROFILES["house"]["capacities"]
+	return int(caps.get(lvl, 6))
+
+static func get_farm_multiplier(level: int) -> float:
+	var lvl: int = clampi(level, 1, MAX_BUILDING_LEVEL)
+	var mults: Dictionary = UPGRADE_PROFILES["farm"]["multipliers"]
+	return float(mults.get(lvl, 1.00))
+
+static func get_storehouse_multiplier(level: int) -> float:
+	var lvl: int = clampi(level, 1, MAX_BUILDING_LEVEL)
+	var mults: Dictionary = UPGRADE_PROFILES["storehouse"]["multipliers"]
+	return float(mults.get(lvl, 1.00))
+
+static func get_storehouse_bonus(level: int) -> Dictionary:
+	var lvl: int = clampi(level, 1, MAX_BUILDING_LEVEL)
+	var mult: float = get_storehouse_multiplier(lvl)
+	var bp: Dictionary = BLUEPRINTS.get("storehouse", {})
+	var base_bonus: Dictionary = bp.get("storage_bonus", {})
+	var result: Dictionary = {}
+	for res_id in base_bonus:
+		result[res_id] = int(round(float(base_bonus[res_id]) * mult))
+	return result
+
+static func get_storehouse_bonus_delta(from_level: int, to_level: int) -> Dictionary:
+	var from_bonus: Dictionary = get_storehouse_bonus(from_level)
+	var to_bonus: Dictionary = get_storehouse_bonus(to_level)
+	var delta: Dictionary = {}
+	for res_id in to_bonus:
+		var diff: int = int(to_bonus[res_id]) - int(from_bonus.get(res_id, 0))
+		if diff != 0:
+			delta[res_id] = diff
+	return delta
+
+static func get_building_storage_bonus(type: String, level: int = 1) -> Dictionary:
+	if type == "storehouse":
+		return get_storehouse_bonus(level)
+	var bp: Dictionary = BLUEPRINTS.get(type, {})
+	return bp.get("storage_bonus", {}).duplicate()

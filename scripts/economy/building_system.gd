@@ -109,6 +109,7 @@ static func place_building(type: String, origin: Vector2i, world_data: WorldGene
 		"state": initial_state,
 		"health": 100,
 		"max_health": 100,
+		"upgrade_level": 1,
 		"construction_progress": construction_hours if is_active else 0.0,
 		"construction_hours": construction_hours
 	}
@@ -356,7 +357,15 @@ static func is_building_under_construction(world_data: WorldGenerator.WorldData,
 		return false
 	for b in world_data.buildings:
 		if b.get("id", "") == building_id:
-			return b.get("state", "") == "under_construction"
+			return b.get("state", "") == "under_construction" or bool(b.get("is_upgrading", false))
+	return false
+
+static func is_building_upgrading(world_data: WorldGenerator.WorldData, building_id: String = "") -> bool:
+	if world_data == null or building_id == "":
+		return false
+	for b in world_data.buildings:
+		if b.get("id", "") == building_id:
+			return bool(b.get("is_upgrading", false))
 	return false
 
 static func get_construction_worker_capacity(type: String) -> int:
@@ -413,8 +422,11 @@ static func can_demolish_building(b_data_or_id, world_data: WorldGenerator.World
 		return {"can_demolish": false, "reason": "Công trình đang thi công phải sử dụng lệnh hủy thi công", "refund": {}, "is_townhall": false}
 	if state == "destroyed":
 		return {"can_demolish": false, "reason": "Công trình đã bị phá hủy hoàn toàn", "refund": {}, "is_townhall": false}
+	if bool(b_data.get("is_upgrading", false)):
+		return {"can_demolish": false, "reason": "Công trình đang nâng cấp. Vui lòng hủy nâng cấp trước khi dỡ bỏ", "refund": {}, "is_townhall": false}
 
 	var type: String = b_data.get("type", "")
+	var level: int = clampi(int(b_data.get("upgrade_level", 1)), 1, EconomyConfig.MAX_BUILDING_LEVEL)
 	var is_townhall: bool = (type == "townhall")
 	var bp: Dictionary = EconomyConfig.BLUEPRINTS.get(type, {})
 	var cost: Dictionary = bp.get("cost", {})
@@ -424,7 +436,7 @@ static func can_demolish_building(b_data_or_id, world_data: WorldGenerator.World
 		if refund_amount > 0:
 			planned_refund[res_id] = refund_amount
 
-	var storage_bonus: Dictionary = bp.get("storage_bonus", {})
+	var storage_bonus: Dictionary = EconomyConfig.get_building_storage_bonus(type, level)
 	var requires_rm: bool = not planned_refund.is_empty() or not storage_bonus.is_empty() or not extra_required_resources.is_empty()
 	if requires_rm:
 		if not is_valid_resource_manager_for_demolition(resource_mgr, not storage_bonus.is_empty()):
@@ -498,11 +510,12 @@ static func demolish_building(b_data_or_id, world_data: WorldGenerator.WorldData
 
 	var b_id: String = b_data.get("id", "")
 	var type: String = b_data.get("type", "")
+	var level: int = clampi(int(b_data.get("upgrade_level", 1)), 1, EconomyConfig.MAX_BUILDING_LEVEL)
 	var origin: Vector2i = b_data.get("cell", Vector2i(-1, -1))
 	var size: Vector2i = b_data.get("size", Vector2i(1, 1))
 	var bp: Dictionary = EconomyConfig.BLUEPRINTS.get(type, {})
 	var planned_refund: Dictionary = check.get("refund", {})
-	var storage_bonus: Dictionary = bp.get("storage_bonus", {})
+	var storage_bonus: Dictionary = EconomyConfig.get_building_storage_bonus(type, level)
 
 	# Double check resource_mgr validity if refund or storage bonus applies
 	if not planned_refund.is_empty() or not storage_bonus.is_empty() or not extra_required_resources.is_empty():
@@ -557,8 +570,13 @@ static func get_total_housing_capacity(world_data: WorldGenerator.WorldData) -> 
 	var total: int = 0
 	for b in world_data.buildings:
 		if b.get("state", "active") == "active":
-			var bp: Dictionary = EconomyConfig.BLUEPRINTS.get(b.get("type", ""), {})
-			total += bp.get("housing_capacity", 0)
+			var b_type: String = b.get("type", "")
+			if b_type == "house":
+				var lvl: int = clampi(int(b.get("upgrade_level", 1)), 1, EconomyConfig.MAX_BUILDING_LEVEL)
+				total += EconomyConfig.get_house_capacity(lvl)
+			else:
+				var bp: Dictionary = EconomyConfig.BLUEPRINTS.get(b_type, {})
+				total += bp.get("housing_capacity", 0)
 	return total
 
 static func is_town_hall_active(world_data: WorldGenerator.WorldData) -> bool:
@@ -726,3 +744,318 @@ static func calculate_fortification_level(world_data: WorldGenerator.WorldData) 
 		return 2
 	else:
 		return 3
+
+# -----------------------------------------------------------------------------
+# Settlement Building Upgrades Lifecycle (Package 2I)
+# -----------------------------------------------------------------------------
+
+## Checks whether a building is eligible to start upgrading.
+static func can_start_upgrade(b_data_or_id, world_data: WorldGenerator.WorldData, resource_mgr: Object = null) -> Dictionary:
+	var b_data: Dictionary = {}
+	if b_data_or_id is Dictionary:
+		b_data = b_data_or_id
+	elif b_data_or_id is String:
+		b_data = get_building_by_id(b_data_or_id, world_data)
+
+	if b_data.is_empty():
+		return {"can_upgrade": false, "reason": "Công trình không tồn tại", "cost": {}, "target_level": 0, "duration": 0.0, "insufficient_resources": false}
+
+	var state: String = b_data.get("state", "active")
+	if state != "active":
+		return {"can_upgrade": false, "reason": "Chỉ công trình đang hoạt động bình thường mới có thể nâng cấp", "cost": {}, "target_level": 0, "duration": 0.0, "insufficient_resources": false}
+
+	if bool(b_data.get("is_upgrading", false)):
+		return {"can_upgrade": false, "reason": "Công trình đang được nâng cấp", "cost": {}, "target_level": 0, "duration": 0.0, "insufficient_resources": false}
+
+	var type: String = b_data.get("type", "")
+	if not EconomyConfig.is_building_upgradeable(type):
+		return {"can_upgrade": false, "reason": "Loại công trình này không hỗ trợ nâng cấp", "cost": {}, "target_level": 0, "duration": 0.0, "insufficient_resources": false}
+
+	var cur_level: int = clampi(int(b_data.get("upgrade_level", 1)), 1, EconomyConfig.MAX_BUILDING_LEVEL)
+	if cur_level >= EconomyConfig.MAX_BUILDING_LEVEL:
+		return {"can_upgrade": false, "reason": "Công trình đã đạt cấp tối đa (Cấp %d)" % EconomyConfig.MAX_BUILDING_LEVEL, "cost": {}, "target_level": cur_level, "duration": 0.0, "insufficient_resources": false}
+
+	var target_level: int = cur_level + 1
+	var cost: Dictionary = EconomyConfig.get_upgrade_cost(type, target_level)
+	var duration: float = EconomyConfig.get_upgrade_duration(type, target_level)
+
+	if resource_mgr != null and not cost.is_empty():
+		if resource_mgr.has_method("can_afford") and not resource_mgr.can_afford(cost):
+			return {
+				"can_upgrade": false,
+				"reason": "Không đủ tài nguyên để nâng cấp lên Cấp %d" % target_level,
+				"cost": cost,
+				"target_level": target_level,
+				"duration": duration,
+				"insufficient_resources": true
+			}
+
+	return {
+		"can_upgrade": true,
+		"reason": "",
+		"cost": cost,
+		"target_level": target_level,
+		"duration": duration,
+		"insufficient_resources": false
+	}
+
+## Deducts cost atomically and transitions the building into the upgrading state.
+static func start_upgrade(b_data_or_id, world_data: WorldGenerator.WorldData, resource_mgr: Object = null) -> Dictionary:
+	var b_data: Dictionary = {}
+	if b_data_or_id is Dictionary:
+		b_data = b_data_or_id
+	elif b_data_or_id is String:
+		b_data = get_building_by_id(b_data_or_id, world_data)
+
+	if b_data.is_empty():
+		return {"success": false, "reason": "Công trình không tồn tại", "building": {}}
+
+	var check := can_start_upgrade(b_data, world_data, resource_mgr)
+	if not check.get("can_upgrade", false):
+		return {
+			"success": false,
+			"reason": check.get("reason", "Không thể nâng cấp công trình"),
+			"insufficient_resources": check.get("insufficient_resources", false),
+			"building": b_data
+		}
+
+	var cost: Dictionary = check.get("cost", {})
+	if resource_mgr != null and not cost.is_empty():
+		if resource_mgr.has_method("reserve_cost") and resource_mgr.has_method("commit_cost"):
+			var reserved: bool = resource_mgr.reserve_cost(cost)
+			if not reserved:
+				return {
+					"success": false,
+					"reason": "Không thể khóa tài nguyên nâng cấp (thiếu hụt)",
+					"insufficient_resources": true,
+					"building": b_data
+				}
+			resource_mgr.commit_cost(cost)
+		elif resource_mgr.has_method("deduct_resources_atomic"):
+			var d_res = resource_mgr.deduct_resources_atomic(cost)
+			if not d_res.get("success", false):
+				return {
+					"success": false,
+					"reason": d_res.get("reason", "Khấu trừ tài nguyên nâng cấp thất bại"),
+					"insufficient_resources": true,
+					"building": b_data
+				}
+
+	var target_lvl: int = int(check.get("target_level", 2))
+	var duration: float = float(check.get("duration", 2.0))
+
+	b_data["is_upgrading"] = true
+	b_data["upgrade_target_level"] = target_lvl
+	b_data["upgrade_progress"] = 0.0
+	b_data["upgrade_required_hours"] = duration
+	b_data["upgrade_cost"] = cost.duplicate()
+
+	return {
+		"success": true,
+		"reason": "",
+		"building": b_data,
+		"target_level": target_lvl,
+		"cost": cost,
+		"duration": duration
+	}
+
+## Advances upgrade progress by delta_hours. Returns completion flag.
+static func advance_upgrade(b_data_or_id, delta_hours: float, world_data: WorldGenerator.WorldData = null) -> Dictionary:
+	var b_data: Dictionary = {}
+	if b_data_or_id is Dictionary:
+		b_data = b_data_or_id
+	elif b_data_or_id is String:
+		b_data = get_building_by_id(b_data_or_id, world_data)
+
+	if b_data.is_empty():
+		return {"success": false, "completed": false, "progress": 0.0, "required": 0.0, "progress_delta": 0.0}
+
+	if not bool(b_data.get("is_upgrading", false)):
+		return {
+			"success": false,
+			"completed": false,
+			"progress": float(b_data.get("upgrade_progress", 0.0)),
+			"required": float(b_data.get("upgrade_required_hours", 0.0)),
+			"progress_delta": 0.0
+		}
+
+	var total_hours: float = float(b_data.get("upgrade_required_hours", 2.0))
+	var cur_prog: float = float(b_data.get("upgrade_progress", 0.0))
+
+	if delta_hours <= 0.0 or is_nan(delta_hours) or is_inf(delta_hours):
+		return {
+			"success": false,
+			"completed": cur_prog >= (total_hours - 0.001),
+			"progress": cur_prog,
+			"required": total_hours,
+			"progress_delta": 0.0
+		}
+
+	var old_prog: float = cur_prog
+	cur_prog = clampf(cur_prog + delta_hours, 0.0, total_hours)
+	b_data["upgrade_progress"] = cur_prog
+	var progress_made: float = maxf(0.0, cur_prog - old_prog)
+
+	const PROGRESS_TOLERANCE: float = 0.001
+	var completed: bool = cur_prog >= (total_hours - PROGRESS_TOLERANCE)
+	return {
+		"success": true,
+		"completed": completed,
+		"progress": cur_prog,
+		"required": total_hours,
+		"progress_delta": progress_made,
+		"target_level": int(b_data.get("upgrade_target_level", 2))
+	}
+
+## Applies the newly achieved level effect and clears upgrade state. Strictly idempotent.
+static func complete_building_upgrade(b_data_or_id, world_data: WorldGenerator.WorldData, resource_mgr: Object = null) -> Dictionary:
+	var b_data: Dictionary = {}
+	if b_data_or_id is Dictionary:
+		b_data = b_data_or_id
+	elif b_data_or_id is String:
+		b_data = get_building_by_id(b_data_or_id, world_data)
+
+	if b_data.is_empty():
+		return {"success": false, "reason": "Công trình không tồn tại", "building": {}}
+
+	if not bool(b_data.get("is_upgrading", false)):
+		return {"success": false, "reason": "Công trình không ở trạng thái nâng cấp", "building": b_data}
+
+	var total_hours: float = float(b_data.get("upgrade_required_hours", 2.0))
+	var cur_prog: float = float(b_data.get("upgrade_progress", 0.0))
+	const PROGRESS_TOLERANCE: float = 0.001
+	if cur_prog < (total_hours - PROGRESS_TOLERANCE):
+		return {"success": false, "reason": "Chưa hoàn thành thời gian thi công nâng cấp", "building": b_data}
+
+	var old_level: int = clampi(int(b_data.get("upgrade_level", 1)), 1, EconomyConfig.MAX_BUILDING_LEVEL)
+	var target_level: int = clampi(int(b_data.get("upgrade_target_level", old_level + 1)), 1, EconomyConfig.MAX_BUILDING_LEVEL)
+	var type: String = b_data.get("type", "")
+
+	# If storehouse, apply capacity delta
+	if type == "storehouse":
+		var delta: Dictionary = EconomyConfig.get_storehouse_bonus_delta(old_level, target_level)
+		if resource_mgr != null and resource_mgr.has_method("add_storage_capacity"):
+			for res_id in delta:
+				resource_mgr.add_storage_capacity(res_id, int(delta[res_id]))
+
+	# Apply new level and clear upgrade status
+	b_data["upgrade_level"] = target_level
+	b_data["is_upgrading"] = false
+	b_data.erase("upgrade_target_level")
+	b_data.erase("upgrade_progress")
+	b_data.erase("upgrade_required_hours")
+	b_data.erase("upgrade_cost")
+
+	return {
+		"success": true,
+		"reason": "",
+		"old_level": old_level,
+		"new_level": target_level,
+		"building": b_data
+	}
+
+## Preflights upgrade cancellation feasibility, checking 50% refund storage capacity.
+static func can_cancel_upgrade(b_data_or_id, world_data: WorldGenerator.WorldData, resource_mgr: Object = null, refund_ratio: float = 0.5) -> Dictionary:
+	var b_data: Dictionary = {}
+	if b_data_or_id is Dictionary:
+		b_data = b_data_or_id
+	elif b_data_or_id is String:
+		b_data = get_building_by_id(b_data_or_id, world_data)
+
+	if b_data.is_empty():
+		return {"can_cancel": false, "reason": "Công trình không tồn tại", "insufficient_storage": false, "refund": {}}
+
+	if not bool(b_data.get("is_upgrading", false)):
+		return {"can_cancel": false, "reason": "Công trình không ở trạng thái nâng cấp", "insufficient_storage": false, "refund": {}}
+
+	var type: String = b_data.get("type", "")
+	var target_level: int = int(b_data.get("upgrade_target_level", 2))
+	var cost: Dictionary = b_data.get("upgrade_cost", {})
+	if cost.is_empty():
+		cost = EconomyConfig.get_upgrade_cost(type, target_level)
+
+	var planned_refund: Dictionary = {}
+	for res_id in cost:
+		var refund_amount: int = int(floor(float(cost[res_id]) * refund_ratio))
+		if refund_amount > 0:
+			planned_refund[res_id] = refund_amount
+
+	if not planned_refund.is_empty() and resource_mgr != null:
+		if not is_valid_resource_manager_for_cancellation(resource_mgr):
+			return {
+				"can_cancel": false,
+				"reason": "Yêu cầu ResourceManager hợp lệ có add_resources_atomic để hoàn trả tài nguyên",
+				"insufficient_storage": false,
+				"refund": planned_refund
+			}
+		for res_id in planned_refund:
+			var refund_amount: int = planned_refund[res_id]
+			var space: int = 999999
+			if resource_mgr.has_method("get_storage_capacity") and resource_mgr.has_method("get_total_stock"):
+				var cap: int = int(resource_mgr.get_storage_capacity(res_id))
+				var cur: int = int(resource_mgr.get_total_stock(res_id))
+				space = maxi(0, cap - cur)
+			elif resource_mgr.has_method("get_capacity") and resource_mgr.has_method("get_total_stock"):
+				var cap: int = int(resource_mgr.get_capacity(res_id))
+				var cur: int = int(resource_mgr.get_total_stock(res_id))
+				space = maxi(0, cap - cur)
+			if space < refund_amount:
+				return {
+					"can_cancel": false,
+					"reason": "Dung lượng kho chứa không đủ để nhận hoàn trả 50%% tài nguyên khi hủy nâng cấp (%s: cần %d, còn trống %d)" % [res_id, refund_amount, space],
+					"insufficient_storage": true,
+					"refund": planned_refund
+				}
+
+	return {"can_cancel": true, "reason": "", "insufficient_storage": false, "refund": planned_refund}
+
+## Cancels an in-progress upgrade, returning 50% refund and clearing builder jobs.
+static func cancel_upgrade(b_data_or_id, world_data: WorldGenerator.WorldData, resource_mgr: Object = null, job_mgr: Object = null, refund_ratio: float = 0.5) -> Dictionary:
+	var b_data: Dictionary = {}
+	if b_data_or_id is Dictionary:
+		b_data = b_data_or_id
+	elif b_data_or_id is String:
+		b_data = get_building_by_id(b_data_or_id, world_data)
+
+	if b_data.is_empty():
+		return {"success": false, "reason": "Công trình không tồn tại", "insufficient_storage": false, "refunded": {}}
+
+	if not bool(b_data.get("is_upgrading", false)):
+		return {"success": false, "reason": "Công trình không ở trạng thái nâng cấp", "insufficient_storage": false, "refunded": {}}
+
+	var check := can_cancel_upgrade(b_data, world_data, resource_mgr, refund_ratio)
+	if not check.get("can_cancel", false):
+		return {
+			"success": false,
+			"reason": check.get("reason", "Không thể hủy nâng cấp"),
+			"insufficient_storage": check.get("insufficient_storage", false),
+			"refunded": {}
+		}
+
+	var planned_refund: Dictionary = check.get("refund", {})
+	var refunded: Dictionary = {}
+	if resource_mgr != null and not planned_refund.is_empty():
+		if resource_mgr.has_method("add_resources_atomic"):
+			var atomic_res: Dictionary = resource_mgr.add_resources_atomic(planned_refund)
+			if not atomic_res.get("success", false):
+				return {"success": false, "reason": atomic_res.get("reason", "Không thể hoàn trả tài nguyên nâng cấp"), "refunded": {}}
+			refunded = atomic_res.get("credited", {})
+		elif resource_mgr.has_method("add_resource"):
+			for res_id in planned_refund:
+				resource_mgr.add_resource(res_id, planned_refund[res_id])
+			refunded = planned_refund.duplicate()
+
+	# Remove upgrade builder jobs
+	var b_id: String = b_data.get("id", "")
+	if job_mgr != null and job_mgr.has_method("remove_jobs_for_building") and b_id != "":
+		job_mgr.remove_jobs_for_building(b_id)
+
+	# Reset upgrade fields
+	b_data["is_upgrading"] = false
+	b_data.erase("upgrade_target_level")
+	b_data.erase("upgrade_progress")
+	b_data.erase("upgrade_required_hours")
+	b_data.erase("upgrade_cost")
+
+	return {"success": true, "reason": "", "refunded": refunded, "building": b_data}
+

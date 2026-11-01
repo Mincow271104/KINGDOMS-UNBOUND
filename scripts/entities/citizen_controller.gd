@@ -517,7 +517,8 @@ func _process_working(delta: float) -> void:
 						if wp_obj.has_recipe():
 							expected_qty = wp_obj.output_amount
 						else:
-							var prod: float = wp_obj.base_production_per_cycle
+							var mult: float = float(wp_obj.get("level_multiplier", 1.0))
+							var prod: float = wp_obj.base_production_per_cycle * mult
 							if wp_obj.output_resource == EconomyConfig.RES_FOOD:
 								prod *= season_mod
 							expected_qty = maxi(1, int(round(prod)))

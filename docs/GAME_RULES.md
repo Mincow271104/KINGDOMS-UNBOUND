@@ -564,3 +564,62 @@ $$\text{market\_multiplier} = \text{clamp}(1.0 + \text{local\_pressure} + \text{
 - **Fail-Closed Execution:** Full affordability, available stock, and storage capacity checks are validated upfront. If any check fails, zero state mutations occur (caravan gold, caravan inventory, player gold, and player stock remain strictly untouched).
 - **Event-Driven HUD Refresh:** Immediately upon trade completion, `_show_diplomacy_feedback()` triggers `_refresh_diplomacy_ui()`, dynamically updating quotes for remaining stock without polling per frame.
 - **Persistence Compatibility:** Dynamic prices are recomputed deterministically on load from existing state (`inventory`, `gold`, `sell_prices`, `buy_prices`, `is_origin_at_war`, and live `ResourceManager` stock). No new schema fields are introduced, preserving 100% backward compatibility with legacy saves.
+
+---
+
+## 17. Settlement Building Upgrades & Infrastructure Progression (Package 2I)
+
+### 17.1 Supported Buildings & Tier Structure
+- **Target Buildings:** Exactly 3 building types support upgrades: `house`, `farm`, and `storehouse`. (Town Hall, Barracks, Workshop, Research Hall, Market, Watchtower, Palisade cannot be upgraded).
+- **Building Level:** `upgrade_level: int` (default 1, max 3, clamped $[1, 3]$). Level 1 baseline performance is 100% identical to original blueprints.
+- **Upgradeable Building Registry:** Defined in `EconomyConfig.UPGRADEABLE_BUILDINGS = ["house", "farm", "storehouse"]`.
+
+### 17.2 Upgrade Costs & Duration Formulas
+Upgrades cost a deterministic ratio of the original blueprint cost and take real builder construction time:
+- **Tier 2 ($1 \to 2$):**
+  - $\text{cost} = \lceil \text{blueprint\_cost} \times 0.75 \rceil$ (per resource).
+  - $\text{duration} = \max(\text{blueprint\_duration} \times 0.50, 2.0\text{ hours})$.
+- **Tier 3 ($2 \to 3$):**
+  - $\text{cost} = \lceil \text{blueprint\_cost} \times 1.25 \rceil$ (per resource).
+  - $\text{duration} = \max(\text{blueprint\_duration} \times 0.75, 2.0\text{ hours})$.
+- **Concrete Blueprint Values:**
+  - `house` (Base: 25 Wood, 10 Stone, 8.0h):
+    - Tier 2: 19 Wood, 8 Stone, 4.0h.
+    - Tier 3: 32 Wood, 13 Stone, 6.0h.
+  - `farm` (Base: 30 Wood, 5 Stone, 12.0h):
+    - Tier 2: 23 Wood, 4 Stone, 6.0h.
+    - Tier 3: 38 Wood, 7 Stone, 9.0h.
+  - `storehouse` (Base: 40 Wood, 25 Stone, 12.0h):
+    - Tier 2: 30 Wood, 19 Stone, 6.0h.
+    - Tier 3: 50 Wood, 32 Stone, 9.0h.
+
+### 17.3 Specialized Building Effects
+1. **House — Housing Capacity:**
+   - Level 1: 6 citizens.
+   - Level 2: 8 citizens (+2 capacity).
+   - Level 3: 10 citizens (+4 capacity total).
+   - $\text{total\_housing} = \sum_{\text{active houses}} \text{EconomyConfig.get\_house\_capacity}(\text{house.upgrade\_level})$.
+2. **Farm — Production Yield Multiplier:**
+   - Level 1: $1.00\times$ (5 Food base per cycle).
+   - Level 2: $1.15\times$ ($\text{round}(5.0 \times 1.15) = 6\text{ Food}$).
+   - Level 3: $1.30\times$ ($\text{round}(5.0 \times 1.30) = 7\text{ Food}$).
+   - Multiplier is applied to `WorkplaceData.level_multiplier` and scaled in `CitizenController`.
+3. **Storehouse — Storage Expansion:**
+   - Level 1: $1.00\times$ (500 Food/Wood/Stone, 300 Ore/Metal).
+   - Level 2: $1.25\times$ (+125 basic, +75 refined $\to$ 625 Food/Wood/Stone, 375 Ore/Metal).
+   - Level 3: $1.50\times$ (+125 basic, +75 refined $\to$ 750 Food/Wood/Stone, 450 Ore/Metal).
+   - On upgrade completion, only the delta capacity (+125/+75) is added to `ResourceManager`.
+   - On demolition, the full storage bonus of the current level is safely deducted.
+
+### 17.4 Upgrade Lifecycle & State Transitions
+- **Non-Instant Progress:** Upgrades spawn builder jobs (`builder`) and require physical citizen labor.
+- **Operational Continuity:** The building remains fully active at its current level while upgrading. New bonuses apply only upon completion.
+- **Demolition Gate:** Demolition is strictly blocked while upgrading (`can_demolish_building` returns `false`).
+- **Cancellation & Refund:**
+  - Refunds exactly 50% of upgrade cost (`floor(cost * 0.5)`).
+  - Storage space is preflighted in `ResourceManager` before refunding; fails closed atomically if storage cannot hold the refund.
+  - Assigned builder jobs are cleanly cancelled and removed from `JobManager`.
+- **Save/Load Compatibility:**
+  - Persists `upgrade_level`, `is_upgrading`, `upgrade_target_level`, `upgrade_progress`, `upgrade_required_hours`, `upgrade_cost`.
+  - Old saves without `upgrade_level` automatically default to Level 1.
+  - In-progress upgrades resume seamlessly after loading without loss of progress or duplicate builder jobs.

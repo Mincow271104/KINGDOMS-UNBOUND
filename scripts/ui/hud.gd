@@ -151,6 +151,23 @@ var formation_scatter_btn: Button = null
 @onready var civic_desc_label: Label = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/CivicSection/CivicDescLabel")
 @onready var civic_stats_label: Label = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/CivicSection/CivicStatsLabel")
 
+# Upgrade Section (Package 2I)
+@onready var upgrade_section: Control = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/UpgradeSection")
+@onready var upgrade_title_label: Label = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/UpgradeSection/UpgradeTitleLabel")
+@onready var upgrade_level_label: Label = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/UpgradeSection/UpgradeLevelLabel")
+@onready var upgrade_current_effect_label: Label = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/UpgradeSection/UpgradeCurrentEffectLabel")
+@onready var upgrade_next_effect_label: Label = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/UpgradeSection/UpgradeNextEffectLabel")
+@onready var upgrade_cost_label: Label = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/UpgradeSection/UpgradeCostLabel")
+@onready var upgrade_btn: Button = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/UpgradeSection/UpgradeBtn")
+@onready var upgrade_reason_label: Label = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/UpgradeSection/UpgradeReasonLabel")
+@onready var upgrade_progress_box: Control = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/UpgradeSection/UpgradeProgressBox")
+@onready var upgrade_progress_label: Label = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/UpgradeSection/UpgradeProgressBox/UpgradeProgressLabel")
+@onready var upgrade_progress_bar: ProgressBar = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/UpgradeSection/UpgradeProgressBox/UpgradeProgressBar")
+@onready var upgrade_builders_label: Label = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/UpgradeSection/UpgradeProgressBox/UpgradeBuildersLabel")
+@onready var cancel_upgrade_btn: Button = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/UpgradeSection/UpgradeProgressBox/CancelUpgradeBtn")
+@onready var upgrade_max_label: Label = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/UpgradeSection/UpgradeMaxLabel")
+@onready var upgrade_not_available_label: Label = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/UpgradeSection/UpgradeNotAvailableLabel")
+
 # Building Actions
 @onready var pause_resume_btn: Button = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ActionsHBox/PauseResumeBtn")
 @onready var demolish_btn: Button = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ActionsHBox/DemolishBtn")
@@ -297,6 +314,10 @@ func _ready() -> void:
 		abort_cancel_build_btn.pressed.connect(_on_abort_cancel_build_pressed)
 	if focus_cam_btn:
 		focus_cam_btn.pressed.connect(_on_focus_building_cam_pressed)
+	if upgrade_btn:
+		upgrade_btn.pressed.connect(_on_upgrade_building_pressed)
+	if cancel_upgrade_btn:
+		cancel_upgrade_btn.pressed.connect(_on_cancel_upgrade_building_pressed)
 	if demolish_confirm_overlay:
 		demolish_confirm_overlay.visible = false
 	if cancel_build_confirm_overlay:
@@ -2328,19 +2349,23 @@ func refresh_building_inspector() -> void:
 		building_health_label.text = "%d / 100 HP" % health
 
 	if building_state_label != null:
-		match state:
-			"under_construction":
-				building_state_label.text = "[ĐANG THI CÔNG]"
-				building_state_label.add_theme_color_override("font_color", Color(0.95, 0.75, 0.3, 1))
-			"paused":
-				building_state_label.text = "[TẠM DỪNG]"
-				building_state_label.add_theme_color_override("font_color", Color(0.95, 0.5, 0.2, 1))
-			"destroyed":
-				building_state_label.text = "[SỤP ĐỔ]"
-				building_state_label.add_theme_color_override("font_color", Color(0.9, 0.25, 0.25, 1))
-			_:
-				building_state_label.text = "[ĐANG HOẠT ĐỘNG]"
-				building_state_label.add_theme_color_override("font_color", Color(0.3, 0.85, 0.3, 1))
+		if bool(b_data.get("is_upgrading", false)):
+			building_state_label.text = "[ĐANG NÂNG CẤP]"
+			building_state_label.add_theme_color_override("font_color", Color(0.95, 0.75, 0.3, 1))
+		else:
+			match state:
+				"under_construction":
+					building_state_label.text = "[ĐANG THI CÔNG]"
+					building_state_label.add_theme_color_override("font_color", Color(0.95, 0.75, 0.3, 1))
+				"paused":
+					building_state_label.text = "[TẠM DỪNG]"
+					building_state_label.add_theme_color_override("font_color", Color(0.95, 0.5, 0.2, 1))
+				"destroyed":
+					building_state_label.text = "[SỤP ĐỔ]"
+					building_state_label.add_theme_color_override("font_color", Color(0.9, 0.25, 0.25, 1))
+				_:
+					building_state_label.text = "[ĐANG HOẠT ĐỘNG]"
+					building_state_label.add_theme_color_override("font_color", Color(0.3, 0.85, 0.3, 1))
 
 	if state == "under_construction":
 		if construction_section != null:
@@ -2349,6 +2374,8 @@ func refresh_building_inspector() -> void:
 			workplace_section.visible = false
 		if civic_section != null:
 			civic_section.visible = false
+		if upgrade_section != null:
+			upgrade_section.visible = false
 
 		var max_hours: float = float(b_data.get("construction_hours", bp.get("construction_hours", 12.0)))
 		var cur_prog: float = float(b_data.get("construction_progress", 0.0))
@@ -2379,7 +2406,7 @@ func refresh_building_inspector() -> void:
 			pause_resume_btn.visible = is_pausable_workplace and (state == "active" or state == "paused")
 			pause_resume_btn.text = "Tiếp Tục Hoạt Động" if state == "paused" else "Tạm Dừng Hoạt Động"
 		if demolish_btn != null:
-			demolish_btn.visible = true
+			demolish_btn.visible = not bool(b_data.get("is_upgrading", false))
 
 		var is_workplace: bool = is_pausable_workplace
 		if is_workplace:
@@ -2394,6 +2421,8 @@ func refresh_building_inspector() -> void:
 			if civic_section != null:
 				civic_section.visible = true
 			_refresh_civic_inspector(b_id, b_type, b_data)
+
+		_refresh_upgrade_inspector(b_id, b_type, b_data)
 
 func _refresh_workplace_inspector(b_id: String, b_type: String, _b_data: Dictionary) -> void:
 	if world_view_ref == null or world_view_ref.get("workplace_mgr") == null:
@@ -2541,17 +2570,20 @@ func _refresh_civic_inspector(_b_id: String, b_type: String, b_data: Dictionary)
 			civic_stats_label.text = "• Sức chứa kho: %s\n• Trụ cột sinh tồn: Mất Tòa Thị Chính quá 72 giờ sẽ dẫn đến sụp đổ vương quốc!" % bonus_str
 		"house":
 			civic_desc_label.text = "Khu nhà ở dân cư kiên cố giúp bảo vệ cư dân khỏi thời tiết khắc nghiệt và hồi phục thể lực."
-			var h_cap: int = int(bp.get("housing_capacity", 6))
-			civic_stats_label.text = "• Sức chứa: %d cư dân\n• Giảm mệt mỏi khi nghỉ ngơi: Tốc độ cao\n• Nâng cao sĩ khí cộng đồng" % h_cap
+			var h_lvl: int = clampi(int(b_data.get("upgrade_level", 1)), 1, EconomyConfig.MAX_BUILDING_LEVEL)
+			var h_cap: int = EconomyConfig.get_house_capacity(h_lvl)
+			civic_stats_label.text = "• Sức chứa: %d cư dân (Cấp %d)\n• Giảm mệt mỏi khi nghỉ ngơi: Tốc độ cao\n• Nâng cao sĩ khí cộng đồng" % [h_cap, h_lvl]
 		"storehouse":
 			civic_desc_label.text = "Kho chứa hàng hóa trung chuyển, mở rộng dung lượng dự trữ tài nguyên cho toàn bộ vương quốc."
+			var s_lvl: int = clampi(int(b_data.get("upgrade_level", 1)), 1, EconomyConfig.MAX_BUILDING_LEVEL)
+			var store_bonus: Dictionary = EconomyConfig.get_building_storage_bonus("storehouse", s_lvl)
 			var bonus_parts: Array[String] = []
 			for res_id in [EconomyConfig.RES_FOOD, EconomyConfig.RES_WOOD, EconomyConfig.RES_STONE, EconomyConfig.RES_ORE, EconomyConfig.RES_METAL]:
-				if storage_bonus.has(res_id):
+				if store_bonus.has(res_id):
 					var r_name: String = EconomyConfig.RESOURCE_NAMES_VI.get(res_id, res_id)
-					bonus_parts.append("%s +%d" % [r_name, int(storage_bonus[res_id])])
+					bonus_parts.append("%s +%d" % [r_name, int(store_bonus[res_id])])
 			var bonus_str: String = ", ".join(bonus_parts) if not bonus_parts.is_empty() else "Không"
-			civic_stats_label.text = "• Sức chứa mở rộng: %s\n• Tiếp nhận hàng hóa chuyển về từ các phu khuân vác" % bonus_str
+			civic_stats_label.text = "• Sức chứa mở rộng (Cấp %d): %s\n• Tiếp nhận hàng hóa chuyển về từ các phu khuân vác" % [s_lvl, bonus_str]
 		"barracks":
 			civic_desc_label.text = "Doanh trại quân đội đồn trú, huấn luyện và chỉ huy lực lượng phòng thủ vương quốc."
 			var guard_cap: int = int(bp.get("guard_capacity", 0))
@@ -2663,3 +2695,159 @@ func _on_confirm_cancel_build_pressed() -> void:
 func _on_abort_cancel_build_pressed() -> void:
 	if cancel_build_confirm_overlay != null:
 		cancel_build_confirm_overlay.visible = false
+
+# -----------------------------------------------------------------------------
+# Settlement Building Upgrades Inspection (Package 2I)
+# -----------------------------------------------------------------------------
+
+func _refresh_upgrade_inspector(b_id: String, b_type: String, b_data: Dictionary) -> void:
+	if upgrade_section == null:
+		return
+
+	if not EconomyConfig.is_building_upgradeable(b_type):
+		upgrade_section.visible = false
+		return
+
+	upgrade_section.visible = true
+	var cur_level: int = clampi(int(b_data.get("upgrade_level", 1)), 1, EconomyConfig.MAX_BUILDING_LEVEL)
+	var is_upgrading: bool = bool(b_data.get("is_upgrading", false))
+
+	if upgrade_level_label != null:
+		upgrade_level_label.text = "Cấp độ hiện tại: Cấp %d / %d" % [cur_level, EconomyConfig.MAX_BUILDING_LEVEL]
+
+	# Current effect description
+	var cur_effect_str := ""
+	match b_type:
+		"house":
+			cur_effect_str = "Sức chứa nhà ở: %d cư dân" % EconomyConfig.get_house_capacity(cur_level)
+		"farm":
+			var mult: float = EconomyConfig.get_farm_multiplier(cur_level)
+			cur_effect_str = "Sản lượng: %.2fx (Gia tăng +%d%%)" % [mult, int(round((mult - 1.0) * 100.0))]
+		"storehouse":
+			var mult: float = EconomyConfig.get_storehouse_multiplier(cur_level)
+			var bonus := EconomyConfig.get_storehouse_bonus(cur_level)
+			var f_bonus: int = int(bonus.get(EconomyConfig.RES_FOOD, 500))
+			var m_bonus: int = int(bonus.get(EconomyConfig.RES_METAL, 300))
+			cur_effect_str = "Dung lượng kho: +%d cơ bản, +%d nâng cao (%.2fx)" % [f_bonus, m_bonus, mult]
+	if upgrade_current_effect_label != null:
+		upgrade_current_effect_label.text = "• Hiện tại: %s" % cur_effect_str
+
+	if is_upgrading:
+		# Upgrading in progress
+		var target_lvl: int = int(b_data.get("upgrade_target_level", cur_level + 1))
+		var req_h: float = float(b_data.get("upgrade_required_hours", 2.0))
+		var cur_prog: float = float(b_data.get("upgrade_progress", 0.0))
+		var pct: float = clampf((cur_prog / req_h) * 100.0 if req_h > 0.0 else 0.0, 0.0, 100.0)
+
+		if upgrade_next_effect_label != null:
+			upgrade_next_effect_label.visible = false
+		if upgrade_cost_label != null:
+			upgrade_cost_label.visible = false
+		if upgrade_btn != null:
+			upgrade_btn.visible = false
+		if upgrade_reason_label != null:
+			upgrade_reason_label.visible = false
+		if upgrade_max_label != null:
+			upgrade_max_label.visible = false
+
+		if upgrade_progress_box != null:
+			upgrade_progress_box.visible = true
+		if upgrade_progress_label != null:
+			upgrade_progress_label.text = "Tiến độ nâng cấp lên Cấp %d: %.1f / %.1f giờ (%.0f%%)" % [target_lvl, cur_prog, req_h, pct]
+		if upgrade_progress_bar != null:
+			upgrade_progress_bar.value = pct
+
+		var builder_count: int = 0
+		var max_builders: int = BuildingSystem.get_construction_worker_capacity(b_type)
+		if world_view_ref != null and world_view_ref.get("citizen_list") != null:
+			for cit in world_view_ref.citizen_list:
+				if is_instance_valid(cit) and cit.get("active_job") != null and JobManager.job_matches_building(cit.active_job, b_id):
+					builder_count += 1
+		if upgrade_builders_label != null:
+			upgrade_builders_label.text = "Thợ xây đang thi công: %d / %d" % [builder_count, max_builders]
+
+	elif cur_level >= EconomyConfig.MAX_BUILDING_LEVEL:
+		# Max level reached
+		if upgrade_next_effect_label != null:
+			upgrade_next_effect_label.visible = false
+		if upgrade_cost_label != null:
+			upgrade_cost_label.visible = false
+		if upgrade_btn != null:
+			upgrade_btn.visible = false
+		if upgrade_reason_label != null:
+			upgrade_reason_label.visible = false
+		if upgrade_progress_box != null:
+			upgrade_progress_box.visible = false
+		if upgrade_max_label != null:
+			upgrade_max_label.visible = true
+
+	else:
+		# Can preview and trigger upgrade
+		var next_lvl: int = cur_level + 1
+		var next_effect_str := ""
+		match b_type:
+			"house":
+				next_effect_str = "Sức chứa: %d cư dân (+%d)" % [EconomyConfig.get_house_capacity(next_lvl), EconomyConfig.get_house_capacity(next_lvl) - EconomyConfig.get_house_capacity(cur_level)]
+			"farm":
+				var next_mult: float = EconomyConfig.get_farm_multiplier(next_lvl)
+				next_effect_str = "Sản lượng: %.2fx (Tăng thêm +%d%%)" % [next_mult, int(round((next_mult - EconomyConfig.get_farm_multiplier(cur_level)) * 100.0))]
+			"storehouse":
+				var delta := EconomyConfig.get_storehouse_bonus_delta(cur_level, next_lvl)
+				var f_delta: int = int(delta.get(EconomyConfig.RES_FOOD, 125))
+				var m_delta: int = int(delta.get(EconomyConfig.RES_METAL, 75))
+				next_effect_str = "Dung lượng mở rộng: +%d cơ bản, +%d nâng cao" % [f_delta, m_delta]
+
+		if upgrade_next_effect_label != null:
+			upgrade_next_effect_label.visible = true
+			upgrade_next_effect_label.text = "• Cấp kế tiếp (Cấp %d): %s" % [next_lvl, next_effect_str]
+
+		var cost := EconomyConfig.get_upgrade_cost(b_type, next_lvl)
+		var dur := EconomyConfig.get_upgrade_duration(b_type, next_lvl)
+		var cost_parts: Array[String] = []
+		for res_id in cost:
+			var r_name: String = EconomyConfig.RESOURCE_NAMES_VI.get(res_id, res_id)
+			cost_parts.append("%d %s" % [int(cost[res_id]), r_name])
+		var cost_str: String = ", ".join(cost_parts) if not cost_parts.is_empty() else "Miễn phí"
+
+		if upgrade_cost_label != null:
+			upgrade_cost_label.visible = true
+			upgrade_cost_label.text = "Chi phí: %s | Thời gian: %.1f giờ" % [cost_str, dur]
+
+		if upgrade_progress_box != null:
+			upgrade_progress_box.visible = false
+		if upgrade_max_label != null:
+			upgrade_max_label.visible = false
+
+		var rm := get_node_or_null("/root/ResourceManager")
+		var check := BuildingSystem.can_start_upgrade(b_data, world_view_ref.world_data if world_view_ref != null else null, rm)
+
+		if upgrade_btn != null:
+			upgrade_btn.visible = true
+			upgrade_btn.text = "Nâng Cấp Lên Cấp %d" % next_lvl
+			upgrade_btn.disabled = not check.get("can_upgrade", false)
+
+		if upgrade_reason_label != null:
+			if not check.get("can_upgrade", false):
+				upgrade_reason_label.visible = true
+				upgrade_reason_label.text = check.get("reason", "Không thể nâng cấp")
+			else:
+				upgrade_reason_label.visible = false
+
+func _on_upgrade_building_pressed() -> void:
+	if world_view_ref == null or inspected_building_id == "":
+		return
+	var res: Dictionary = world_view_ref.start_building_upgrade(inspected_building_id)
+	if not res.get("success", false):
+		show_event_banner("Nâng Cấp Thất Bại", res.get("reason", "Không thể bắt đầu nâng cấp"), false, 4.0)
+	refresh_building_inspector()
+
+func _on_cancel_upgrade_building_pressed() -> void:
+	if world_view_ref == null or inspected_building_id == "":
+		return
+	var res: Dictionary = world_view_ref.cancel_building_upgrade(inspected_building_id)
+	if res.get("success", false):
+		show_event_banner("Đã Hủy Nâng Cấp", "Đã hủy nâng cấp công trình và hoàn trả 50% nguyên vật liệu vào kho.", true, 3.5)
+	else:
+		show_event_banner("Hủy Nâng Cấp Thất Bại", res.get("reason", "Không thể hủy nâng cấp"), false, 4.0)
+	refresh_building_inspector()
+

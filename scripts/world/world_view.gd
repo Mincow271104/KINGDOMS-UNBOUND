@@ -1411,6 +1411,18 @@ func advance_construction_work(b_id: String, delta_hours: float) -> Dictionary:
 	if world_data == null:
 		return {"success": false, "completed": false, "progress": 0.0, "hours": 0.0}
 
+	var b_data: Dictionary = BuildingSystem.get_building_by_id(b_id, world_data)
+	if b_data.is_empty():
+		return {"success": false, "completed": false, "progress": 0.0, "hours": 0.0}
+
+	if bool(b_data.get("is_upgrading", false)):
+		var res := BuildingSystem.advance_upgrade(b_data, delta_hours, world_data)
+		if not res.get("success", false):
+			return res
+		if res.get("completed", false):
+			complete_upgrade(b_id)
+		return res
+
 	var res := BuildingSystem.advance_construction(b_id, delta_hours, world_data)
 	if not res.get("success", false):
 		return res
@@ -1519,6 +1531,230 @@ func complete_construction(b_id: String) -> bool:
 
 	print("[WorldView] Construction completed for %s (%s)" % [b_id, b_data.get("type", "")])
 	return true
+
+func start_building_upgrade(b_id: String) -> Dictionary:
+	if world_data == null or b_id == "":
+		return {"success": false, "reason": "Dữ liệu thế giới không hợp lệ"}
+
+	var b_data := BuildingSystem.get_building_by_id(b_id, world_data)
+	if b_data.is_empty():
+		return {"success": false, "reason": "Công trình không tồn tại"}
+
+	var rm := get_node_or_null("/root/ResourceManager")
+	var res := BuildingSystem.start_upgrade(b_data, world_data, rm)
+	if not res.get("success", false):
+		return res
+
+	register_upgrade_jobs(b_data)
+
+	if hud != null and hud.has_method("refresh_building_inspector"):
+		hud.refresh_building_inspector()
+
+	return res
+
+func cancel_building_upgrade(b_id: String) -> Dictionary:
+	if world_data == null or b_id == "":
+		return {"success": false, "reason": "Dữ liệu thế giới không hợp lệ"}
+
+	var b_data := BuildingSystem.get_building_by_id(b_id, world_data)
+	if b_data.is_empty():
+		return {"success": false, "reason": "Công trình không tồn tại"}
+
+	var rm := get_node_or_null("/root/ResourceManager")
+	var res := BuildingSystem.cancel_upgrade(b_data, world_data, rm, job_mgr)
+	if not res.get("success", false):
+		return res
+
+	if citizen_list != null:
+		for cit in citizen_list:
+			if is_instance_valid(cit) and cit.get("active_job") != null and JobManager.job_matches_building(cit.active_job, b_id):
+				cit.active_job = null
+				cit.set("current_state", CitizenController.State.IDLE)
+				if cit.has_method("_update_reason"):
+					cit.call("_update_reason")
+
+	if hud != null and hud.has_method("refresh_building_inspector"):
+		hud.refresh_building_inspector()
+
+	return res
+
+func complete_upgrade(b_id: String) -> bool:
+	if world_data == null or b_id == "":
+		return false
+
+	var b_data := BuildingSystem.get_building_by_id(b_id, world_data)
+	if b_data.is_empty() or not bool(b_data.get("is_upgrading", false)):
+		return false
+
+	var rm := get_node_or_null("/root/ResourceManager")
+	var res := BuildingSystem.complete_building_upgrade(b_data, world_data, rm)
+	if not res.get("success", false):
+		return false
+
+	var new_lvl: int = int(res.get("new_level", 1))
+	var b_type: String = b_data.get("type", "")
+
+	# Clean up upgrade builder jobs and release workers
+	if job_mgr:
+		var b_jobs := job_mgr.get_jobs_for_building(b_id)
+		for j in b_jobs:
+			if j.type == "builder":
+				job_mgr.complete_job(j)
+		job_mgr.remove_jobs_for_building(b_id)
+
+	if citizen_list != null:
+		for cit in citizen_list:
+			if is_instance_valid(cit) and cit.get("active_job") != null and JobManager.job_matches_building(cit.active_job, b_id):
+				cit.active_job = null
+				cit.set("current_state", CitizenController.State.IDLE)
+				if cit.has_method("_update_reason"):
+					cit.call("_update_reason")
+
+	# Update runtime subsystems for new level
+	if b_type == "farm" and workplace_mgr != null:
+		var wp = workplace_mgr.get_workplace(b_id)
+		if wp == null and (b_data.get("cell", Vector2i.ZERO) == Vector2i(36, 35) or b_id == "farm_starter"):
+			wp = workplace_mgr.get_workplace("farm_starter")
+		if wp != null:
+			wp.level_multiplier = EconomyConfig.get_farm_multiplier(new_lvl)
+	elif b_type == "house":
+		var housing_cap: int = BuildingSystem.get_total_housing_capacity(world_data)
+		if hud != null and hud.has_method("update_population_display"):
+			hud.update_population_display(citizen_list.size() if citizen_list != null else 0, housing_cap)
+
+	if hud != null and hud.has_method("refresh_building_inspector"):
+		hud.refresh_building_inspector()
+
+	var am = get_node_or_null("/root/AudioManager")
+	if am and am.has_method("play_build"):
+		am.play_build()
+
+	print("[WorldView] Upgrade completed for %s (%s) -> Level %d" % [b_id, b_type, new_lvl])
+	return true
+
+func register_upgrade_jobs(b_data: Dictionary) -> Array[JobManager.JobData]:
+	var result: Array[JobManager.JobData] = []
+	if job_mgr == null or world_data == null or b_data.is_empty():
+		return result
+
+	var b_id: String = b_data.get("id", "")
+	if b_id == "" or not bool(b_data.get("is_upgrading", false)):
+		return result
+
+	var b_type: String = b_data.get("type", "")
+	var origin: Vector2i = b_data.get("cell", Vector2i.ZERO)
+	var size: Vector2i = b_data.get("size", Vector2i(1, 1))
+	var target_lvl: int = int(b_data.get("upgrade_target_level", 2))
+	var duration: float = float(b_data.get("upgrade_required_hours", 2.0))
+
+	var capacity: int = BuildingSystem.get_construction_worker_capacity(b_type)
+	var max_candidate_count: int = 2 * (size.x + size.y) + 16
+	var perimeter: Array[Vector2i] = BuildingSystem.find_perimeter_cells(origin, size, world_data, max_candidate_count)
+	var max_jobs: int = mini(capacity, perimeter.size())
+
+	if nav != null and world_data != null and nav.world_data != world_data:
+		nav.world_data = world_data
+
+	var all_matching_jobs := job_mgr.get_jobs_for_building(b_id)
+	var existing_builder_jobs: Array[JobManager.JobData] = []
+	for j in all_matching_jobs:
+		if j.type == "builder" and j.target_building_id == b_id:
+			existing_builder_jobs.append(j)
+
+	var valid_candidates: Array[JobManager.JobData] = []
+	var stale_jobs: Array[JobManager.JobData] = []
+
+	for j in existing_builder_jobs:
+		var is_valid_state: bool = (j.state == JobManager.JobState.AVAILABLE or j.state == JobManager.JobState.RESERVED or j.state == JobManager.JobState.IN_PROGRESS)
+		var is_in_bounds: bool = IsoMath.is_in_bounds(j.target_cell)
+		var is_valid_cell: bool = is_in_bounds and \
+			(nav == null or nav.is_walkable(j.target_cell)) and \
+			world_data.terrain[j.target_cell.x][j.target_cell.y] != WorldGenerator.TerrainType.WATER and \
+			not world_data.occupancy[j.target_cell.x][j.target_cell.y]
+		var is_in_perimeter: bool = perimeter.has(j.target_cell)
+		if is_valid_state and is_valid_cell and is_in_perimeter:
+			valid_candidates.append(j)
+		else:
+			stale_jobs.append(j)
+
+	var jobs_by_cell: Dictionary = {}
+	for j in valid_candidates:
+		if not jobs_by_cell.has(j.target_cell):
+			jobs_by_cell[j.target_cell] = []
+		jobs_by_cell[j.target_cell].append(j)
+
+	var unique_cell_jobs: Array[JobManager.JobData] = []
+	var duplicate_jobs_to_remove: Array[JobManager.JobData] = []
+
+	for cell in jobs_by_cell:
+		var list_at_cell: Array = jobs_by_cell[cell]
+		var best_job: JobManager.JobData = list_at_cell[0]
+		for k in range(1, list_at_cell.size()):
+			var cand: JobManager.JobData = list_at_cell[k]
+			var prio_cand := 2 if cand.state == JobManager.JobState.IN_PROGRESS else (1 if cand.state == JobManager.JobState.RESERVED else 0)
+			var prio_best := 2 if best_job.state == JobManager.JobState.IN_PROGRESS else (1 if best_job.state == JobManager.JobState.RESERVED else 0)
+			if prio_cand > prio_best:
+				best_job = cand
+
+		unique_cell_jobs.append(best_job)
+		for j in list_at_cell:
+			if j != best_job:
+				duplicate_jobs_to_remove.append(j)
+
+	var retained_jobs: Array[JobManager.JobData] = []
+	var excess_jobs_to_remove: Array[JobManager.JobData] = []
+
+	if unique_cell_jobs.size() > max_jobs:
+		unique_cell_jobs.sort_custom(func(a: JobManager.JobData, b: JobManager.JobData) -> bool:
+			var prio_a := 2 if a.state == JobManager.JobState.IN_PROGRESS else (1 if a.state == JobManager.JobState.RESERVED else 0)
+			var prio_b := 2 if b.state == JobManager.JobState.IN_PROGRESS else (1 if b.state == JobManager.JobState.RESERVED else 0)
+			if prio_a != prio_b:
+				return prio_a > prio_b
+			return a.id < b.id
+		)
+		for i in range(unique_cell_jobs.size()):
+			if i < max_jobs:
+				retained_jobs.append(unique_cell_jobs[i])
+			else:
+				excess_jobs_to_remove.append(unique_cell_jobs[i])
+	else:
+		retained_jobs = unique_cell_jobs
+
+	var all_removals: Array[JobManager.JobData] = []
+	all_removals.append_array(stale_jobs)
+	all_removals.append_array(duplicate_jobs_to_remove)
+	all_removals.append_array(excess_jobs_to_remove)
+
+	var seen_remove_ids: Dictionary = {}
+	for rem_j in all_removals:
+		if not seen_remove_ids.has(rem_j.id):
+			seen_remove_ids[rem_j.id] = true
+			_safe_cleanup_construction_job(rem_j)
+
+	var used_cells: Array[Vector2i] = []
+	for rj in retained_jobs:
+		used_cells.append(rj.target_cell)
+
+	for cell in perimeter:
+		if retained_jobs.size() >= max_jobs:
+			break
+		if cell in used_cells:
+			continue
+		var job = job_mgr.create_job(
+			"builder",
+			cell,
+			"Nâng cấp %s lên Cấp %d" % [_get_building_display_name(b_type), target_lvl],
+			b_id,
+			duration,
+			2,
+			false
+		)
+		retained_jobs.append(job)
+		used_cells.append(cell)
+
+	result = retained_jobs
+	return result
+
 
 func cancel_construction_project(b_id: String) -> Dictionary:
 	if world_data == null:
@@ -1868,6 +2104,8 @@ func register_dynamic_workplace(b_data: Dictionary) -> WorkplaceManager.Workplac
 	var wp: WorkplaceManager.WorkplaceData = workplace_mgr.register_workplace(
 		b_id, b_type, origin, size, access_cell, out_res, capacity, base_prod, max_workers
 	)
+	if b_type == "farm":
+		wp.level_multiplier = EconomyConfig.get_farm_multiplier(int(b_data.get("upgrade_level", 1)))
 
 	# Create recurring jobs if not already present
 	var existing_jobs := job_mgr.get_jobs_for_building(b_id)
@@ -1947,11 +2185,19 @@ func sync_workplaces_after_load(saved_workplaces_data: Dictionary = {}) -> void:
 			var b_cell: Vector2i = b.get("cell", Vector2i.ZERO)
 			# Skip starter workplaces
 			if (b_type == "farm" and b_cell == Vector2i(36, 35)) or (b_type == "woodcutter" and b_cell == Vector2i(26, 30)) or b.get("id", "") in starter_ids:
+				if b_type == "farm" and workplace_mgr != null:
+					var starter_farm = workplace_mgr.get_workplace("farm_starter")
+					if starter_farm != null:
+						starter_farm.level_multiplier = EconomyConfig.get_farm_multiplier(int(b.get("upgrade_level", 1)))
 				continue
 			register_dynamic_workplace(b)
 		elif b_type == "barracks":
 			if b_state == "active":
 				register_barracks_jobs(b)
+
+		# Re-register upgrade builder jobs if an upgrade was in progress
+		if bool(b.get("is_upgrading", false)):
+			register_upgrade_jobs(b)
 
 		# Sync paused state to workplace manager and visual node
 		if b_state == "paused":

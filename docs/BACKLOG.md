@@ -648,3 +648,54 @@
     - TC-MKT-26: Legacy save deserialization, migration, and dynamic price recomputation.
   - All 26 tests passed with 100% pass rate (Exit Code 0).
   - Full regression checks on `test_autonomous_faction_conflict.gd` (205 checks), `test_save_load.gd` (182 assertions), and headless editor parse check cleanly passed.
+
+---
+
+## [Phase 2 — Package 2I] Settlement Building Upgrades & Infrastructure Progression (Completed)
+
+- [x] **TASK-2I.1:** Data-Driven Upgrade System & Configuration (`EconomyConfig`):
+  - Defined upgradeable buildings registry: strictly limited to `house`, `farm`, `storehouse`. (Town Hall, Barracks, Workshop, Research Hall, Market, Watchtower, Palisade are not upgradeable).
+  - Configured 3-tier building model: `MAX_BUILDING_LEVEL = 3`, starting `upgrade_level = 1` clamped to $[1, 3]$.
+  - Tier upgrade profiles:
+    - Tier 2 ($1 \to 2$): Cost multiplier $0.75\times$ (`ceil`), duration multiplier $0.50\times$ (`max(duration * 0.50, 2.0)` hours).
+    - Tier 3 ($2 \to 3$): Cost multiplier $1.25\times$ (`ceil`), duration multiplier $0.75\times$ (`max(duration * 0.75, 2.0)` hours).
+  - Configured specialized building effects:
+    - `house`: Level 1 = 6 capacity, Level 2 = 8 capacity, Level 3 = 10 capacity.
+    - `farm`: Level 1 = $1.00\times$, Level 2 = $1.15\times$, Level 3 = $1.30\times$ production multiplier applied to cycle output.
+    - `storehouse`: Level 1 = $1.00\times$, Level 2 = $1.25\times$, Level 3 = $1.50\times$ storage bonus (+125 food/wood/stone, +75 ore/metal per tier).
+  - Static helpers: `is_building_upgradeable()`, `get_upgrade_cost()`, `get_upgrade_duration()`, `get_house_capacity()`, `get_farm_multiplier()`, `get_storehouse_multiplier()`, `get_storehouse_bonus()`, `get_storehouse_bonus_delta()`, `get_building_storage_bonus()`.
+- [x] **TASK-2I.2:** Building Upgrade Lifecycle & Construction Work Routing (`BuildingSystem`, `WorldView`, `WorkplaceManager`, `CitizenController`):
+  - Upgrades require physical builder labor over time (not instant). Building operates at previous tier until upgrade completes.
+  - `advance_construction_work` routes progress to `advance_upgrade` when `is_upgrading == true`, calling `complete_upgrade` upon finish.
+  - Dynamic workplace farm multiplier scaling: `WorkplaceData.level_multiplier` and `CitizenController` scale farm cycle yield cleanly.
+  - Demolition and capacity adjustment: `can_demolish_building` and `demolish_building` deduct current level storage capacity; demolition is strictly rejected while upgrading.
+  - Upgrade cancellation: 50% resource refund (`floor`), preflights central storage space before refund, cleans up assigned builder jobs, strictly fail-closed on full storage.
+- [x] **TASK-2I.3:** In-Game HUD Upgrade Controls & Inspection (`InGameHUD`, `scenes/ui/hud.tscn`):
+  - Added `UpgradeSection` to `BuildingInspectPanel` with level label, current effect, next effect preview, cost & duration, upgrade button with affordability reason, and max level label.
+  - In-progress upgrade display: progress bar, active builder count, and cancel button with 50% refund warning.
+  - Updated civic building descriptions to dynamically format housing and storage capacities using current upgrade levels.
+- [x] **TASK-2I.4:** Fail-Closed Save/Load Schema Persistence & Migration (`SaveManager`):
+  - Serializes `upgrade_level`, `is_upgrading`, `upgrade_target_level`, `upgrade_progress`, `upgrade_required_hours`, `upgrade_cost`.
+  - Added strict fail-closed validation for upgrade fields in `validate_save_data`.
+  - Full backward compatibility: legacy saves lacking `upgrade_level` safely default to Level 1 without schema errors or capacity drift.
+  - Re-registers builder jobs and restores farm level multipliers on load.
+- [x] **TASK-2I.5:** Dedicated Automated Test Suite Expansion (TC-BM.35 through TC-BM.49):
+  - Expanded `scripts/test/test_building_management.gd` with 15 dedicated upgrade test cases:
+    - TC-BM.35: Legacy building defaults to Level 1.
+    - TC-BM.36: House Level 1->2->3 capacity (6->8->10).
+    - TC-BM.37: Farm Level 1->2->3 production multipliers (1.00x->1.15x->1.30x).
+    - TC-BM.38: Storehouse capacity deltas (+125 basic, +75 refined per tier).
+    - TC-BM.39: Upgrade costs (0.75x ceil, 1.25x ceil) and durations.
+    - TC-BM.40: Insufficient resources upgrade rejection.
+    - TC-BM.41: Upgrade progress advances cleanly and rejects zero delta.
+    - TC-BM.42: Upgrade completion applies delta effect accurately once.
+    - TC-BM.43: Duplicate completion rejected idempotently without capacity drift.
+    - TC-BM.44: Upgrade cancellation refunds 50% and cleans up builder jobs.
+    - TC-BM.45: Cancellation with full storage fails closed atomically.
+    - TC-BM.46: Save/load in-progress upgrade persistence and roundtrip.
+    - TC-BM.47: Repeated save/load zero drift.
+    - TC-BM.48: Demolishing upgraded storehouse accurately deducts current-tier capacity.
+    - TC-BM.49: Existing Level 1 baseline construction, workplace, and demolition regressions valid.
+  - All 49 tests in `test_building_management.gd` passed with 100% pass rate (Exit Code 0).
+  - Full regression checks on `test_save_load.gd` (182 assertions) and `test_market.gd` (26 tests) passed with Exit Code 0.
+  - Godot 4.7 headless editor scan passed with 0 errors.

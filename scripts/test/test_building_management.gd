@@ -65,6 +65,21 @@ func _process(_delta: float) -> bool:
 		results.append(_test_tc_bm_32_atomic_refund_failure_injection())
 		results.append(_test_tc_bm_33_cargo_conservation_scenarios())
 		results.append(_test_tc_bm_34_starter_storage_capacity_invariant())
+		results.append(_test_tc_bm_35_legacy_building_defaults_level_1())
+		results.append(_test_tc_bm_36_house_upgrades_capacity())
+		results.append(_test_tc_bm_37_farm_upgrades_production_multiplier())
+		results.append(_test_tc_bm_38_storehouse_upgrades_capacity_deltas())
+		results.append(_test_tc_bm_39_upgrade_costs_and_durations())
+		results.append(_test_tc_bm_40_insufficient_resources_rejection())
+		results.append(_test_tc_bm_41_upgrade_progress_and_timemanager())
+		results.append(_test_tc_bm_42_upgrade_completion_single_application())
+		results.append(_test_tc_bm_43_upgrade_completion_idempotency())
+		results.append(_test_tc_bm_44_upgrade_cancellation_50_percent_refund())
+		results.append(_test_tc_bm_45_cancellation_insufficient_storage_fail_closed())
+		results.append(_test_tc_bm_46_save_load_in_progress_upgrade())
+		results.append(_test_tc_bm_47_repeated_load_zero_drift())
+		results.append(_test_tc_bm_48_demolition_of_upgraded_storehouse())
+		results.append(_test_tc_bm_49_level_1_regressions_valid())
 
 		all_passed = true
 		for r in results:
@@ -74,12 +89,12 @@ func _process(_delta: float) -> bool:
 
 		print("\n--------------------------------------------------------")
 		if all_passed:
-			print("  ALL PACKAGE 2F BUILDING MANAGEMENT TESTS PASSED! (Exit Code 0)")
+			print("  ALL PACKAGE 2F & 2I BUILDING MANAGEMENT TESTS PASSED! (Exit Code 0)")
 			print("--------------------------------------------------------\n")
 			quit(0)
 			return true
 		else:
-			print("  PACKAGE 2F BUILDING MANAGEMENT TESTS FAILED! (Exit Code 1)")
+			print("  PACKAGE 2F & 2I BUILDING MANAGEMENT TESTS FAILED! (Exit Code 1)")
 			print("--------------------------------------------------------\n")
 			quit(1)
 			return true
@@ -3199,3 +3214,783 @@ func _test_tc_bm_34_starter_storage_capacity_invariant() -> bool:
 		print("  [PASS] TC-BM.34: Starter storage capacity invariant and clean restoration verified.")
 		return true
 	return false
+
+# -----------------------------------------------------------------------------
+# TC-BM.35: Legacy building defaults to Level 1
+# -----------------------------------------------------------------------------
+func _test_tc_bm_35_legacy_building_defaults_level_1() -> bool:
+	print("--- Running TC-BM.35: Legacy Building Defaults to Level 1 ---")
+	var failures: int = 0
+	var wd = world_instance.world_data
+	var rm = world_instance.get_node_or_null("/root/ResourceManager")
+
+	# 1. Place a building via BuildingSystemScript.place_building with funded rm
+	rm.add_resource("wood", 100)
+	rm.add_resource("stone", 100)
+	var test_cell := Vector2i(-1, -1)
+	for x in range(20, 50):
+		for y in range(20, 50):
+			var c := Vector2i(x, y)
+			if BuildingSystemScript.can_place_building("house", c, wd, rm)["valid"]:
+				test_cell = c
+				break
+		if test_cell != Vector2i(-1, -1):
+			break
+
+	var b_res = BuildingSystemScript.place_building("house", test_cell, wd, rm, "active")
+	if not b_res.get("success", false):
+		printerr("FAIL: place_building failed in TC-BM.35: %s" % b_res.get("reason", ""))
+		failures += 1
+	var b_data: Dictionary = b_res.get("building", {})
+	if int(b_data.get("upgrade_level", 0)) != 1:
+		printerr("FAIL: Newly placed house upgrade_level is %d, expected 1" % int(b_data.get("upgrade_level", 0)))
+		failures += 1
+
+	# Clean up test house from world_data
+	if not b_data.is_empty():
+		BuildingSystemScript.demolish_building(b_data, wd, rm, null, 0.0)
+
+	# 2. Simulate legacy save record without upgrade_level
+	var legacy_record = {
+		"id": "bld_legacy_test",
+		"type": "farm",
+		"cell_x": 12,
+		"cell_y": 12,
+		"size_x": 2,
+		"size_y": 2,
+		"state": "active",
+		"health": 100,
+		"construction_progress": 12.0,
+		"construction_hours": 12.0
+	}
+	# Validate via SaveManagerScript (schema_version at root)
+	var val_dict = {
+		"schema_version": 1,
+		"metadata": {"schema_version": 1, "save_time": 100},
+		"resources": {"is_starving": false, "active_population": 10, "stock": {}, "capacities": {}},
+		"buildings": [legacy_record],
+		"citizens": []
+	}
+	var check = SaveManagerScript.validate_save_data(val_dict)
+	if not check.get("valid", false):
+		printerr("FAIL: Legacy save rejected during validation: %s" % check.get("error", ""))
+		failures += 1
+
+	if failures == 0:
+		print("  [PASS] TC-BM.35: Legacy building records safely default to Level 1.")
+		return true
+	return false
+
+# -----------------------------------------------------------------------------
+# TC-BM.36: House Level 1→2→3 housing capacity (6 → 8 → 10)
+# -----------------------------------------------------------------------------
+func _test_tc_bm_36_house_upgrades_capacity() -> bool:
+	print("--- Running TC-BM.36: House Level 1->2->3 Housing Capacity ---")
+	var failures: int = 0
+	var wd = world_instance.world_data
+
+	# Config verification
+	if EconomyConfigScript.get_house_capacity(1) != 6:
+		printerr("FAIL: House Lvl 1 capacity expected 6, got %d" % EconomyConfigScript.get_house_capacity(1))
+		failures += 1
+	if EconomyConfigScript.get_house_capacity(2) != 8:
+		printerr("FAIL: House Lvl 2 capacity expected 8, got %d" % EconomyConfigScript.get_house_capacity(2))
+		failures += 1
+	if EconomyConfigScript.get_house_capacity(3) != 10:
+		printerr("FAIL: House Lvl 3 capacity expected 10, got %d" % EconomyConfigScript.get_house_capacity(3))
+		failures += 1
+
+	# Live building verification
+	var init_housing: int = BuildingSystemScript.get_total_housing_capacity(wd)
+	var house_bld: Dictionary = {
+		"id": "bld_tc36_house",
+		"type": "house",
+		"cell": Vector2i(14, 14),
+		"size": Vector2i(2, 2),
+		"state": "active",
+		"health": 100,
+		"upgrade_level": 1
+	}
+	wd.buildings.append(house_bld)
+	if BuildingSystemScript.get_total_housing_capacity(wd) != init_housing + 6:
+		printerr("FAIL: Housing capacity with Lvl 1 house expected %d, got %d" % [init_housing + 6, BuildingSystemScript.get_total_housing_capacity(wd)])
+		failures += 1
+
+	# Upgrade to Level 2
+	house_bld["upgrade_level"] = 2
+	if BuildingSystemScript.get_total_housing_capacity(wd) != init_housing + 8:
+		printerr("FAIL: Housing capacity with Lvl 2 house expected %d, got %d" % [init_housing + 8, BuildingSystemScript.get_total_housing_capacity(wd)])
+		failures += 1
+
+	# Upgrade to Level 3
+	house_bld["upgrade_level"] = 3
+	if BuildingSystemScript.get_total_housing_capacity(wd) != init_housing + 10:
+		printerr("FAIL: Housing capacity with Lvl 3 house expected %d, got %d" % [init_housing + 10, BuildingSystemScript.get_total_housing_capacity(wd)])
+		failures += 1
+
+	# Cleanup
+	wd.buildings.erase(house_bld)
+
+	if failures == 0:
+		print("  [PASS] TC-BM.36: House Level 1->2->3 housing capacity correctly scales (6->8->10).")
+		return true
+	return false
+
+# -----------------------------------------------------------------------------
+# TC-BM.37: Farm Level 1→2→3 actual production output (1.00x → 1.15x → 1.30x)
+# -----------------------------------------------------------------------------
+func _test_tc_bm_37_farm_upgrades_production_multiplier() -> bool:
+	print("--- Running TC-BM.37: Farm Level 1->2->3 Production Multipliers ---")
+	var failures: int = 0
+	var wp_mgr = world_instance.workplace_mgr
+
+	var m1: float = EconomyConfigScript.get_farm_multiplier(1)
+	var m2: float = EconomyConfigScript.get_farm_multiplier(2)
+	var m3: float = EconomyConfigScript.get_farm_multiplier(3)
+	if absf(m1 - 1.00) > 0.001 or absf(m2 - 1.15) > 0.001 or absf(m3 - 1.30) > 0.001:
+		printerr("FAIL: Farm multipliers mismatch: %f, %f, %f" % [m1, m2, m3])
+		failures += 1
+
+	var test_wp = wp_mgr.register_workplace("test_farm_mult", "farm", Vector2i(16, 16), Vector2i(2, 2), Vector2i(15, 16), "food", 50, 5.0, 1)
+
+	# Level 1 production
+	test_wp.level_multiplier = m1
+	test_wp.buffer_amount = 0
+	wp_mgr.produce_to_buffer(test_wp.id)
+	if test_wp.buffer_amount != 5:
+		printerr("FAIL: Farm Lvl 1 buffer produced %d, expected 5" % test_wp.buffer_amount)
+		failures += 1
+
+	# Level 2 production: round(5.0 * 1.15) = round(5.75) = 6
+	test_wp.level_multiplier = m2
+	test_wp.buffer_amount = 0
+	wp_mgr.produce_to_buffer(test_wp.id)
+	if test_wp.buffer_amount != 6:
+		printerr("FAIL: Farm Lvl 2 buffer produced %d, expected 6" % test_wp.buffer_amount)
+		failures += 1
+
+	# Level 3 production: round(5.0 * 1.30) = round(6.50) = 7
+	test_wp.level_multiplier = m3
+	test_wp.buffer_amount = 0
+	wp_mgr.produce_to_buffer(test_wp.id)
+	var expected_l3 = int(round(5.0 * 1.30))
+	if test_wp.buffer_amount != expected_l3:
+		printerr("FAIL: Farm Lvl 3 buffer produced %d, expected %d" % [test_wp.buffer_amount, expected_l3])
+		failures += 1
+
+	# Cleanup
+	wp_mgr.unregister_workplace("test_farm_mult")
+
+	if failures == 0:
+		print("  [PASS] TC-BM.37: Farm production output scales accurately with level multipliers.")
+		return true
+	return false
+
+# -----------------------------------------------------------------------------
+# TC-BM.38: Storehouse Level 1→2→3 capacity deltas (+125/+75 per tier)
+# -----------------------------------------------------------------------------
+func _test_tc_bm_38_storehouse_upgrades_capacity_deltas() -> bool:
+	print("--- Running TC-BM.38: Storehouse Capacity Deltas (+125/+75 per tier) ---")
+	var failures: int = 0
+
+	var delta_1_2 = EconomyConfigScript.get_storehouse_bonus_delta(1, 2)
+	var delta_2_3 = EconomyConfigScript.get_storehouse_bonus_delta(2, 3)
+
+	if delta_1_2.get("food", 0) != 125 or delta_1_2.get("metal", 0) != 75:
+		printerr("FAIL: Storehouse delta 1->2 expected +125 food, +75 metal; got %s" % str(delta_1_2))
+		failures += 1
+	if delta_2_3.get("food", 0) != 125 or delta_2_3.get("metal", 0) != 75:
+		printerr("FAIL: Storehouse delta 2->3 expected +125 food, +75 metal; got %s" % str(delta_2_3))
+		failures += 1
+
+	# Test total bonus calculation
+	var b1 = EconomyConfigScript.get_storehouse_bonus(1)
+	var b2 = EconomyConfigScript.get_storehouse_bonus(2)
+	var b3 = EconomyConfigScript.get_storehouse_bonus(3)
+	if b1.get("food", 0) != 500 or b2.get("food", 0) != 625 or b3.get("food", 0) != 750:
+		printerr("FAIL: Storehouse total bonuses mismatch: %s, %s, %s" % [str(b1), str(b2), str(b3)])
+		failures += 1
+
+	if failures == 0:
+		print("  [PASS] TC-BM.38: Storehouse capacity deltas verified (+125 basic, +75 refined).")
+		return true
+	return false
+
+# -----------------------------------------------------------------------------
+# TC-BM.39: Upgrade cost calculations (0.75x ceil, 1.25x ceil)
+# -----------------------------------------------------------------------------
+func _test_tc_bm_39_upgrade_costs_and_durations() -> bool:
+	print("--- Running TC-BM.39: Upgrade Costs & Durations (0.75x ceil, 1.25x ceil) ---")
+	var failures: int = 0
+
+	# House: base cost {wood: 25, stone: 10}, base hours 8.0
+	var house_c2 = EconomyConfigScript.get_upgrade_cost("house", 2)
+	var house_c3 = EconomyConfigScript.get_upgrade_cost("house", 3)
+	if house_c2.get("wood", 0) != 19 or house_c2.get("stone", 0) != 8:
+		printerr("FAIL: House Lvl 2 cost expected {wood:19, stone:8}, got %s" % str(house_c2))
+		failures += 1
+	if house_c3.get("wood", 0) != 32 or house_c3.get("stone", 0) != 13:
+		printerr("FAIL: House Lvl 3 cost expected {wood:32, stone:13}, got %s" % str(house_c3))
+		failures += 1
+
+	var house_d2 = EconomyConfigScript.get_upgrade_duration("house", 2)
+	var house_d3 = EconomyConfigScript.get_upgrade_duration("house", 3)
+	if house_d2 < EconomyConfigScript.MIN_UPGRADE_DURATION_HOURS:
+		printerr("FAIL: House duration Lvl 2 below min duration: %f" % house_d2)
+		failures += 1
+
+	# Farm: base cost {wood: 30, stone: 5}
+	var farm_c2 = EconomyConfigScript.get_upgrade_cost("farm", 2)
+	var farm_c3 = EconomyConfigScript.get_upgrade_cost("farm", 3)
+	if farm_c2.get("wood", 0) != 23 or farm_c2.get("stone", 0) != 4:
+		printerr("FAIL: Farm Lvl 2 cost expected {wood:23, stone:4}, got %s" % str(farm_c2))
+		failures += 1
+	if farm_c3.get("wood", 0) != 38 or farm_c3.get("stone", 0) != 7:
+		printerr("FAIL: Farm Lvl 3 cost expected {wood:38, stone:7}, got %s" % str(farm_c3))
+		failures += 1
+
+	# Non-upgradeable building: townhall
+	var th_cost = EconomyConfigScript.get_upgrade_cost("townhall", 2)
+	if not th_cost.is_empty():
+		printerr("FAIL: Townhall should not have upgrade cost, got %s" % str(th_cost))
+		failures += 1
+
+	if failures == 0:
+		print("  [PASS] TC-BM.39: Upgrade costs and durations scale accurately.")
+		return true
+	return false
+
+# -----------------------------------------------------------------------------
+# TC-BM.40: Insufficient resources reject upgrade without state mutation
+# -----------------------------------------------------------------------------
+func _test_tc_bm_40_insufficient_resources_rejection() -> bool:
+	print("--- Running TC-BM.40: Insufficient Resources Upgrade Rejection ---")
+	var failures: int = 0
+	var rm = world_instance.get_node_or_null("/root/ResourceManager")
+	var wd = world_instance.world_data
+
+	var test_house: Dictionary = {
+		"id": "bld_tc40_house",
+		"type": "house",
+		"cell": Vector2i(18, 18),
+		"size": Vector2i(2, 2),
+		"state": "active",
+		"health": 100,
+		"upgrade_level": 1
+	}
+	wd.buildings.append(test_house)
+
+	# Drain wood and stone
+	var pre_wood: int = rm.get_resource("wood")
+	var pre_stone: int = rm.get_resource("stone")
+	rm._current_stock["wood"] = 0
+	rm._current_stock["stone"] = 0
+
+	var check = BuildingSystemScript.can_start_upgrade(test_house, wd, rm)
+	if check.get("can_upgrade", true):
+		printerr("FAIL: Upgrade should be rejected when resources are 0")
+		failures += 1
+
+	var start_res = BuildingSystemScript.start_upgrade(test_house, wd, rm)
+	if start_res.get("success", false):
+		printerr("FAIL: start_upgrade should fail when resources are 0")
+		failures += 1
+
+	if bool(test_house.get("is_upgrading", false)):
+		printerr("FAIL: House is_upgrading state was mutated on failed upgrade")
+		failures += 1
+
+	# Restore resources & cleanup
+	rm._current_stock["wood"] = pre_wood
+	rm._current_stock["stone"] = pre_stone
+	wd.buildings.erase(test_house)
+
+	if failures == 0:
+		print("  [PASS] TC-BM.40: Upgrade rejection with insufficient resources is strictly fail-closed.")
+		return true
+	return false
+
+# -----------------------------------------------------------------------------
+# TC-BM.41: Upgrade progress respects TimeManager pause and speed multipliers
+# -----------------------------------------------------------------------------
+func _test_tc_bm_41_upgrade_progress_and_timemanager() -> bool:
+	print("--- Running TC-BM.41: Upgrade Progress Advances Cleanly ---")
+	var failures: int = 0
+	var wd = world_instance.world_data
+
+	var test_farm: Dictionary = {
+		"id": "bld_tc41_farm",
+		"type": "farm",
+		"cell": Vector2i(20, 20),
+		"size": Vector2i(2, 2),
+		"state": "active",
+		"health": 100,
+		"upgrade_level": 1,
+		"is_upgrading": true,
+		"upgrade_target_level": 2,
+		"upgrade_progress": 0.0,
+		"upgrade_required_hours": 6.0
+	}
+	wd.buildings.append(test_farm)
+
+	# 1. Delta <= 0 or invalid (e.g. paused)
+	var res_zero = BuildingSystemScript.advance_upgrade(test_farm, 0.0, wd)
+	if float(test_farm.get("upgrade_progress", 0.0)) != 0.0:
+		printerr("FAIL: Progress changed with 0 delta: %f" % float(test_farm.get("upgrade_progress", 0.0)))
+		failures += 1
+
+	# 2. Advance by 2.0 hours
+	var res_adv = BuildingSystemScript.advance_upgrade(test_farm, 2.0, wd)
+	if absf(float(test_farm.get("upgrade_progress", 0.0)) - 2.0) > 0.001:
+		printerr("FAIL: Progress mismatch after 2.0h: %f" % float(test_farm.get("upgrade_progress", 0.0)))
+		failures += 1
+	if res_adv.get("completed", true):
+		printerr("FAIL: Upgrade marked completed prematurely at 2.0 / 6.0 hours")
+		failures += 1
+
+	# Cleanup
+	wd.buildings.erase(test_farm)
+
+	if failures == 0:
+		print("  [PASS] TC-BM.41: Upgrade progress advances accurately and rejects zero delta.")
+		return true
+	return false
+
+# -----------------------------------------------------------------------------
+# TC-BM.42: Upgrade completion applies effect once
+# -----------------------------------------------------------------------------
+func _test_tc_bm_42_upgrade_completion_single_application() -> bool:
+	print("--- Running TC-BM.42: Upgrade Completion Applies Effect Once ---")
+	var failures: int = 0
+	var rm = world_instance.get_node_or_null("/root/ResourceManager")
+	var wd = world_instance.world_data
+
+	var init_food_cap: int = rm.get_capacity("food")
+	var test_sh: Dictionary = {
+		"id": "bld_tc42_sh",
+		"type": "storehouse",
+		"cell": Vector2i(24, 24),
+		"size": Vector2i(2, 2),
+		"state": "active",
+		"health": 100,
+		"upgrade_level": 1
+	}
+	wd.buildings.append(test_sh)
+	# Level 1 storage applied
+	BuildingSystemScript.apply_completion_effects(test_sh, rm)
+	var base_sh_cap: int = rm.get_capacity("food")
+	if base_sh_cap != init_food_cap + 500:
+		printerr("FAIL: Storehouse Lvl 1 capacity not applied: %d vs %d" % [base_sh_cap, init_food_cap + 500])
+		failures += 1
+
+	# Set upgrading to 2 and complete
+	test_sh["is_upgrading"] = true
+	test_sh["upgrade_target_level"] = 2
+	test_sh["upgrade_progress"] = 6.0
+	test_sh["upgrade_required_hours"] = 6.0
+
+	var comp_res = BuildingSystemScript.complete_building_upgrade(test_sh, wd, rm)
+	if not comp_res.get("success", false):
+		printerr("FAIL: complete_building_upgrade returned false: %s" % comp_res.get("reason", ""))
+		failures += 1
+
+	if int(test_sh.get("upgrade_level", 1)) != 2:
+		printerr("FAIL: test_sh upgrade_level is %d, expected 2" % int(test_sh.get("upgrade_level", 1)))
+		failures += 1
+
+	# Capacity should have increased by delta (+125) -> base_sh_cap + 125
+	if rm.get_capacity("food") != base_sh_cap + 125:
+		printerr("FAIL: Food capacity after upgrade expected %d, got %d" % [base_sh_cap + 125, rm.get_capacity("food")])
+		failures += 1
+
+	# Cleanup: remove storehouse & revert capacity
+	BuildingSystemScript.demolish_building(test_sh, wd, rm, null, 0.0)
+
+	if failures == 0:
+		print("  [PASS] TC-BM.42: Upgrade completion applies delta effect accurately.")
+		return true
+	return false
+
+# -----------------------------------------------------------------------------
+# TC-BM.43: Duplicate completion is strictly idempotent (no double bonus)
+# -----------------------------------------------------------------------------
+func _test_tc_bm_43_upgrade_completion_idempotency() -> bool:
+	print("--- Running TC-BM.43: Upgrade Completion Strictly Idempotent ---")
+	var failures: int = 0
+	var rm = world_instance.get_node_or_null("/root/ResourceManager")
+	var wd = world_instance.world_data
+
+	var test_sh: Dictionary = {
+		"id": "bld_tc43_sh",
+		"type": "storehouse",
+		"cell": Vector2i(28, 28),
+		"size": Vector2i(2, 2),
+		"state": "active",
+		"health": 100,
+		"upgrade_level": 1
+	}
+	wd.buildings.append(test_sh)
+	BuildingSystemScript.apply_completion_effects(test_sh, rm)
+	var cap_before = rm.get_capacity("food")
+
+	test_sh["is_upgrading"] = true
+	test_sh["upgrade_target_level"] = 2
+	test_sh["upgrade_progress"] = 6.0
+	test_sh["upgrade_required_hours"] = 6.0
+
+	# First completion
+	var r1 = BuildingSystemScript.complete_building_upgrade(test_sh, wd, rm)
+	var cap_after = rm.get_capacity("food")
+
+	# Second completion attempt (duplicate)
+	var r2 = BuildingSystemScript.complete_building_upgrade(test_sh, wd, rm)
+	if r2.get("success", false):
+		printerr("FAIL: Duplicate complete_building_upgrade succeeded when it should fail")
+		failures += 1
+
+	if rm.get_capacity("food") != cap_after:
+		printerr("FAIL: Capacity increased on duplicate completion: %d vs %d" % [rm.get_capacity("food"), cap_after])
+		failures += 1
+
+	# Cleanup
+	BuildingSystemScript.demolish_building(test_sh, wd, rm, null, 0.0)
+
+	if failures == 0:
+		print("  [PASS] TC-BM.43: Duplicate completion rejected idempotently without capacity drift.")
+		return true
+	return false
+
+# -----------------------------------------------------------------------------
+# TC-BM.44: Upgrade cancellation refunds exactly 50% and cleans up builder jobs
+# -----------------------------------------------------------------------------
+func _test_tc_bm_44_upgrade_cancellation_50_percent_refund() -> bool:
+	print("--- Running TC-BM.44: Upgrade Cancellation 50% Refund & Job Cleanup ---")
+	var failures: int = 0
+	var rm = world_instance.get_node_or_null("/root/ResourceManager")
+	var wd = world_instance.world_data
+	var jm = world_instance.job_mgr
+
+	# Give ample resources
+	rm.add_resource("wood", 100)
+	rm.add_resource("stone", 100)
+
+	var test_house: Dictionary = {
+		"id": "bld_tc44_house",
+		"type": "house",
+		"cell": Vector2i(30, 10),
+		"size": Vector2i(2, 2),
+		"state": "active",
+		"health": 100,
+		"upgrade_level": 1
+	}
+	wd.buildings.append(test_house)
+	var b_id: String = test_house.get("id", "")
+
+	var pre_wood = rm.get_available_stock("wood")
+	var pre_stone = rm.get_available_stock("stone")
+
+	# Start upgrade to Level 2 (cost: 19 wood, 8 stone)
+	var start_res = BuildingSystemScript.start_upgrade(test_house, wd, rm)
+	if not start_res.get("success", false):
+		printerr("FAIL: start_upgrade failed: %s" % start_res.get("reason", ""))
+		failures += 1
+
+	# Create builder job
+	var test_job = jm.create_job("builder", Vector2i(30, 9), "Nâng cấp nhà", b_id, 4.0, 2, false)
+
+	# Cancel upgrade
+	var cancel_res = BuildingSystemScript.cancel_upgrade(test_house, wd, rm, jm, 0.5)
+	if not cancel_res.get("success", false):
+		printerr("FAIL: cancel_upgrade failed: %s" % cancel_res.get("reason", ""))
+		failures += 1
+
+	# Expected refund: floor(19 * 0.5) = 9 wood, floor(8 * 0.5) = 4 stone
+	var expected_wood = pre_wood - 19 + 9
+	var expected_stone = pre_stone - 8 + 4
+	if rm.get_available_stock("wood") != expected_wood:
+		printerr("FAIL: Wood stock after cancel expected %d, got %d" % [expected_wood, rm.get_available_stock("wood")])
+		failures += 1
+	if rm.get_available_stock("stone") != expected_stone:
+		printerr("FAIL: Stone stock after cancel expected %d, got %d" % [expected_stone, rm.get_available_stock("stone")])
+		failures += 1
+
+	# Verify job cleaned up
+	var rem_jobs = jm.get_jobs_for_building(b_id)
+	if not rem_jobs.is_empty():
+		printerr("FAIL: Builder jobs not cleaned up after cancel: %d remaining" % rem_jobs.size())
+		failures += 1
+
+	# Cleanup
+	wd.buildings.erase(test_house)
+
+	if failures == 0:
+		print("  [PASS] TC-BM.44: Upgrade cancellation refunds exactly 50% and removes builder jobs.")
+		return true
+	return false
+
+# -----------------------------------------------------------------------------
+# TC-BM.45: Cancellation with insufficient storage fails atomically without mutation
+# -----------------------------------------------------------------------------
+func _test_tc_bm_45_cancellation_insufficient_storage_fail_closed() -> bool:
+	print("--- Running TC-BM.45: Cancellation Insufficient Storage Fail-Closed ---")
+	var failures: int = 0
+	var rm = world_instance.get_node_or_null("/root/ResourceManager")
+	var wd = world_instance.world_data
+
+	var test_house: Dictionary = {
+		"id": "bld_tc45_house",
+		"type": "house",
+		"cell": Vector2i(32, 10),
+		"size": Vector2i(2, 2),
+		"state": "active",
+		"health": 100,
+		"upgrade_level": 1,
+		"is_upgrading": true,
+		"upgrade_target_level": 2,
+		"upgrade_progress": 2.0,
+		"upgrade_required_hours": 4.0,
+		"upgrade_cost": {"wood": 20, "stone": 10}
+	}
+	wd.buildings.append(test_house)
+
+	# Fill wood capacity completely
+	var pre_wood = rm.get_available_stock("wood")
+	var wood_cap = rm.get_capacity("wood")
+	rm._current_stock["wood"] = wood_cap
+
+	var check = BuildingSystemScript.can_cancel_upgrade(test_house, wd, rm, 0.5)
+	if check.get("can_cancel", true):
+		printerr("FAIL: can_cancel_upgrade should fail when storage is full")
+		failures += 1
+	if not check.get("insufficient_storage", false):
+		printerr("FAIL: expected insufficient_storage flag to be true")
+		failures += 1
+
+	var cancel_res = BuildingSystemScript.cancel_upgrade(test_house, wd, rm, null, 0.5)
+	if cancel_res.get("success", true):
+		printerr("FAIL: cancel_upgrade should fail when storage is full")
+		failures += 1
+
+	# Verify no state mutation
+	if not bool(test_house.get("is_upgrading", false)):
+		printerr("FAIL: test_house is_upgrading was mutated on failed cancellation")
+		failures += 1
+	if float(test_house.get("upgrade_progress", 0.0)) != 2.0:
+		printerr("FAIL: test_house upgrade_progress was mutated")
+		failures += 1
+
+	# Revert stock and cleanup
+	rm._current_stock["wood"] = pre_wood
+	wd.buildings.erase(test_house)
+
+	if failures == 0:
+		print("  [PASS] TC-BM.45: Upgrade cancellation with full storage fails closed atomically.")
+		return true
+	return false
+
+# -----------------------------------------------------------------------------
+# TC-BM.46: Save/Load in-progress upgrade resumes correctly
+# -----------------------------------------------------------------------------
+func _test_tc_bm_46_save_load_in_progress_upgrade() -> bool:
+	print("--- Running TC-BM.46: Save/Load In-Progress Upgrade Persistence ---")
+	var failures: int = 0
+	var wd = world_instance.world_data
+
+	var test_farm: Dictionary = {
+		"id": "bld_tc46_farm",
+		"type": "farm",
+		"cell": Vector2i(10, 24),
+		"size": Vector2i(2, 2),
+		"state": "active",
+		"health": 100,
+		"upgrade_level": 1,
+		"is_upgrading": true,
+		"upgrade_target_level": 2,
+		"upgrade_progress": 3.5,
+		"upgrade_required_hours": 6.0,
+		"upgrade_cost": {"wood": 23, "stone": 4}
+	}
+	wd.buildings.append(test_farm)
+	var b_id: String = test_farm.get("id", "")
+
+	var temp_save := "user://saves/test_upgrade_progress_save.json"
+	var save_res = SaveManagerScript.save_to_file(world_instance, temp_save)
+	if not save_res.get("success", false):
+		printerr("FAIL: Save failed in TC-BM.46: %s" % save_res.get("error", ""))
+		return false
+
+	var load_res = SaveManagerScript.load_from_file(temp_save)
+	if not load_res.get("success", false):
+		printerr("FAIL: Load failed in TC-BM.46: %s" % load_res.get("error", ""))
+		return false
+
+	var apply_res = SaveManagerScript.apply_loaded_state_to_world(world_instance, load_res["data"])
+	if not apply_res.get("success", false):
+		printerr("FAIL: Apply loaded state failed in TC-BM.46")
+		return false
+
+	var restored_farm = BuildingSystemScript.get_building_by_id(b_id, world_instance.world_data)
+	if restored_farm.is_empty():
+		printerr("FAIL: Farm building not found after load")
+		failures += 1
+	else:
+		if not bool(restored_farm.get("is_upgrading", false)):
+			printerr("FAIL: Restored farm is_upgrading is false")
+			failures += 1
+		if int(restored_farm.get("upgrade_target_level", 0)) != 2:
+			printerr("FAIL: Restored farm target level is %d, expected 2" % int(restored_farm.get("upgrade_target_level", 0)))
+			failures += 1
+		if absf(float(restored_farm.get("upgrade_progress", 0.0)) - 3.5) > 0.001:
+			printerr("FAIL: Restored farm progress mismatch: %f vs 3.5" % float(restored_farm.get("upgrade_progress", 0.0)))
+			failures += 1
+
+	# Clean temp save
+	if FileAccess.file_exists(temp_save):
+		DirAccess.remove_absolute(temp_save)
+	if FileAccess.file_exists(temp_save + ".bak"):
+		DirAccess.remove_absolute(temp_save + ".bak")
+
+	# Clean test farm
+	if not restored_farm.is_empty():
+		world_instance.world_data.buildings.erase(restored_farm)
+		for ox in range(2):
+			for oy in range(2):
+				world_instance.world_data.occupancy[10 + ox][24 + oy] = false
+
+	if failures == 0:
+		print("  [PASS] TC-BM.46: In-progress upgrade successfully preserved and restored via disk roundtrip.")
+		return true
+	return false
+
+# -----------------------------------------------------------------------------
+# TC-BM.47: Repeated Load does not duplicate capacity or multiplier effects
+# -----------------------------------------------------------------------------
+func _test_tc_bm_47_repeated_load_zero_drift() -> bool:
+	print("--- Running TC-BM.47: Repeated Save/Load Zero Drift ---")
+	var failures: int = 0
+	var rm = world_instance.get_node_or_null("/root/ResourceManager")
+
+	var temp_save := "user://saves/test_repeat_load.json"
+	SaveManagerScript.save_to_file(world_instance, temp_save)
+
+	var initial_wood_cap = rm.get_capacity("wood")
+	var initial_food_cap = rm.get_capacity("food")
+
+	# Load 3 times in succession
+	for i in range(3):
+		var load_res = SaveManagerScript.load_from_file(temp_save)
+		SaveManagerScript.apply_loaded_state_to_world(world_instance, load_res["data"])
+		if rm.get_capacity("wood") != initial_wood_cap or rm.get_capacity("food") != initial_food_cap:
+			printerr("FAIL: Capacity drifted on load iteration %d: wood=%d (init %d), food=%d (init %d)" % [i, rm.get_capacity("wood"), initial_wood_cap, rm.get_capacity("food"), initial_food_cap])
+			failures += 1
+			break
+
+	if FileAccess.file_exists(temp_save):
+		DirAccess.remove_absolute(temp_save)
+	if FileAccess.file_exists(temp_save + ".bak"):
+		DirAccess.remove_absolute(temp_save + ".bak")
+
+	if failures == 0:
+		print("  [PASS] TC-BM.47: Repeated load does not duplicate storage or multipliers.")
+		return true
+	return false
+
+# -----------------------------------------------------------------------------
+# TC-BM.48: Demolition of upgraded Storehouse adjusts capacity correctly for its current level
+# -----------------------------------------------------------------------------
+func _test_tc_bm_48_demolition_of_upgraded_storehouse() -> bool:
+	print("--- Running TC-BM.48: Demolition of Upgraded Storehouse Adjusts Level Capacity ---")
+	var failures: int = 0
+	var rm = world_instance.get_node_or_null("/root/ResourceManager")
+	var wd = world_instance.world_data
+
+	var cap_base = rm.get_capacity("food")
+
+	# Place and upgrade a storehouse to Level 2
+	var test_sh: Dictionary = {
+		"id": "bld_tc48_sh",
+		"type": "storehouse",
+		"cell": Vector2i(14, 28),
+		"size": Vector2i(2, 2),
+		"state": "active",
+		"health": 100,
+		"upgrade_level": 1
+	}
+	wd.buildings.append(test_sh)
+	BuildingSystemScript.apply_completion_effects(test_sh, rm)
+	test_sh["is_upgrading"] = true
+	test_sh["upgrade_target_level"] = 2
+	test_sh["upgrade_progress"] = 6.0
+	test_sh["upgrade_required_hours"] = 6.0
+	BuildingSystemScript.complete_building_upgrade(test_sh, wd, rm)
+
+	var cap_lvl2 = rm.get_capacity("food")
+	if cap_lvl2 != cap_base + 625:
+		printerr("FAIL: Level 2 storehouse capacity expected %d, got %d" % [cap_base + 625, cap_lvl2])
+		failures += 1
+
+	# Demolish Level 2 storehouse
+	var demo_res = BuildingSystemScript.demolish_building(test_sh, wd, rm, null, 0.0)
+	if not demo_res.get("success", false):
+		printerr("FAIL: Demolish Lvl 2 storehouse failed: %s" % demo_res.get("reason", ""))
+		failures += 1
+
+	# Capacity should have returned exactly to cap_base
+	if rm.get_capacity("food") != cap_base:
+		printerr("FAIL: Food capacity after demolishing Lvl 2 storehouse expected %d, got %d" % [cap_base, rm.get_capacity("food")])
+		failures += 1
+
+	if failures == 0:
+		print("  [PASS] TC-BM.48: Demolishing upgraded storehouse accurately deducts current-tier capacity.")
+		return true
+	return false
+
+# -----------------------------------------------------------------------------
+# TC-BM.49: Existing Level 1 construction, workplace, and demolition regressions remain 100% valid
+# -----------------------------------------------------------------------------
+func _test_tc_bm_49_level_1_regressions_valid() -> bool:
+	print("--- Running TC-BM.49: Existing Level 1 Baseline Regressions ---")
+	var failures: int = 0
+	var wd = world_instance.world_data
+	var rm = world_instance.get_node_or_null("/root/ResourceManager")
+
+	# Fund resources and place normal Level 1 house
+	rm.add_resource("wood", 100)
+	rm.add_resource("stone", 100)
+	var test_cell := Vector2i(-1, -1)
+	for x in range(20, 50):
+		for y in range(20, 50):
+			var c := Vector2i(x, y)
+			if BuildingSystemScript.can_place_building("house", c, wd, rm)["valid"]:
+				test_cell = c
+				break
+		if test_cell != Vector2i(-1, -1):
+			break
+
+	var b_res = BuildingSystemScript.place_building("house", test_cell, wd, rm, "under_construction")
+	if not b_res.get("success", false):
+		printerr("FAIL: place_building failed in TC-BM.49: %s" % b_res.get("reason", ""))
+		return false
+	var bld: Dictionary = b_res.get("building", {})
+	if int(bld.get("upgrade_level", 0)) != 1:
+		printerr("FAIL: Lvl 1 building upgrade_level is not 1")
+		failures += 1
+
+	# Complete normal construction
+	BuildingSystemScript.advance_construction(bld, 8.0, wd)
+	var comp_ok = BuildingSystemScript.complete_building(bld, wd, rm)
+	if not comp_ok or bld.get("state") != "active":
+		printerr("FAIL: Lvl 1 building not active after construction (comp_ok=%s, state=%s)" % [str(comp_ok), bld.get("state")])
+		failures += 1
+
+	# Demolish normal building
+	var demo = BuildingSystemScript.demolish_building(bld, wd, rm, null, 0.0)
+	if not demo.get("success", false):
+		printerr("FAIL: Lvl 1 building demolition failed: %s" % demo.get("reason", ""))
+		failures += 1
+
+	if failures == 0:
+		print("  [PASS] TC-BM.49: All standard Level 1 lifecycle mechanics remain 100% valid.")
+		return true
+	return false
+

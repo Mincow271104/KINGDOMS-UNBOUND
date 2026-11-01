@@ -147,7 +147,7 @@ static func serialize_world_state(world_view: Node) -> Dictionary:
 			var default_hours: float = float(bp.get("construction_hours", 12.0))
 			var b_hours: float = float(b.get("construction_hours", default_hours))
 			var b_prog: float = float(b.get("construction_progress", b_hours if b_state == "active" else 0.0))
-			b_list.append({
+			var b_rec := {
 				"id": b.get("id", ""),
 				"type": b_type,
 				"cell_x": b.get("cell", Vector2i.ZERO).x,
@@ -157,8 +157,16 @@ static func serialize_world_state(world_view: Node) -> Dictionary:
 				"state": b_state,
 				"health": b.get("health", 100),
 				"construction_progress": b_prog,
-				"construction_hours": b_hours
-			})
+				"construction_hours": b_hours,
+				"upgrade_level": int(b.get("upgrade_level", 1))
+			}
+			if bool(b.get("is_upgrading", false)):
+				b_rec["is_upgrading"] = true
+				b_rec["upgrade_target_level"] = int(b.get("upgrade_target_level", 2))
+				b_rec["upgrade_progress"] = float(b.get("upgrade_progress", 0.0))
+				b_rec["upgrade_required_hours"] = float(b.get("upgrade_required_hours", 2.0))
+				b_rec["upgrade_cost"] = b.get("upgrade_cost", {}).duplicate()
+			b_list.append(b_rec)
 		data["buildings"] = b_list
 
 	# 5. Citizens
@@ -737,6 +745,37 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 		const PROG_TOLERANCE: float = 0.001
 		if b_prog < 0.0 or b_prog > (b_hours + PROG_TOLERANCE):
 			return {"valid": false, "error": "Tiến độ thi công của '%s' nằm ngoài phạm vi hợp lệ [0, %f]: %f." % [b_type, b_hours, b_prog]}
+
+		# Validate building upgrades data (Package 2I)
+		if b.has("upgrade_level"):
+			var ul_val = b.get("upgrade_level")
+			if not (ul_val is int or (ul_val is float and float(ul_val) == float(int(ul_val)))):
+				return {"valid": false, "error": "Cấp độ nâng cấp 'upgrade_level' của '%s' phải là số nguyên." % b_type}
+			var ul: int = int(ul_val)
+			if ul < 1 or ul > EconomyConfig.MAX_BUILDING_LEVEL:
+				return {"valid": false, "error": "Cấp độ nâng cấp 'upgrade_level' của '%s' nằm ngoài phạm vi [1, %d]: %d." % [b_type, EconomyConfig.MAX_BUILDING_LEVEL, ul]}
+
+		if b.has("is_upgrading") and bool(b.get("is_upgrading")):
+			if not EconomyConfig.is_building_upgradeable(b_type):
+				return {"valid": false, "error": "Công trình '%s' không hỗ trợ nâng cấp." % b_type}
+			var tgt_val = b.get("upgrade_target_level")
+			if not (tgt_val is int or (tgt_val is float and float(tgt_val) == float(int(tgt_val)))):
+				return {"valid": false, "error": "Cấp độ đích nâng cấp 'upgrade_target_level' của '%s' phải là số nguyên." % b_type}
+			var tgt_lvl: int = int(tgt_val)
+			if tgt_lvl < 2 or tgt_lvl > EconomyConfig.MAX_BUILDING_LEVEL:
+				return {"valid": false, "error": "Cấp độ đích nâng cấp 'upgrade_target_level' nằm ngoài phạm vi [2, %d]: %d." % [EconomyConfig.MAX_BUILDING_LEVEL, tgt_lvl]}
+			var req_h_val = b.get("upgrade_required_hours")
+			if not (req_h_val is int or req_h_val is float) or float(req_h_val) <= 0.0 or is_nan(float(req_h_val)) or is_inf(float(req_h_val)):
+				return {"valid": false, "error": "Thời gian yêu cầu nâng cấp 'upgrade_required_hours' phải là số dương hữu hạn."}
+			var req_h: float = float(req_h_val)
+			var up_prog_val = b.get("upgrade_progress")
+			if not (up_prog_val is int or up_prog_val is float) or is_nan(float(up_prog_val)) or is_inf(float(up_prog_val)):
+				return {"valid": false, "error": "Tiến độ nâng cấp 'upgrade_progress' phải là số hữu hạn."}
+			var up_prog: float = float(up_prog_val)
+			if up_prog < 0.0 or up_prog > (req_h + 0.001):
+				return {"valid": false, "error": "Tiến độ nâng cấp nằm ngoài phạm vi [0, %f]: %f." % [req_h, up_prog]}
+			if b.has("upgrade_cost") and not (b.get("upgrade_cost") is Dictionary):
+				return {"valid": false, "error": "Dữ liệu chi phí nâng cấp 'upgrade_cost' phải là Dictionary."}
 
 	# Validate citizens array and optional skills data (Package 2B)
 	var citizens_sec = json_dict.get("citizens")
@@ -1776,9 +1815,16 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 				"size": b_size,
 				"state": b_state,
 				"health": b.get("health", 100),
+				"upgrade_level": clampi(int(b.get("upgrade_level", 1)), 1, EconomyConfig.MAX_BUILDING_LEVEL),
 				"construction_progress": b_prog,
 				"construction_hours": b_hours
 			}
+			if bool(b.get("is_upgrading", false)):
+				b_dict["is_upgrading"] = true
+				b_dict["upgrade_target_level"] = clampi(int(b.get("upgrade_target_level", 2)), 2, EconomyConfig.MAX_BUILDING_LEVEL)
+				b_dict["upgrade_progress"] = float(b.get("upgrade_progress", 0.0))
+				b_dict["upgrade_required_hours"] = float(b.get("upgrade_required_hours", 2.0))
+				b_dict["upgrade_cost"] = b.get("upgrade_cost", {}).duplicate()
 			world_data.buildings.append(b_dict)
 			
 			# Occupancy
