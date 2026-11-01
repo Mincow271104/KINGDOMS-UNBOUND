@@ -2431,7 +2431,7 @@ func _refresh_civic_inspector(_b_id: String, b_type: String, b_data: Dictionary)
 			civic_stats_label.text = "• Sức chứa mở rộng: %s\n• Tiếp nhận hàng hóa chuyển về từ các phu khuân vác" % bonus_str
 		"barracks":
 			civic_desc_label.text = "Doanh trại quân đội đồn trú, huấn luyện và chỉ huy lực lượng phòng thủ vương quốc."
-			var guard_cap: int = 2
+			var guard_cap: int = int(bp.get("guard_capacity", 0))
 			var army_bonus: int = EconomyConfig.ARMY_CAPACITY_PER_BARRACKS
 			civic_stats_label.text = "• Vị trí đồn trú: %d Vệ Binh tuần tra\n• Mở khóa phân công nghề nghiệp Vệ Binh trong bảng dân cư\n• Nâng cao sức chứa quân đội (+%d binh sĩ)" % [guard_cap, army_bonus]
 		"watchtower":

@@ -179,6 +179,7 @@ static func serialize_world_state(world_view: Node) -> Dictionary:
 					"morale": cit.get("morale"),
 					"carrying_resource": cit.get("carrying_resource"),
 					"carrying_amount": cit.get("carrying_amount"),
+					"carrying_source_workplace_id": cit.get("carrying_source_workplace_id") if cit.get("carrying_source_workplace_id") != null else "",
 					"skills": cit.call("serialize_skills") if cit.has_method("serialize_skills") else {}
 				})
 		data["citizens"] = c_data_list
@@ -1830,6 +1831,7 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 		cit.set("morale", c.get("morale", 70.0))
 		cit.set("carrying_resource", c.get("carrying_resource", ""))
 		cit.set("carrying_amount", c.get("carrying_amount", 0))
+		cit.set("carrying_source_workplace_id", c.get("carrying_source_workplace_id", ""))
 		if cit.has_method("deserialize_skills"):
 			cit.call("deserialize_skills", c.get("skills", {}))
 

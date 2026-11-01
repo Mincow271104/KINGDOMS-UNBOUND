@@ -8493,3 +8493,69 @@ ChatGPT independently reviewed Round 1 commit `a55021c6e2d7435f9841d1a23712e7b73
 ### Next Exact Step
 - Create Round 2 commit, push to `feature/package-2f-building-inspection-and-management` on remote `origin`, and await ChatGPT independent review.
 
+---
+
+## [2026-11-01] Package 2F: Building Inspection, Workplace Management & Demolition System — Independent Review Corrections (Round 3)
+
+### Context & Objective
+Address all 5 review findings and test coverage gaps identified by ChatGPT during Round 3 independent review of Package 2F:
+1. **Preserve Cargo Source Identity Across Partial Delivery, Demolition, and Save/Load:**
+   - In `CitizenController`: introduced persistent `carrying_source_workplace_id: String`. Assigned on hauler pickup, preserved when partial central storage delivery occurs and `active_job` is released to null with citizen transitioning to `IDLE`, and cleared only when the full batch has been delivered or returned.
+   - In `SaveManager`: serialized and deserialized `carrying_source_workplace_id` with backward-compatible defaults for legacy saves.
+   - In `WorldView`: updated `get_carried_cargo_for_building()` and `demolish_building_project()` to discover cargo through `carrying_source_workplace_id` alone, supporting child channels (`<building_id>_smelt`, `<building_id>_craft`) mapping back to parent buildings. Cargo source identity cleared only after safe deposit.
+2. **Truly Verifiable Demolition Refund Rollback:**
+   - In `ResourceManager`: enhanced `add_resources_atomic()` to record `prev_starving = _is_starving`, preflight all capacity upfront, commit all resource additions without intermediate listener signals, and execute rollback restoring both stock, tallies, and starvation state (`_is_starving`) upon failure.
+   - Enhanced `rollback_added_resources()` to accept `restore_starving: Variant = null`.
+   - In `BuildingSystem.demolish_building()`: implemented authoritative transaction path via `resource_mgr.add_resources_atomic(planned_refund)`, failing closed before modifying occupancy, removing jobs, or erasing building records.
+3. **Data-Driven Barracks Guard Capacity:**
+   - In `HUD._refresh_civic_inspector()`: replaced hardcoded `2` with `int(bp.get("guard_capacity", 0))`.
+   - Updated TC-BM.12 to dynamically assert displayed guard capacity against blueprint.
+4. **Complete Workshop Dual-Channel Pause/Resume Integration Coverage:**
+   - Extended TC-BM.31 in `test_building_management.gd` to test active production in both channels, parent pause pausing both channels, buffers remaining unchanged while paused, active smith workers safely released to IDLE, smith jobs non-executable while paused, hauler jobs remaining executable, resume restoring operations, save/load preserving paused state and both channel buffers, and resuming after load without duplicate channels or duplicate jobs.
+5. **Report Arithmetic Reconciliation & File Inventory:**
+   - Reconciled Round 2 assertion sum discrepancy (2,813 checks/assertions, not 2,823, due to an earlier typo in sum calculation).
+   - All 16 regression test suites verified with 2,813 checks/assertions passing (0 failures).
+   - Re-executed hardware visual validation script (`visual_package_2f_validation.gd`) via D3D12 on NVIDIA RTX 3050 Ti Laptop GPU, producing 4 PNG screenshots in `docs/visual_validation/`.
+
+### Test Results & Matrix Verification
+- **Package 2F Test Suite (`test_building_management.gd`):**
+  - 34/34 tests PASSED (Exit Code 0).
+- **Full Regression Matrix (16 Suites Total):**
+  1. `test_autonomous_faction_conflict.gd`: 205 checks (Exit Code 0)
+  2. `test_faction_relation_matrix.gd`: 162 checks (Exit Code 0)
+  3. `test_save_load.gd`: 182 assertions (Exit Code 0)
+  4. `test_faction_diplomacy_ai.gd`: 437 checks (Exit Code 0)
+  5. `test_faction_strategy_execution.gd`: 951 checks (Exit Code 0)
+  6. `test_market.gd`: 15 tests (Exit Code 0)
+  7. `test_field_siege.gd`: 98 assertions (Exit Code 0)
+  8. `test_surplus_treasury_conversion.gd`: 124 tests (Exit Code 0)
+  9. `test_player_field_guide.gd`: 130 tests (Exit Code 0)
+  10. `test_workshop.gd`: 7 tests (Exit Code 0)
+  11. `test_research_hall.gd`: 7 tests (Exit Code 0)
+  12. `test_barracks.gd`: 7 tests (Exit Code 0)
+  13. `test_watchtower.gd`: 8 tests (Exit Code 0)
+  14. `test_citizen_skills.gd`: 27 tests (Exit Code 0)
+  15. `test_tactical_military.gd`: 419 assertions (Exit Code 0)
+  16. `test_building_management.gd`: 34 tests (Exit Code 0)
+  - Total: 2,813 checks / assertions passed with 0 failures across all 16 suites.
+- **Hardware Visual Validation (`visual_package_2f_validation.gd`):**
+  - Executed on NVIDIA GeForce RTX 3050 Ti Laptop GPU (D3D12 Forward+, DisplayServer: Windows).
+  - All 4 screenshots captured successfully in `docs/visual_validation/`:
+    - `p2f_01_workplace_inspect_buffer_1280x720.png`
+    - `p2f_02_demolish_confirm_overlay_1280x720.png`
+    - `p2f_03_townhall_demolish_emergency_warning_1280x720.png`
+    - `p2f_04_workplace_inspect_responsive_1024x576.png`
+
+### Files Modified & Protected
+- `scripts/entities/citizen_controller.gd`
+- `scripts/persistence/save_manager.gd`
+- `scripts/world/world_view.gd`
+- `scripts/economy/resource_manager.gd`
+- `scripts/economy/building_system.gd`
+- `scripts/ui/hud.gd`
+- `scripts/test/test_building_management.gd`
+- `docs/WORKLOG.md`
+- Protected assets (`project.godot`, 92 historical untracked files, user saves) strictly preserved.
+
+### Next Exact Step
+- Create Round 3 commit, push to `feature/package-2f-building-inspection-and-management` on remote `origin`, and await ChatGPT independent review.

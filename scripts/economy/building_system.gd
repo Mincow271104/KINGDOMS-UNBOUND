@@ -324,10 +324,16 @@ static func cancel_construction(b_data_or_id, world_data: WorldGenerator.WorldDa
 
 	# Execute atomic refund: credit all resources and record exact credited amounts
 	var refunded: Dictionary = {}
-	for res_id in planned_refund:
-		var refund_amount: int = planned_refund[res_id]
-		var added: int = resource_mgr.add_resource(res_id, refund_amount)
-		refunded[res_id] = added
+	if resource_mgr.has_method("add_resources_atomic"):
+		var atomic_res: Dictionary = resource_mgr.add_resources_atomic(planned_refund)
+		if not atomic_res.get("success", false):
+			return {"success": false, "reason": atomic_res.get("reason", "Không thể hoàn trả tài nguyên"), "refunded": {}}
+		refunded = atomic_res.get("credited", {})
+	else:
+		for res_id in planned_refund:
+			var refund_amount: int = planned_refund[res_id]
+			var added: int = resource_mgr.add_resource(res_id, refund_amount)
+			refunded[res_id] = added
 
 	# 1. Clear occupancy only for this building's footprint
 	if world_data:
@@ -388,11 +394,15 @@ static func is_building_pausable(b_type: String) -> bool:
 static func is_valid_resource_manager_for_demolition(resource_mgr: Object, requires_storage: bool = false) -> bool:
 	if resource_mgr == null or not is_instance_valid(resource_mgr):
 		return false
-	if not resource_mgr.has_method("add_resource") or not resource_mgr.has_method("get_total_stock"):
+	if not resource_mgr.has_method("get_total_stock"):
 		return false
 	if not resource_mgr.has_method("get_storage_capacity") and not resource_mgr.has_method("get_capacity"):
 		return false
-	if not resource_mgr.has_method("rollback_added_resources") and not resource_mgr.has_method("deduct_resource"):
+	var has_atomic: bool = resource_mgr.has_method("add_resources_atomic")
+	var has_legacy_add: bool = resource_mgr.has_method("add_resource")
+	if not has_atomic and not has_legacy_add:
+		return false
+	if not has_atomic and not resource_mgr.has_method("rollback_added_resources") and not resource_mgr.has_method("deduct_resource"):
 		return false
 	if requires_storage and not resource_mgr.has_method("remove_storage_capacity"):
 		return false
@@ -513,28 +523,32 @@ static func demolish_building(b_data_or_id, world_data: WorldGenerator.WorldData
 		if not is_valid_resource_manager_for_demolition(resource_mgr, not storage_bonus.is_empty()):
 			return {"success": false, "reason": "ResourceManager không hợp lệ", "refunded": {}}
 
-	# 1. Execute atomic refund
+	# 1. Execute atomic refund using authoritative add_resources_atomic
 	var refunded: Dictionary = {}
-	var refund_success := true
 	if resource_mgr != null and not planned_refund.is_empty():
-		for res_id in planned_refund:
-			var amt: int = planned_refund[res_id]
-			var added: int = resource_mgr.add_resource(res_id, amt)
-			refunded[res_id] = added
-			if added < amt:
-				refund_success = false
-				break
+		if resource_mgr.has_method("add_resources_atomic"):
+			var atomic_res: Dictionary = resource_mgr.add_resources_atomic(planned_refund)
+			if not atomic_res.get("success", false):
+				return {"success": false, "reason": atomic_res.get("reason", "Không thể hoàn trả toàn bộ tài nguyên vào kho chứa"), "refunded": {}}
+			refunded = atomic_res.get("credited", {})
+		else:
+			var refund_success := true
+			for res_id in planned_refund:
+				var amt: int = planned_refund[res_id]
+				var added: int = resource_mgr.add_resource(res_id, amt)
+				refunded[res_id] = added
+				if added < amt:
+					refund_success = false
+					break
 
-	if not refund_success:
-		# Rollback any credited resources before returning failure
-		if resource_mgr != null:
-			if resource_mgr.has_method("rollback_added_resources"):
-				resource_mgr.rollback_added_resources(refunded)
-			elif resource_mgr.has_method("deduct_resource"):
-				for res_id in refunded:
-					if refunded[res_id] > 0:
-						resource_mgr.deduct_resource(res_id, refunded[res_id])
-		return {"success": false, "reason": "Không thể hoàn trả toàn bộ tài nguyên vào kho chứa", "refunded": {}}
+			if not refund_success:
+				if resource_mgr.has_method("rollback_added_resources"):
+					resource_mgr.rollback_added_resources(refunded)
+				elif resource_mgr.has_method("deduct_resource"):
+					for res_id in refunded:
+						if refunded[res_id] > 0:
+							resource_mgr.deduct_resource(res_id, refunded[res_id])
+				return {"success": false, "reason": "Không thể hoàn trả toàn bộ tài nguyên vào kho chứa", "refunded": {}}
 
 	# Deduct storage capacity if this building granted storage
 	if resource_mgr != null and not storage_bonus.is_empty() and resource_mgr.has_method("remove_storage_capacity"):

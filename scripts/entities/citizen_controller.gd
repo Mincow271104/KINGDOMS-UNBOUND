@@ -55,6 +55,7 @@ var skill_data: CitizenSkillData = null
 # Logistics & Cargo
 var carrying_resource: String = ""
 var carrying_amount: int = 0
+var carrying_source_workplace_id: String = ""
 var carry_capacity: int = 10
 
 @onready var sprite: Sprite2D = get_node_or_null("Sprite2D")
@@ -249,6 +250,19 @@ func _process_idle() -> void:
 		_seek_rest()
 		return
 
+	# If citizen holds remaining cargo from partial delivery, retry deposit when storage space has opened up
+	if carrying_amount > 0 and carrying_resource != "":
+		var rm: Object = _get_resource_manager()
+		if rm != null:
+			var space: int = 999999
+			if rm.has_method("get_storage_capacity") and rm.has_method("get_total_stock"):
+				space = maxi(0, int(rm.get_storage_capacity(carrying_resource)) - int(rm.get_total_stock(carrying_resource)))
+			elif rm.has_method("get_capacity") and rm.has_method("get_total_stock"):
+				space = maxi(0, int(rm.get_capacity(carrying_resource)) - int(rm.get_total_stock(carrying_resource)))
+			if space > 0:
+				_deposit_hauler_cargo()
+				return
+
 	# Request work
 	if role != "idle":
 		if role == "guard" and not is_barracks_active():
@@ -359,6 +373,8 @@ func _pickup_hauler_cargo() -> void:
 	if picked_up > 0:
 		carrying_resource = active_job.cargo_resource
 		carrying_amount = picked_up
+		var src_id: String = active_job.source_workplace_id if active_job.source_workplace_id != "" else active_job.target_building_id
+		carrying_source_workplace_id = src_id
 		var path := nav.find_path(current_cell, active_job.dest_cell)
 		if not path.is_empty():
 			current_path = path
@@ -372,6 +388,7 @@ func _pickup_hauler_cargo() -> void:
 					wp.buffer_amount += picked_up
 			carrying_amount = 0
 			carrying_resource = ""
+			carrying_source_workplace_id = ""
 			job_mgr.release_job(active_job)
 			active_job = null
 			current_state = State.IDLE
@@ -406,6 +423,7 @@ func _deposit_hauler_cargo() -> void:
 	if carrying_amount <= 0:
 		carrying_amount = 0
 		carrying_resource = ""
+		carrying_source_workplace_id = ""
 		# Full cargo batch successfully deposited: award +10 hauling XP
 		award_work_xp("hauling", 10.0)
 		if active_job != null:
@@ -416,7 +434,7 @@ func _deposit_hauler_cargo() -> void:
 	else:
 		# Partial deposit: central storage space was insufficient to receive full batch.
 		# Remaining cargo is safely preserved in hauler inventory (no loss, no duplication).
-		# Zero XP awarded until complete batch is deposited.
+		# carrying_source_workplace_id is preserved so demolition checks and future delivery can trace it!
 		if active_job != null:
 			job_mgr.release_job(active_job)
 			active_job = null

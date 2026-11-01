@@ -146,8 +146,9 @@ func add_resource(res_id: String, amount: int) -> int:
 	return to_add
 
 ## Reverses previously added resources (e.g. from an aborted or failed transaction).
-## Correctly rolls back both _current_stock and _daily_production_tallies consistently.
-func rollback_added_resources(credited: Dictionary) -> void:
+## Correctly rolls back both _current_stock and _daily_production_tallies consistently,
+## and restores starvation state if requested.
+func rollback_added_resources(credited: Dictionary, restore_starving: Variant = null) -> void:
 	for res_id in credited:
 		var amt: int = int(credited[res_id])
 		if amt <= 0:
@@ -156,6 +157,8 @@ func rollback_added_resources(credited: Dictionary) -> void:
 		_current_stock[res_id] = maxi(0, cur - amt)
 		_daily_production_tallies[res_id] = maxf(0.0, _daily_production_tallies.get(res_id, 0.0) - float(amt))
 		resource_changed.emit(res_id, get_available_stock(res_id), get_total_stock(res_id))
+	if restore_starving != null:
+		_is_starving = bool(restore_starving)
 
 ## Deducts a resource directly from stock, optionally reverting production tallies.
 func deduct_resource(res_id: String, amount: int, revert_production: bool = true) -> bool:
@@ -173,8 +176,11 @@ func deduct_resource(res_id: String, amount: int, revert_production: bool = true
 ## Atomically adds multiple resources to central stock.
 ## Verifies that ALL resources can fit in remaining capacity.
 ## If ANY resource cannot fit, zero resources are credited and returns {"success": false, "credited": {}}.
-## If all resources fit, commits all additions and returns {"success": true, "credited": credited}.
+## If all resources fit, commits all additions as a single transaction without exposing
+## intermediate partial states to listeners, and returns {"success": true, "credited": credited}.
 func add_resources_atomic(resources: Dictionary) -> Dictionary:
+	var prev_starving: bool = _is_starving
+
 	# Step 1: Preflight capacity check for all resources
 	for res_id in resources:
 		var amt: int = int(resources[res_id])
@@ -190,22 +196,44 @@ func add_resources_atomic(resources: Dictionary) -> Dictionary:
 				"credited": {}
 			}
 
-	# Step 2: Commit additions
+	# Step 2: Commit additions as one transaction without emitting intermediate signals
 	var credited: Dictionary = {}
+	var rollback_needed: bool = false
+	var rollback_reason: String = ""
+
 	for res_id in resources:
 		var amt: int = int(resources[res_id])
 		if amt <= 0:
 			continue
-		var added: int = add_resource(res_id, amt)
-		credited[res_id] = added
-		if added < amt:
-			# Safety rollback in case of runtime anomaly
-			rollback_added_resources(credited)
-			return {
-				"success": false,
-				"reason": "Lỗi thêm tài nguyên không trọn vẹn",
-				"credited": {}
-			}
+		var cur: int = _current_stock.get(res_id, 0)
+		var cap: int = _capacities.get(res_id, 500)
+		var space: int = maxi(0, cap - cur)
+		var to_add: int = mini(amt, space)
+		if to_add < amt:
+			rollback_needed = true
+			rollback_reason = "Lỗi thêm tài nguyên không trọn vẹn cho %s" % res_id
+			if to_add > 0:
+				_current_stock[res_id] = cur + to_add
+				_daily_production_tallies[res_id] = _daily_production_tallies.get(res_id, 0.0) + float(to_add)
+				credited[res_id] = to_add
+			break
+		_current_stock[res_id] = cur + to_add
+		_daily_production_tallies[res_id] = _daily_production_tallies.get(res_id, 0.0) + float(to_add)
+		if res_id == EconomyConfig.RES_FOOD and _current_stock[res_id] > 0:
+			_is_starving = false
+		credited[res_id] = to_add
+
+	if rollback_needed:
+		rollback_added_resources(credited, prev_starving)
+		return {
+			"success": false,
+			"reason": rollback_reason,
+			"credited": {}
+		}
+
+	# Emit signals only upon full transaction success
+	for res_id in credited:
+		resource_changed.emit(res_id, get_available_stock(res_id), get_total_stock(res_id))
 
 	return {"success": true, "credited": credited}
 

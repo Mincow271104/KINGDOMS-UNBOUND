@@ -1639,8 +1639,11 @@ func get_carried_cargo_for_building(b_id: String) -> Dictionary:
 	for cit in citizen_list:
 		if is_instance_valid(cit):
 			var matches_job: bool = (cit.get("active_job") != null and JobManager.job_matches_building(cit.active_job, b_id))
-			var matches_wp: bool = (cit.get("workplace_id") == b_id or (cit.get("workplace_id") != null and String(cit.get("workplace_id")).begins_with(b_id + "_")))
-			if matches_job or matches_wp:
+			var wp_id: String = String(cit.get("workplace_id")) if cit.get("workplace_id") != null else ""
+			var matches_wp: bool = (wp_id == b_id or wp_id.begins_with(b_id + "_"))
+			var src_id: String = String(cit.get("carrying_source_workplace_id")) if cit.get("carrying_source_workplace_id") != null else ""
+			var matches_src: bool = (src_id == b_id or src_id.begins_with(b_id + "_"))
+			if matches_job or matches_wp or matches_src:
 				var carry_amt: int = int(cit.get("carrying_amount")) if cit.get("carrying_amount") != null else 0
 				var carry_res: String = cit.get("carrying_resource") if cit.get("carrying_resource") != null else ""
 				if carry_amt > 0 and carry_res != "":
@@ -1680,8 +1683,11 @@ func demolish_building_project(b_id: String) -> Dictionary:
 	for cit in citizen_list:
 		if is_instance_valid(cit):
 			var matches_job: bool = (cit.get("active_job") != null and JobManager.job_matches_building(cit.active_job, b_id))
-			var matches_wp: bool = (cit.get("workplace_id") == b_id or (cit.get("workplace_id") != null and String(cit.get("workplace_id")).begins_with(b_id + "_")))
-			if matches_job or matches_wp:
+			var wp_id: String = String(cit.get("workplace_id")) if cit.get("workplace_id") != null else ""
+			var matches_wp: bool = (wp_id == b_id or wp_id.begins_with(b_id + "_"))
+			var src_id: String = String(cit.get("carrying_source_workplace_id")) if cit.get("carrying_source_workplace_id") != null else ""
+			var matches_src: bool = (src_id == b_id or src_id.begins_with(b_id + "_"))
+			if matches_job or matches_wp or matches_src:
 				# Conserve carried goods: deposit directly into central storage so goods are never lost
 				var carry_amt: int = int(cit.get("carrying_amount")) if cit.get("carrying_amount") != null else 0
 				var carry_res: String = cit.get("carrying_resource") if cit.get("carrying_resource") != null else ""
@@ -1691,15 +1697,24 @@ func demolish_building_project(b_id: String) -> Dictionary:
 					cit.set("carrying_amount", rem)
 					if rem <= 0:
 						cit.set("carrying_resource", "")
+						cit.set("carrying_source_workplace_id", "")
+					else:
+						# If central storage could not accept remaining cargo, preserve source ID and report
+						print("[WorldView] Partial cargo deposit on demolition: %d %s retained on citizen %s (source: %s)" % [rem, carry_res, cit.get("citizen_id", ""), src_id])
 
-				if cit.get("active_job") != null and JobManager.job_matches_building(cit.active_job, b_id):
+				if matches_job:
 					if job_mgr != null:
 						job_mgr.release_job(cit.active_job)
 					cit.active_job = null
 					cit.set("current_state", CitizenController.State.IDLE)
 					cit.set("status_reason", "Công trình đã bị dỡ bỏ")
 					# Note: Do not call _update_reason() here as it overwrites custom status reason
-				if cit.get("workplace_id") == b_id or (cit.get("workplace_id") != null and String(cit.get("workplace_id")).begins_with(b_id + "_")):
+				elif matches_src or matches_wp:
+					if cit.get("current_state") == CitizenController.State.HAULING:
+						cit.set("current_state", CitizenController.State.IDLE)
+						cit.set("status_reason", "Công trình đã bị dỡ bỏ")
+
+				if matches_wp:
 					cit.set("workplace_id", "")
 
 	# Unregister workplace and channels if dynamic workplace
