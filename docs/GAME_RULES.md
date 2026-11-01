@@ -578,17 +578,17 @@ $$\text{market\_multiplier} = \text{clamp}(1.0 + \text{local\_pressure} + \text{
 Upgrades cost a deterministic ratio of the original blueprint cost and take real builder construction time:
 - **Tier 2 ($1 \to 2$):**
   - $\text{cost} = \lceil \text{blueprint\_cost} \times 0.75 \rceil$ (per resource).
-  - $\text{duration} = \max(\text{blueprint\_duration} \times 0.50, 2.0\text{ hours})$.
+  - $\text{duration} = \max(\lceil \text{blueprint\_duration} \times 0.50 \rceil, 2.0\text{ hours})$.
 - **Tier 3 ($2 \to 3$):**
   - $\text{cost} = \lceil \text{blueprint\_cost} \times 1.25 \rceil$ (per resource).
-  - $\text{duration} = \max(\text{blueprint\_duration} \times 0.75, 2.0\text{ hours})$.
+  - $\text{duration} = \max(\lceil \text{blueprint\_duration} \times 0.75 \rceil, 2.0\text{ hours})$.
 - **Concrete Blueprint Values:**
   - `house` (Base: 25 Wood, 10 Stone, 8.0h):
     - Tier 2: 19 Wood, 8 Stone, 4.0h.
     - Tier 3: 32 Wood, 13 Stone, 6.0h.
-  - `farm` (Base: 30 Wood, 5 Stone, 12.0h):
-    - Tier 2: 23 Wood, 4 Stone, 6.0h.
-    - Tier 3: 38 Wood, 7 Stone, 9.0h.
+  - `farm` (Base: 30 Wood, 5 Stone, 10.0h):
+    - Tier 2: 23 Wood, 4 Stone, 5.0h.
+    - Tier 3: 38 Wood, 7 Stone, 8.0h.
   - `storehouse` (Base: 40 Wood, 25 Stone, 12.0h):
     - Tier 2: 30 Wood, 19 Stone, 6.0h.
     - Tier 3: 50 Wood, 32 Stone, 9.0h.

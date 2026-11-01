@@ -779,8 +779,27 @@ static func can_start_upgrade(b_data_or_id, world_data: WorldGenerator.WorldData
 	var cost: Dictionary = EconomyConfig.get_upgrade_cost(type, target_level)
 	var duration: float = EconomyConfig.get_upgrade_duration(type, target_level)
 
-	if resource_mgr != null and not cost.is_empty():
-		if resource_mgr.has_method("can_afford") and not resource_mgr.can_afford(cost):
+	if not cost.is_empty():
+		if resource_mgr == null or not is_instance_valid(resource_mgr):
+			return {
+				"can_upgrade": false,
+				"reason": "Yêu cầu ResourceManager hợp lệ để kiểm tra và khấu trừ tài nguyên nâng cấp",
+				"cost": cost,
+				"target_level": target_level,
+				"duration": duration,
+				"insufficient_resources": true
+			}
+		var has_deduct_capability: bool = (resource_mgr.has_method("reserve_cost") and resource_mgr.has_method("commit_cost")) or resource_mgr.has_method("deduct_resources_atomic")
+		if not has_deduct_capability or not resource_mgr.has_method("can_afford"):
+			return {
+				"can_upgrade": false,
+				"reason": "ResourceManager không hỗ trợ kiểm tra hoặc khấu trừ tài nguyên nâng cấp",
+				"cost": cost,
+				"target_level": target_level,
+				"duration": duration,
+				"insufficient_resources": true
+			}
+		if not resource_mgr.can_afford(cost):
 			return {
 				"can_upgrade": false,
 				"reason": "Không đủ tài nguyên để nâng cấp lên Cấp %d" % target_level,
@@ -820,7 +839,14 @@ static func start_upgrade(b_data_or_id, world_data: WorldGenerator.WorldData, re
 		}
 
 	var cost: Dictionary = check.get("cost", {})
-	if resource_mgr != null and not cost.is_empty():
+	if not cost.is_empty():
+		if resource_mgr == null or not is_instance_valid(resource_mgr):
+			return {
+				"success": false,
+				"reason": "Yêu cầu ResourceManager hợp lệ để khấu trừ tài nguyên nâng cấp",
+				"insufficient_resources": true,
+				"building": b_data
+			}
 		if resource_mgr.has_method("reserve_cost") and resource_mgr.has_method("commit_cost"):
 			var reserved: bool = resource_mgr.reserve_cost(cost)
 			if not reserved:
@@ -840,6 +866,13 @@ static func start_upgrade(b_data_or_id, world_data: WorldGenerator.WorldData, re
 					"insufficient_resources": true,
 					"building": b_data
 				}
+		else:
+			return {
+				"success": false,
+				"reason": "ResourceManager không hỗ trợ khấu trừ tài nguyên nâng cấp",
+				"insufficient_resources": true,
+				"building": b_data
+			}
 
 	var target_lvl: int = int(check.get("target_level", 2))
 	var duration: float = float(check.get("duration", 2.0))
@@ -931,12 +964,17 @@ static func complete_building_upgrade(b_data_or_id, world_data: WorldGenerator.W
 	var target_level: int = clampi(int(b_data.get("upgrade_target_level", old_level + 1)), 1, EconomyConfig.MAX_BUILDING_LEVEL)
 	var type: String = b_data.get("type", "")
 
-	# If storehouse, apply capacity delta
+	# If storehouse, apply capacity delta (fail closed if resource_mgr is unavailable)
 	if type == "storehouse":
+		if resource_mgr == null or not is_instance_valid(resource_mgr) or not resource_mgr.has_method("add_storage_capacity"):
+			return {
+				"success": false,
+				"reason": "Yêu cầu ResourceManager hợp lệ có add_storage_capacity để hoàn thành nâng cấp Kho chứa",
+				"building": b_data
+			}
 		var delta: Dictionary = EconomyConfig.get_storehouse_bonus_delta(old_level, target_level)
-		if resource_mgr != null and resource_mgr.has_method("add_storage_capacity"):
-			for res_id in delta:
-				resource_mgr.add_storage_capacity(res_id, int(delta[res_id]))
+		for res_id in delta:
+			resource_mgr.add_storage_capacity(res_id, int(delta[res_id]))
 
 	# Apply new level and clear upgrade status
 	b_data["upgrade_level"] = target_level
@@ -980,7 +1018,7 @@ static func can_cancel_upgrade(b_data_or_id, world_data: WorldGenerator.WorldDat
 		if refund_amount > 0:
 			planned_refund[res_id] = refund_amount
 
-	if not planned_refund.is_empty() and resource_mgr != null:
+	if not planned_refund.is_empty():
 		if not is_valid_resource_manager_for_cancellation(resource_mgr):
 			return {
 				"can_cancel": false,
@@ -1034,16 +1072,13 @@ static func cancel_upgrade(b_data_or_id, world_data: WorldGenerator.WorldData, r
 
 	var planned_refund: Dictionary = check.get("refund", {})
 	var refunded: Dictionary = {}
-	if resource_mgr != null and not planned_refund.is_empty():
-		if resource_mgr.has_method("add_resources_atomic"):
-			var atomic_res: Dictionary = resource_mgr.add_resources_atomic(planned_refund)
-			if not atomic_res.get("success", false):
-				return {"success": false, "reason": atomic_res.get("reason", "Không thể hoàn trả tài nguyên nâng cấp"), "refunded": {}}
-			refunded = atomic_res.get("credited", {})
-		elif resource_mgr.has_method("add_resource"):
-			for res_id in planned_refund:
-				resource_mgr.add_resource(res_id, planned_refund[res_id])
-			refunded = planned_refund.duplicate()
+	if not planned_refund.is_empty():
+		if resource_mgr == null or not is_instance_valid(resource_mgr) or not resource_mgr.has_method("add_resources_atomic"):
+			return {"success": false, "reason": "Yêu cầu ResourceManager hợp lệ có add_resources_atomic để hoàn trả tài nguyên", "refunded": {}}
+		var atomic_res: Dictionary = resource_mgr.add_resources_atomic(planned_refund)
+		if not atomic_res.get("success", false):
+			return {"success": false, "reason": atomic_res.get("reason", "Không thể hoàn trả tài nguyên nâng cấp"), "refunded": {}}
+		refunded = atomic_res.get("credited", {})
 
 	# Remove upgrade builder jobs
 	var b_id: String = b_data.get("id", "")

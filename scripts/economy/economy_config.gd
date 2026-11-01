@@ -309,7 +309,7 @@ static func get_upgrade_duration(type: String, target_level: int) -> float:
 	var duration_mult: float = float(tier_cfg.get("duration_mult", 0.5))
 	var bp: Dictionary = BLUEPRINTS.get(type, {})
 	var base_hours: float = float(bp.get("construction_hours", 12.0))
-	return maxf(MIN_UPGRADE_DURATION_HOURS, base_hours * duration_mult)
+	return maxf(MIN_UPGRADE_DURATION_HOURS, ceil(base_hours * duration_mult))
 
 static func get_house_capacity(level: int) -> int:
 	var lvl: int = clampi(level, 1, MAX_BUILDING_LEVEL)

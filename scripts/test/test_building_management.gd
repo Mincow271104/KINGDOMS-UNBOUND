@@ -80,6 +80,8 @@ func _process(_delta: float) -> bool:
 		results.append(_test_tc_bm_47_repeated_load_zero_drift())
 		results.append(_test_tc_bm_48_demolition_of_upgraded_storehouse())
 		results.append(_test_tc_bm_49_level_1_regressions_valid())
+		results.append(_test_tc_bm_50_starter_farm_upgrade_restore())
+		results.append(_test_tc_bm_51_fail_closed_resource_manager_unavailable())
 
 		all_passed = true
 		for r in results:
@@ -3417,7 +3419,8 @@ func _test_tc_bm_38_storehouse_upgrades_capacity_deltas() -> bool:
 	return false
 
 # -----------------------------------------------------------------------------
-# TC-BM.39: Upgrade cost calculations (0.75x ceil, 1.25x ceil)
+# -----------------------------------------------------------------------------
+# TC-BM.39: Upgrade cost calculations (0.75x ceil, 1.25x ceil) and durations
 # -----------------------------------------------------------------------------
 func _test_tc_bm_39_upgrade_costs_and_durations() -> bool:
 	print("--- Running TC-BM.39: Upgrade Costs & Durations (0.75x ceil, 1.25x ceil) ---")
@@ -3435,11 +3438,17 @@ func _test_tc_bm_39_upgrade_costs_and_durations() -> bool:
 
 	var house_d2 = EconomyConfigScript.get_upgrade_duration("house", 2)
 	var house_d3 = EconomyConfigScript.get_upgrade_duration("house", 3)
+	if house_d2 != 4.0:
+		printerr("FAIL: House Lvl 2 duration expected 4.0h, got %f" % house_d2)
+		failures += 1
+	if house_d3 != 6.0:
+		printerr("FAIL: House Lvl 3 duration expected 6.0h, got %f" % house_d3)
+		failures += 1
 	if house_d2 < EconomyConfigScript.MIN_UPGRADE_DURATION_HOURS:
 		printerr("FAIL: House duration Lvl 2 below min duration: %f" % house_d2)
 		failures += 1
 
-	# Farm: base cost {wood: 30, stone: 5}
+	# Farm: base cost {wood: 30, stone: 5}, base hours 10.0
 	var farm_c2 = EconomyConfigScript.get_upgrade_cost("farm", 2)
 	var farm_c3 = EconomyConfigScript.get_upgrade_cost("farm", 3)
 	if farm_c2.get("wood", 0) != 23 or farm_c2.get("stone", 0) != 4:
@@ -3449,10 +3458,46 @@ func _test_tc_bm_39_upgrade_costs_and_durations() -> bool:
 		printerr("FAIL: Farm Lvl 3 cost expected {wood:38, stone:7}, got %s" % str(farm_c3))
 		failures += 1
 
+	var farm_d2 = EconomyConfigScript.get_upgrade_duration("farm", 2)
+	var farm_d3 = EconomyConfigScript.get_upgrade_duration("farm", 3)
+	if farm_d2 != 5.0:
+		printerr("FAIL: Farm Lvl 2 duration expected 5.0h, got %f" % farm_d2)
+		failures += 1
+	# Explicit assertion that Farm Level 2 -> 3 returns 8.0 hours (ceil(10.0 * 0.75) = ceil(7.5) = 8.0)
+	if farm_d3 != 8.0:
+		printerr("FAIL: Farm Lvl 3 duration expected 8.0h (ceil rounded), got %f" % farm_d3)
+		failures += 1
+	if is_equal_approx(farm_d3, 7.5):
+		printerr("FAIL: Farm Lvl 3 duration returned unrounded 7.5h instead of 8.0h")
+		failures += 1
+
+	# Storehouse: base cost {wood: 40, stone: 25}, base hours 12.0
+	var sh_c2 = EconomyConfigScript.get_upgrade_cost("storehouse", 2)
+	var sh_c3 = EconomyConfigScript.get_upgrade_cost("storehouse", 3)
+	if sh_c2.get("wood", 0) != 30 or sh_c2.get("stone", 0) != 19:
+		printerr("FAIL: Storehouse Lvl 2 cost expected {wood:30, stone:19}, got %s" % str(sh_c2))
+		failures += 1
+	if sh_c3.get("wood", 0) != 50 or sh_c3.get("stone", 0) != 32:
+		printerr("FAIL: Storehouse Lvl 3 cost expected {wood:50, stone:32}, got %s" % str(sh_c3))
+		failures += 1
+
+	var sh_d2 = EconomyConfigScript.get_upgrade_duration("storehouse", 2)
+	var sh_d3 = EconomyConfigScript.get_upgrade_duration("storehouse", 3)
+	if sh_d2 != 6.0:
+		printerr("FAIL: Storehouse Lvl 2 duration expected 6.0h, got %f" % sh_d2)
+		failures += 1
+	if sh_d3 != 9.0:
+		printerr("FAIL: Storehouse Lvl 3 duration expected 9.0h, got %f" % sh_d3)
+		failures += 1
+
 	# Non-upgradeable building: townhall
 	var th_cost = EconomyConfigScript.get_upgrade_cost("townhall", 2)
+	var th_duration = EconomyConfigScript.get_upgrade_duration("townhall", 2)
 	if not th_cost.is_empty():
 		printerr("FAIL: Townhall should not have upgrade cost, got %s" % str(th_cost))
+		failures += 1
+	if th_duration != 0.0:
+		printerr("FAIL: Townhall should have 0.0 upgrade duration, got %f" % th_duration)
 		failures += 1
 
 	if failures == 0:
@@ -3529,7 +3574,7 @@ func _test_tc_bm_41_upgrade_progress_and_timemanager() -> bool:
 		"is_upgrading": true,
 		"upgrade_target_level": 2,
 		"upgrade_progress": 0.0,
-		"upgrade_required_hours": 6.0
+		"upgrade_required_hours": 5.0
 	}
 	wd.buildings.append(test_farm)
 
@@ -3545,7 +3590,7 @@ func _test_tc_bm_41_upgrade_progress_and_timemanager() -> bool:
 		printerr("FAIL: Progress mismatch after 2.0h: %f" % float(test_farm.get("upgrade_progress", 0.0)))
 		failures += 1
 	if res_adv.get("completed", true):
-		printerr("FAIL: Upgrade marked completed prematurely at 2.0 / 6.0 hours")
+		printerr("FAIL: Upgrade marked completed prematurely at 2.0 / 5.0 hours")
 		failures += 1
 
 	# Cleanup
@@ -3807,7 +3852,7 @@ func _test_tc_bm_46_save_load_in_progress_upgrade() -> bool:
 		"is_upgrading": true,
 		"upgrade_target_level": 2,
 		"upgrade_progress": 3.5,
-		"upgrade_required_hours": 6.0,
+		"upgrade_required_hours": 5.0,
 		"upgrade_cost": {"wood": 23, "stone": 4}
 	}
 	wd.buildings.append(test_farm)
@@ -3869,21 +3914,179 @@ func _test_tc_bm_47_repeated_load_zero_drift() -> bool:
 	print("--- Running TC-BM.47: Repeated Save/Load Zero Drift ---")
 	var failures: int = 0
 	var rm = world_instance.get_node_or_null("/root/ResourceManager")
+	var wd = world_instance.world_data
+
+	# 1. Setup upgraded Storehouse (Level 2) and upgraded Farm (Level 2), plus in-progress House upgrade
+	var free_spots: Array[Vector2i] = []
+	for cx in range(12, 50, 3):
+		for cy in range(12, 50, 3):
+			var can_place := true
+			for ox in range(2):
+				for oy in range(2):
+					var c := Vector2i(cx + ox, cy + oy)
+					if not IsoMath.is_in_bounds(c) or wd.occupancy[c.x][c.y] or wd.terrain[c.x][c.y] == WorldGenerator.TerrainType.WATER:
+						can_place = false
+						break
+				if not can_place:
+					break
+			if can_place:
+				free_spots.append(Vector2i(cx, cy))
+				if free_spots.size() >= 3:
+					break
+		if free_spots.size() >= 3:
+			break
+
+	if free_spots.size() < 3:
+		printerr("FAIL: Could not find 3 free 2x2 cells for TC-BM.47")
+		return false
+
+	var sh_cell: Vector2i = free_spots[0]
+	var farm_cell: Vector2i = free_spots[1]
+	var house_cell: Vector2i = free_spots[2]
+
+	for ox in range(2):
+		for oy in range(2):
+			wd.occupancy[sh_cell.x + ox][sh_cell.y + oy] = true
+			wd.occupancy[farm_cell.x + ox][farm_cell.y + oy] = true
+			wd.occupancy[house_cell.x + ox][house_cell.y + oy] = true
+
+	var test_sh: Dictionary = {
+		"id": "bld_tc47_sh",
+		"type": "storehouse",
+		"cell": sh_cell,
+		"size": Vector2i(2, 2),
+		"state": "active",
+		"health": 100,
+		"upgrade_level": 2
+	}
+	var test_farm: Dictionary = {
+		"id": "bld_tc47_farm",
+		"type": "farm",
+		"cell": farm_cell,
+		"size": Vector2i(2, 2),
+		"state": "active",
+		"health": 100,
+		"upgrade_level": 2
+	}
+	var test_house: Dictionary = {
+		"id": "bld_tc47_house",
+		"type": "house",
+		"cell": house_cell,
+		"size": Vector2i(2, 2),
+		"state": "active",
+		"health": 100,
+		"upgrade_level": 1,
+		"is_upgrading": true,
+		"upgrade_target_level": 2,
+		"upgrade_progress": 1.5,
+		"upgrade_required_hours": 4.0,
+		"upgrade_cost": {"wood": 19, "stone": 8}
+	}
+
+	wd.buildings.append(test_sh)
+	wd.buildings.append(test_farm)
+	wd.buildings.append(test_house)
+
+	# Apply storehouse completion effects for level 1 + level 2 delta
+	BuildingSystemScript.apply_completion_effects(test_sh, rm)
+	var delta_sh: Dictionary = EconomyConfigScript.get_storehouse_bonus_delta(1, 2)
+	for res_id in delta_sh:
+		rm.add_storage_capacity(res_id, int(delta_sh[res_id]))
+
+	# Register dynamic farm workplace with level 2 multiplier (1.15)
+	world_instance.register_dynamic_workplace(test_farm)
+
+	# Register upgrade builder jobs for house
+	world_instance.register_upgrade_jobs(test_house)
+	var initial_builder_jobs = world_instance.job_mgr.get_jobs_for_building("bld_tc47_house").filter(func(j): return j.type == "builder")
+	var expected_builder_job_count: int = initial_builder_jobs.size()
+	if expected_builder_job_count == 0:
+		printerr("FAIL: Expected builder jobs registered for upgrading house")
+		failures += 1
+
+	var target_wood_cap: int = rm.get_capacity("wood")
+	var target_food_cap: int = rm.get_capacity("food")
+	var target_stone_cap: int = rm.get_capacity("stone")
+	var target_tools_cap: int = rm.get_capacity("tools")
+	var target_ore_cap: int = rm.get_capacity("ore")
+	var expected_farm_mult: float = EconomyConfigScript.get_farm_multiplier(2) # 1.15
 
 	var temp_save := "user://saves/test_repeat_load.json"
-	SaveManagerScript.save_to_file(world_instance, temp_save)
-
-	var initial_wood_cap = rm.get_capacity("wood")
-	var initial_food_cap = rm.get_capacity("food")
+	var save_res = SaveManagerScript.save_to_file(world_instance, temp_save)
+	if not save_res.get("success", false):
+		printerr("FAIL: Initial save failed in TC-BM.47: %s" % save_res.get("error", ""))
+		return false
 
 	# Load 3 times in succession
 	for i in range(3):
 		var load_res = SaveManagerScript.load_from_file(temp_save)
-		SaveManagerScript.apply_loaded_state_to_world(world_instance, load_res["data"])
-		if rm.get_capacity("wood") != initial_wood_cap or rm.get_capacity("food") != initial_food_cap:
-			printerr("FAIL: Capacity drifted on load iteration %d: wood=%d (init %d), food=%d (init %d)" % [i, rm.get_capacity("wood"), initial_wood_cap, rm.get_capacity("food"), initial_food_cap])
+		if not load_res.get("success", false):
+			printerr("FAIL: Load failed on iteration %d: %s" % [i, load_res.get("error", "")])
 			failures += 1
 			break
+		var apply_res = SaveManagerScript.apply_loaded_state_to_world(world_instance, load_res["data"])
+		if not apply_res.get("success", false):
+			printerr("FAIL: Apply state failed on iteration %d" % i)
+			failures += 1
+			break
+
+		# Check exact capacities across all resources: zero drift!
+		if rm.get_capacity("wood") != target_wood_cap:
+			printerr("FAIL: Wood capacity drift on iter %d: %d vs %d" % [i, rm.get_capacity("wood"), target_wood_cap])
+			failures += 1
+		if rm.get_capacity("food") != target_food_cap:
+			printerr("FAIL: Food capacity drift on iter %d: %d vs %d" % [i, rm.get_capacity("food"), target_food_cap])
+			failures += 1
+		if rm.get_capacity("stone") != target_stone_cap:
+			printerr("FAIL: Stone capacity drift on iter %d: %d vs %d" % [i, rm.get_capacity("stone"), target_stone_cap])
+			failures += 1
+		if rm.get_capacity("tools") != target_tools_cap:
+			printerr("FAIL: Tools capacity drift on iter %d: %d vs %d" % [i, rm.get_capacity("tools"), target_tools_cap])
+			failures += 1
+		if rm.get_capacity("ore") != target_ore_cap:
+			printerr("FAIL: Ore capacity drift on iter %d: %d vs %d" % [i, rm.get_capacity("ore"), target_ore_cap])
+			failures += 1
+
+		# Check farm multiplier
+		var farm_wp = world_instance.workplace_mgr.get_workplace("bld_tc47_farm")
+		if farm_wp == null:
+			printerr("FAIL: Farm workplace missing on iter %d" % i)
+			failures += 1
+		elif absf(farm_wp.level_multiplier - expected_farm_mult) > 0.001:
+			printerr("FAIL: Farm multiplier drift on iter %d: %f vs %f" % [i, farm_wp.level_multiplier, expected_farm_mult])
+			failures += 1
+
+		# Check builder jobs count - no duplicate builder jobs after repeated loads
+		var current_builder_jobs = world_instance.job_mgr.get_jobs_for_building("bld_tc47_house").filter(func(j): return j.type == "builder")
+		if current_builder_jobs.size() != expected_builder_job_count:
+			printerr("FAIL: Builder jobs duplicated or drifted on iter %d: count %d vs expected %d" % [i, current_builder_jobs.size(), expected_builder_job_count])
+			failures += 1
+
+	# Cleanup test structures
+	var cur_sh = BuildingSystemScript.get_building_by_id("bld_tc47_sh", world_instance.world_data)
+	if not cur_sh.is_empty():
+		world_instance.world_data.buildings.erase(cur_sh)
+		for res_id in delta_sh:
+			rm.remove_storage_capacity(res_id, int(delta_sh[res_id]))
+		var base_bonus = EconomyConfigScript.get_building_storage_bonus("storehouse", 1)
+		for res_id in base_bonus:
+			rm.remove_storage_capacity(res_id, int(base_bonus[res_id]))
+
+	var cur_farm = BuildingSystemScript.get_building_by_id("bld_tc47_farm", world_instance.world_data)
+	if not cur_farm.is_empty():
+		world_instance.world_data.buildings.erase(cur_farm)
+		world_instance.workplace_mgr.unregister_workplace("bld_tc47_farm")
+
+	var cur_house = BuildingSystemScript.get_building_by_id("bld_tc47_house", world_instance.world_data)
+	if not cur_house.is_empty():
+		world_instance.world_data.buildings.erase(cur_house)
+		world_instance.job_mgr.remove_jobs_for_building("bld_tc47_house")
+
+	for ox in range(2):
+		for oy in range(2):
+			world_instance.world_data.occupancy[sh_cell.x + ox][sh_cell.y + oy] = false
+			world_instance.world_data.occupancy[farm_cell.x + ox][farm_cell.y + oy] = false
+			world_instance.world_data.occupancy[house_cell.x + ox][house_cell.y + oy] = false
 
 	if FileAccess.file_exists(temp_save):
 		DirAccess.remove_absolute(temp_save)
@@ -3891,7 +4094,7 @@ func _test_tc_bm_47_repeated_load_zero_drift() -> bool:
 		DirAccess.remove_absolute(temp_save + ".bak")
 
 	if failures == 0:
-		print("  [PASS] TC-BM.47: Repeated load does not duplicate storage or multipliers.")
+		print("  [PASS] TC-BM.47: Repeated load does not duplicate storage, multipliers, or builder jobs.")
 		return true
 	return false
 
@@ -3991,6 +4194,306 @@ func _test_tc_bm_49_level_1_regressions_valid() -> bool:
 
 	if failures == 0:
 		print("  [PASS] TC-BM.49: All standard Level 1 lifecycle mechanics remain 100% valid.")
+		return true
+	return false
+
+# -----------------------------------------------------------------------------
+# TC-BM.50: Starter Farm Upgrade Restore & Job Preservation (FIX A Integration)
+# -----------------------------------------------------------------------------
+func _test_tc_bm_50_starter_farm_upgrade_restore() -> bool:
+	print("--- Running TC-BM.50: Starter Farm Upgrade Restore & Job Preservation ---")
+	var failures: int = 0
+	var wd = world_instance.world_data
+	var rm = world_instance.get_node_or_null("/root/ResourceManager")
+	var jm = world_instance.job_mgr
+	var wm = world_instance.workplace_mgr
+
+	# 1. Locate the authentic starter farm at (36, 35)
+	var starter_farm: Dictionary = {}
+	for b in wd.buildings:
+		if b.get("id") == "farm_starter" or (b.get("type") == "farm" and b.get("cell") == Vector2i(36, 35)):
+			starter_farm = b
+			break
+
+	if starter_farm.is_empty():
+		printerr("FAIL: Authentic farm_starter not found in world_data.buildings")
+		return false
+
+	var initial_farm_jobs = jm.get_jobs_for_building("farm_starter").filter(func(j): return j.type == "farmer")
+	if initial_farm_jobs.size() != 5:
+		printerr("FAIL: Expected exactly 5 starter farmer jobs, found %d" % initial_farm_jobs.size())
+		failures += 1
+
+	# 2. Put starter farm into in-progress upgrade
+	var upgrade_duration: float = EconomyConfigScript.get_upgrade_duration("farm", 2) # 5.0h
+	var upgrade_cost: Dictionary = EconomyConfigScript.get_upgrade_cost("farm", 2)
+	starter_farm["is_upgrading"] = true
+	starter_farm["upgrade_target_level"] = 2
+	starter_farm["upgrade_progress"] = 2.0
+	starter_farm["upgrade_required_hours"] = upgrade_duration
+	starter_farm["upgrade_cost"] = upgrade_cost.duplicate()
+
+	# Register upgrade builder jobs
+	world_instance.register_upgrade_jobs(starter_farm)
+	var initial_builder_jobs = jm.get_jobs_for_building("farm_starter").filter(func(j): return j.type == "builder")
+	var expected_builder_job_count: int = initial_builder_jobs.size()
+	if expected_builder_job_count == 0:
+		printerr("FAIL: No builder jobs created for farm_starter upgrade")
+		failures += 1
+
+	# 3. Save to disk
+	var temp_save := "user://saves/test_starter_farm_upgrade_restore.json"
+	var save_res = SaveManagerScript.save_to_file(world_instance, temp_save)
+	if not save_res.get("success", false):
+		printerr("FAIL: Save failed in TC-BM.50: %s" % save_res.get("error", ""))
+		return false
+
+	# 4. Load from disk and apply
+	var load_res = SaveManagerScript.load_from_file(temp_save)
+	if not load_res.get("success", false):
+		printerr("FAIL: Load failed in TC-BM.50: %s" % load_res.get("error", ""))
+		return false
+
+	var apply_res = SaveManagerScript.apply_loaded_state_to_world(world_instance, load_res["data"])
+	if not apply_res.get("success", false):
+		printerr("FAIL: Apply state failed in TC-BM.50")
+		return false
+
+	# 5. Verify restored state
+	var restored_farm: Dictionary = {}
+	for b in world_instance.world_data.buildings:
+		if b.get("id") == "farm_starter" or (b.get("type") == "farm" and b.get("cell") == Vector2i(36, 35)):
+			restored_farm = b
+			break
+
+	if restored_farm.is_empty():
+		printerr("FAIL: farm_starter missing after load in TC-BM.50")
+		failures += 1
+	else:
+		if not bool(restored_farm.get("is_upgrading", false)):
+			printerr("FAIL: Restored farm_starter is_upgrading is not true")
+			failures += 1
+		if int(restored_farm.get("upgrade_target_level", 0)) != 2:
+			printerr("FAIL: Restored farm_starter target level is %d, expected 2" % int(restored_farm.get("upgrade_target_level", 0)))
+			failures += 1
+		if absf(float(restored_farm.get("upgrade_progress", 0.0)) - 2.0) > 0.001:
+			printerr("FAIL: Restored farm_starter progress is %f, expected 2.0" % float(restored_farm.get("upgrade_progress", 0.0)))
+			failures += 1
+		if absf(float(restored_farm.get("upgrade_required_hours", 0.0)) - 5.0) > 0.001:
+			printerr("FAIL: Restored farm_starter required hours is %f, expected 5.0" % float(restored_farm.get("upgrade_required_hours", 0.0)))
+			failures += 1
+
+	# Check restored jobs: builder jobs restored, 5 farmer jobs preserved and NOT duplicated!
+	var restored_builder_jobs = world_instance.job_mgr.get_jobs_for_building("farm_starter").filter(func(j): return j.type == "builder")
+	if restored_builder_jobs.size() != expected_builder_job_count:
+		printerr("FAIL: Restored builder jobs count mismatch: %d vs expected %d" % [restored_builder_jobs.size(), expected_builder_job_count])
+		failures += 1
+
+	var restored_farmer_jobs = world_instance.job_mgr.get_jobs_for_building("farm_starter").filter(func(j): return j.type == "farmer")
+	if restored_farmer_jobs.size() != 5:
+		printerr("FAIL: Farmer jobs count mismatch after load: %d vs expected 5" % restored_farmer_jobs.size())
+		failures += 1
+
+	# Check workplace level multiplier
+	var wp = world_instance.workplace_mgr.get_workplace("farm_starter")
+	if wp == null:
+		printerr("FAIL: Starter farm workplace missing after load")
+		failures += 1
+	elif absf(wp.level_multiplier - 1.0) > 0.001:
+		printerr("FAIL: Starter farm workplace level multiplier is %f, expected 1.0" % wp.level_multiplier)
+		failures += 1
+
+	# 6. Advance upgrade progress and perform repeated load
+	BuildingSystemScript.advance_upgrade(restored_farm, 1.0, world_instance.world_data)
+	if absf(float(restored_farm.get("upgrade_progress", 0.0)) - 3.0) > 0.001:
+		printerr("FAIL: Upgrade progress did not advance to 3.0: %f" % float(restored_farm.get("upgrade_progress", 0.0)))
+		failures += 1
+
+	SaveManagerScript.save_to_file(world_instance, temp_save)
+	var load_res2 = SaveManagerScript.load_from_file(temp_save)
+	SaveManagerScript.apply_loaded_state_to_world(world_instance, load_res2["data"])
+
+	var restored_farm2: Dictionary = {}
+	for b in world_instance.world_data.buildings:
+		if b.get("id") == "farm_starter" or (b.get("type") == "farm" and b.get("cell") == Vector2i(36, 35)):
+			restored_farm2 = b
+			break
+
+	if absf(float(restored_farm2.get("upgrade_progress", 0.0)) - 3.0) > 0.001:
+		printerr("FAIL: Progress 3.0 not preserved across repeated load: %f" % float(restored_farm2.get("upgrade_progress", 0.0)))
+		failures += 1
+
+	var rep_builder_jobs = world_instance.job_mgr.get_jobs_for_building("farm_starter").filter(func(j): return j.type == "builder")
+	if rep_builder_jobs.size() != expected_builder_job_count:
+		printerr("FAIL: Builder jobs duplicated on repeated load: %d vs expected %d" % [rep_builder_jobs.size(), expected_builder_job_count])
+		failures += 1
+
+	var rep_farmer_jobs = world_instance.job_mgr.get_jobs_for_building("farm_starter").filter(func(j): return j.type == "farmer")
+	if rep_farmer_jobs.size() != 5:
+		printerr("FAIL: Farmer jobs duplicated on repeated load: %d vs expected 5" % rep_farmer_jobs.size())
+		failures += 1
+
+	# 7. Cleanup & restore original starter farm state
+	if not restored_farm2.is_empty():
+		restored_farm2["is_upgrading"] = false
+		restored_farm2.erase("upgrade_target_level")
+		restored_farm2.erase("upgrade_progress")
+		restored_farm2.erase("upgrade_required_hours")
+		restored_farm2.erase("upgrade_cost")
+	var jobs_to_clear = world_instance.job_mgr.get_jobs_for_building("farm_starter").filter(func(j): return j.type == "builder")
+	for j in jobs_to_clear:
+		world_instance.job_mgr._jobs.erase(j)
+
+	if FileAccess.file_exists(temp_save):
+		DirAccess.remove_absolute(temp_save)
+	if FileAccess.file_exists(temp_save + ".bak"):
+		DirAccess.remove_absolute(temp_save + ".bak")
+
+	if failures == 0:
+		print("  [PASS] TC-BM.50: Authentic starter farm upgrade restore, job preservation, and repeated load verified.")
+		return true
+	return false
+
+# -----------------------------------------------------------------------------
+# TC-BM.51: Fail-Closed When ResourceManager is Unavailable (FIX C)
+# -----------------------------------------------------------------------------
+func _test_tc_bm_51_fail_closed_resource_manager_unavailable() -> bool:
+	print("--- Running TC-BM.51: Fail-Closed When ResourceManager Unavailable ---")
+	var failures: int = 0
+	var wd = world_instance.world_data
+
+	var test_house: Dictionary = {
+		"id": "bld_tc51_house",
+		"type": "house",
+		"cell": Vector2i(22, 10),
+		"size": Vector2i(2, 2),
+		"state": "active",
+		"health": 100,
+		"upgrade_level": 1
+	}
+	wd.buildings.append(test_house)
+
+	# 1. can_start_upgrade fail-closed when cost is non-empty and rm is null or invalid
+	var c_null = BuildingSystemScript.can_start_upgrade(test_house, wd, null)
+	if c_null.get("can_upgrade", true):
+		printerr("FAIL: can_start_upgrade succeeded with null resource_mgr")
+		failures += 1
+	if not c_null.get("insufficient_resources", false):
+		printerr("FAIL: insufficient_resources flag not set on null resource_mgr")
+		failures += 1
+
+	var invalid_rm = RefCounted.new()
+	var c_inv = BuildingSystemScript.can_start_upgrade(test_house, wd, invalid_rm)
+	if c_inv.get("can_upgrade", true):
+		printerr("FAIL: can_start_upgrade succeeded with invalid resource_mgr")
+		failures += 1
+
+	# 2. start_upgrade fail-closed without mutating state
+	var s_null = BuildingSystemScript.start_upgrade(test_house, wd, null)
+	if s_null.get("success", true):
+		printerr("FAIL: start_upgrade succeeded with null resource_mgr")
+		failures += 1
+	if bool(test_house.get("is_upgrading", false)):
+		printerr("FAIL: test_house is_upgrading was mutated with null resource_mgr")
+		failures += 1
+
+	var s_inv = BuildingSystemScript.start_upgrade(test_house, wd, invalid_rm)
+	if s_inv.get("success", true):
+		printerr("FAIL: start_upgrade succeeded with invalid resource_mgr")
+		failures += 1
+	if bool(test_house.get("is_upgrading", false)):
+		printerr("FAIL: test_house is_upgrading was mutated with invalid resource_mgr")
+		failures += 1
+
+	# 3. complete_building_upgrade for Storehouse fail-closed before mutating state
+	var test_sh: Dictionary = {
+		"id": "bld_tc51_sh",
+		"type": "storehouse",
+		"cell": Vector2i(24, 10),
+		"size": Vector2i(2, 2),
+		"state": "active",
+		"health": 100,
+		"upgrade_level": 1,
+		"is_upgrading": true,
+		"upgrade_target_level": 2,
+		"upgrade_progress": 6.0,
+		"upgrade_required_hours": 6.0,
+		"upgrade_cost": {"wood": 19, "stone": 12}
+	}
+	wd.buildings.append(test_sh)
+
+	var comp_null = BuildingSystemScript.complete_building_upgrade(test_sh, wd, null)
+	if comp_null.get("success", true):
+		printerr("FAIL: complete_building_upgrade for Storehouse succeeded with null resource_mgr")
+		failures += 1
+	if int(test_sh.get("upgrade_level", 0)) != 1:
+		printerr("FAIL: Storehouse level mutated to %d despite null resource_mgr" % int(test_sh.get("upgrade_level", 0)))
+		failures += 1
+	if not bool(test_sh.get("is_upgrading", false)):
+		printerr("FAIL: Storehouse is_upgrading cleared despite failure on null resource_mgr")
+		failures += 1
+
+	var comp_inv = BuildingSystemScript.complete_building_upgrade(test_sh, wd, invalid_rm)
+	if comp_inv.get("success", true):
+		printerr("FAIL: complete_building_upgrade for Storehouse succeeded with invalid resource_mgr")
+		failures += 1
+	if int(test_sh.get("upgrade_level", 0)) != 1:
+		printerr("FAIL: Storehouse level mutated to %d despite invalid resource_mgr" % int(test_sh.get("upgrade_level", 0)))
+		failures += 1
+	if not bool(test_sh.get("is_upgrading", false)):
+		printerr("FAIL: Storehouse is_upgrading cleared despite failure on invalid resource_mgr")
+		failures += 1
+
+	# 4. can_cancel_upgrade and cancel_upgrade fail-closed when refund is expected
+	var test_cancel_house: Dictionary = {
+		"id": "bld_tc51_cancel_house",
+		"type": "house",
+		"cell": Vector2i(26, 10),
+		"size": Vector2i(2, 2),
+		"state": "active",
+		"health": 100,
+		"upgrade_level": 1,
+		"is_upgrading": true,
+		"upgrade_target_level": 2,
+		"upgrade_progress": 2.0,
+		"upgrade_required_hours": 4.0,
+		"upgrade_cost": {"wood": 19, "stone": 8}
+	}
+	wd.buildings.append(test_cancel_house)
+
+	var can_c_null = BuildingSystemScript.can_cancel_upgrade(test_cancel_house, wd, null)
+	if can_c_null.get("can_cancel", true):
+		printerr("FAIL: can_cancel_upgrade succeeded with null resource_mgr")
+		failures += 1
+
+	var can_c_inv = BuildingSystemScript.can_cancel_upgrade(test_cancel_house, wd, invalid_rm)
+	if can_c_inv.get("can_cancel", true):
+		printerr("FAIL: can_cancel_upgrade succeeded with invalid resource_mgr")
+		failures += 1
+
+	var cancel_null = BuildingSystemScript.cancel_upgrade(test_cancel_house, wd, null)
+	if cancel_null.get("success", true):
+		printerr("FAIL: cancel_upgrade succeeded with null resource_mgr")
+		failures += 1
+	if not bool(test_cancel_house.get("is_upgrading", false)):
+		printerr("FAIL: is_upgrading mutated despite cancel_upgrade failure on null resource_mgr")
+		failures += 1
+
+	var cancel_inv = BuildingSystemScript.cancel_upgrade(test_cancel_house, wd, invalid_rm)
+	if cancel_inv.get("success", true):
+		printerr("FAIL: cancel_upgrade succeeded with invalid resource_mgr")
+		failures += 1
+	if not bool(test_cancel_house.get("is_upgrading", false)):
+		printerr("FAIL: is_upgrading mutated despite cancel_upgrade failure on invalid resource_mgr")
+		failures += 1
+
+	# Cleanup test structures
+	wd.buildings.erase(test_house)
+	wd.buildings.erase(test_sh)
+	wd.buildings.erase(test_cancel_house)
+
+	if failures == 0:
+		print("  [PASS] TC-BM.51: All upgrade operations strictly fail closed when ResourceManager is unavailable.")
 		return true
 	return false
 

@@ -14,18 +14,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - Data-driven 3-tier upgrade system for `house`, `farm`, and `storehouse` (`MAX_BUILDING_LEVEL = 3`, starting `upgrade_level = 1`).
   - Strict scope limitation: non-upgradeable buildings (`townhall`, `barracks`, `workshop`, `research_hall`, `market`, `watchtower`, `palisade`) remain immutable at Level 1.
   - Deterministic tier costs and durations:
-    - Tier 2 ($1 \to 2$): $0.75\times$ blueprint cost (`ceil`), $0.50\times$ blueprint duration ($\min 2.0$ hours).
-    - Tier 3 ($2 \to 3$): $1.25\times$ blueprint cost (`ceil`), $0.75\times$ blueprint duration ($\min 2.0$ hours).
+    - Tier 2 ($1 \to 2$): $0.75\times$ blueprint cost (`ceil`), $0.50\times$ blueprint duration (`ceil`, $\min 2.0$ hours). House: 4.0h, Farm: 5.0h, Storehouse: 6.0h.
+    - Tier 3 ($2 \to 3$): $1.25\times$ blueprint cost (`ceil`), $0.75\times$ blueprint duration (`ceil`, $\min 2.0$ hours). House: 6.0h, Farm: 8.0h (ceil of 7.5h), Storehouse: 9.0h.
   - Specialized building effects:
     - `house`: Level 1 = 6 capacity, Level 2 = 8 capacity (+2), Level 3 = 10 capacity (+4 total).
     - `farm`: Level 1 = $1.00\times$, Level 2 = $1.15\times$, Level 3 = $1.30\times$ cycle production output.
     - `storehouse`: Level 1 = $1.00\times$, Level 2 = $1.25\times$, Level 3 = $1.50\times$ storage bonus (+125 food/wood/stone, +75 ore/metal per tier).
   - Building upgrade lifecycle: Upgrades require physical builder labor over time; the building operates continuously at its old tier during construction; effects apply only upon completion.
-  - Storage delta accounting: On storehouse upgrade completion, only the delta bonus (+125/+75) is added to `ResourceManager`. On demolition, the current tier's storage bonus is deducted.
-  - Cancellation & Demolition safeguards: 50% refund (`floor`), preflights central storage space before refunding, strictly fail-closed on full storage. Demolition blocked while upgrading.
+  - Storage delta accounting: On storehouse upgrade completion, only the delta bonus (+125/+75) is added to `ResourceManager`. On demolition, the current tier's storage bonus is deducted. Fail closed before mutating level if `ResourceManager` is missing.
+  - Cancellation & Demolition safeguards: 50% refund (`floor`), preflights central storage space before refunding, strictly fail-closed on full storage or missing `ResourceManager`. Demolition blocked while upgrading.
+  - Fail-closed safety: All 5 BuildingSystem upgrade APIs (`can_start_upgrade`, `start_upgrade`, `complete_building_upgrade`, `can_cancel_upgrade`, `cancel_upgrade`) strictly fail closed without mutating state when `ResourceManager` is unavailable or lacks required methods.
+  - Starter Farm Upgrade Restore: In `WorldView.sync_workplaces_after_load`, `farm_starter` falls through to `register_upgrade_jobs` when in-progress upgrade is loaded, preserving both builder jobs and 5 starter farmer jobs without duplication.
   - HUD Building Inspector: Added `UpgradeSection` with level badge, current effect label, next effect preview, cost & duration, upgrade button (with affordability check), progress bar, builder count, cancel button, and max level label.
   - Save/Load compatibility: Persists upgrade state fields with fail-closed validation; legacy saves lacking `upgrade_level` safely default to Level 1.
-  - Automated test suite expansion in `scripts/test/test_building_management.gd`: Added TC-BM.35 through TC-BM.49 (49/49 tests passed, Exit Code 0).
+  - Automated test suite expansion in `scripts/test/test_building_management.gd`: Added TC-BM.35 through TC-BM.51 (51/51 tests passed, Exit Code 0).
 
 ### [Package 2H] - 2026-11-02
 #### Added

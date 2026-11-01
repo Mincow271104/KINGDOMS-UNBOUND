@@ -9134,12 +9134,48 @@ Implement a robust, data-driven 3-tier building upgrade system for KINGDOMS UNBO
    - Synchronized `docs/BACKLOG.md` (Package 2I tasks), `docs/GAME_RULES.md` (Section 17), `docs/SCOPE_DECISIONS.md` (Section 1.31 & MVP table), `docs/CHANGELOG.md` (Package 2I), and `docs/WORKLOG.md`.
 
 ### Verification & Regression Results
-1. `scripts/test/test_building_management.gd`: **49/49 tests PASSED (Exit Code 0)**
+1. `scripts/test/test_building_management.gd`: **51/51 tests PASSED (Exit Code 0)**
 2. `scripts/test/test_save_load.gd`: **182/182 assertions PASSED (Exit Code 0)**
 3. `scripts/test/test_market.gd`: **26/26 tests PASSED (Exit Code 0)**
 4. Headless Editor Parse Check (`Godot_v4.7-stable_win64_console.exe --headless --editor --quit`): **Exit Code 0, 0 errors**.
 
+---
+
+## 2026-11-02 — Package 2I Correction: Harden Upgrade Restore and Accounting (Completed)
+
+### Context & Independent Review Objectives
+Following independent source review of Package 2I (`ba0a1d7ddb94c7c74c845b35ad3db9aff3692f81`), three specific issues were addressed without expanding package scope:
+1. **FIX A — Restore upgrade builder jobs for `farm_starter` after loading:**
+   - In `WorldView.sync_workplaces_after_load()`, starter farm handling previously skipped subsequent logic via `continue`, bypassing `register_upgrade_jobs(b)`.
+   - Replaced `continue` with `else: register_dynamic_workplace(b)`, enabling in-progress upgrading starter farm to fall through cleanly to `register_upgrade_jobs(b)`.
+   - Verified starter farm's 5 farmer jobs are preserved and never duplicated.
+2. **FIX B — Correct upgrade duration rounding and documentation:**
+   - Enforced formula `max(ceil(base_blueprint_hours * duration_multiplier), MIN_UPGRADE_DURATION_HOURS)` in `EconomyConfig.get_upgrade_duration()`.
+   - Blueprint base hours for Farm is 10.0h (House: 8.0h, Storehouse: 12.0h).
+   - Expected duration table verified:
+     - House (8.0h): Level 1 -> 2 = 4.0h, Level 2 -> 3 = 6.0h.
+     - Farm (10.0h): Level 1 -> 2 = 5.0h, Level 2 -> 3 = 8.0h (`ceil(10.0 * 0.75) = ceil(7.5) = 8.0h`).
+     - Storehouse (12.0h): Level 1 -> 2 = 6.0h, Level 2 -> 3 = 9.0h.
+   - Synchronized all documentation (`docs/GAME_RULES.md`, `docs/BACKLOG.md`, `docs/CHANGELOG.md`, `docs/WORKLOG.md`) to correct erroneous claims of 12h base or 6h/9h durations for Farm.
+   - Updated `TC-BM.39` with explicit assertion that Farm Level 2 -> 3 returns 8.0h (not 7.5h).
+   - Updated `TC-BM.41` and `TC-BM.46` to use 5.0h for Farm Level 2 upgrade duration.
+3. **FIX C — Fail closed when ResourceManager is unavailable:**
+   - `BuildingSystem.can_start_upgrade()` and `start_upgrade()`: fail closed if `resource_mgr == null` or lacks atomic deduction/affordability capabilities when cost is non-empty. Never grant free upgrades.
+   - `BuildingSystem.complete_building_upgrade()`: Storehouse upgrades fail closed before mutating building level or clearing upgrade flags if `resource_mgr == null` or lacks `add_storage_capacity`.
+   - `BuildingSystem.can_cancel_upgrade()` and `cancel_upgrade()`: fail closed if `resource_mgr == null` or lacks `add_resources_atomic` when refund is non-empty. Storage preflight is never bypassed.
+   - Verified that failed operations leave resource stocks, capacities, building levels, progress, and flags completely unmodified.
+
+### Test Expansion & Results
+- **Strengthened TC-BM.47:** Set up upgraded Storehouse (Level 2), upgraded Farm (Level 2), and in-progress House upgrade with builder jobs before saving. Looped 3 loads in succession: verified exact Storehouse capacities across all 5 resources (zero drift), exact Farm multiplier (1.15), and zero duplicate builder jobs.
+- **Added TC-BM.50 (`_test_tc_bm_50_starter_farm_upgrade_restore`):** Integration test utilizing authentic starter farm at `(36, 35)`. Saved in-progress upgrade, restored via save/load, verified all upgrade state fields, verified builder jobs restored, verified 5 farmer jobs preserved without duplication, advanced upgrade progress, and confirmed zero duplicate jobs across repeated load roundtrips.
+- **Added TC-BM.51 (`_test_tc_bm_51_fail_closed_resource_manager_unavailable`):** Thorough regression testing for null and invalid `resource_mgr` across all 5 upgrade APIs (`can_start_upgrade`, `start_upgrade`, `complete_building_upgrade`, `can_cancel_upgrade`, `cancel_upgrade`), verifying 100% fail-closed responses and zero state mutations.
+- **Full Verification Suite:**
+  1. `scripts/test/test_building_management.gd`: **51/51 tests PASSED (Exit Code 0)**
+  2. `scripts/test/test_save_load.gd`: **182/182 assertions PASSED (Exit Code 0)**
+  3. `scripts/test/test_market.gd`: **26/26 tests PASSED (Exit Code 0)**
+  4. Headless Editor Parse Check (`Godot_v4.7-stable_win64_console.exe --headless --editor --quit`): **Exit Code 0, 0 errors**.
+
 ### Next Exact Step
-- Stage modified production, scene, test, and documentation files explicitly (`git add scripts/ scenes/ docs/`), commit with `feat(buildings): add settlement building upgrades`, push branch `feature/package-2i-settlement-building-upgrades` to `origin`, and deliver the handoff report in Vietnamese.
+- Stage modified files explicitly (`scripts/economy/economy_config.gd`, `scripts/economy/building_system.gd`, `scripts/world/world_view.gd`, `scripts/test/test_building_management.gd`, `docs/GAME_RULES.md`, `docs/BACKLOG.md`, `docs/CHANGELOG.md`, `docs/WORKLOG.md`), commit with `fix(buildings): harden upgrade restore and accounting`, push branch `feature/package-2i-settlement-building-upgrades` to `origin`, and deliver the handoff report in Vietnamese.
 
 

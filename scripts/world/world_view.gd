@@ -2189,8 +2189,8 @@ func sync_workplaces_after_load(saved_workplaces_data: Dictionary = {}) -> void:
 					var starter_farm = workplace_mgr.get_workplace("farm_starter")
 					if starter_farm != null:
 						starter_farm.level_multiplier = EconomyConfig.get_farm_multiplier(int(b.get("upgrade_level", 1)))
-				continue
-			register_dynamic_workplace(b)
+			else:
+				register_dynamic_workplace(b)
 		elif b_type == "barracks":
 			if b_state == "active":
 				register_barracks_jobs(b)
