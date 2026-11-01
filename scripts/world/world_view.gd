@@ -311,8 +311,10 @@ func _spawn_starter_buildings() -> void:
 				bld["id"] = "woodcutter_starter"
 			elif b_type == "townhall":
 				bld["id"] = "townhall_starter"
+				bld["storage_applied"] = true
 			elif b_type == "storehouse":
 				bld["id"] = "storehouse_starter"
+				bld["storage_applied"] = true
 			else:
 				bld["id"] = "bld_%s_%d_%d" % [b_type, b_cell.x, b_cell.y]
 		if not bld.has("state"):
@@ -1630,6 +1632,21 @@ func set_building_state(b_id: String, new_state: String) -> bool:
 
 	return true
 
+func get_carried_cargo_for_building(b_id: String) -> Dictionary:
+	var cargo: Dictionary = {}
+	if citizen_list == null or b_id == "":
+		return cargo
+	for cit in citizen_list:
+		if is_instance_valid(cit):
+			var matches_job: bool = (cit.get("active_job") != null and JobManager.job_matches_building(cit.active_job, b_id))
+			var matches_wp: bool = (cit.get("workplace_id") == b_id or (cit.get("workplace_id") != null and String(cit.get("workplace_id")).begins_with(b_id + "_")))
+			if matches_job or matches_wp:
+				var carry_amt: int = int(cit.get("carrying_amount")) if cit.get("carrying_amount") != null else 0
+				var carry_res: String = cit.get("carrying_resource") if cit.get("carrying_resource") != null else ""
+				if carry_amt > 0 and carry_res != "":
+					cargo[carry_res] = cargo.get(carry_res, 0) + carry_amt
+	return cargo
+
 func demolish_building_project(b_id: String) -> Dictionary:
 	if world_data == null or b_id == "":
 		return {"success": false, "reason": "Dữ liệu thế giới rỗng"}
@@ -1638,7 +1655,9 @@ func demolish_building_project(b_id: String) -> Dictionary:
 		return {"success": false, "reason": "Công trình không tồn tại"}
 
 	var rm := get_node_or_null("/root/ResourceManager")
-	var res := BuildingSystem.demolish_building(b_data, world_data, rm, job_mgr)
+	# Preflight check: must conserve both refunds and any carried cargo without inventory loss
+	var carried_cargo := get_carried_cargo_for_building(b_id)
+	var res := BuildingSystem.demolish_building(b_data, world_data, rm, job_mgr, 0.5, carried_cargo)
 	if not res.get("success", false):
 		return res
 
@@ -1657,26 +1676,31 @@ func demolish_building_project(b_id: String) -> Dictionary:
 		for oy in range(size.y):
 			buildings_by_cell.erase(origin + Vector2i(ox, oy))
 
-	# Release any citizens assigned to this building to IDLE
+	# Release any citizens assigned to this building to IDLE and deposit cargo safely
 	for cit in citizen_list:
 		if is_instance_valid(cit):
-			if cit.get("active_job") != null and JobManager.job_matches_building(cit.active_job, b_id):
+			var matches_job: bool = (cit.get("active_job") != null and JobManager.job_matches_building(cit.active_job, b_id))
+			var matches_wp: bool = (cit.get("workplace_id") == b_id or (cit.get("workplace_id") != null and String(cit.get("workplace_id")).begins_with(b_id + "_")))
+			if matches_job or matches_wp:
 				# Conserve carried goods: deposit directly into central storage so goods are never lost
 				var carry_amt: int = int(cit.get("carrying_amount")) if cit.get("carrying_amount") != null else 0
 				var carry_res: String = cit.get("carrying_resource") if cit.get("carrying_resource") != null else ""
 				if carry_amt > 0 and carry_res != "" and rm != null:
-					rm.add_resource(carry_res, carry_amt)
-					cit.set("carrying_amount", 0)
-					cit.set("carrying_resource", "")
+					var added: int = rm.add_resource(carry_res, carry_amt)
+					var rem: int = carry_amt - added
+					cit.set("carrying_amount", rem)
+					if rem <= 0:
+						cit.set("carrying_resource", "")
 
-				if job_mgr != null:
-					job_mgr.release_job(cit.active_job)
-				cit.active_job = null
-				cit.set("current_state", CitizenController.State.IDLE)
-				cit.set("status_reason", "Công trình đã bị dỡ bỏ")
-				# Note: Do not call _update_reason() here as it overwrites custom status reason
-			if cit.get("workplace_id") == b_id or (cit.get("workplace_id") != null and cit.get("workplace_id").begins_with(b_id + "_")):
-				cit.set("workplace_id", "")
+				if cit.get("active_job") != null and JobManager.job_matches_building(cit.active_job, b_id):
+					if job_mgr != null:
+						job_mgr.release_job(cit.active_job)
+					cit.active_job = null
+					cit.set("current_state", CitizenController.State.IDLE)
+					cit.set("status_reason", "Công trình đã bị dỡ bỏ")
+					# Note: Do not call _update_reason() here as it overwrites custom status reason
+				if cit.get("workplace_id") == b_id or (cit.get("workplace_id") != null and String(cit.get("workplace_id")).begins_with(b_id + "_")):
+					cit.set("workplace_id", "")
 
 	# Unregister workplace and channels if dynamic workplace
 	if workplace_mgr != null:

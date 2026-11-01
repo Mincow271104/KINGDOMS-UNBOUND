@@ -2403,22 +2403,41 @@ func _refresh_civic_inspector(_b_id: String, b_type: String, b_data: Dictionary)
 	if civic_desc_label == null or civic_stats_label == null:
 		return
 
+	var bp: Dictionary = EconomyConfig.BLUEPRINTS.get(b_type, {})
+	var storage_bonus: Dictionary = bp.get("storage_bonus", {})
+
 	match b_type:
 		"townhall":
 			civic_desc_label.text = "Trung tâm quản trị vương quốc, lưu trữ tài nguyên cơ bản và duy trì quyền lực hoàng gia."
-			civic_stats_label.text = "• Sức chứa kho: Lương thực/Gỗ/Đá +500, Quặng/Kim loại +300, Công cụ +200, Thảo dược +200, Pha lê +100\n• Trụ cột sinh tồn: Mất Tòa Thị Chính quá 72 giờ sẽ dẫn đến sụp đổ vương quốc!"
+			var bonus_parts: Array[String] = []
+			for res_id in [EconomyConfig.RES_FOOD, EconomyConfig.RES_WOOD, EconomyConfig.RES_STONE, EconomyConfig.RES_ORE, EconomyConfig.RES_METAL, EconomyConfig.RES_TOOLS, EconomyConfig.RES_HERBS, EconomyConfig.RES_CRYSTAL]:
+				if storage_bonus.has(res_id):
+					var r_name: String = EconomyConfig.RESOURCE_NAMES_VI.get(res_id, res_id)
+					bonus_parts.append("%s +%d" % [r_name, int(storage_bonus[res_id])])
+			var bonus_str: String = ", ".join(bonus_parts) if not bonus_parts.is_empty() else "Không"
+			civic_stats_label.text = "• Sức chứa kho: %s\n• Trụ cột sinh tồn: Mất Tòa Thị Chính quá 72 giờ sẽ dẫn đến sụp đổ vương quốc!" % bonus_str
 		"house":
 			civic_desc_label.text = "Khu nhà ở dân cư kiên cố giúp bảo vệ cư dân khỏi thời tiết khắc nghiệt và hồi phục thể lực."
-			civic_stats_label.text = "• Sức chứa: 6 cư dân\n• Giảm mệt mỏi khi nghỉ ngơi: Tốc độ cao\n• Nâng cao sĩ khí cộng đồng"
+			var h_cap: int = int(bp.get("housing_capacity", 6))
+			civic_stats_label.text = "• Sức chứa: %d cư dân\n• Giảm mệt mỏi khi nghỉ ngơi: Tốc độ cao\n• Nâng cao sĩ khí cộng đồng" % h_cap
 		"storehouse":
 			civic_desc_label.text = "Kho chứa hàng hóa trung chuyển, mở rộng dung lượng dự trữ tài nguyên cho toàn bộ vương quốc."
-			civic_stats_label.text = "• Sức chứa mở rộng: Lương thực/Gỗ/Đá +500, Quặng/Kim loại +300\n• Tiếp nhận hàng hóa chuyển về từ các phu khuân vác"
+			var bonus_parts: Array[String] = []
+			for res_id in [EconomyConfig.RES_FOOD, EconomyConfig.RES_WOOD, EconomyConfig.RES_STONE, EconomyConfig.RES_ORE, EconomyConfig.RES_METAL]:
+				if storage_bonus.has(res_id):
+					var r_name: String = EconomyConfig.RESOURCE_NAMES_VI.get(res_id, res_id)
+					bonus_parts.append("%s +%d" % [r_name, int(storage_bonus[res_id])])
+			var bonus_str: String = ", ".join(bonus_parts) if not bonus_parts.is_empty() else "Không"
+			civic_stats_label.text = "• Sức chứa mở rộng: %s\n• Tiếp nhận hàng hóa chuyển về từ các phu khuân vác" % bonus_str
 		"barracks":
 			civic_desc_label.text = "Doanh trại quân đội đồn trú, huấn luyện và chỉ huy lực lượng phòng thủ vương quốc."
-			civic_stats_label.text = "• Vị trí đồn trú: 2 Vệ Binh tuần tra\n• Mở khóa phân công nghề nghiệp Vệ Binh trong bảng dân cư\n• Nâng cao sức chứa quân đội (+5 binh sĩ)"
+			var guard_cap: int = 2
+			var army_bonus: int = EconomyConfig.ARMY_CAPACITY_PER_BARRACKS
+			civic_stats_label.text = "• Vị trí đồn trú: %d Vệ Binh tuần tra\n• Mở khóa phân công nghề nghiệp Vệ Binh trong bảng dân cư\n• Nâng cao sức chứa quân đội (+%d binh sĩ)" % [guard_cap, army_bonus]
 		"watchtower":
 			civic_desc_label.text = "Tháp canh cảnh giới tầm xa, phát hiện sớm hiểm họa từ sương mù chiến tranh."
-			civic_stats_label.text = "• Tầm nhìn cảnh giới: 15 ô\n• Xóa sương mù chiến tranh xung quanh"
+			var vision: int = int(bp.get("vision_radius", 15))
+			civic_stats_label.text = "• Tầm nhìn cảnh giới: %d ô\n• Xóa sương mù chiến tranh xung quanh" % vision
 		"market":
 			civic_desc_label.text = "Khu thương xá sầm uất, nơi tiếp đón các đoàn thương gia và tiến hành giao thương liên bang."
 			civic_stats_label.text = "• Điểm ghé chân và bốc dỡ hàng của các đoàn thương đoàn\n• Thúc đẩy chỉ số kinh tế và thịnh vượng vương quốc"
@@ -2450,7 +2469,8 @@ func _on_demolish_building_pressed() -> void:
 	if world_view_ref == null or inspected_building_id == "":
 		return
 	var rm := get_node_or_null("/root/ResourceManager")
-	var check: Dictionary = BuildingSystem.can_demolish_building(inspected_building_data, world_view_ref.world_data, rm)
+	var extra_cargo: Dictionary = world_view_ref.get_carried_cargo_for_building(inspected_building_id) if world_view_ref.has_method("get_carried_cargo_for_building") else {}
+	var check: Dictionary = BuildingSystem.can_demolish_building(inspected_building_data, world_view_ref.world_data, rm, 0.5, extra_cargo)
 	if not check.get("can_demolish", false):
 		show_event_banner("Không Thể Dỡ Bỏ", check.get("reason", "Không đủ điều kiện dỡ bỏ"), false, 4.0)
 		return

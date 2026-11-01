@@ -8352,7 +8352,7 @@ Enforce all authoritative design rules:
    - Atomic refund transfer rolls back on partial credit failures.
 4. **BUG-2F-04: Accurate Civic Building Statistics (`hud.gd`):**
    - In `_refresh_civic_inspector()`:
-     - Town Hall: displays exact storage bonuses (`+1,500 Lương thực / Gỗ / Đá`, `+300 Quặng / Kim loại`), 0 residents, and 72h collapse emergency warning.
+     - Town Hall: displays exact storage bonuses (`+500 Lương thực / Gỗ / Đá`, `+300 Quặng / Kim loại`), 0 residents, and 72h collapse emergency warning.
      - House: displays 6 residents capacity.
      - Storehouse: displays exact per-resource storage bonus (`+500 Lương thực / Gỗ / Đá`, `+300 Quặng / Kim loại`).
      - Watchtower: displays 15-tile vision radius.
@@ -8410,4 +8410,86 @@ Enforce all authoritative design rules:
 
 ### Next Exact Step
 - Stage allowed Round 1 correction files, commit with conventional commit message, and push to `feature/package-2f-building-inspection-and-management` on remote `origin`. Await ChatGPT review.
+
+---
+
+## [2026-11-01] Package 2F: Round 2 Review Corrections — Hardening Atomic Refund, Cargo Conservation & Starter Capacities
+
+### Context & Review Findings
+ChatGPT independently reviewed Round 1 commit `a55021c6e2d7435f9841d1a23712e7b73f0a5080` and identified 5 concrete items:
+1. **Atomic Demolition Refund Rollback:** Round 1 demolition called `deduct_resource()` which did not exist on `ResourceManager`. Real rollback transaction API was required with fail-closed behavior and failure-injection tests.
+2. **Prevent Cargo Loss on Demolition:** Hauler/worker cargo was deposited without checking if storage space was sufficient, then cleared indiscriminately. Preflight and safe cargo conservation required across 5 concrete scenarios.
+3. **Audit Starter Building Storage Capacities:** Establish single authoritative invariant where base capacities + starter buildings (`townhall` + `storehouse`) define initial capacities across all resources (Food/Wood/Stone 1500, Ore/Metal 900, Tools/Herbs 400, Crystal 200, Gold 999999). Demolishing both returns exactly to `BASE_CAPACITIES`.
+4. **Data-Driven Civic Inspector & Docs Correction:** Make inspector statistics data-driven from `EconomyConfig.BLUEPRINTS` and `ARMY_CAPACITY_PER_BARRACKS`. Correct Town Hall bonus description in `docs/WORKLOG.md` from `+1,500` to `+500` per resource.
+5. **Strengthen Test Coverage:** Fill stock to capacity before Storehouse demolition test (TC-BM.19), test 72h grace countdown via actual `world_instance._on_simulation_hour_passed()` hourly ticks (TC-BM.22), restore Town Hall fixture cleanly on cleanup, add explicit dual-channel Workshop pause/resume test (TC-BM.31), add atomic refund failure-injection test (TC-BM.32), safe cargo conservation test (TC-BM.33), and starter storage capacity invariant test (TC-BM.34).
+
+### Implemented Corrections
+1. **Real Transaction & Rollback API (`resource_manager.gd`):**
+   - Added `rollback_added_resources(credited: Dictionary) -> void`: reverts both `_current_stock` and `_daily_production_tallies` consistently.
+   - Added `deduct_resource(res_id: String, amount: int, revert_production: bool = true) -> bool`.
+   - Added `add_resources_atomic(resources: Dictionary) -> Dictionary`: two-phase transaction preflighting all headroom before mutating state.
+   - Added `get_resource(res_id: String) -> int` convenience alias for `get_total_stock(res_id)`.
+   - Updated `reset_economy()`: calculates starter storage bonuses dynamically from `EconomyConfig.BLUEPRINTS` (`townhall` + `storehouse`) for ALL resources on top of `BASE_CAPACITIES`.
+2. **Atomic Demolition & Headroom Preflight (`building_system.gd`):**
+   - `is_valid_resource_manager_for_demolition()` verifies presence of `rollback_added_resources` or `deduct_resource`.
+   - `can_demolish_building()` accepts `extra_required_resources: Dictionary = {}`, preflighting post-demolition storage headroom against total incoming materials (`refund + extra_cargo`).
+   - `demolish_building()` passes `extra_required_resources`, executes atomic refund rollback via `rollback_added_resources()` on failure, leaving building, jobs, occupancy, and storage unchanged.
+3. **Safe Cargo Conservation (`world_view.gd` & `citizen_controller.gd`):**
+   - Declared `var workplace_id: String = ""` in `CitizenController` for robust assignment tracking.
+   - Added `get_carried_cargo_for_building(b_id: String) -> Dictionary`: aggregates cargo carried by any citizen with matching job or assigned workplace.
+   - Updated `demolish_building_project()`: preflights carried cargo with `demolish_building()`; on success, deposits cargo and only clears the exact amount accepted (`rem = carry_amt - added`).
+   - Set `storage_applied = true` on starter buildings during `_spawn_starter_buildings()` to guard against double-counting.
+4. **Data-Driven Civic Inspector (`hud.gd`):**
+   - `_refresh_civic_inspector()` derives storage bonuses, housing capacity, vision radius, and army capacity dynamically from `EconomyConfig.BLUEPRINTS` and `EconomyConfig.ARMY_CAPACITY_PER_BARRACKS`.
+   - `_on_demolish_building_pressed()` queries `get_carried_cargo_for_building()` and passes it into `can_demolish_building()`.
+5. **Comprehensive Test Suite Expansion (`test_building_management.gd`):**
+   - Hardened TC-BM.12 to assert data-driven stats matching blueprints.
+   - Hardened TC-BM.19 to fill food stock to capacity, demolish storehouse, verify stock conservation, and test post-demolition overflow rejection.
+   - Hardened TC-BM.22 to run real 72-hour hourly simulation ticks on `world_instance._on_simulation_hour_passed()`, verifying grace period and terminal collapse, and restoring Town Hall fixture and storage capacity cleanly.
+   - Added TC-BM.31: Dual-channel workshop pause/resume lifecycle, halting smith jobs while permitting hauler jobs.
+   - Added TC-BM.32: Atomic demolition refund failure-injection via `MockFailingRM` and `add_resources_atomic()` headroom failure.
+   - Added TC-BM.33: Safe cargo conservation across 5 concrete scenarios (ample space, storage rejection, multiple workers, partial rejection, hauler en route).
+   - Added TC-BM.34: Single authoritative starter storage capacity invariant across all resources, dual demolition baseline returning exactly to `BASE_CAPACITIES`, and real disk SaveManager roundtrip.
+
+### Test Results & Matrix Verification
+- **Package 2F Test Suite (`test_building_management.gd`):**
+  - 34/34 tests PASSED (Exit Code 0).
+- **Package 2E & Core Subsystem Regression Matrix (16 Suites Total):**
+  1. `test_autonomous_faction_conflict.gd`: 205/205 PASS (Exit Code 0)
+  2. `test_faction_relation_matrix.gd`: 162/162 PASS (Exit Code 0)
+  3. `test_save_load.gd`: 182/182 PASS (Exit Code 0)
+  4. `test_faction_diplomacy_ai.gd`: 437/437 PASS (Exit Code 0)
+  5. `test_faction_strategy_execution.gd`: 951/951 PASS (Exit Code 0)
+  6. `test_market.gd`: 15/15 PASS (Exit Code 0)
+  7. `test_field_siege.gd`: 98/98 PASS (Exit Code 0)
+  8. `test_surplus_treasury_conversion.gd`: 124/124 PASS (Exit Code 0)
+  9. `test_player_field_guide.gd`: 130/130 PASS (Exit Code 0)
+  10. `test_workshop.gd`: 7/7 PASS (Exit Code 0)
+  11. `test_research_hall.gd`: 7/7 PASS (Exit Code 0)
+  12. `test_barracks.gd`: 7/7 PASS (Exit Code 0)
+  13. `test_watchtower.gd`: 8/8 PASS (Exit Code 0)
+  14. `test_citizen_skills.gd`: 27/27 PASS (Exit Code 0)
+  15. `test_tactical_military.gd`: 419/419 PASS (Exit Code 0)
+  16. `test_building_management.gd`: 34/34 PASS (Exit Code 0)
+  - Total: 2,823 checks / assertions passed with 0 failures across all 16 suites.
+- **Hardware Visual Validation (`visual_package_2f_validation.gd`):**
+  - D3D12 Forward+ on RTX 3050 Ti Laptop GPU.
+  - Captured and verified 4 PNG screenshots in `docs/visual_validation/`:
+    - `p2f_01_workplace_inspect_buffer_1280x720.png`
+    - `p2f_02_demolish_confirm_overlay_1280x720.png`
+    - `p2f_03_townhall_demolish_emergency_warning_1280x720.png`
+    - `p2f_04_workplace_inspect_responsive_1024x576.png`
+
+### Files Modified & Protected
+- `scripts/economy/resource_manager.gd` (Modified)
+- `scripts/economy/building_system.gd` (Modified)
+- `scripts/entities/citizen_controller.gd` (Modified)
+- `scripts/world/world_view.gd` (Modified)
+- `scripts/ui/hud.gd` (Modified)
+- `scripts/test/test_building_management.gd` (Modified)
+- `docs/WORKLOG.md` (Modified)
+- Protected files (`project.godot`, 92 historical untracked files, user saves) strictly preserved.
+
+### Next Exact Step
+- Create Round 2 commit, push to `feature/package-2f-building-inspection-and-management` on remote `origin`, and await ChatGPT independent review.
 

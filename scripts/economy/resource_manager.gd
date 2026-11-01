@@ -38,27 +38,39 @@ func reset_economy() -> void:
 	_daily_consumption_tallies.clear()
 	_is_starving = false # BUG-02: Reset starvation flag on economy reset to prevent stale state
 	
+	# Compute authoritative starter storage bonuses from active starter buildings (Town Hall + Storehouse)
+	var starter_bonuses: Dictionary = {}
+	var th_bp: Dictionary = EconomyConfig.BLUEPRINTS.get("townhall", {})
+	var th_bonus: Dictionary = th_bp.get("storage_bonus", {})
+	for res in th_bonus:
+		starter_bonuses[res] = starter_bonuses.get(res, 0) + int(th_bonus[res])
+
+	var sh_bp: Dictionary = EconomyConfig.BLUEPRINTS.get("storehouse", {})
+	var sh_bonus: Dictionary = sh_bp.get("storage_bonus", {})
+	for res in sh_bonus:
+		starter_bonuses[res] = starter_bonuses.get(res, 0) + int(sh_bonus[res])
+
 	for res_id in EconomyConfig.ALL_RESOURCES:
 		var start_qty: int = EconomyConfig.STARTING_RESOURCES.get(res_id, 0)
 		var base_cap: int = EconomyConfig.BASE_CAPACITIES.get(res_id, 500)
-		
-		# Town hall + storehouse starter storage bonuses
-		if res_id in [EconomyConfig.RES_FOOD, EconomyConfig.RES_WOOD, EconomyConfig.RES_STONE]:
-			base_cap += 1000 # Storehouse + Town Hall bonus
+		var total_cap: int = base_cap + starter_bonuses.get(res_id, 0)
 			
 		_current_stock[res_id] = start_qty
 		_reserved_stock[res_id] = 0
-		_capacities[res_id] = base_cap
+		_capacities[res_id] = total_cap
 		_daily_production_tallies[res_id] = 0.0
 		_daily_consumption_tallies[res_id] = 0.0
 		_last_day_production[res_id] = 0.0
 		_last_day_consumption[res_id] = 0.0
 		
 		resource_changed.emit(res_id, start_qty, start_qty)
-		capacity_changed.emit(res_id, base_cap)
+		capacity_changed.emit(res_id, total_cap)
 
 func get_total_stock(res_id: String) -> int:
 	return _current_stock.get(res_id, 0)
+
+func get_resource(res_id: String) -> int:
+	return get_total_stock(res_id)
 
 func get_reserved_stock(res_id: String) -> int:
 	return _reserved_stock.get(res_id, 0)
@@ -132,6 +144,70 @@ func add_resource(res_id: String, amount: int) -> int:
 		resource_changed.emit(res_id, get_available_stock(res_id), get_total_stock(res_id))
 		
 	return to_add
+
+## Reverses previously added resources (e.g. from an aborted or failed transaction).
+## Correctly rolls back both _current_stock and _daily_production_tallies consistently.
+func rollback_added_resources(credited: Dictionary) -> void:
+	for res_id in credited:
+		var amt: int = int(credited[res_id])
+		if amt <= 0:
+			continue
+		var cur: int = _current_stock.get(res_id, 0)
+		_current_stock[res_id] = maxi(0, cur - amt)
+		_daily_production_tallies[res_id] = maxf(0.0, _daily_production_tallies.get(res_id, 0.0) - float(amt))
+		resource_changed.emit(res_id, get_available_stock(res_id), get_total_stock(res_id))
+
+## Deducts a resource directly from stock, optionally reverting production tallies.
+func deduct_resource(res_id: String, amount: int, revert_production: bool = true) -> bool:
+	if amount <= 0:
+		return true
+	var cur: int = _current_stock.get(res_id, 0)
+	if cur < amount:
+		return false
+	_current_stock[res_id] = cur - amount
+	if revert_production:
+		_daily_production_tallies[res_id] = maxf(0.0, _daily_production_tallies.get(res_id, 0.0) - float(amount))
+	resource_changed.emit(res_id, get_available_stock(res_id), get_total_stock(res_id))
+	return true
+
+## Atomically adds multiple resources to central stock.
+## Verifies that ALL resources can fit in remaining capacity.
+## If ANY resource cannot fit, zero resources are credited and returns {"success": false, "credited": {}}.
+## If all resources fit, commits all additions and returns {"success": true, "credited": credited}.
+func add_resources_atomic(resources: Dictionary) -> Dictionary:
+	# Step 1: Preflight capacity check for all resources
+	for res_id in resources:
+		var amt: int = int(resources[res_id])
+		if amt <= 0:
+			continue
+		var cur: int = _current_stock.get(res_id, 0)
+		var cap: int = _capacities.get(res_id, 500)
+		var space: int = maxi(0, cap - cur)
+		if space < amt:
+			return {
+				"success": false,
+				"reason": "Dung lượng kho không đủ cho %s (cần %d, trống %d)" % [res_id, amt, space],
+				"credited": {}
+			}
+
+	# Step 2: Commit additions
+	var credited: Dictionary = {}
+	for res_id in resources:
+		var amt: int = int(resources[res_id])
+		if amt <= 0:
+			continue
+		var added: int = add_resource(res_id, amt)
+		credited[res_id] = added
+		if added < amt:
+			# Safety rollback in case of runtime anomaly
+			rollback_added_resources(credited)
+			return {
+				"success": false,
+				"reason": "Lỗi thêm tài nguyên không trọn vẹn",
+				"credited": {}
+			}
+
+	return {"success": true, "credited": credited}
 
 ## Consumes resource immediately without prior reservation.
 func consume_resource(res_id: String, amount: int) -> bool:

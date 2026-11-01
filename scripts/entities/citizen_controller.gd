@@ -19,6 +19,7 @@ enum State {
 @export var citizen_id: String = ""
 @export var citizen_name: String = ""
 @export var role: String = "idle" # "farmer", "woodcutter", "builder", "hauler", "miner", "smith", "guard", "idle"
+var workplace_id: String = ""
 
 var current_cell: Vector2i = Vector2i(32, 32)
 var current_state: int = State.IDLE
