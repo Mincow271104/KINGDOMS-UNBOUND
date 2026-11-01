@@ -9230,3 +9230,38 @@ Following independent source review of Package 2I candidate (`0d32027eb8c792cfed
 
 ### Next Exact Step
 - Stage modified files explicitly (`scripts/economy/building_system.gd`, `scripts/persistence/save_manager.gd`, `scripts/test/test_building_management.gd`, `docs/GAME_RULES.md`, `docs/BACKLOG.md`, `docs/CHANGELOG.md`, `docs/WORKLOG.md`), commit with `fix(buildings): enforce sequential upgrade tier integrity`, push branch `feature/package-2i-settlement-building-upgrades` to `origin`, and deliver the handoff report in Vietnamese.
+
+---
+
+## 2026-11-02 — Package 2I Final Integration Fix: Preserve Upgrades When Completion is Blocked (Completed)
+
+### Context & Independent Review Objectives
+Following independent source review of Package 2I candidate (`cf0b02037c8d15c795b1b5b0c60ae5b46438ac43`), an integration issue in the upgrade completion pipeline was identified and resolved:
+1. **Critical Fix — WorldView Must Not Report False Upgrade Completion:**
+   - In `WorldView.advance_construction_work()`, calling `complete_upgrade(b_id)` previously ignored its return value and returned `completed = true` regardless of finalization failure.
+   - When a Storehouse could not obtain a valid `ResourceManager` or apply its storage delta, `CitizenController` would clear the citizen's active job, leaving an `IN_PROGRESS` builder job orphaned in `JobManager`.
+   - Fixed by inspecting `complete_upgrade()` result. When finalization fails, `advance_construction_work()` reports `success = true`, `completed = false`, `completion_blocked = true` with an explanatory reason.
+   - `CitizenController._process_building_work()` receives `completed == false` and preserves the citizen in `State.WORKING` with `active_job` intact.
+   - Preserves a clean retryable state: when `ResourceManager` becomes valid again, subsequent labor completes the upgrade to Level 2, applies the capacity delta exactly once, cleans up metadata, removes builder jobs from `JobManager`, and releases the citizen to `IDLE` without capacity drift.
+   - Normal House and Farm upgrades remain completely unaffected.
+2. **Controlled Dependency Injection for `ResourceManager`:**
+   - Added `resource_mgr` injection fields and methods (`set_resource_mgr_for_testing`, `clear_resource_mgr_for_testing`, `_get_resource_mgr`) in `WorldView` for controlled testing without modifying global singletons.
+   - Added optional `p_resource_mgr` parameter across `advance_construction_work`, `complete_upgrade`, `complete_construction`, `start_building_upgrade`, and `cancel_building_upgrade`.
+3. **SaveManager Consistency:**
+   - Removed redundant `clampi(int(b.get("upgrade_level", 1)), 1, EconomyConfig.MAX_BUILDING_LEVEL)` in `SaveManager.apply_loaded_state_to_world()`, replacing with `int(b.get("upgrade_level", 1))` while preserving default Level 1 for legacy saves.
+4. **TC-BM.51 Snapshot Accuracy:**
+   - Updated `snapshot_rm` in `TC-BM.51` to iterate over all resources in `EconomyConfig.ALL_RESOURCES` and capture both `get_total_stock()` and `get_capacity()`, ensuring complete full-state immutability verification.
+5. **Added TC-BM.53 (`_test_tc_bm_53_blocked_upgrade_completion_preservation`):**
+   - Verified Storehouse Level 1 -> 2 upgrade with injected invalid/null `ResourceManager`: progress reaches 6.0h, completion blocked, level remains 1, is_upgrading remains true, capacities unchanged, job remains assigned and `IN_PROGRESS`, citizen remains `WORKING`.
+   - Verified retry with valid `ResourceManager`: level advances to 2, +125/+75 capacities applied exactly once, metadata cleaned, builder job removed, citizen released to `IDLE`.
+   - Verified repeated completion attempts do not cause capacity drift.
+   - Verified regression coverage for House and Farm successful completions.
+
+### Verification & Regression Results
+1. `scripts/test/test_building_management.gd`: **53/53 tests PASSED (Exit Code 0)**
+2. `scripts/test/test_save_load.gd`: **182/182 assertions PASSED (Exit Code 0)**
+3. `scripts/test/test_market.gd`: **26/26 tests PASSED (Exit Code 0)**
+4. Headless Editor Parse Check (`Godot_v4.7-stable_win64_console.exe --headless --editor --quit`): **Exit Code 0, 0 errors**.
+
+### Next Exact Step
+- Stage modified files explicitly (`scripts/entities/citizen_controller.gd`, `scripts/persistence/save_manager.gd`, `scripts/world/world_view.gd`, `scripts/test/test_building_management.gd`, `docs/GAME_RULES.md`, `docs/BACKLOG.md`, `docs/CHANGELOG.md`, `docs/WORKLOG.md`), commit with `fix(buildings): preserve upgrades when completion is blocked`, push branch `feature/package-2i-settlement-building-upgrades` to `origin`, and deliver the final handoff report.

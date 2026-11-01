@@ -1855,7 +1855,7 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 				"size": b_size,
 				"state": b_state,
 				"health": b.get("health", 100),
-				"upgrade_level": clampi(int(b.get("upgrade_level", 1)), 1, EconomyConfig.MAX_BUILDING_LEVEL),
+				"upgrade_level": int(b.get("upgrade_level", 1)),
 				"construction_progress": b_prog,
 				"construction_hours": b_hours
 			}

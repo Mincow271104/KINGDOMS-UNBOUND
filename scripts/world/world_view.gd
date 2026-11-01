@@ -84,6 +84,23 @@ var placing_building_type: String = ""
 var ghost_building_node: Node2D
 var ghost_building_sprite: Sprite2D
 
+# ResourceManager dependency injection for testing & decoupling
+var resource_mgr: Object = null
+var _resource_mgr_injected: bool = false
+
+func set_resource_mgr_for_testing(rm: Object) -> void:
+	resource_mgr = rm
+	_resource_mgr_injected = true
+
+func clear_resource_mgr_for_testing() -> void:
+	resource_mgr = null
+	_resource_mgr_injected = false
+
+func _get_resource_mgr() -> Object:
+	if _resource_mgr_injected:
+		return resource_mgr
+	return get_node_or_null("/root/ResourceManager")
+
 func _ready() -> void:
 	DisplayServer.window_set_min_size(Vector2i(1024, 576))
 	_load_assets()
@@ -1407,7 +1424,7 @@ func register_construction_jobs(b_data: Dictionary) -> Array[JobManager.JobData]
 	result = retained_jobs
 	return result
 
-func advance_construction_work(b_id: String, delta_hours: float) -> Dictionary:
+func advance_construction_work(b_id: String, delta_hours: float, p_resource_mgr: Object = null) -> Dictionary:
 	if world_data == null:
 		return {"success": false, "completed": false, "progress": 0.0, "hours": 0.0}
 
@@ -1415,12 +1432,18 @@ func advance_construction_work(b_id: String, delta_hours: float) -> Dictionary:
 	if b_data.is_empty():
 		return {"success": false, "completed": false, "progress": 0.0, "hours": 0.0}
 
+	var rm: Object = p_resource_mgr if p_resource_mgr != null else _get_resource_mgr()
+
 	if bool(b_data.get("is_upgrading", false)):
 		var res := BuildingSystem.advance_upgrade(b_data, delta_hours, world_data)
 		if not res.get("success", false):
 			return res
 		if res.get("completed", false):
-			complete_upgrade(b_id)
+			var completed_ok: bool = complete_upgrade(b_id, rm)
+			if not completed_ok:
+				res["completed"] = false
+				res["completion_blocked"] = true
+				res["reason"] = "Nâng cấp hoàn thành thời gian thi công nhưng chưa thể hoàn tất (chờ ResourceManager sẵn sàng)"
 		return res
 
 	var res := BuildingSystem.advance_construction(b_id, delta_hours, world_data)
@@ -1428,11 +1451,15 @@ func advance_construction_work(b_id: String, delta_hours: float) -> Dictionary:
 		return res
 
 	if res.get("completed", false):
-		complete_construction(b_id)
+		var completed_ok: bool = complete_construction(b_id, rm)
+		if not completed_ok:
+			res["completed"] = false
+			res["completion_blocked"] = true
+			res["reason"] = "Thi công xây dựng đã hoàn thành thời gian nhưng chưa thể hoàn tất"
 
 	return res
 
-func complete_construction(b_id: String) -> bool:
+func complete_construction(b_id: String, p_resource_mgr: Object = null) -> bool:
 	if world_data == null or b_id == "":
 		return false
 
@@ -1455,7 +1482,7 @@ func complete_construction(b_id: String) -> bool:
 	if cur_prog < (total_hours - PROGRESS_TOLERANCE):
 		return false # Refuse premature completion before required construction work is achieved
 
-	var rm := get_node_or_null("/root/ResourceManager")
+	var rm: Object = p_resource_mgr if p_resource_mgr != null else _get_resource_mgr()
 	var success := BuildingSystem.complete_building(b_data, world_data, rm)
 	if not success:
 		return false
@@ -1532,7 +1559,7 @@ func complete_construction(b_id: String) -> bool:
 	print("[WorldView] Construction completed for %s (%s)" % [b_id, b_data.get("type", "")])
 	return true
 
-func start_building_upgrade(b_id: String) -> Dictionary:
+func start_building_upgrade(b_id: String, p_resource_mgr: Object = null) -> Dictionary:
 	if world_data == null or b_id == "":
 		return {"success": false, "reason": "Dữ liệu thế giới không hợp lệ"}
 
@@ -1540,7 +1567,7 @@ func start_building_upgrade(b_id: String) -> Dictionary:
 	if b_data.is_empty():
 		return {"success": false, "reason": "Công trình không tồn tại"}
 
-	var rm := get_node_or_null("/root/ResourceManager")
+	var rm: Object = p_resource_mgr if p_resource_mgr != null else _get_resource_mgr()
 	var res := BuildingSystem.start_upgrade(b_data, world_data, rm)
 	if not res.get("success", false):
 		return res
@@ -1552,7 +1579,7 @@ func start_building_upgrade(b_id: String) -> Dictionary:
 
 	return res
 
-func cancel_building_upgrade(b_id: String) -> Dictionary:
+func cancel_building_upgrade(b_id: String, p_resource_mgr: Object = null) -> Dictionary:
 	if world_data == null or b_id == "":
 		return {"success": false, "reason": "Dữ liệu thế giới không hợp lệ"}
 
@@ -1560,7 +1587,7 @@ func cancel_building_upgrade(b_id: String) -> Dictionary:
 	if b_data.is_empty():
 		return {"success": false, "reason": "Công trình không tồn tại"}
 
-	var rm := get_node_or_null("/root/ResourceManager")
+	var rm: Object = p_resource_mgr if p_resource_mgr != null else _get_resource_mgr()
 	var res := BuildingSystem.cancel_upgrade(b_data, world_data, rm, job_mgr)
 	if not res.get("success", false):
 		return res
@@ -1578,7 +1605,7 @@ func cancel_building_upgrade(b_id: String) -> Dictionary:
 
 	return res
 
-func complete_upgrade(b_id: String) -> bool:
+func complete_upgrade(b_id: String, p_resource_mgr: Object = null) -> bool:
 	if world_data == null or b_id == "":
 		return false
 
@@ -1586,7 +1613,7 @@ func complete_upgrade(b_id: String) -> bool:
 	if b_data.is_empty() or not bool(b_data.get("is_upgrading", false)):
 		return false
 
-	var rm := get_node_or_null("/root/ResourceManager")
+	var rm: Object = p_resource_mgr if p_resource_mgr != null else _get_resource_mgr()
 	var res := BuildingSystem.complete_building_upgrade(b_data, world_data, rm)
 	if not res.get("success", false):
 		return false

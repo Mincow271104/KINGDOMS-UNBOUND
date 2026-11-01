@@ -679,10 +679,10 @@
   - Serializes `upgrade_level`, `is_upgrading`, `upgrade_target_level`, `upgrade_progress`, `upgrade_required_hours`, `upgrade_cost`.
   - Added strict sequential upgrade tier validation for upgrade fields in `validate_save_data`: rejects invalid tiers, non-sequential target levels (`upgrade_target_level != upgrade_level + 1`), negative costs, or unknown resource types.
   - Enforced runtime sequential upgrade tier guards in `BuildingSystem.complete_building_upgrade()` before mutating building state or capacities.
-  - Full backward compatibility: legacy saves lacking `upgrade_level` safely default to Level 1 without schema errors or capacity drift.
+  - Full backward compatibility: legacy saves lacking `upgrade_level` safely default to Level 1 without schema errors, capacity drift, or redundant silent clamping.
   - Re-registers builder jobs (including `farm_starter`) and restores farm level multipliers on load without job duplication.
-- [x] **TASK-2I.5:** Dedicated Automated Test Suite Expansion (TC-BM.35 through TC-BM.52):
-  - Expanded `scripts/test/test_building_management.gd` with 18 dedicated upgrade test cases:
+- [x] **TASK-2I.5:** Dedicated Automated Test Suite Expansion (TC-BM.35 through TC-BM.53):
+  - Expanded `scripts/test/test_building_management.gd` with 19 dedicated upgrade test cases:
     - TC-BM.35: Legacy building defaults to Level 1.
     - TC-BM.36: House Level 1->2->3 capacity (6->8->10).
     - TC-BM.37: Farm Level 1->2->3 production multipliers (1.00x->1.15x->1.30x).
@@ -699,8 +699,9 @@
     - TC-BM.48: Demolishing upgraded storehouse accurately deducts current-tier capacity.
     - TC-BM.49: Existing Level 1 baseline construction, workplace, and demolition regressions valid.
     - TC-BM.50: Authentic starter farm upgrade restore, actual builder labor progression, and repeated load verified.
-    - TC-BM.51: Full snapshot immutability across all 5 upgrade APIs when ResourceManager is null or invalid.
+    - TC-BM.51: Full snapshot immutability across all resources in EconomyConfig.ALL_RESOURCES for all 5 upgrade APIs when ResourceManager is null or invalid.
     - TC-BM.52: Sequential upgrade tier integrity, 8 save validation cases, and runtime tier skip/downgrade guards.
-  - All 52 tests in `test_building_management.gd` passed with 100% pass rate (Exit Code 0).
+    - TC-BM.53: Blocked upgrade completion preservation, non-orphaned builder jobs, retryable state, clean retry execution, and zero capacity drift.
+  - All 53 tests in `test_building_management.gd` passed with 100% pass rate (Exit Code 0).
   - Full regression checks on `test_save_load.gd` (182 assertions) and `test_market.gd` (26 tests) passed with Exit Code 0.
   - Godot 4.7 headless editor scan passed with 0 errors.

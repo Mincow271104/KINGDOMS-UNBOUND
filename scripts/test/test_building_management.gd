@@ -83,6 +83,7 @@ func _process(_delta: float) -> bool:
 		results.append(_test_tc_bm_50_starter_farm_upgrade_restore())
 		results.append(_test_tc_bm_51_fail_closed_resource_manager_unavailable())
 		results.append(_test_tc_bm_52_sequential_upgrade_save_validation())
+		results.append(_test_tc_bm_53_blocked_upgrade_completion_preservation())
 
 		all_passed = true
 		for r in results:
@@ -4430,16 +4431,11 @@ func _test_tc_bm_51_fail_closed_resource_manager_unavailable() -> bool:
 
 	var snapshot_rm = func(r: Node) -> Dictionary:
 		if r == null: return {}
-		return {
-			"wood_stock": r.get_total_stock("wood"),
-			"stone_stock": r.get_total_stock("stone"),
-			"food_stock": r.get_total_stock("food"),
-			"wood_cap": r.get_capacity("wood"),
-			"stone_cap": r.get_capacity("stone"),
-			"food_cap": r.get_capacity("food"),
-			"ore_cap": r.get_capacity("ore"),
-			"tools_cap": r.get_capacity("tools")
-		}
+		var snap: Dictionary = {}
+		for res_id in EconomyConfig.ALL_RESOURCES:
+			snap["stock_" + res_id] = r.get_total_stock(res_id)
+			snap["cap_" + res_id] = r.get_capacity(res_id)
+		return snap
 
 	var assert_b_equal = func(cur: Dictionary, snap: Dictionary, context: String) -> int:
 		var errs: int = 0
@@ -4799,6 +4795,264 @@ func _test_tc_bm_52_sequential_upgrade_save_validation() -> bool:
 
 	if failures == 0:
 		print("  [PASS] TC-BM.52: All 8 sequential upgrade save validation cases and runtime tier guards verified.")
+		return true
+	return false
+
+func _test_tc_bm_53_blocked_upgrade_completion_preservation() -> bool:
+	print("--- Running TC-BM.53: Blocked Upgrade Completion Preservation & Clean Retry ---")
+	var failures: int = 0
+	var wd = world_instance.world_data
+	var live_rm = world_instance.get_node_or_null("/root/ResourceManager")
+
+	if live_rm == null or wd == null or world_instance.job_mgr == null:
+		printerr("FAIL: Missing world_data, live ResourceManager, or JobManager in TC-BM.53")
+		return false
+
+	var initial_wood_cap: int = live_rm.get_capacity("wood")
+	var initial_stone_cap: int = live_rm.get_capacity("stone")
+	var initial_ore_cap: int = live_rm.get_capacity("ore")
+	var initial_metal_cap: int = live_rm.get_capacity("metal")
+
+	# 1. Setup a test storehouse at (20, 20) with active Level 1 -> 2 upgrade
+	var test_sh_id: String = "bld_tc53_storehouse"
+	var test_sh: Dictionary = {
+		"id": test_sh_id,
+		"type": "storehouse",
+		"cell": Vector2i(20, 20),
+		"size": Vector2i(2, 2),
+		"state": "active",
+		"health": 100,
+		"upgrade_level": 1,
+		"is_upgrading": true,
+		"upgrade_target_level": 2,
+		"upgrade_progress": 5.0, # 1.0 hour remaining to reach 6.0
+		"upgrade_required_hours": 6.0,
+		"upgrade_cost": {"wood": 19, "stone": 12}
+	}
+	wd.buildings.append(test_sh)
+
+	# Create builder job in world_instance.job_mgr
+	var builder_job = world_instance.job_mgr.create_job(
+		"builder",
+		Vector2i(20, 20),
+		"Nâng cấp Kho lưu trữ lên Cấp 2",
+		test_sh_id,
+		6.0,
+		1,
+		false
+	)
+
+	# Find a citizen to assign
+	var test_cit: Node = null
+	for c in world_instance.citizen_list:
+		if is_instance_valid(c) and c.call("is_alive"):
+			test_cit = c
+			break
+
+	if test_cit == null:
+		printerr("FAIL: No citizen available for TC-BM.53")
+		failures += 1
+		wd.buildings.erase(test_sh)
+		return false
+
+	var orig_cit_job = test_cit.active_job
+	var orig_cit_state = test_cit.current_state
+
+	# Assign citizen to builder job
+	builder_job.state = JobManager.JobState.IN_PROGRESS
+	builder_job.worker_id = test_cit.citizen_id
+	test_cit.active_job = builder_job
+	test_cit.current_state = test_cit.State.WORKING
+	test_cit.hunger = 0.0
+	test_cit.fatigue = 0.0
+	test_cit.world_view = world_instance
+	test_cit.job_mgr = world_instance.job_mgr
+
+	# 2. Blocked completion phase: inject invalid ResourceManager
+	var invalid_rm = RefCounted.new()
+	world_instance.set_resource_mgr_for_testing(invalid_rm)
+
+	# Run citizen labor progression (1.0 hour labor advances progress from 5.0 to 6.0)
+	test_cit._process_building_work(1.0)
+
+	# Verify blocked state
+	if float(test_sh.get("upgrade_progress", 0.0)) < 5.999:
+		printerr("FAIL: Progress did not reach required hours (6.0), got %f" % float(test_sh.get("upgrade_progress", 0.0)))
+		failures += 1
+
+	if int(test_sh.get("upgrade_level", 0)) != 1:
+		printerr("FAIL: upgrade_level premature transition on blocked completion: %d vs expected 1" % int(test_sh.get("upgrade_level", 0)))
+		failures += 1
+
+	if not bool(test_sh.get("is_upgrading", false)):
+		printerr("FAIL: is_upgrading cleared on blocked completion")
+		failures += 1
+
+	if live_rm.get_capacity("wood") != initial_wood_cap or live_rm.get_capacity("ore") != initial_ore_cap:
+		printerr("FAIL: Storehouse capacities mutated on blocked completion")
+		failures += 1
+
+	if test_cit.active_job != builder_job:
+		printerr("FAIL: Citizen detached from builder job on blocked completion")
+		failures += 1
+
+	if test_cit.current_state != test_cit.State.WORKING:
+		printerr("FAIL: Citizen state mutated from WORKING on blocked completion")
+		failures += 1
+
+	if builder_job.state != JobManager.JobState.IN_PROGRESS:
+		printerr("FAIL: Builder job state in JobManager mutated from IN_PROGRESS: %d" % builder_job.state)
+		failures += 1
+
+	var pending_jobs = world_instance.job_mgr.get_jobs_for_building(test_sh_id)
+	if pending_jobs.size() != 1 or pending_jobs[0] != builder_job:
+		printerr("FAIL: Builder job was orphaned or removed from JobManager on blocked completion")
+		failures += 1
+
+	# Test direct advance_construction_work return contract
+	var blocked_adv_res = world_instance.advance_construction_work(test_sh_id, 1.0)
+	if not blocked_adv_res.get("success", false):
+		printerr("FAIL: advance_construction_work failed closed (success != true) instead of reporting retryable state")
+		failures += 1
+	if blocked_adv_res.get("completed", true):
+		printerr("FAIL: advance_construction_work falsely reported completed = true when completion blocked")
+		failures += 1
+	if not blocked_adv_res.get("completion_blocked", false):
+		printerr("FAIL: advance_construction_work missing completion_blocked flag")
+		failures += 1
+
+	# 3. Retry phase with valid ResourceManager
+	world_instance.clear_resource_mgr_for_testing()
+
+	# Run citizen labor progression again with valid ResourceManager
+	test_cit._process_building_work(1.0)
+
+	# Verify completed upgrade state
+	if int(test_sh.get("upgrade_level", 0)) != 2:
+		printerr("FAIL: Upgrade did not complete to Level 2 on retry, got: %d" % int(test_sh.get("upgrade_level", 0)))
+		failures += 1
+
+	if bool(test_sh.get("is_upgrading", true)):
+		printerr("FAIL: is_upgrading still true after successful completion retry")
+		failures += 1
+
+	if test_sh.has("upgrade_target_level") or test_sh.has("upgrade_progress") or test_sh.has("upgrade_required_hours") or test_sh.has("upgrade_cost"):
+		printerr("FAIL: Upgrade metadata was not cleaned after successful completion")
+		failures += 1
+
+	var expected_wood_cap = initial_wood_cap + 125
+	var expected_ore_cap = initial_ore_cap + 75
+	if live_rm.get_capacity("wood") != expected_wood_cap:
+		printerr("FAIL: Storehouse wood capacity not updated correctly: %d vs expected %d" % [live_rm.get_capacity("wood"), expected_wood_cap])
+		failures += 1
+	if live_rm.get_capacity("ore") != expected_ore_cap:
+		printerr("FAIL: Storehouse ore capacity not updated correctly: %d vs expected %d" % [live_rm.get_capacity("ore"), expected_ore_cap])
+		failures += 1
+
+	if test_cit.active_job != null:
+		printerr("FAIL: Citizen active_job not cleared after successful completion")
+		failures += 1
+
+	if test_cit.current_state != test_cit.State.IDLE:
+		printerr("FAIL: Citizen state not released to IDLE after completion")
+		failures += 1
+
+	var remaining_jobs = world_instance.job_mgr.get_jobs_for_building(test_sh_id)
+	if remaining_jobs.size() != 0:
+		printerr("FAIL: Builder jobs not cleaned from JobManager after completion: %d remaining" % remaining_jobs.size())
+		failures += 1
+
+	# 4. Repeated completion attempts must not create capacity drift
+	var dup_comp = world_instance.complete_upgrade(test_sh_id)
+	if dup_comp:
+		printerr("FAIL: complete_upgrade succeeded on already completed building")
+		failures += 1
+	if live_rm.get_capacity("wood") != expected_wood_cap or live_rm.get_capacity("ore") != expected_ore_cap:
+		printerr("FAIL: Capacity drifted on duplicate complete_upgrade call")
+		failures += 1
+
+	# 5. Regression coverage for successful House and Farm completion
+	var test_house_id = "bld_tc53_house"
+	var test_house: Dictionary = {
+		"id": test_house_id,
+		"type": "house",
+		"cell": Vector2i(22, 22),
+		"size": Vector2i(2, 2),
+		"state": "active",
+		"health": 100,
+		"upgrade_level": 1,
+		"is_upgrading": true,
+		"upgrade_target_level": 2,
+		"upgrade_progress": 3.0,
+		"upgrade_required_hours": 4.0,
+		"upgrade_cost": {"wood": 19, "stone": 8}
+	}
+	wd.buildings.append(test_house)
+	var house_job = world_instance.job_mgr.create_job("builder", Vector2i(22, 22), "Nâng cấp Nhà ở", test_house_id, 4.0, 1, false)
+	house_job.state = JobManager.JobState.IN_PROGRESS
+	house_job.worker_id = test_cit.citizen_id
+	test_cit.active_job = house_job
+	test_cit.current_state = test_cit.State.WORKING
+
+	test_cit._process_building_work(1.0)
+	if int(test_house.get("upgrade_level", 0)) != 2 or bool(test_house.get("is_upgrading", true)):
+		printerr("FAIL: House Level 1->2 upgrade did not complete cleanly")
+		failures += 1
+	if test_cit.active_job != null or test_cit.current_state != test_cit.State.IDLE:
+		printerr("FAIL: Citizen not released after House upgrade completion")
+		failures += 1
+
+	var test_farm_id = "bld_tc53_farm"
+	var test_farm: Dictionary = {
+		"id": test_farm_id,
+		"type": "farm",
+		"cell": Vector2i(24, 24),
+		"size": Vector2i(2, 2),
+		"state": "active",
+		"health": 100,
+		"upgrade_level": 1,
+		"is_upgrading": true,
+		"upgrade_target_level": 2,
+		"upgrade_progress": 4.0,
+		"upgrade_required_hours": 5.0,
+		"upgrade_cost": {"wood": 23, "stone": 12}
+	}
+	wd.buildings.append(test_farm)
+	world_instance.register_dynamic_workplace(test_farm)
+	var farm_job = world_instance.job_mgr.create_job("builder", Vector2i(24, 24), "Nâng cấp Nông trại", test_farm_id, 5.0, 1, false)
+	farm_job.state = JobManager.JobState.IN_PROGRESS
+	farm_job.worker_id = test_cit.citizen_id
+	test_cit.active_job = farm_job
+	test_cit.current_state = test_cit.State.WORKING
+
+	test_cit._process_building_work(1.0)
+	if int(test_farm.get("upgrade_level", 0)) != 2 or bool(test_farm.get("is_upgrading", true)):
+		printerr("FAIL: Farm Level 1->2 upgrade did not complete cleanly")
+		failures += 1
+	var wp = world_instance.workplace_mgr.get_workplace(test_farm_id)
+	if wp == null or absf(wp.level_multiplier - 1.15) > 0.001:
+		printerr("FAIL: Farm workplace level_multiplier not updated to 1.15")
+		failures += 1
+
+	# Teardown and restore clean state
+	live_rm.remove_storage_capacity("wood", 125)
+	live_rm.remove_storage_capacity("stone", 125)
+	live_rm.remove_storage_capacity("food", 125)
+	live_rm.remove_storage_capacity("ore", 75)
+	live_rm.remove_storage_capacity("metal", 75)
+	wd.buildings.erase(test_sh)
+	wd.buildings.erase(test_house)
+	wd.buildings.erase(test_farm)
+	world_instance.job_mgr.remove_jobs_for_building(test_sh_id)
+	world_instance.job_mgr.remove_jobs_for_building(test_house_id)
+	world_instance.job_mgr.remove_jobs_for_building(test_farm_id)
+	if world_instance.workplace_mgr:
+		world_instance.workplace_mgr.unregister_workplace(test_farm_id)
+	test_cit.active_job = orig_cit_job
+	test_cit.current_state = orig_cit_state
+
+	if failures == 0:
+		print("  [PASS] TC-BM.53: Blocked upgrade completion preservation and clean retry verified.")
 		return true
 	return false
 

@@ -588,10 +588,24 @@ func _process_building_work(delta_hours: float) -> void:
 		if wv != null and wv.has_method("advance_construction_work"):
 			res = wv.advance_construction_work(b_id, effective_delta_hours)
 		elif world_data != null:
-			res = BuildingSystem.advance_construction(b_id, effective_delta_hours, world_data)
-			if res.get("completed", false):
-				var rm_node: Node = get_node_or_null("/root/ResourceManager") if (is_inside_tree() and has_node("/root/ResourceManager")) else null
-				BuildingSystem.complete_building(b_id, world_data, rm_node)
+			var b_obj = BuildingSystem.get_building_by_id(b_id, world_data)
+			if not b_obj.is_empty() and bool(b_obj.get("is_upgrading", false)):
+				res = BuildingSystem.advance_upgrade(b_obj, effective_delta_hours, world_data)
+				if res.get("completed", false):
+					var rm_node: Node = get_node_or_null("/root/ResourceManager") if (is_inside_tree() and has_node("/root/ResourceManager")) else null
+					var comp_res := BuildingSystem.complete_building_upgrade(b_obj, world_data, rm_node)
+					if not comp_res.get("success", false):
+						res["completed"] = false
+						res["completion_blocked"] = true
+						res["reason"] = "Nâng cấp hoàn thành thời gian thi công nhưng chưa thể hoàn tất (chờ ResourceManager sẵn sàng)"
+			else:
+				res = BuildingSystem.advance_construction(b_id, effective_delta_hours, world_data)
+				if res.get("completed", false):
+					var rm_node: Node = get_node_or_null("/root/ResourceManager") if (is_inside_tree() and has_node("/root/ResourceManager")) else null
+					var comp_success := BuildingSystem.complete_building(b_id, world_data, rm_node)
+					if not comp_success:
+						res["completed"] = false
+						res["completion_blocked"] = true
 
 	if not res.get("success", false):
 		active_job = null

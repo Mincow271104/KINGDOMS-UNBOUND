@@ -621,7 +621,11 @@ Upgrades cost a deterministic ratio of the original blueprint cost and take real
   - Assigned builder jobs are cleanly cancelled and removed from `JobManager`.
 - **Save/Load Compatibility & Sequential Tier Integrity:**
   - Persists `upgrade_level`, `is_upgrading`, `upgrade_target_level`, `upgrade_progress`, `upgrade_required_hours`, `upgrade_cost`.
-  - Old saves without `upgrade_level` automatically default to Level 1.
+  - Old saves without `upgrade_level` automatically default to Level 1 without silent clamping.
   - In-progress upgrades resume seamlessly after loading without loss of progress or duplicate builder jobs.
   - Strict save validation requires `upgrade_target_level == upgrade_level + 1` with `upgrade_level < MAX_BUILDING_LEVEL` for active upgrades; tier skipping (e.g., 1 -> 3), invalid tiers, negative costs, or unknown resource types are strictly rejected.
   - `BuildingSystem.complete_building_upgrade()` enforces strict sequential tier integrity and fail-closed validation before mutating building state or resource capacities.
+- **Blocked Completion Preservation & Retry Contract:**
+  - If upgrade construction reaches 100% required hours but finalization fails (e.g. Storehouse cannot obtain a valid `ResourceManager` or apply capacity delta), the system refuses to report false completion (`completed = false`, `completion_blocked = true`).
+  - `upgrade_level`, `is_upgrading`, builder jobs, citizen work assignments, and resource capacities remain completely preserved in a retryable state.
+  - Once dependencies become valid, subsequent work cycles complete the upgrade cleanly, apply the capacity delta exactly once, remove builder jobs, and release citizens without capacity drift.
