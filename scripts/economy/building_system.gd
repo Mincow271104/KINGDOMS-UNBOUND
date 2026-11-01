@@ -284,7 +284,7 @@ static func cancel_construction(b_data_or_id, world_data: WorldGenerator.WorldDa
 		return {"success": false, "reason": "Chỉ có thể hủy công trình đang xây dựng"}
 
 	# Fail closed if required resource_mgr dependency is missing or invalid
-	if resource_mgr == null or not resource_mgr.has_method("add_resource"):
+	if resource_mgr == null or not (resource_mgr.has_method("add_resources_atomic") or resource_mgr.has_method("add_resource")):
 		return {"success": false, "reason": "Thiếu ResourceManager để hoàn trả tài nguyên"}
 
 	var b_id: String = b_data.get("id", "")
@@ -324,16 +324,17 @@ static func cancel_construction(b_data_or_id, world_data: WorldGenerator.WorldDa
 
 	# Execute atomic refund: credit all resources and record exact credited amounts
 	var refunded: Dictionary = {}
-	if resource_mgr.has_method("add_resources_atomic"):
-		var atomic_res: Dictionary = resource_mgr.add_resources_atomic(planned_refund)
-		if not atomic_res.get("success", false):
-			return {"success": false, "reason": atomic_res.get("reason", "Không thể hoàn trả tài nguyên"), "refunded": {}}
-		refunded = atomic_res.get("credited", {})
-	else:
-		for res_id in planned_refund:
-			var refund_amount: int = planned_refund[res_id]
-			var added: int = resource_mgr.add_resource(res_id, refund_amount)
-			refunded[res_id] = added
+	if not planned_refund.is_empty():
+		if resource_mgr.has_method("add_resources_atomic"):
+			var atomic_res: Dictionary = resource_mgr.add_resources_atomic(planned_refund)
+			if not atomic_res.get("success", false):
+				return {"success": false, "reason": atomic_res.get("reason", "Không thể hoàn trả tài nguyên"), "refunded": {}}
+			refunded = atomic_res.get("credited", {})
+		else:
+			for res_id in planned_refund:
+				var refund_amount: int = planned_refund[res_id]
+				var added: int = resource_mgr.add_resource(res_id, refund_amount)
+				refunded[res_id] = added
 
 	# 1. Clear occupancy only for this building's footprint
 	if world_data:
@@ -398,11 +399,7 @@ static func is_valid_resource_manager_for_demolition(resource_mgr: Object, requi
 		return false
 	if not resource_mgr.has_method("get_storage_capacity") and not resource_mgr.has_method("get_capacity"):
 		return false
-	var has_atomic: bool = resource_mgr.has_method("add_resources_atomic")
-	var has_legacy_add: bool = resource_mgr.has_method("add_resource")
-	if not has_atomic and not has_legacy_add:
-		return false
-	if not has_atomic and not resource_mgr.has_method("rollback_added_resources") and not resource_mgr.has_method("deduct_resource"):
+	if not resource_mgr.has_method("add_resources_atomic"):
 		return false
 	if requires_storage and not resource_mgr.has_method("remove_storage_capacity"):
 		return false
@@ -526,29 +523,12 @@ static func demolish_building(b_data_or_id, world_data: WorldGenerator.WorldData
 	# 1. Execute atomic refund using authoritative add_resources_atomic
 	var refunded: Dictionary = {}
 	if resource_mgr != null and not planned_refund.is_empty():
-		if resource_mgr.has_method("add_resources_atomic"):
-			var atomic_res: Dictionary = resource_mgr.add_resources_atomic(planned_refund)
-			if not atomic_res.get("success", false):
-				return {"success": false, "reason": atomic_res.get("reason", "Không thể hoàn trả toàn bộ tài nguyên vào kho chứa"), "refunded": {}}
-			refunded = atomic_res.get("credited", {})
-		else:
-			var refund_success := true
-			for res_id in planned_refund:
-				var amt: int = planned_refund[res_id]
-				var added: int = resource_mgr.add_resource(res_id, amt)
-				refunded[res_id] = added
-				if added < amt:
-					refund_success = false
-					break
-
-			if not refund_success:
-				if resource_mgr.has_method("rollback_added_resources"):
-					resource_mgr.rollback_added_resources(refunded)
-				elif resource_mgr.has_method("deduct_resource"):
-					for res_id in refunded:
-						if refunded[res_id] > 0:
-							resource_mgr.deduct_resource(res_id, refunded[res_id])
-				return {"success": false, "reason": "Không thể hoàn trả toàn bộ tài nguyên vào kho chứa", "refunded": {}}
+		if not resource_mgr.has_method("add_resources_atomic"):
+			return {"success": false, "reason": "Yêu cầu ResourceManager hỗ trợ add_resources_atomic để hoàn trả tài nguyên", "refunded": {}}
+		var atomic_res: Dictionary = resource_mgr.add_resources_atomic(planned_refund)
+		if not atomic_res.get("success", false):
+			return {"success": false, "reason": atomic_res.get("reason", "Không thể hoàn trả toàn bộ tài nguyên vào kho chứa"), "refunded": {}}
+		refunded = atomic_res.get("credited", {})
 
 	# Deduct storage capacity if this building granted storage
 	if resource_mgr != null and not storage_bonus.is_empty() and resource_mgr.has_method("remove_storage_capacity"):

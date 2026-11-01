@@ -8559,3 +8559,60 @@ Address all 5 review findings and test coverage gaps identified by ChatGPT durin
 
 ### Next Exact Step
 - Create Round 3 commit, push to `feature/package-2f-building-inspection-and-management` on remote `origin`, and await ChatGPT independent review.
+
+---
+
+## [2026-11-01] Package 2F: Building Inspection, Workplace Management & Demolition System — Independent Review Corrections (Round 4)
+
+### Context & Objective
+Address all review findings and test coverage gaps identified during Round 4 independent review of Package 2F:
+1. **Hauler Cargo Retention & Overwrite Protection (Objective A):**
+   - **Root Cause:** When central storage had no space during partial delivery, citizen became IDLE with undelivered cargo. In `CitizenController._process_idle()`, when `space <= 0`, execution fell through to `# Request work`, querying JobManager for work and accepting a new hauling job. Upon reaching the pickup location, `_pickup_hauler_cargo()` overwrote `carrying_amount` and `carrying_resource`, destroying the undelivered goods.
+   - **Fix in `CitizenController._process_idle()`:** When `carrying_amount > 0`, the citizen prioritizes clearing carried cargo. If central storage has free space for `carrying_resource`, it invokes `_deposit_hauler_cargo()`. If central storage has no free space or ResourceManager is unavailable, the citizen remains IDLE with a descriptive status reason ("Kho trung tâm đã đầy, chờ giải phóng dung lượng để dỡ hàng...") and strictly returns before requesting or accepting any job.
+   - **Defensive Guard in `CitizenController._pickup_hauler_cargo()`:** If `carrying_amount > 0`, picking up new cargo is rejected, `active_job` is safely released to IDLE, cargo fields are preserved intact, and status reason is set to `"Đang giữ lô hàng dở dang (%d %s), không thể bốc hàng mới"`.
+   - **Fail-Closed in `CitizenController._deposit_hauler_cargo()`:** When ResourceManager is unavailable or lacks `add_resource()`, safely releases `active_job`, preserves `carrying_amount`, `carrying_resource`, and `carrying_source_workplace_id`, awards zero hauling XP, and sets diagnostic reason.
+2. **Real Dual-Channel Workshop Production & Pause/Resume Invariants (Objective B — TC-BM.31):**
+   - Called real `WorkplaceManager.produce_to_buffer()` during active state for both channels, verifying 2 Ore consumed and 1 Metal added to Smelt buffer, and 2 Metal + 1 Wood consumed and 1 Tool added to Craft buffer.
+   - Paused parent workshop via `world_instance.set_building_state()`, verified both channels paused, workers released to IDLE, calling `produce_to_buffer()` returns 0 and does not change buffers or consume inputs, and hauler jobs remain executable.
+   - Executed save/load roundtrip verifying channels, buffers, pause state, recipe metadata, and exact JobManager job counts without duplicates.
+   - Resumed workshop and verified real production works again on both channels without duplicate channels or duplicate jobs.
+3. **Truly Verifiable Atomic Refund & Production Rollback Contract (Objective C — TC-BM.32):**
+   - Eliminated legacy fallbacks in `BuildingSystem.demolish_building()` and `BuildingSystem.is_valid_resource_manager_for_demolition()` by strictly requiring `add_resources_atomic()` and failing closed if missing.
+   - Implemented a controlled test seam in `ResourceManager` (`set_test_fail_commit_resource()`) to exercise the actual commit-phase rollback branch on the real `ResourceManager`.
+   - In `ResourceManager.rollback_added_resources()`: restored `_is_starving` before emitting notifications, and ensured intermediate/false signals are NOT emitted to listeners during a failed transaction.
+   - In TC-BM.32: verified exact pre/post equality of stocks, daily production tallies, starvation flag, storage capacities, building records, occupancy, and jobs on the real `ResourceManager` and world fixture, with 0 false signals emitted. Also added fail-closed interface check rejecting mocks lacking `add_resources_atomic`.
+4. **Comprehensive Cargo Conservation Scenarios (Objective D — TC-BM.33):**
+   - Preserved and verified all cargo scenarios: hauler pickup, partial delivery, repeated idle ticks refusing jobs while storage is full, defensive pickup guard against overwrite, fail-closed deposit on missing/invalid RM, multiple haulers and en route hauler aggregation, demolition rejection on insufficient storage, save/load roundtrip preserving cargo with no active job, demolition succeeding and depositing cargo into storage, and multi-channel workshop cargo resolution to parent building.
+
+### Test Results & Matrix Verification
+- **Package 2F Test Suite (`test_building_management.gd`):**
+  - 34/34 tests PASSED (Exit Code 0).
+- **Full Regression Matrix (16 Suites Total, 2,813 Checks/Assertions, 0 Failures):**
+  1. `test_autonomous_faction_conflict.gd`: 205 checks (Exit Code 0)
+  2. `test_faction_relation_matrix.gd`: 162 checks (Exit Code 0)
+  3. `test_save_load.gd`: 182 assertions (Exit Code 0)
+  4. `test_faction_diplomacy_ai.gd`: 437 checks (Exit Code 0)
+  5. `test_faction_strategy_execution.gd`: 951 checks (Exit Code 0)
+  6. `test_market.gd`: 15 tests (Exit Code 0)
+  7. `test_field_siege.gd`: 98 assertions (Exit Code 0)
+  8. `test_surplus_treasury_conversion.gd`: 124 tests (Exit Code 0)
+  9. `test_player_field_guide.gd`: 130 tests (Exit Code 0)
+  10. `test_workshop.gd`: 7 tests (Exit Code 0)
+  11. `test_research_hall.gd`: 7 tests (Exit Code 0)
+  12. `test_barracks.gd`: 7 tests (Exit Code 0)
+  13. `test_watchtower.gd`: 8 tests (Exit Code 0)
+  14. `test_citizen_skills.gd`: 27 tests (Exit Code 0)
+  15. `test_tactical_military.gd`: 419 assertions (Exit Code 0)
+  16. `test_building_management.gd`: 34 tests (Exit Code 0)
+  - Total: 2,813 checks / assertions passed with 0 failures across all 16 suites.
+
+### Files Modified & Protected
+- `scripts/entities/citizen_controller.gd` (Modified: hauler cargo retention in `_process_idle()`, defensive guard in `_pickup_hauler_cargo()`, fail-closed deposit in `_deposit_hauler_cargo()`)
+- `scripts/economy/resource_manager.gd` (Modified: commit-phase test failure injection seam `set_test_fail_commit_resource()`, atomic rollback restoring starvation before signals, `get_daily_production_tally()`)
+- `scripts/economy/building_system.gd` (Modified: strictly enforced `add_resources_atomic()` in `demolish_building()` and `is_valid_resource_manager_for_demolition()`)
+- `scripts/test/test_building_management.gd` (Modified: updated TC-BM.31 with real dual-channel production, TC-BM.32 with real ResourceManager atomic rollback, TC-BM.33 with comprehensive retention & conservation scenarios)
+- `docs/WORKLOG.md` (Modified)
+- Protected assets (`project.godot`, 92 historical untracked files, user saves) strictly preserved.
+
+### Next Exact Step
+- Create Round 4 commit, push to `feature/package-2f-building-inspection-and-management` on remote `origin`, and await ChatGPT independent review. Do NOT proceed to Package 2G.

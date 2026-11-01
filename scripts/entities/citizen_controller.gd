@@ -250,18 +250,28 @@ func _process_idle() -> void:
 		_seek_rest()
 		return
 
-	# If citizen holds remaining cargo from partial delivery, retry deposit when storage space has opened up
-	if carrying_amount > 0 and carrying_resource != "":
-		var rm: Object = _get_resource_manager()
-		if rm != null:
-			var space: int = 999999
-			if rm.has_method("get_storage_capacity") and rm.has_method("get_total_stock"):
-				space = maxi(0, int(rm.get_storage_capacity(carrying_resource)) - int(rm.get_total_stock(carrying_resource)))
-			elif rm.has_method("get_capacity") and rm.has_method("get_total_stock"):
-				space = maxi(0, int(rm.get_capacity(carrying_resource)) - int(rm.get_total_stock(carrying_resource)))
-			if space > 0:
-				_deposit_hauler_cargo()
+	# If citizen holds remaining cargo from partial delivery, handle existing cargo first; do not request or accept new jobs
+	if carrying_amount > 0:
+		if carrying_resource != "":
+			var rm: Object = _get_resource_manager()
+			if rm != null and rm.has_method("add_resource"):
+				var space: int = 999999
+				if rm.has_method("get_storage_capacity") and rm.has_method("get_total_stock"):
+					space = maxi(0, int(rm.get_storage_capacity(carrying_resource)) - int(rm.get_total_stock(carrying_resource)))
+				elif rm.has_method("get_capacity") and rm.has_method("get_total_stock"):
+					space = maxi(0, int(rm.get_capacity(carrying_resource)) - int(rm.get_total_stock(carrying_resource)))
+				if space > 0:
+					_deposit_hauler_cargo()
+					return
+				else:
+					status_reason = "Kho trung tâm đã đầy, còn giữ %d %s" % [carrying_amount, carrying_resource]
+					return
+			else:
+				status_reason = "ResourceManager không khả dụng, còn giữ %d %s" % [carrying_amount, carrying_resource]
 				return
+		else:
+			status_reason = "Hàng hóa không xác định, còn giữ %d đơn vị" % carrying_amount
+			return
 
 	# Request work
 	if role != "idle":
@@ -363,6 +373,15 @@ func _pickup_hauler_cargo() -> void:
 	if active_job == null:
 		current_state = State.IDLE
 		return
+
+	# Defensive guard: never overwrite an existing cargo batch
+	if carrying_amount > 0:
+		status_reason = "Đang giữ lô hàng dở dang (%d %s), không thể bốc hàng mới" % [carrying_amount, carrying_resource]
+		if active_job != null and job_mgr != null:
+			job_mgr.release_job(active_job)
+			active_job = null
+		current_state = State.IDLE
+		return
 		
 	var picked_up := 0
 	if workplace_mgr != null and workplace_mgr.has_method("pickup_from_buffer"):
@@ -412,12 +431,17 @@ func _deposit_hauler_cargo() -> void:
 	var delivered_amount: int = carrying_amount
 	var delivered_res: String = carrying_resource
 	var rm: Object = _get_resource_manager()
-	var added: int = 0
-	if rm != null and rm.has_method("add_resource"):
-		added = rm.add_resource(delivered_res, delivered_amount)
-	else:
-		added = delivered_amount
+	if rm == null or not rm.has_method("add_resource"):
+		# Fail-closed when ResourceManager is unavailable: preserve all cargo fields
+		if active_job != null:
+			if job_mgr != null:
+				job_mgr.release_job(active_job)
+			active_job = null
+		current_state = State.IDLE
+		status_reason = "ResourceManager không khả dụng, bảo lưu %d %s" % [carrying_amount, carrying_resource]
+		return
 
+	var added: int = rm.add_resource(delivered_res, delivered_amount)
 	carrying_amount -= added
 
 	if carrying_amount <= 0:
@@ -427,7 +451,8 @@ func _deposit_hauler_cargo() -> void:
 		# Full cargo batch successfully deposited: award +10 hauling XP
 		award_work_xp("hauling", 10.0)
 		if active_job != null:
-			job_mgr.complete_job(active_job)
+			if job_mgr != null:
+				job_mgr.complete_job(active_job)
 			active_job = null
 		current_state = State.IDLE
 		status_reason = "Đã dỡ hàng vào kho an toàn"
@@ -436,7 +461,8 @@ func _deposit_hauler_cargo() -> void:
 		# Remaining cargo is safely preserved in hauler inventory (no loss, no duplication).
 		# carrying_source_workplace_id is preserved so demolition checks and future delivery can trace it!
 		if active_job != null:
-			job_mgr.release_job(active_job)
+			if job_mgr != null:
+				job_mgr.release_job(active_job)
 			active_job = null
 		current_state = State.IDLE
 		status_reason = "Kho trung tâm đã đầy, còn giữ %d %s" % [carrying_amount, carrying_resource]

@@ -19,6 +19,12 @@ var _last_day_consumption: Dictionary = {}
 var active_population: int = 24
 var _is_starving: bool = false
 
+## Test-only failure injection hook for exercising the commit-phase rollback branch
+var _test_fail_commit_resource: String = ""
+
+func set_test_fail_commit_resource(res_id: String) -> void:
+	_test_fail_commit_resource = res_id
+
 func is_starving() -> bool:
 	return _is_starving
 
@@ -86,6 +92,9 @@ func get_capacity(res_id: String) -> int:
 func get_storage_capacity(res_id: String) -> int:
 	return get_capacity(res_id)
 
+func get_daily_production_tally(res_id: String) -> float:
+	return _daily_production_tallies.get(res_id, 0.0)
+
 func has_resource(res_id: String, amount: int) -> bool:
 	return get_available_stock(res_id) >= amount
 
@@ -147,8 +156,10 @@ func add_resource(res_id: String, amount: int) -> int:
 
 ## Reverses previously added resources (e.g. from an aborted or failed transaction).
 ## Correctly rolls back both _current_stock and _daily_production_tallies consistently,
-## and restores starvation state if requested.
-func rollback_added_resources(credited: Dictionary, restore_starving: Variant = null) -> void:
+## and restores starvation state before emitting any notifications.
+func rollback_added_resources(credited: Dictionary, restore_starving: Variant = null, emit_signals: bool = false) -> void:
+	if restore_starving != null:
+		_is_starving = bool(restore_starving)
 	for res_id in credited:
 		var amt: int = int(credited[res_id])
 		if amt <= 0:
@@ -156,9 +167,8 @@ func rollback_added_resources(credited: Dictionary, restore_starving: Variant = 
 		var cur: int = _current_stock.get(res_id, 0)
 		_current_stock[res_id] = maxi(0, cur - amt)
 		_daily_production_tallies[res_id] = maxf(0.0, _daily_production_tallies.get(res_id, 0.0) - float(amt))
-		resource_changed.emit(res_id, get_available_stock(res_id), get_total_stock(res_id))
-	if restore_starving != null:
-		_is_starving = bool(restore_starving)
+		if emit_signals:
+			resource_changed.emit(res_id, get_available_stock(res_id), get_total_stock(res_id))
 
 ## Deducts a resource directly from stock, optionally reverting production tallies.
 func deduct_resource(res_id: String, amount: int, revert_production: bool = true) -> bool:
@@ -205,6 +215,13 @@ func add_resources_atomic(resources: Dictionary) -> Dictionary:
 		var amt: int = int(resources[res_id])
 		if amt <= 0:
 			continue
+
+		# Test-only failure injection point during commit step
+		if _test_fail_commit_resource != "" and res_id == _test_fail_commit_resource:
+			rollback_needed = true
+			rollback_reason = "Test injected commit failure for %s" % res_id
+			break
+
 		var cur: int = _current_stock.get(res_id, 0)
 		var cap: int = _capacities.get(res_id, 500)
 		var space: int = maxi(0, cap - cur)
@@ -224,7 +241,7 @@ func add_resources_atomic(resources: Dictionary) -> Dictionary:
 		credited[res_id] = to_add
 
 	if rollback_needed:
-		rollback_added_resources(credited, prev_starving)
+		rollback_added_resources(credited, prev_starving, false)
 		return {
 			"success": false,
 			"reason": rollback_reason,
