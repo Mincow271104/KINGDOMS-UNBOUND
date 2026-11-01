@@ -202,7 +202,7 @@ To ensure entities sort naturally behind and in front of buildings and foliage w
 ### 10.1 Authoritative Outpost Domain Model (`SiegeObjectiveActor`)
 - **Core Entity Lifecycle:** `SiegeObjectiveActor` (`scripts/combat/siege_objective_actor.gd`) manages physical outpost persistence on the map.
 - **State Transition & Idempotency:**
-  - `transfer_ownership(new_owner_id, tx_id)` provides atomic mutation guarded against duplicate transactions (`last_capture_tx_id == tx_id`) and redundant assignment (`owning_faction_id == new_owner_id`).
+  - `transfer_ownership(new_owner_id, tx_id)` provides atomic mutation guarded against non-empty/whitespace-only transaction IDs, invalid owner IDs (fail-closed if `FactionManager` is null and owner != `"player"`), duplicate transactions (`last_capture_tx_id == tx_id`), and redundant assignment (`owning_faction_id == new_owner_id`).
   - Restores health to `round(max_health * 0.35)`, sets `is_alive = true`, `is_captured = true`, `is_under_active_siege = false`, updates display name, clears defenders, triggers redraw, and emits `objective_ownership_changed(objective_id, prev_owner, new_owner, tx_id)`.
 - **Presentation Layer:**
   - `_draw()` renders faction-specific banner colors (Royal Blue for player with golden pole and finials; Crimson Red for military; Amber Gold for merchants; Forest Green for tribes).
@@ -210,7 +210,8 @@ To ensure entities sort naturally behind and in front of buildings and foliage w
 
 ### 10.2 Field Siege Orchestration (`FieldSiegeManager`)
 - **Central Coordinator:** `FieldSiegeManager` (`scripts/combat/field_siege_manager.gd`) coordinates player and NPC sieges.
-- **Authoritative Ownership Routing:** `transfer_outpost_ownership(obj_id, new_owner_id, tx_id)` validates owner IDs against known factions and `"player"`, routes to the target objective actor, and emits `outpost_ownership_changed(objective_id, prev_owner, new_owner, tx_id)`.
+- **Strict Query Invariance:** `can_launch_field_siege()` performs read-only eligibility checks without mutative side-effects or fixture resets.
+- **Authoritative Ownership Routing:** `transfer_outpost_ownership(obj_id, new_owner_id, tx_id)` validates owner IDs against known factions and `"player"` (failing closed when `FactionManager` is null for non-player owners), validates `tx_id` non-whitespace, routes to the target objective actor, and emits `outpost_ownership_changed(objective_id, prev_owner, new_owner, tx_id)`.
 - **Player Siege Resolution:** Successful player sieges trigger `_resolve_siege_outcome()` with `VICTORY`, invoking `transfer_outpost_ownership(current_objective_id, "player", "player_siege_" + current_siege_id)`.
 - **Friendly Siege Prevention:** `can_launch_field_siege()` prevents the player from sieging their own captured outposts.
 

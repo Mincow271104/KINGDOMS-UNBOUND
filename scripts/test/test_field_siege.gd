@@ -797,9 +797,14 @@ func _test_gate_d_siege_state_distinctions() -> void:
 	_assert(int(eval_vic["details"]["plunder"]["wood"]) == 12, "GATE-D.10: Plunder report records actual added wood (12) instead of nominal 50")
 
 	# Case D5 (DEF-4): Split field force where group 1 is outside withdrawal radius and group 2 remains inside siege zone
+	obj.owning_faction_id = "siege_gate_faction"
 	obj.is_captured = false
 	obj.is_alive = true
+	obj.is_under_active_siege = false
 	obj.health = 300.0
+	obj.previous_owner_id = ""
+	obj.capture_revision = 0
+	obj.last_capture_tx_id = ""
 	army_mgr.soldier_count = 2
 	tac_mgr.sync_with_player_army()
 	var split_units: Array = tac_mgr.get_all_units()

@@ -113,6 +113,7 @@ func register_objective(obj_id: String, cell: Vector2i, faction_id: String, max_
 	obj.max_health = max_hp
 	obj.health = max_hp
 	obj.garrison_count = garrison
+	obj.faction_manager = get_faction_manager()
 
 	obj.objective_destroyed.connect(_on_objective_destroyed)
 
@@ -130,12 +131,23 @@ func is_valid_owner_id(owner_id: String) -> bool:
 	if owner_id == "player":
 		return true
 	var fm = get_faction_manager()
-	if fm != null and fm.has_method("get_faction"):
-		return fm.get_faction(owner_id) != null
-	return true
+	if fm != null:
+		if fm.has_method("get_faction"):
+			return fm.get_faction(owner_id) != null
+		elif fm.has_method("has_faction"):
+			return fm.has_faction(owner_id)
+		return false
+	return false
 
 ## Authoritative outpost territorial transfer method with strict idempotency and validation.
 func transfer_outpost_ownership(obj_id: String, new_owner_id: String, tx_id: String = "") -> Dictionary:
+	if tx_id.strip_edges().is_empty():
+		return {
+			"success": false,
+			"already_applied": false,
+			"reason": "Mã giao dịch (tx_id) không được rỗng hoặc chỉ chứa khoảng trắng"
+		}
+
 	var obj = get_objective(obj_id)
 	if obj == null or not is_instance_valid(obj):
 		return {
@@ -150,6 +162,9 @@ func transfer_outpost_ownership(obj_id: String, new_owner_id: String, tx_id: Str
 			"already_applied": false,
 			"reason": "Chủ sở hữu mới không hợp lệ hoặc chưa được xác thực: %s" % new_owner_id
 		}
+
+	if obj.get("faction_manager") == null:
+		obj.set("faction_manager", get_faction_manager())
 
 	var prev_owner := str(obj.owning_faction_id)
 	var res: Dictionary = obj.transfer_ownership(new_owner_id, tx_id)
@@ -208,10 +223,6 @@ func can_launch_field_siege(target_faction_id: String, objective_id: String) -> 
 	var obj = get_objective(objective_id)
 	if obj == null:
 		return {"can_launch": false, "reason": "Mục tiêu công thành không tồn tại"}
-
-	# Fixture reset compatibility: if marked not captured but left as player, restore original owner
-	if not obj.is_captured and not obj.original_owner_id.is_empty() and obj.owning_faction_id == "player":
-		obj.owning_faction_id = obj.original_owner_id
 
 	if not obj.is_alive:
 		return {"can_launch": false, "reason": "Mục tiêu công thành đã bị phá hủy"}

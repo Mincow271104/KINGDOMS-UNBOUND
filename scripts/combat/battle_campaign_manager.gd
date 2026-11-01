@@ -74,6 +74,9 @@ func set_faction_manager(fm: FactionManager) -> void:
 	faction_mgr = fm
 	if faction_mgr != null:
 		_connect_faction_signals()
+		if _custom_field_siege_mgr != null and _custom_field_siege_mgr.has_method("set_faction_manager"):
+			if _custom_field_siege_mgr.has_method("get_faction_manager") and _custom_field_siege_mgr.get_faction_manager() == null:
+				_custom_field_siege_mgr.set_faction_manager(faction_mgr)
 
 func get_faction_manager() -> FactionManager:
 	if faction_mgr != null:
@@ -99,6 +102,9 @@ func set_custom_current_day(day: int) -> void:
 
 func set_custom_field_siege_manager(fsm: Object) -> void:
 	_custom_field_siege_mgr = fsm
+	if _custom_field_siege_mgr != null and _custom_field_siege_mgr.has_method("set_faction_manager") and faction_mgr != null:
+		if _custom_field_siege_mgr.has_method("get_faction_manager") and _custom_field_siege_mgr.get_faction_manager() == null:
+			_custom_field_siege_mgr.set_faction_manager(faction_mgr)
 
 func get_field_siege_manager() -> Object:
 	if _custom_field_siege_mgr != null:

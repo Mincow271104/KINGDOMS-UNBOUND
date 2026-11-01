@@ -27,6 +27,33 @@ signal objective_captured(obj_id: String, new_owner_id: String)
 signal objective_ownership_changed(obj_id: String, prev_owner: String, new_owner: String, tx_id: String)
 
 var damage_flash_timer: float = 0.0
+var faction_manager: Object = null
+
+func _get_faction_manager() -> Object:
+	if faction_manager != null:
+		return faction_manager
+	var p = get_parent()
+	while p != null:
+		if p.get("faction_mgr") != null:
+			return p.get("faction_mgr")
+		if p.get("faction_manager") != null:
+			return p.get("faction_manager")
+		p = p.get_parent()
+	return null
+
+func is_valid_owner_id(owner_id: String) -> bool:
+	if owner_id.strip_edges().is_empty():
+		return false
+	if owner_id == "player":
+		return true
+	var fm = _get_faction_manager()
+	if fm != null:
+		if fm.has_method("get_faction"):
+			return fm.get_faction(owner_id) != null
+		elif fm.has_method("has_faction"):
+			return fm.has_faction(owner_id)
+		return false
+	return false
 
 func _ready() -> void:
 	y_sort_enabled = true
@@ -53,15 +80,22 @@ func take_damage(amount: float, attacker_id: String = "") -> void:
 	queue_redraw()
 
 func transfer_ownership(new_owner_id: String, tx_id: String = "") -> Dictionary:
-	if new_owner_id.strip_edges().is_empty():
+	if tx_id.strip_edges().is_empty():
 		return {
 			"success": false,
 			"already_applied": false,
-			"reason": "Chủ sở hữu mới không hợp lệ"
+			"reason": "Mã giao dịch (tx_id) không được rỗng hoặc chỉ chứa khoảng trắng"
+		}
+
+	if not is_valid_owner_id(new_owner_id):
+		return {
+			"success": false,
+			"already_applied": false,
+			"reason": "Chủ sở hữu mới không hợp lệ hoặc chưa được xác thực: %s" % new_owner_id
 		}
 
 	# Idempotency check: duplicate transaction ID
-	if not tx_id.is_empty() and last_capture_tx_id == tx_id:
+	if last_capture_tx_id == tx_id:
 		return {
 			"success": true,
 			"already_applied": true,

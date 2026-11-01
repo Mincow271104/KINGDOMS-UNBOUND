@@ -461,7 +461,8 @@ Each regional outpost (`SiegeObjectiveActor`) tracked by `FieldSiegeManager` mai
 2. `original_owner_id`: Founding faction identifier, set upon initial objective registration and immutable across captures.
 3. `previous_owner_id`: Controlling faction immediately preceding the most recent conquest transaction.
 4. `capture_revision`: Monotonically increasing non-negative integer tracking the total number of ownership transfers.
-5. `last_capture_tx_id`: Unique transaction identifier (`"player_siege_<id>"` or `"npc_campaign_<id>"`), guaranteeing idempotent execution.
+5. `last_capture_tx_id`: Unique non-empty transaction identifier (`"player_siege_<id>"` or `"npc_campaign_<id>"`), guaranteeing idempotent execution. Whitespace-only or empty transaction IDs are strictly rejected fail-closed with zero state changes.
+6. `is_valid_owner_id`: When `FactionManager` exists, only `"player"` or recognized existing factions are accepted. If `FactionManager` is null, non-player owner assignment fails closed.
 
 ### 15.2 Post-Conquest State & Health Recovery Contract
 - **Never Permanently Destroyed:** Outposts are permanent territorial anchor points. When reduced to $0.0\text{ HP}$ or captured via siege, they are never deleted from the world map or freed from memory.
@@ -472,10 +473,10 @@ Each regional outpost (`SiegeObjectiveActor`) tracked by `FieldSiegeManager` mai
 
 ### 15.3 Visual Territorial Presentation & Banner Heraldry
 Outpost banners dynamically display the heraldic colors and conquest markers of their current controller:
-- **Player Banner:** Royal Blue (`Color(0.2, 0.45, 0.85)`), golden banner pole (`Color(0.85, 0.75, 0.3)`), golden conquest finial, and dynamic building label `"Tiền Đồn Vương Quốc"`.
-- **Rival Military Banner:** Crimson Red (`Color(0.8, 0.2, 0.2)`), dark iron pole (`Color(0.35, 0.35, 0.35)`), and label `"Tiền Đồn Quân Phiệt"`.
-- **Rival Merchant Banner:** Amber Gold (`Color(0.85, 0.65, 0.15)`), bronze pole (`Color(0.5, 0.4, 0.2)`), and label `"Tiền Đồn Thương Hội"`.
-- **Neutral Tribe Banner:** Forest Green (`Color(0.2, 0.65, 0.3)`), wooden pole (`Color(0.4, 0.3, 0.2)`), and label `"Tiền Đồn Bộ Tộc"`.
+- **Player Banner:** Royal Blue (`Color(0.2, 0.45, 0.95, 0.95)`), golden banner pole (`Color(0.85, 0.7, 0.2)`), golden conquest finial crest (`Color(1.0, 0.85, 0.2)`), and dynamic building label `"Tiền Đồn Vương Quốc"`.
+- **Rival Military Banner:** Crimson Red (`Color(0.85, 0.2, 0.2, 0.95)`), dark iron pole (`Color(0.1, 0.1, 0.1)`), and label `"Tiền Đồn Rival_military"` (hoặc `"Tiền Đồn Cổ Thành Thiết Giáp"`).
+- **Rival Merchant Banner:** Amber Gold (`Color(0.92, 0.72, 0.15, 0.95)`), dark iron pole (`Color(0.1, 0.1, 0.1)`), and label `"Tiền Đồn Rival_merchant"` (hoặc `"Tiền Đồn Thương Hội Vân Đồn"`).
+- **Neutral Tribe Banner:** Forest Green (`Color(0.2, 0.75, 0.35, 0.95)`), dark iron pole (`Color(0.1, 0.1, 0.1)`), and label `"Tiền Đồn Neutral_tribe"` (hoặc `"Tiền Đồn Bản Làng Rừng Xanh"`).
 - **Health Bar Color Coding:**
   - Player-controlled outposts render a vibrant green health bar (`Color(0.2, 0.8, 0.2)`).
   - Hostile/NPC-controlled outposts render a standard crimson health bar (`Color(0.8, 0.2, 0.2)`).

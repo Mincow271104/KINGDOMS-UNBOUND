@@ -8892,3 +8892,44 @@ Godot Engine headless parse check: `Godot_v4.7-stable_win64_console.exe --headle
 
 ### Next Exact Step
 - Commit Package 2G changes and push branch `feature/package-2g-outpost-territorial-control` to remote `origin`. Await user guidance before proceeding to Package 2H.
+
+---
+
+## 2026-11-01 — Package 2G: Independent Review Correction & Ownership Hardening (Completed)
+
+### Context & Objective
+Address findings from independent review of Package 2G:
+1. **Remove Fixture Hack from Production Code:** Eliminate ownership mutation from `FieldSiegeManager.can_launch_field_siege()`, preserving pure read-only check semantics, and properly reset test fixtures in `scripts/test/test_field_siege.gd` Case D5 (`owning_faction_id`, `is_captured`, `is_alive`, `is_under_active_siege`, `health`, `previous_owner_id`, `capture_revision`, `last_capture_tx_id`).
+2. **Harden Transaction & Owner Validation:** Reject empty or whitespace-only `tx_id`. Validate owner ID against `"player"` or registered factions in `FactionManager`, failing closed for non-player owners if `FactionManager` is null. Zero side-effects on invalid input (no ownership change, no revision increment, no health restoration, no signal emission).
+3. **Fill Missing Test Gaps in `test_outpost_territorial_control.gd`:**
+   - Draw safety in G5: Genuinely produce a draw/stalemate under `BattleResolver` mechanics (`score_ratio` between 0.90 and 1.10), assert `report.victor` is draw/stalemate, assert outpost owner, health, revision, and captured state are completely unchanged.
+   - Active siege collision in G7: Ensure NPC attacker definitely wins (`victor == "attacker"`), outpost has active player siege, verify outpost is unharmed, not sacked, and ownership/revision unchanged.
+   - SaveManager End-to-End in G8: Instantiate live `WorldView` scene, capture outpost, serialize via `SaveManager.serialize_world_state()`, restore via `SaveManager.apply_loaded_state_to_world()`, verify all metadata preserved.
+   - Legacy Save Migration in G8: Strip Package 2G fields, verify `SaveManager.apply_loaded_state_to_world()` restores cleanly with authoritative defaults.
+   - Invalid Input in G7: Verify whitespace `tx_id`, unknown owner ID, and null `FactionManager` transfer attempts fail closed with zero side-effects.
+
+### Implementation Summary
+1. **Production Ownership Cleanup (`scripts/combat/field_siege_manager.gd`):**
+   - Removed `if not obj.is_captured and not obj.original_owner_id.is_empty() and obj.owning_faction_id == "player": obj.owning_faction_id = obj.original_owner_id` from `can_launch_field_siege()`.
+   - Updated `is_valid_owner_id()` to reject empty/whitespace, accept `"player"`, query `FactionManager`, and fail closed when `FactionManager` is null.
+   - Updated `transfer_outpost_ownership()` to reject whitespace `tx_id` and unknown owners upfront.
+2. **Actor Validation (`scripts/combat/siege_objective_actor.gd`):**
+   - Added `faction_manager` property and `_get_faction_manager()` traversal helper.
+   - Added `is_valid_owner_id()` check failing closed for unknown owners when `FactionManager` is unavailable.
+   - Guarded `transfer_ownership()` against whitespace `tx_id` and invalid owners without mutating state or emitting signals.
+3. **Campaign Manager Faction Sync (`scripts/combat/battle_campaign_manager.gd`):**
+   - Synchronized `faction_manager` to `_custom_field_siege_mgr` on assignment.
+4. **Test Fixture Hardening (`scripts/test/test_field_siege.gd`):**
+   - In Case D5, reset all 8 properties on `obj` cleanly inside test scope.
+5. **Test Suite Expansion (`scripts/test/test_outpost_territorial_control.gd`):**
+   - Expanded from 108 to 157 assertions covering draw safety, active siege collision with guaranteed attacker victory, SaveManager end-to-end, legacy migration, and all invalid input failure modes.
+
+### Verification & Regression Results (Targeted Scope)
+1. `scripts/test/test_outpost_territorial_control.gd`: 157 assertions passed (Exit Code 0)
+2. `scripts/test/test_field_siege.gd`: 98 assertions passed (Exit Code 0)
+3. `scripts/test/test_autonomous_faction_conflict.gd`: 205 checks passed (Exit Code 0)
+4. `scripts/test/test_save_load.gd`: 182 assertions passed (Exit Code 0)
+5. Headless Editor Parse Check (`Godot_v4.7-stable_win64_console.exe --headless --editor --quit`): Exit Code 0, 0 errors.
+
+### Next Exact Step
+- Commit correction changes with `fix(outposts): harden territorial ownership validation`, push branch `feature/package-2g-outpost-territorial-control` to remote `origin`, and await independent review verification.

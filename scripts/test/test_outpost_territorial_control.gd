@@ -241,6 +241,7 @@ func _test_group_4_npc_attacker_victory_captures_outpost() -> void:
 	var fm := FactionManagerScript.new()
 	var bcm := BattleCampaignManagerScript.new()
 	var fsm := FieldSiegeManagerScript.new()
+	fsm.set_faction_manager(fm)
 	bcm.set_faction_manager(fm)
 	bcm.set_custom_field_siege_manager(fsm)
 
@@ -297,9 +298,11 @@ func _test_group_5_defender_victory_and_draw_safety() -> void:
 	var fm := FactionManagerScript.new()
 	var bcm := BattleCampaignManagerScript.new()
 	var fsm := FieldSiegeManagerScript.new()
+	fsm.set_faction_manager(fm)
 	bcm.set_faction_manager(fm)
 	bcm.set_custom_field_siege_manager(fsm)
 
+	# 1. Defender Victory Scenario
 	var def_outpost = fsm.register_objective("outpost_rival_military", Vector2i(10, 10), "rival_military", 300.0, 4)
 
 	bcm.set_custom_current_day(2)
@@ -328,6 +331,37 @@ func _test_group_5_defender_victory_and_draw_safety() -> void:
 	_assert(def_outpost.health == 300.0, "G5.7: Outpost health unharmed by defeated attacker")
 
 	def_outpost.free()
+
+	# 2. Draw / Stalemate Scenario
+	var def_outpost2 = fsm.register_objective("outpost_draw_test", Vector2i(12, 12), "rival_merchant", 300.0, 4)
+	bcm.set_custom_current_day(10)
+	fm.declare_war_between_factions("rival_military", "rival_merchant", "Border dispute", 10)
+	var atk_mil = fm.get_faction("rival_military")
+	var def_merch = fm.get_faction("rival_merchant")
+	atk_mil.military_power = 60.0
+	atk_mil.stability = 70.0
+	def_merch.military_power = 60.0
+	def_merch.stability = 70.0
+
+	var p_key_draw: String = FactionRelationDataScript.make_pair_key("rival_military", "rival_merchant")
+	var camp_draw: Dictionary = bcm.get_pending_inter_faction_campaign_for_pair(p_key_draw)
+	var camp_id_draw: String = camp_draw.get("campaign_id", "")
+	var sched_day_draw: int = int(camp_draw.get("scheduled_day", 12))
+	bcm.set_custom_current_day(sched_day_draw)
+	var resolve_draw = bcm.resolve_inter_faction_campaign(camp_id_draw, sched_day_draw)
+
+	_assert(resolve_draw.get("success", false) == true, "G5.8: Draw campaign resolved successfully")
+	var rep_draw: BattleResolver.BattleReport = resolve_draw.get("report")
+	var is_real_draw: bool = (rep_draw != null and (rep_draw.victor == "draw" or rep_draw.victor == "stalemate"))
+	_assert(is_real_draw, "G5.9: Battle result is genuine draw/stalemate (report.victor == '%s')" % (rep_draw.victor if rep_draw else "null"))
+	var ctx_draw: Dictionary = resolve_draw.get("context", {})
+	_assert(ctx_draw.get("outpost_sacked") == false, "G5.10: Outpost was NOT sacked in draw/stalemate")
+	_assert(def_outpost2.owning_faction_id == "rival_merchant", "G5.11: Outpost owner unchanged in draw")
+	_assert(def_outpost2.capture_revision == 0, "G5.12: Capture revision unchanged in draw")
+	_assert(def_outpost2.is_captured == false, "G5.13: is_captured remains false in draw")
+	_assert(def_outpost2.health == 300.0, "G5.14: Outpost health unharmed in draw")
+
+	def_outpost2.free()
 
 # -----------------------------------------------------------------------------
 # Group 6: Duplicate Transaction & Idempotency
@@ -392,11 +426,16 @@ func _test_group_7_invalid_objective_and_conflict_safety() -> void:
 	# 3. Active siege conflict: NPC campaign must NOT capture an outpost under active player siege
 	var bcm := BattleCampaignManagerScript.new()
 	var fm := FactionManagerScript.new()
+	sm.set_faction_manager(fm)
 	bcm.set_faction_manager(fm)
 	bcm.set_custom_field_siege_manager(sm)
 
 	bcm.set_custom_current_day(1)
 	fm.declare_war_between_factions("rival_merchant", "rival_military", "War", 1)
+	var atk_fac_c = fm.get_faction("rival_merchant")
+	var def_fac_c = fm.get_faction("rival_military")
+	atk_fac_c.military_power = 95.0
+	def_fac_c.military_power = 10.0
 	obj.health = 10.0
 	obj.is_under_active_siege = true # Outpost currently under player siege!
 
@@ -406,10 +445,14 @@ func _test_group_7_invalid_objective_and_conflict_safety() -> void:
 	var sched_day: int = int(camp.get("scheduled_day", 3))
 	bcm.set_custom_current_day(sched_day)
 	var res_conflict = bcm.resolve_inter_faction_campaign(camp_id, sched_day)
+	var rep_conflict: BattleResolver.BattleReport = res_conflict.get("report")
 
 	_assert(res_conflict.get("success", false) == true, "G7.4: Battle resolved")
-	_assert(res_conflict.get("context", {}).get("outpost_sacked") == false, "G7.5: Outpost under active player siege was NOT sacked by NPC campaign")
-	_assert(obj.owning_faction_id == "rival_military", "G7.6: Outpost ownership unchanged during active siege conflict")
+	_assert(rep_conflict != null and rep_conflict.victor == "attacker", "G7.5: NPC attacker won the battle decisively (assert victor == attacker)")
+	_assert(res_conflict.get("context", {}).get("outpost_sacked") == false, "G7.6: Outpost under active player siege was NOT sacked despite attacker victory")
+	_assert(obj.owning_faction_id == "rival_military", "G7.7: Outpost ownership unchanged during active siege conflict")
+	_assert(obj.health == 10.0, "G7.8: Outpost health unharmed (10.0 HP preserved)")
+	_assert(obj.capture_revision == 0, "G7.9: Capture revision did not increment during active siege collision")
 
 	# 4. Defender owns no outposts: abstract battle resolves without creating phantom territory change
 	var bcm2 := BattleCampaignManagerScript.new()
@@ -424,8 +467,8 @@ func _test_group_7_invalid_objective_and_conflict_safety() -> void:
 	var sched_day2: int = int(camp2.get("scheduled_day", 3))
 	bcm2.set_custom_current_day(sched_day2)
 	var res_no_outpost = bcm2.resolve_inter_faction_campaign(camp2.get("campaign_id", ""), sched_day2)
-	_assert(res_no_outpost.get("success", false) == true, "G7.7: Campaign with no defender outposts resolved cleanly")
-	_assert(res_no_outpost.get("context", {}).get("outpost_sacked") == false, "G7.8: Zero phantom outpost sackings when defender has no outposts")
+	_assert(res_no_outpost.get("success", false) == true, "G7.10: Campaign with no defender outposts resolved cleanly")
+	_assert(res_no_outpost.get("context", {}).get("outpost_sacked") == false, "G7.11: Zero phantom outpost sackings when defender has no outposts")
 
 	# 5. Player cannot launch siege against player-owned outpost
 	obj.is_under_active_siege = false
@@ -445,8 +488,45 @@ func _test_group_7_invalid_objective_and_conflict_safety() -> void:
 	var mil_fac = fm.get_faction("rival_military")
 	mil_fac.is_at_war = true
 	var check_self = sm.can_launch_field_siege("rival_military", "obj_safe_1")
-	_assert(check_self.get("can_launch", true) == false, "G7.9: Player cannot launch siege against player-owned outpost")
-	_assert(check_self.get("reason", "").find("quyền kiểm soát của bạn") != -1, "G7.10: Rejection reason clearly states outpost is player-owned")
+	_assert(check_self.get("can_launch", true) == false, "G7.12: Player cannot launch siege against player-owned outpost")
+	_assert(check_self.get("reason", "").find("quyền kiểm soát của bạn") != -1, "G7.13: Rejection reason clearly states outpost is player-owned")
+
+	# 6. Invalid Input Validation Tests (Section 4E)
+	# A. Empty / Whitespace transaction ID rejected with zero side-effects
+	var pre_hp = obj.health
+	var pre_rev = obj.capture_revision
+	var res_ws_tx = sm.transfer_outpost_ownership("obj_safe_1", "player", "   \t  ")
+	_assert(res_ws_tx.get("success", true) == false, "G7.14: Whitespace transaction ID rejected")
+	_assert(obj.owning_faction_id == "player", "G7.15: Owner unchanged on whitespace tx_id")
+	_assert(obj.capture_revision == pre_rev, "G7.16: Revision unchanged on whitespace tx_id")
+	_assert(obj.health == pre_hp, "G7.17: Health unchanged on whitespace tx_id")
+
+	# B. Non-existent owner ID rejected with zero side-effects
+	var res_bad_owner_id = sm.transfer_outpost_ownership("obj_safe_1", "unknown_empire_xyz", "tx_valid_but_unknown")
+	_assert(res_bad_owner_id.get("success", true) == false, "G7.18: Non-existent faction owner ID rejected")
+	_assert(obj.owning_faction_id == "player", "G7.19: Owner unchanged on non-existent owner ID")
+	_assert(obj.capture_revision == pre_rev, "G7.20: Revision unchanged on non-existent owner ID")
+
+	# C. No FactionManager present: attempting to transfer to unknown non-player owner fails closed
+	var sm_no_fm = FieldSiegeManagerScript.new()
+	var obj_no_fm = sm_no_fm.register_objective("obj_no_fm_test", Vector2i(5, 5), "neutral_tribe", 200.0)
+	var res_no_fm = sm_no_fm.transfer_outpost_ownership("obj_no_fm_test", "rival_merchant", "tx_no_fm_01")
+	_assert(res_no_fm.get("success", true) == false, "G7.21: Fail-closed when no FactionManager and non-player owner")
+	_assert(obj_no_fm.owning_faction_id == "neutral_tribe", "G7.22: Outpost owner unchanged when FactionManager is null")
+	_assert(obj_no_fm.capture_revision == 0, "G7.23: Capture revision unchanged when FactionManager is null")
+	_assert(obj_no_fm.health == 200.0, "G7.24: Outpost health unchanged when FactionManager is null")
+
+	# D. Direct actor transfer fails closed without FactionManager
+	var direct_actor = SiegeObjectiveActorScript.new()
+	direct_actor.owning_faction_id = "neutral_tribe"
+	direct_actor.health = 200.0
+	var res_direct_unknown = direct_actor.transfer_ownership("rival_merchant", "tx_direct_01")
+	_assert(res_direct_unknown.get("success", true) == false, "G7.25: Direct actor transfer to non-player fails closed without FactionManager")
+	_assert(direct_actor.owning_faction_id == "neutral_tribe", "G7.26: Direct actor owner unchanged")
+	_assert(direct_actor.capture_revision == 0, "G7.27: Direct actor revision unchanged")
+	_assert(direct_actor.health == 200.0, "G7.28: Direct actor health unchanged")
+	direct_actor.free()
+	sm_no_fm.clear_all_objectives()
 
 	sm.clear_all_objectives()
 
@@ -456,7 +536,9 @@ func _test_group_7_invalid_objective_and_conflict_safety() -> void:
 
 func _test_group_8_save_load_persistence_and_recapture() -> void:
 	print("\n--- Group 8: Save/Load Persistence, Recapture, and Tamper Resistance ---")
+	var fm_g8 := FactionManagerScript.new()
 	var sm1 = FieldSiegeManagerScript.new()
+	sm1.set_faction_manager(fm_g8)
 	var obj = sm1.register_objective("outpost_pers_1", Vector2i(32, 32), "neutral_tribe", 250.0, 3)
 
 	# 1. First capture: player takes neutral_tribe outpost
@@ -501,6 +583,7 @@ func _test_group_8_save_load_persistence_and_recapture() -> void:
 
 	# 5. Deserialize into a clean manager
 	var sm2 = FieldSiegeManagerScript.new()
+	sm2.set_faction_manager(fm_g8)
 	var des_ok: bool = sm2.deserialize(serialized)
 	_assert(des_ok == true, "G8.15: Deserialization into clean manager succeeded")
 
@@ -517,6 +600,71 @@ func _test_group_8_save_load_persistence_and_recapture() -> void:
 
 	sm1.clear_all_objectives()
 	sm2.clear_all_objectives()
+
+	# 6. End-to-End SaveManager Workflow with Live World Scene (Section 4C & 4D)
+	var world_scene: PackedScene = load("res://scenes/world/world_view.tscn")
+	var live_world = world_scene.instantiate()
+	root.add_child(live_world)
+
+	var live_fsm = live_world.get("field_siege_mgr")
+	_assert(live_fsm != null, "G8.25: Live WorldView field_siege_mgr exists")
+
+	# Register and capture outpost in live world
+	var live_obj = live_fsm.register_objective("outpost_e2e_live", Vector2i(22, 22), "rival_military", 300.0, 3)
+	var e2e_cap = live_fsm.transfer_outpost_ownership("outpost_e2e_live", "player", "tx_e2e_01")
+	_assert(e2e_cap.get("success", false) == true, "G8.26: Live world outpost capture succeeded")
+	_assert(live_obj.owning_faction_id == "player", "G8.27: Live outpost owner is player")
+	_assert(live_obj.original_owner_id == "rival_military", "G8.28: Live outpost original owner is rival_military")
+	_assert(live_obj.previous_owner_id == "rival_military", "G8.29: Live outpost previous owner is rival_military")
+	_assert(live_obj.capture_revision == 1, "G8.30: Live outpost capture revision is 1")
+	_assert(live_obj.last_capture_tx_id == "tx_e2e_01", "G8.31: Live outpost last_capture_tx_id is tx_e2e_01")
+	_assert(live_obj.health == 105.0, "G8.32: Live outpost health is 105.0 (35% of 300)")
+
+	# Serialize via real SaveManager.serialize_world_state()
+	var e2e_save_data: Dictionary = SaveManagerScript.serialize_world_state(live_world)
+	_assert(e2e_save_data.has("field_siege"), "G8.33: Serialized world state has field_siege section")
+	_assert(e2e_save_data["field_siege"].has("objectives"), "G8.34: Serialized field_siege has objectives array")
+
+	# Mutate live world state to verify loaded state genuinely restores
+	live_obj.owning_faction_id = "rival_military"
+	live_obj.previous_owner_id = "unknown"
+	live_obj.capture_revision = 999
+	live_obj.last_capture_tx_id = "tx_corrupted"
+	live_obj.health = 5.0
+
+	# Apply loaded state via real SaveManager.apply_loaded_state_to_world()
+	var apply_e2e = SaveManagerScript.apply_loaded_state_to_world(live_world, e2e_save_data)
+	_assert(apply_e2e.get("success", false) == true, "G8.35: SaveManager.apply_loaded_state_to_world succeeded")
+
+	var e2e_restored = live_fsm.get_objective("outpost_e2e_live")
+	_assert(e2e_restored != null, "G8.36: Restored outpost exists in live world")
+	_assert(e2e_restored.owning_faction_id == "player", "G8.37: Restored owner is player")
+	_assert(e2e_restored.original_owner_id == "rival_military", "G8.38: Restored original owner is rival_military")
+	_assert(e2e_restored.previous_owner_id == "rival_military", "G8.39: Restored previous owner is rival_military")
+	_assert(e2e_restored.capture_revision == 1, "G8.40: Restored capture revision is 1")
+	_assert(e2e_restored.last_capture_tx_id == "tx_e2e_01", "G8.41: Restored last_capture_tx_id is tx_e2e_01")
+	_assert(e2e_restored.health == 105.0, "G8.42: Restored health is 105.0")
+
+	# 7. Legacy Save Migration Test via real SaveManager (Section 4D)
+	var legacy_save_data: Dictionary = e2e_save_data.duplicate(true)
+	var fs_objs: Array = legacy_save_data.get("field_siege", {}).get("objectives", [])
+	for o_dict in fs_objs:
+		o_dict.erase("original_owner_id")
+		o_dict.erase("previous_owner_id")
+		o_dict.erase("capture_revision")
+		o_dict.erase("last_capture_tx_id")
+
+	var apply_leg = SaveManagerScript.apply_loaded_state_to_world(live_world, legacy_save_data)
+	_assert(apply_leg.get("success", false) == true, "G8.43: SaveManager.apply_loaded_state_to_world succeeded on legacy save")
+
+	var leg_restored = live_fsm.get_objective("outpost_e2e_live")
+	_assert(leg_restored != null, "G8.44: Legacy restored objective exists in live world")
+	_assert(leg_restored.original_owner_id == leg_restored.owning_faction_id, "G8.45: Legacy migration defaults original_owner_id = owning_faction_id")
+	_assert(leg_restored.previous_owner_id == "", "G8.46: Legacy migration defaults previous_owner_id = empty")
+	_assert(leg_restored.capture_revision == 0, "G8.47: Legacy migration defaults capture_revision = 0")
+	_assert(leg_restored.last_capture_tx_id == "", "G8.48: Legacy migration defaults last_capture_tx_id = empty")
+
+	live_world.queue_free()
 
 # -----------------------------------------------------------------------------
 # Test Helper Doubles (Mock Classes)
