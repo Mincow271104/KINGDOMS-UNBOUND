@@ -149,6 +149,16 @@ func add_storage_capacity(res_id: String, bonus: int) -> void:
 	_capacities[res_id] = _capacities.get(res_id, 500) + bonus
 	capacity_changed.emit(res_id, _capacities[res_id])
 
+## Removes incremental storage capacity contribution upon building demolition.
+## Does NOT reduce or delete existing resource inventory if capacity drops below current stock.
+func remove_storage_capacity(res_id: String, bonus: int) -> void:
+	if bonus <= 0:
+		return
+	var cur_cap: int = _capacities.get(res_id, 500)
+	var new_cap: int = maxi(0, cur_cap - bonus)
+	_capacities[res_id] = new_cap
+	capacity_changed.emit(res_id, new_cap)
+
 func _on_day_passed(_day: int, _season: String, _year: int) -> void:
 	_execute_daily_accounting_tick()
 

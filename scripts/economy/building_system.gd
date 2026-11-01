@@ -224,6 +224,52 @@ static func complete_building(b_data_or_id, world_data: WorldGenerator.WorldData
 	apply_completion_effects(b_data, resource_mgr)
 	return true
 
+## Preflights cancellation feasibility, calculating 50% refund and verifying storage space.
+## Returns {"can_cancel": bool, "refund": Dictionary, "reason": String}.
+static func can_cancel_construction(b_data_or_id, world_data: WorldGenerator.WorldData, resource_mgr: Object = null, refund_ratio: float = 0.5) -> Dictionary:
+	var b_data: Dictionary = {}
+	if b_data_or_id is Dictionary:
+		b_data = b_data_or_id
+	elif b_data_or_id is String:
+		b_data = get_building_by_id(b_data_or_id, world_data)
+
+	if b_data.is_empty():
+		return {"can_cancel": false, "reason": "Công trình không tồn tại", "refund": {}}
+
+	if b_data.get("state", "") != "under_construction":
+		return {"can_cancel": false, "reason": "Chỉ có thể hủy công trình đang xây dựng", "refund": {}}
+
+	var type: String = b_data.get("type", "")
+	var bp: Dictionary = EconomyConfig.BLUEPRINTS.get(type, {})
+	var cost: Dictionary = bp.get("cost", {})
+	var planned_refund: Dictionary = {}
+	for res_id in cost:
+		var refund_amount: int = int(float(cost[res_id]) * refund_ratio)
+		if refund_amount > 0:
+			planned_refund[res_id] = refund_amount
+
+	if resource_mgr != null and not planned_refund.is_empty():
+		for res_id in planned_refund:
+			var refund_amount: int = planned_refund[res_id]
+			var space: int = 999999
+			if resource_mgr.has_method("get_storage_capacity") and resource_mgr.has_method("get_total_stock"):
+				var cap: int = int(resource_mgr.get_storage_capacity(res_id))
+				var cur: int = int(resource_mgr.get_total_stock(res_id))
+				space = maxi(0, cap - cur)
+			elif resource_mgr.has_method("get_capacity") and resource_mgr.has_method("get_total_stock"):
+				var cap: int = int(resource_mgr.get_capacity(res_id))
+				var cur: int = int(resource_mgr.get_total_stock(res_id))
+				space = maxi(0, cap - cur)
+			if space < refund_amount:
+				return {
+					"can_cancel": false,
+					"reason": "Dung lượng kho chứa không đủ để nhận hoàn trả 50%% tài nguyên (%s: cần %d, còn trống %d)" % [res_id, refund_amount, space],
+					"insufficient_storage": true,
+					"refund": planned_refund
+				}
+
+	return {"can_cancel": true, "reason": "", "refund": planned_refund}
+
 static func cancel_construction(b_data_or_id, world_data: WorldGenerator.WorldData, resource_mgr: Object = null, job_mgr: Object = null) -> Dictionary:
 	var b_data: Dictionary = {}
 	if b_data_or_id is Dictionary:
@@ -328,29 +374,133 @@ static func get_construction_worker_capacity(type: String) -> int:
 	else:
 		return 4
 
-static func demolish_building(b_data: Dictionary, world_data: WorldGenerator.WorldData, resource_mgr: Node, refund_ratio: float = 0.5) -> Dictionary:
-	var type: String = b_data["type"]
-	var origin: Vector2i = b_data["cell"]
-	var size: Vector2i = b_data["size"]
+## Preflights demolition feasibility, calculating 50% refund and verifying storage space.
+## Takes into account storage capacity reductions if demolishing a storage provider.
+## Returns {"can_demolish": bool, "refund": Dictionary, "is_townhall": bool, "reason": String}.
+static func can_demolish_building(b_data_or_id, world_data: WorldGenerator.WorldData, resource_mgr: Object = null, refund_ratio: float = 0.5) -> Dictionary:
+	var b_data: Dictionary = {}
+	if b_data_or_id is Dictionary:
+		b_data = b_data_or_id
+	elif b_data_or_id is String:
+		b_data = get_building_by_id(b_data_or_id, world_data)
+
+	if b_data.is_empty():
+		return {"can_demolish": false, "reason": "Công trình không tồn tại", "refund": {}, "is_townhall": false}
+
+	var state: String = b_data.get("state", "active")
+	if state == "under_construction":
+		return {"can_demolish": false, "reason": "Công trình đang thi công phải sử dụng lệnh hủy thi công", "refund": {}, "is_townhall": false}
+	if state == "destroyed":
+		return {"can_demolish": false, "reason": "Công trình đã bị phá hủy hoàn toàn", "refund": {}, "is_townhall": false}
+
+	var type: String = b_data.get("type", "")
+	var is_townhall: bool = (type == "townhall")
 	var bp: Dictionary = EconomyConfig.BLUEPRINTS.get(type, {})
-	
-	# Clear occupancy
-	for ox in range(size.x):
-		for oy in range(size.y):
-			var cell := origin + Vector2i(ox, oy)
-			if IsoMath.is_in_bounds(cell):
-				world_data.occupancy[cell.x][cell.y] = false
-				
-	# Refund portion of materials
-	if resource_mgr and not bp.is_empty():
-		var cost: Dictionary = bp["cost"]
-		for res_id in cost:
-			var refund_amount: int = int(float(cost[res_id]) * refund_ratio)
-			if refund_amount > 0:
-				resource_mgr.add_resource(res_id, refund_amount)
-				
-	world_data.buildings.erase(b_data)
-	return {"success": true}
+	var cost: Dictionary = bp.get("cost", {})
+	var planned_refund: Dictionary = {}
+	for res_id in cost:
+		var refund_amount: int = int(float(cost[res_id]) * refund_ratio)
+		if refund_amount > 0:
+			planned_refund[res_id] = refund_amount
+
+	# Storage capacity preflight: check post-demolition storage capacity!
+	if resource_mgr != null and not planned_refund.is_empty():
+		var storage_bonus: Dictionary = bp.get("storage_bonus", {})
+		for res_id in planned_refund:
+			var refund_amount: int = planned_refund[res_id]
+			var space: int = 999999
+			if resource_mgr.has_method("get_storage_capacity") and resource_mgr.has_method("get_total_stock"):
+				var cur_cap: int = int(resource_mgr.get_storage_capacity(res_id))
+				var post_cap: int = maxi(0, cur_cap - int(storage_bonus.get(res_id, 0)))
+				var cur_stock: int = int(resource_mgr.get_total_stock(res_id))
+				space = maxi(0, post_cap - cur_stock)
+			elif resource_mgr.has_method("get_capacity") and resource_mgr.has_method("get_total_stock"):
+				var cur_cap: int = int(resource_mgr.get_capacity(res_id))
+				var post_cap: int = maxi(0, cur_cap - int(storage_bonus.get(res_id, 0)))
+				var cur_stock: int = int(resource_mgr.get_total_stock(res_id))
+				space = maxi(0, post_cap - cur_stock)
+			if space < refund_amount:
+				return {
+					"can_demolish": false,
+					"reason": "Dung lượng kho chứa không đủ để nhận hoàn trả 50%% tài nguyên sau khi dỡ bỏ (%s: cần %d, còn trống %d)" % [res_id, refund_amount, space],
+					"insufficient_storage": true,
+					"refund": planned_refund,
+					"is_townhall": is_townhall
+				}
+
+	return {
+		"can_demolish": true,
+		"reason": "",
+		"refund": planned_refund,
+		"is_townhall": is_townhall
+	}
+
+static func demolish_building(b_data_or_id, world_data: WorldGenerator.WorldData, resource_mgr: Object = null, job_mgr: Object = null, refund_ratio: float = 0.5) -> Dictionary:
+	var b_data: Dictionary = {}
+	if b_data_or_id is Dictionary:
+		b_data = b_data_or_id
+	elif b_data_or_id is String:
+		b_data = get_building_by_id(b_data_or_id, world_data)
+
+	if b_data.is_empty():
+		return {"success": false, "reason": "Công trình không tồn tại", "refunded": {}}
+
+	var check := can_demolish_building(b_data, world_data, resource_mgr, refund_ratio)
+	if not check.get("can_demolish", false):
+		return {
+			"success": false,
+			"reason": check.get("reason", "Không thể dỡ bỏ công trình"),
+			"insufficient_storage": check.get("insufficient_storage", false),
+			"refunded": {}
+		}
+
+	var b_id: String = b_data.get("id", "")
+	var type: String = b_data.get("type", "")
+	var origin: Vector2i = b_data.get("cell", Vector2i(-1, -1))
+	var size: Vector2i = b_data.get("size", Vector2i(1, 1))
+	var bp: Dictionary = EconomyConfig.BLUEPRINTS.get(type, {})
+	var planned_refund: Dictionary = check.get("refund", {})
+
+	# 1. Execute atomic refund
+	var refunded: Dictionary = {}
+	if resource_mgr != null:
+		for res_id in planned_refund:
+			var amt: int = planned_refund[res_id]
+			var added: int = resource_mgr.add_resource(res_id, amt)
+			refunded[res_id] = added
+
+		# Deduct storage capacity if this building granted storage
+		var storage_bonus: Dictionary = bp.get("storage_bonus", {})
+		if not storage_bonus.is_empty() and resource_mgr.has_method("remove_storage_capacity"):
+			for res_id in storage_bonus:
+				resource_mgr.remove_storage_capacity(res_id, int(storage_bonus[res_id]))
+			b_data["storage_applied"] = false
+
+	# 2. Clear occupancy
+	if world_data:
+		for ox in range(size.x):
+			for oy in range(size.y):
+				var cell := origin + Vector2i(ox, oy)
+				if IsoMath.is_in_bounds(cell):
+					world_data.occupancy[cell.x][cell.y] = false
+
+	# 3. Remove jobs
+	if job_mgr and job_mgr.has_method("remove_jobs_for_building") and b_id != "":
+		job_mgr.remove_jobs_for_building(b_id)
+
+	# 4. Erase building record
+	if world_data:
+		world_data.buildings.erase(b_data)
+
+	return {"success": true, "refunded": refunded, "building": b_data}
+
+static func is_building_active_by_id(b_id: String, world_data: WorldGenerator.WorldData) -> bool:
+	var b := get_building_by_id(b_id, world_data)
+	return not b.is_empty() and b.get("state", "active") == "active"
+
+static func is_building_paused_by_id(b_id: String, world_data: WorldGenerator.WorldData) -> bool:
+	var b := get_building_by_id(b_id, world_data)
+	return not b.is_empty() and b.get("state", "active") == "paused"
 
 static func get_total_housing_capacity(world_data: WorldGenerator.WorldData) -> int:
 	if world_data == null:

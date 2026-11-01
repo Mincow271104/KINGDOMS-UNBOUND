@@ -537,4 +537,41 @@
 - [x] **TASK-2E.7:** Comprehensive Automated Test Suite & Live Visual Validation:
   - Created `scripts/test/test_autonomous_faction_conflict.gd` covering 14 test groups across 99 automated assertions (100% pass rate, Exit Code 0).
   - Created `scripts/test/visual_package_2e_validation.gd` capturing 3 high-fidelity 1280x720 PNG screenshots (`p2e_01` through `p2e_03`).
-  - Full project regression test suite passed: 100% green across all 7 test suites (1,916 assertions passed, 0 failures).
+  - Full project regression test suite passed: 100% green across all 9 regression suites (2,304 checks/assertions passed, 0 failures, Godot 4.7 headless execution).
+
+---
+
+## [Phase 2 — Package 2F] In-Game Building Inspection, Workplace Management & Demolition System (Completed)
+
+- [x] **TASK-2F.1:** Authoritative Left-Click Building Footprint Selection & Priority:
+  - Implemented 5-tier authoritative left-click selection hierarchy in `WorldView._handle_left_click(cell)`: 1) Tactical military units, 2) Exact citizen on clicked cell, 3) Building occupying clicked cell via full footprint resolution, 4) Fuzzy 1-cell adjacent citizen fallback, 5) Empty ground (clears selection).
+  - Accurate footprint coverage for all canonical sizes: 1x1 (Watchtower, Palisade), 2x2 (House, Farm, Woodcutter, Mine, Quarry, Barracks, Workshop), and 3x3 (Town Hall, Storehouse, Market, Research Hall).
+  - Camera centering via `WorldView.focus_camera_on_building(b_id)` supporting smooth navigation to inspected structures.
+- [x] **TASK-2F.2:** 2:1 Dimetric Diamond Selection Ground Highlight:
+  - Created `BuildingSelectionHighlight` (`scripts/world/building_selection_highlight.gd`) extending `Node2D` rendering exact 2:1 dimetric isometric diamond ground polygon at Y-sort background layer.
+  - Mathematical vertex calculation: `compute_diamond_vertices(origin, size)` generating Top `(ox - oy) * 16, (ox + oy) * 8 - 8`, Right `(ox + sx - oy) * 16, (ox + sx + oy) * 8`, Bottom `(ox + sx - (oy + sy)) * 16, (ox + sx + oy + sy) * 8 + 8`, Left `(ox - (oy + sy)) * 16, (ox + oy + sy) * 8`.
+  - Translucent gold fill (`Color(1.0, 0.85, 0.2, 0.25)`), crisp 2px border polyline (`Color(1.0, 0.9, 0.3, 0.85)`), and 4 corner vertex dots.
+- [x] **TASK-2F.3:** In-Game HUD BuildingInspectPanel & Live State Reflection:
+  - Created responsive `BuildingInspectPanel` in `scenes/ui/hud.tscn` with title, coordinate & size readout, status badges (`Hoạt động`, `Tạm dừng`, `Đang xây dựng`, `Hư hại`), health bar, and operational action buttons.
+  - Workplace Inspection Section: Output resource name, live buffer amount and capacity progress bar, saturation badges (`Bình thường` <80%, `Cảnh báo` >=80%, `Tắc nghẽn` 100%), and dual-channel workshop display (`_smelt` and `_craft` channels).
+  - Assigned Workers Roster: Displays worker name, role, status reason, and Package 2B vocational skill data (Vocation display name, Level 1–5, Title, XP progress, and % efficiency bonus). Direct click on worker jumps straight to citizen inspector.
+  - Civic Buildings Section: Spec-compliant gameplay descriptions and functional stat breakdowns for all 7 civic building types (`town_hall`, `house`, `storehouse`, `barracks`, `watchtower`, `market`, `research_hall`).
+- [x] **TASK-2F.4:** Construction Site Inspection & Safe Cancellation Flow:
+  - Live construction inspection showing builder slots, current hours / total required hours, and live progress bar.
+  - Preflight validation `BuildingSystem.can_cancel_construction(b_data, world_data, resource_mgr)`: All-or-nothing 50% refund calculation, fail-closed storage capacity check preventing resource voiding.
+  - Confirmation modal `CancelBuildConfirmOverlay` displaying exact refund breakdown. Safe worker release to `IDLE`, occupancy cleanup, and building record deletion.
+- [x] **TASK-2F.5:** Safe Building Demolition Flow & Storage Capacity Conservation:
+  - Preflight validation `BuildingSystem.can_demolish_building(b_data, world_data, resource_mgr)`: Calculates 50% blueprint material refund, verifies storage capacity post-demolition (`cur_cap - storage_bonus - cur_stock >= refund`), and evaluates Town Hall status.
+  - Implemented `ResourceManager.remove_storage_capacity(res_id, bonus)` safely clamped to `maxi(0, cur_cap - bonus)`, preventing inventory destruction.
+  - Town Hall emergency collapse protection: Prominently warns player with emergency banner and modal warning; demolition triggers existing 72-hour kingdom collapse countdown.
+  - Demolition execution: Atomically awards refunds, removes storage capacity, releases workers to `IDLE`, unregisters workplaces and dropoffs, removes jobs, and frees visual nodes.
+- [x] **TASK-2F.6:** Operational Workplace Pause / Resume Lifecycle:
+  - Added `is_paused: bool` to `WorkplaceData` and multi-channel synchronization via `WorkplaceManager.set_workplace_paused(wp_id, paused)`.
+  - Production suspension: `produce_to_buffer()` immediately aborts if workplace is paused (0 production, 0 input consumption, existing buffer preserved).
+  - Dynamic job executability in `JobManager`: Integrated `building_checker` and `wp_mgr.is_workplace_paused()`. Non-hauler jobs are non-executable during pause, releasing workers to `IDLE` with status `"Công trình tạm dừng hoạt động"`. Hauler jobs remain executable to clear accumulated buffers.
+  - Visual feedback: Sprite modulate dims to `Color(0.7, 0.7, 0.7, 0.85)` during pause.
+  - Persistence: Paused state and visual modulate survive save/load roundtrips idempotently.
+- [x] **TASK-2F.7:** Comprehensive Automated Test Suite & Live Visual Validation:
+  - Created `scripts/test/test_building_management.gd` with 30 comprehensive test cases (TC-BM.1 through TC-BM.30), all passing with 100% pass rate (Exit Code 0).
+  - Created `scripts/test/visual_package_2f_validation.gd` capturing 4 high-fidelity PNG screenshots in `docs/visual_validation/` at 1280x720 and 1024x576 (`p2f_01` through `p2f_04`).
+  - Full project regression test matrix verified across all 10 suites: 100% green, 0 failures.

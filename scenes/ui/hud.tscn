@@ -417,6 +417,322 @@ custom_minimum_size = Vector2(0, 26)
 layout_mode = 2
 text = "Đóng"
 
+[node name="BuildingInspectPanel" type="PanelContainer" parent="."]
+visible = false
+anchors_preset = 2
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 16.0
+offset_top = -480.0
+offset_right = 416.0
+offset_bottom = -56.0
+grow_vertical = 0
+
+[node name="MarginContainer" type="MarginContainer" parent="BuildingInspectPanel"]
+layout_mode = 2
+theme_override_constants/margin_left = 14
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 14
+theme_override_constants/margin_bottom = 10
+
+[node name="VBoxContainer" type="VBoxContainer" parent="BuildingInspectPanel/MarginContainer"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="HeaderHBox" type="HBoxContainer" parent="BuildingInspectPanel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+
+[node name="TitlesVBox" type="VBoxContainer" parent="BuildingInspectPanel/MarginContainer/VBoxContainer/HeaderHBox"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="BuildingTitleLabel" type="Label" parent="BuildingInspectPanel/MarginContainer/VBoxContainer/HeaderHBox/TitlesVBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.9, 0.72, 0.23, 1)
+theme_override_font_sizes/font_size = 15
+text = "Tên Công Trình"
+
+[node name="BuildingCoordsLabel" type="Label" parent="BuildingInspectPanel/MarginContainer/VBoxContainer/HeaderHBox/TitlesVBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.7, 0.7, 0.7, 1)
+theme_override_font_sizes/font_size = 11
+text = "Tọa độ: (0, 0) | Cỡ: 1x1"
+
+[node name="CloseBuildingBtn" type="Button" parent="BuildingInspectPanel/MarginContainer/VBoxContainer/HeaderHBox"]
+custom_minimum_size = Vector2(26, 26)
+layout_mode = 2
+text = "✕"
+
+[node name="StateHBox" type="HBoxContainer" parent="BuildingInspectPanel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+
+[node name="BuildingStateLabel" type="Label" parent="BuildingInspectPanel/MarginContainer/VBoxContainer/StateHBox"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.3, 0.85, 0.3, 1)
+theme_override_font_sizes/font_size = 12
+text = "[ĐANG HOẠT ĐỘNG]"
+
+[node name="BuildingHealthLabel" type="Label" parent="BuildingInspectPanel/MarginContainer/VBoxContainer/StateHBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.8, 0.8, 0.8, 1)
+theme_override_font_sizes/font_size = 11
+text = "100 / 100 HP"
+
+[node name="BuildingHealthBar" type="ProgressBar" parent="BuildingInspectPanel/MarginContainer/VBoxContainer"]
+custom_minimum_size = Vector2(0, 8)
+layout_mode = 2
+max_value = 100.0
+value = 100.0
+show_percentage = false
+
+[node name="HSeparator1" type="HSeparator" parent="BuildingInspectPanel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+
+[node name="ScrollContainer" type="ScrollContainer" parent="BuildingInspectPanel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="ContentVBox" type="VBoxContainer" parent="BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 6
+
+[node name="ConstructionSection" type="VBoxContainer" parent="BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox"]
+visible = false
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="ConstructionProgressLabel" type="Label" parent="BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/ConstructionSection"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 12
+text = "Tiến độ: 0.0 / 12.0 giờ (0%)"
+
+[node name="ConstructionProgressBar" type="ProgressBar" parent="BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/ConstructionSection"]
+custom_minimum_size = Vector2(0, 14)
+layout_mode = 2
+show_percentage = false
+
+[node name="ConstructionBuildersLabel" type="Label" parent="BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/ConstructionSection"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 11
+text = "Thợ xây đang thi công: 0 / 2"
+
+[node name="CancelBuildBtn" type="Button" parent="BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/ConstructionSection"]
+custom_minimum_size = Vector2(0, 26)
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.6, 0.6, 1)
+text = "Hủy Thi Công (Hoàn 50%)"
+
+[node name="WorkplaceSection" type="VBoxContainer" parent="BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="BufferAmountLabel" type="Label" parent="BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/WorkplaceSection"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 12
+text = "Kho đệm: 0 / 40"
+
+[node name="BufferProgressBar" type="ProgressBar" parent="BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/WorkplaceSection"]
+custom_minimum_size = Vector2(0, 12)
+layout_mode = 2
+show_percentage = false
+
+[node name="BufferSaturationLabel" type="Label" parent="BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/WorkplaceSection"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 11
+text = "Trạng thái: Hoạt động bình thường"
+
+[node name="WorkshopChannelsContainer" type="VBoxContainer" parent="BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/WorkplaceSection"]
+visible = false
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="WorkersTitleLabel" type="Label" parent="BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/WorkplaceSection"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.85, 0.85, 0.85, 1)
+theme_override_font_sizes/font_size = 12
+text = "Lực Lượng Lao Động:"
+
+[node name="WorkersContainer" type="VBoxContainer" parent="BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/WorkplaceSection"]
+layout_mode = 2
+theme_override_constants/separation = 3
+
+[node name="CivicSection" type="VBoxContainer" parent="BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox"]
+visible = false
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="CivicDescLabel" type="Label" parent="BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/CivicSection"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 12
+text = "Mô tả công trình..."
+autowrap_mode = 2
+
+[node name="CivicStatsLabel" type="Label" parent="BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/CivicSection"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 11
+text = "Thông số..."
+autowrap_mode = 2
+
+[node name="HSeparator2" type="HSeparator" parent="BuildingInspectPanel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+
+[node name="ActionsHBox" type="HBoxContainer" parent="BuildingInspectPanel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="PauseResumeBtn" type="Button" parent="BuildingInspectPanel/MarginContainer/VBoxContainer/ActionsHBox"]
+custom_minimum_size = Vector2(0, 28)
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Tạm Dừng"
+
+[node name="DemolishBtn" type="Button" parent="BuildingInspectPanel/MarginContainer/VBoxContainer/ActionsHBox"]
+custom_minimum_size = Vector2(0, 28)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(1, 0.5, 0.5, 1)
+text = "Dỡ Bỏ"
+
+[node name="FocusCamBtn" type="Button" parent="BuildingInspectPanel/MarginContainer/VBoxContainer/ActionsHBox"]
+custom_minimum_size = Vector2(28, 28)
+layout_mode = 2
+text = "🎯"
+
+[node name="DemolishConfirmOverlay" type="ColorRect" parent="."]
+visible = false
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.05, 0.05, 0.08, 0.75)
+
+[node name="CenterContainer" type="CenterContainer" parent="DemolishConfirmOverlay"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="PanelContainer" type="PanelContainer" parent="DemolishConfirmOverlay/CenterContainer"]
+custom_minimum_size = Vector2(380, 200)
+layout_mode = 2
+
+[node name="MarginContainer" type="MarginContainer" parent="DemolishConfirmOverlay/CenterContainer/PanelContainer"]
+layout_mode = 2
+theme_override_constants/margin_left = 20
+theme_override_constants/margin_top = 16
+theme_override_constants/margin_right = 20
+theme_override_constants/margin_bottom = 16
+
+[node name="VBoxContainer" type="VBoxContainer" parent="DemolishConfirmOverlay/CenterContainer/PanelContainer/MarginContainer"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Title" type="Label" parent="DemolishConfirmOverlay/CenterContainer/PanelContainer/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.9, 0.25, 0.25, 1)
+theme_override_font_sizes/font_size = 15
+text = "XÁC NHẬN DỠ BỎ CÔNG TRÌNH"
+horizontal_alignment = 1
+
+[node name="DemolishMsgLabel" type="Label" parent="DemolishConfirmOverlay/CenterContainer/PanelContainer/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 12
+text = "Bạn có chắc chắn muốn dỡ bỏ công trình này? Hoàn trả 50% nguyên vật liệu xây dựng vào kho chứa."
+autowrap_mode = 2
+
+[node name="TownhallEmergencyWarning" type="Label" parent="DemolishConfirmOverlay/CenterContainer/PanelContainer/MarginContainer/VBoxContainer"]
+visible = false
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.2, 0.2, 1)
+theme_override_font_sizes/font_size = 12
+text = "⚠️ CẢNH BÁO TỐI CAO: Dỡ bỏ Tòa Thị Chính sẽ kích hoạt đếm ngược 72 giờ sụp đổ vương quốc trước khi tan rã!"
+autowrap_mode = 2
+
+[node name="ButtonsHBox" type="HBoxContainer" parent="DemolishConfirmOverlay/CenterContainer/PanelContainer/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="ConfirmDemolishBtn" type="Button" parent="DemolishConfirmOverlay/CenterContainer/PanelContainer/MarginContainer/VBoxContainer/ButtonsHBox"]
+custom_minimum_size = Vector2(0, 32)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(1, 0.4, 0.4, 1)
+text = "Xác Nhận Dỡ Bỏ"
+
+[node name="CancelDemolishBtn" type="Button" parent="DemolishConfirmOverlay/CenterContainer/PanelContainer/MarginContainer/VBoxContainer/ButtonsHBox"]
+custom_minimum_size = Vector2(0, 32)
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Hủy Bỏ"
+
+[node name="CancelBuildConfirmOverlay" type="ColorRect" parent="."]
+visible = false
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.05, 0.05, 0.08, 0.75)
+
+[node name="CenterContainer" type="CenterContainer" parent="CancelBuildConfirmOverlay"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="PanelContainer" type="PanelContainer" parent="CancelBuildConfirmOverlay/CenterContainer"]
+custom_minimum_size = Vector2(360, 180)
+layout_mode = 2
+
+[node name="MarginContainer" type="MarginContainer" parent="CancelBuildConfirmOverlay/CenterContainer/PanelContainer"]
+layout_mode = 2
+theme_override_constants/margin_left = 20
+theme_override_constants/margin_top = 16
+theme_override_constants/margin_right = 20
+theme_override_constants/margin_bottom = 16
+
+[node name="VBoxContainer" type="VBoxContainer" parent="CancelBuildConfirmOverlay/CenterContainer/PanelContainer/MarginContainer"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Title" type="Label" parent="CancelBuildConfirmOverlay/CenterContainer/PanelContainer/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.95, 0.8, 0.3, 1)
+theme_override_font_sizes/font_size = 15
+text = "XÁC NHẬN HỦY THI CÔNG"
+horizontal_alignment = 1
+
+[node name="CancelBuildMsgLabel" type="Label" parent="CancelBuildConfirmOverlay/CenterContainer/PanelContainer/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 12
+text = "Hủy thi công công trình sẽ giải phóng thợ xây và hoàn trả 50% chi phí vào kho chứa."
+autowrap_mode = 2
+
+[node name="ButtonsHBox" type="HBoxContainer" parent="CancelBuildConfirmOverlay/CenterContainer/PanelContainer/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="ConfirmCancelBuildBtn" type="Button" parent="CancelBuildConfirmOverlay/CenterContainer/PanelContainer/MarginContainer/VBoxContainer/ButtonsHBox"]
+custom_minimum_size = Vector2(0, 32)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(1, 0.6, 0.4, 1)
+text = "Xác Nhận Hủy"
+
+[node name="AbortCancelBuildBtn" type="Button" parent="CancelBuildConfirmOverlay/CenterContainer/PanelContainer/MarginContainer/VBoxContainer/ButtonsHBox"]
+custom_minimum_size = Vector2(0, 32)
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Quay Lại"
+
 [node name="PauseMenuOverlay" type="ColorRect" parent="."]
 visible = false
 anchors_preset = 15

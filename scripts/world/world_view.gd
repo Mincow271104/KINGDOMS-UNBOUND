@@ -67,6 +67,11 @@ var _is_drag_box_active: bool = false
 var _drag_start_screen: Vector2 = Vector2.ZERO
 var _drag_current_screen: Vector2 = Vector2.ZERO
 
+# Building Inspection & Selection State (Package 2F)
+const BuildingSelectionHighlightScript = preload("res://scripts/world/building_selection_highlight.gd")
+var selected_building_id: String = ""
+var building_highlight: Node2D = null
+
 var buildings_by_cell: Dictionary = {} # cell (Vector2i) -> building_type (String)
 var citizens_by_id: Dictionary = {}
 var deceased_citizen_ids: Dictionary = {}
@@ -224,8 +229,15 @@ func _generate_and_build_world() -> void:
 	)
 	_setup_selection_box_overlay()
 
+	# Building Selection Footprint Highlight (Package 2F)
+	building_highlight = BuildingSelectionHighlightScript.new()
+	building_highlight.name = "BuildingSelectionHighlight"
+	building_highlight.z_index = 5
+	$World.add_child(building_highlight)
+
 	job_mgr.set_barracks_checker(func(b_id: String = ""): return BuildingSystem.is_barracks_active(world_data, b_id))
 	job_mgr.set_construction_checker(func(b_id: String = ""): return BuildingSystem.is_building_under_construction(world_data, b_id))
+	job_mgr.set_building_checker(Callable(self, "_is_building_active_for_jobs"))
 	if hud:
 		hud.set_research_manager(research_mgr)
 		hud.set_faction_manager(faction_mgr, self)
@@ -290,6 +302,23 @@ func _render_terrain() -> void:
 
 func _spawn_starter_buildings() -> void:
 	for bld in world_data.buildings:
+		if not bld.has("id") or bld["id"] == "":
+			var b_type: String = bld.get("type", "")
+			var b_cell: Vector2i = bld.get("cell", Vector2i.ZERO)
+			if b_type == "farm" and b_cell == Vector2i(36, 35):
+				bld["id"] = "farm_starter"
+			elif b_type == "woodcutter" and b_cell == Vector2i(26, 30):
+				bld["id"] = "woodcutter_starter"
+			elif b_type == "townhall":
+				bld["id"] = "townhall_starter"
+			elif b_type == "storehouse":
+				bld["id"] = "storehouse_starter"
+			else:
+				bld["id"] = "bld_%s_%d_%d" % [b_type, b_cell.x, b_cell.y]
+		if not bld.has("state"):
+			bld["state"] = "active"
+		if not bld.has("health"):
+			bld["health"] = 100
 		_instantiate_building_node(bld["type"], bld["cell"], bld["size"], bld.get("state", "active"))
 
 func _instantiate_building_node(type: String, origin: Vector2i, size: Vector2i, state: String = "active") -> Node2D:
@@ -312,6 +341,8 @@ func _instantiate_building_node(type: String, origin: Vector2i, size: Vector2i, 
 	spr.offset = _get_building_sprite_offset(type)
 	if state == "under_construction":
 		spr.modulate = Color(0.8, 0.7, 0.5, 0.7)
+	elif state == "paused":
+		spr.modulate = Color(0.7, 0.7, 0.7, 0.85)
 	else:
 		spr.modulate = Color(1.0, 1.0, 1.0, 1.0)
 			
@@ -911,6 +942,9 @@ func _unhandled_input(event: InputEvent) -> void:
 			elif tactical_military_mgr != null and tactical_military_mgr.call("get_selected_count") > 0:
 				tactical_military_mgr.call("clear_selection")
 				get_viewport().set_input_as_handled()
+			elif selected_building_id != "":
+				clear_building_selection()
+				get_viewport().set_input_as_handled()
 		elif k.keycode in [KEY_1, KEY_2, KEY_3]:
 			var grp: int = k.keycode - KEY_1 + 1
 			if k.ctrl_pressed:
@@ -974,7 +1008,7 @@ func _unhandled_input(event: InputEvent) -> void:
 						else:
 							if not mb.shift_pressed and tactical_military_mgr != null:
 								tactical_military_mgr.call("clear_selection")
-							_check_citizen_click(cell)
+							_handle_left_click(cell)
 			elif mb.button_index == MOUSE_BUTTON_RIGHT and mb.pressed:
 				if tactical_military_mgr != null and tactical_military_mgr.call("get_selected_count") > 0:
 					var obj_target = _find_siege_objective_at_cell(cell)
@@ -1021,6 +1055,81 @@ func _unhandled_input(event: InputEvent) -> void:
 						var res: Dictionary = tactical_military_mgr.call("issue_move_order", cell, nav)
 						if not res.get("success", false) and hud != null:
 							hud.show_event_banner("Lệnh Thất Bại", res.get("reason", "Vị trí không thể đi tới"), false, 3.0)
+
+func _handle_left_click(cell: Vector2i) -> void:
+	# Priority 2: Exact-cell citizen
+	for cit in citizen_list:
+		if is_instance_valid(cit) and cit.get("current_cell") == cell:
+			clear_building_selection()
+			if hud != null and hud.has_method("show_citizen_inspector"):
+				hud.show_citizen_inspector(cit)
+			return
+
+	# Priority 3: Building footprint at clicked cell (1x1, 2x2, 3x3)
+	var b_data := _get_building_at_cell(cell)
+	if not b_data.is_empty():
+		if hud != null and hud.has_method("close_citizen_inspector"):
+			hud.close_citizen_inspector()
+		select_building(b_data)
+		return
+
+	# Priority 4: Fuzzy adjacent citizen (within Manhattan distance 1, only if no building was clicked)
+	var best_cit: Node = null
+	var best_dist: int = 2 # distance <= 1
+	for cit in citizen_list:
+		if is_instance_valid(cit):
+			var c_cell: Vector2i = cit.get("current_cell")
+			var d: int = IsoMath.grid_distance(cell, c_cell)
+			if d < best_dist:
+				best_dist = d
+				best_cit = cit
+
+	if best_cit != null:
+		clear_building_selection()
+		if hud != null and hud.has_method("show_citizen_inspector"):
+			hud.show_citizen_inspector(best_cit)
+		return
+
+	# Priority 5: Empty ground - clear building selection and close inspectors
+	clear_building_selection()
+	if hud != null and hud.has_method("close_citizen_inspector"):
+		hud.close_citizen_inspector()
+
+func select_building(b_data: Dictionary) -> void:
+	if b_data.is_empty():
+		clear_building_selection()
+		return
+	selected_building_id = b_data.get("id", "")
+	var origin: Vector2i = b_data.get("cell", Vector2i(-1, -1))
+	var size: Vector2i = b_data.get("size", Vector2i(1, 1))
+	if building_highlight != null:
+		building_highlight.set_footprint(origin, size)
+	if hud != null and hud.has_method("show_building_inspector"):
+		hud.show_building_inspector(b_data)
+
+func clear_building_selection() -> void:
+	selected_building_id = ""
+	if building_highlight != null:
+		building_highlight.clear_highlight()
+	if hud != null and hud.has_method("close_building_inspector"):
+		hud.close_building_inspector()
+
+func focus_camera_on_building(b_id: String) -> void:
+	if world_data == null or b_id == "":
+		return
+	var b_data := BuildingSystem.get_building_by_id(b_id, world_data)
+	if b_data.is_empty():
+		return
+	var origin: Vector2i = b_data.get("cell", Vector2i(-1, -1))
+	if origin.x >= 0 and origin.y >= 0 and camera != null:
+		var size: Vector2i = b_data.get("size", Vector2i(1, 1))
+		var center_local := IsoMath.map_to_local(origin) + Vector2(float(size.x - 1) * 16.0, float(size.y - 1) * 8.0)
+		camera.position = center_local
+
+func _is_building_active_for_jobs(b_id: String) -> bool:
+	if world_data == null or b_id == "":
+		return false
+	return BuildingSystem.is_building_active_by_id(b_id, world_data)
 
 func _check_citizen_click(cell: Vector2i) -> void:
 	# Find closest citizen to the clicked cell
@@ -1386,6 +1495,10 @@ func cancel_construction_project(b_id: String) -> Dictionary:
 	if not res.get("success", false):
 		return res
 
+	# Clear selection if canceled building was currently selected
+	if selected_building_id == b_id:
+		clear_building_selection()
+
 	# Free visual node only if cancellation succeeded!
 	var origin: Vector2i = b_data.get("cell", Vector2i.ZERO)
 	var size: Vector2i = b_data.get("size", Vector2i(1, 1))
@@ -1416,7 +1529,7 @@ func cancel_construction_project(b_id: String) -> Dictionary:
 			hud.call("_refresh_army_panel")
 
 	# If market, refresh active trade caravan docking location
-	if b_data["type"] == "market":
+	if b_data.get("type", "") == "market":
 		refresh_caravan_marker()
 
 	return res
@@ -1431,6 +1544,39 @@ func set_building_state(b_id: String, new_state: String) -> bool:
 	if old_state == new_state:
 		return true
 	b_data["state"] = new_state
+
+	var origin: Vector2i = b_data.get("cell", Vector2i.ZERO)
+	var type: String = b_data.get("type", "")
+	var node_name := "Building_%s_%d_%d" % [type, origin.x, origin.y]
+	var b_node = buildings_container.get_node_or_null(node_name) if buildings_container != null else null
+	var spr: Sprite2D = null
+	if b_node != null:
+		spr = b_node.get_node_or_null("Sprite2D")
+		if spr == null:
+			for ch in b_node.get_children():
+				if ch is Sprite2D:
+					spr = ch
+					break
+
+	if new_state == "paused":
+		if workplace_mgr != null:
+			workplace_mgr.set_workplace_paused(b_id, true)
+		if spr != null:
+			spr.modulate = Color(0.7, 0.7, 0.7, 0.85)
+		# Release active workers targeting this building
+		for cit in citizen_list:
+			if cit.get("active_job") != null and JobManager.job_matches_building(cit.active_job, b_id):
+				if job_mgr != null:
+					job_mgr.release_job(cit.active_job)
+				cit.active_job = null
+				cit.set("current_state", CitizenController.State.IDLE)
+				cit.set("status_reason", "Công trình tạm dừng hoạt động")
+	elif new_state == "active":
+		if workplace_mgr != null:
+			workplace_mgr.set_workplace_paused(b_id, false)
+		if spr != null:
+			spr.modulate = Color(1.0, 1.0, 1.0, 1.0)
+
 	if b_data.get("type", "") == "barracks":
 		if hud != null and hud.has_method("_refresh_role_options"):
 			hud.call("_refresh_role_options")
@@ -1440,8 +1586,13 @@ func set_building_state(b_id: String, new_state: String) -> bool:
 			hud.call("_refresh_army_panel")
 
 	# If market, refresh active trade caravan docking location
-	if b_data["type"] == "market":
+	if b_data.get("type", "") == "market":
 		refresh_caravan_marker()
+
+	# If currently inspected, refresh HUD inspector
+	if hud != null and hud.has_method("refresh_building_inspector") and selected_building_id == b_id:
+		hud.refresh_building_inspector()
+
 	return true
 
 func demolish_building_project(b_id: String) -> Dictionary:
@@ -1450,7 +1601,16 @@ func demolish_building_project(b_id: String) -> Dictionary:
 	var b_data: Dictionary = BuildingSystem.get_building_by_id(b_id, world_data)
 	if b_data.is_empty():
 		return {"success": false, "reason": "Công trình không tồn tại"}
+
 	var rm := get_node_or_null("/root/ResourceManager")
+	var res := BuildingSystem.demolish_building(b_data, world_data, rm, job_mgr)
+	if not res.get("success", false):
+		return res
+
+	# Clear building selection if demolished building was currently selected
+	if selected_building_id == b_id:
+		clear_building_selection()
+
 	var origin: Vector2i = b_data.get("cell", Vector2i.ZERO)
 	var size: Vector2i = b_data.get("size", Vector2i(1, 1))
 	var type: String = b_data.get("type", "")
@@ -1461,7 +1621,25 @@ func demolish_building_project(b_id: String) -> Dictionary:
 	for ox in range(size.x):
 		for oy in range(size.y):
 			buildings_by_cell.erase(origin + Vector2i(ox, oy))
-	var res := BuildingSystem.demolish_building(b_data, world_data, rm)
+
+	# Release any citizens assigned to this building to IDLE
+	for cit in citizen_list:
+		if cit.get("active_job") != null and JobManager.job_matches_building(cit.active_job, b_id):
+			cit.active_job = null
+			cit.set("current_state", CitizenController.State.IDLE)
+			cit.set("status_reason", "Công trình đã bị dỡ bỏ")
+			if cit.has_method("_update_reason"):
+				cit.call("_update_reason")
+		if cit.get("workplace_id") == b_id:
+			cit.set("workplace_id", "")
+
+	# Unregister workplace and channels if dynamic workplace
+	if workplace_mgr != null:
+		if workplace_mgr.has_method("unregister_workplace"):
+			workplace_mgr.unregister_workplace(b_id)
+		if workplace_mgr.has_method("unregister_dropoff"):
+			workplace_mgr.unregister_dropoff(b_id)
+
 	if type == "barracks":
 		if hud != null and hud.has_method("_refresh_role_options"):
 			hud.call("_refresh_role_options")
@@ -1471,8 +1649,13 @@ func demolish_building_project(b_id: String) -> Dictionary:
 			hud.call("_refresh_army_panel")
 
 	# If market, refresh active trade caravan docking location
-	if b_data["type"] == "market":
+	if type == "market":
 		refresh_caravan_marker()
+
+	# If watchtower, refresh vision
+	if type == "watchtower":
+		refresh_world_vision()
+
 	return res
 
 func _get_building_at_cell(cell: Vector2i) -> Dictionary:
@@ -1661,6 +1844,18 @@ func sync_workplaces_after_load(saved_workplaces_data: Dictionary = {}) -> void:
 		elif b_type == "barracks":
 			if b_state == "active":
 				register_barracks_jobs(b)
+
+		# Sync paused state to workplace manager and visual node
+		if b_state == "paused":
+			if workplace_mgr != null:
+				workplace_mgr.set_workplace_paused(b.get("id", ""), true)
+			var node_name := "Building_%s_%d_%d" % [b_type, b.get("cell", Vector2i.ZERO).x, b.get("cell", Vector2i.ZERO).y]
+			var b_node = buildings_container.get_node_or_null(node_name) if buildings_container != null else null
+			if b_node != null:
+				for ch in b_node.get_children():
+					if ch is Sprite2D:
+						ch.modulate = Color(0.7, 0.7, 0.7, 0.85)
+						break
 
 	# 3. Restore buffer amounts
 	if saved_workplaces_data is Dictionary and not saved_workplaces_data.is_empty():

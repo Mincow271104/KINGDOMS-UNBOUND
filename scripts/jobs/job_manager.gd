@@ -86,12 +86,13 @@ func create_hauling_job(workplace_id: String, source: Vector2i, dest: Vector2i, 
 
 var barracks_checker: Callable = Callable()
 var construction_checker: Callable = Callable()
+var building_checker: Callable = Callable()
 
 func set_barracks_checker(checker: Callable) -> void:
 	barracks_checker = checker
 
 func set_building_checker(checker: Callable) -> void:
-	barracks_checker = checker
+	building_checker = checker
 
 func set_construction_checker(checker: Callable) -> void:
 	construction_checker = checker
@@ -119,6 +120,12 @@ func _is_job_executable(job: JobData, wp_mgr: Object, resource_mgr: Node, custom
 				# Cannot verify a specific building ID
 				return false
 			if not bool(barracks_checker.call(b_id)):
+				return false
+		elif building_checker.is_valid():
+			var argc := building_checker.get_argument_count()
+			if argc == 0:
+				return false
+			if not bool(building_checker.call(b_id)):
 				return false
 		# Requirement 4: If neither callback is available, return false.
 		else:
@@ -152,6 +159,24 @@ func _is_job_executable(job: JobData, wp_mgr: Object, resource_mgr: Node, custom
 		if nav != null and not nav.is_cell_walkable(job.target_cell):
 			return false
 		return true
+
+	# General workplace and production jobs (non-hauler)
+	if job.type != "hauler":
+		# Check building active status via building_checker if registered
+		if job.target_building_id != "" and building_checker.is_valid():
+			var argc := building_checker.get_argument_count()
+			if argc > 0:
+				if not bool(building_checker.call(job.target_building_id)):
+					return false
+			else:
+				if not bool(building_checker.call()):
+					return false
+
+		# Check paused state in workplace manager
+		if wp_mgr != null and wp_mgr.has_method("is_workplace_paused"):
+			var check_wp_id := job.workplace_channel_id if job.workplace_channel_id != "" else job.target_building_id
+			if check_wp_id != "" and wp_mgr.is_workplace_paused(check_wp_id):
+				return false
 
 	if job.type != "smith" or job.recipe_id == "":
 		return true

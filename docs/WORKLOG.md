@@ -8226,5 +8226,99 @@ Enforce all authoritative design rules:
 ### Next Exact Step
 - Commit Round 3 candidate fixes and push to `feature/package-2e-autonomous-faction-conflict` on `origin`. Await final independent code review by ChatGPT.
 
+---
 
+## 2026-11-01 — Package 2F: In-Game Building Inspection, Workplace Management & Demolition System (Completed)
+
+### Context & Baseline
+- **Branch:** `feature/package-2f-building-inspection-and-management`
+- **Base Commit:** `b5377e02b442c5004a1884a022fbeafbfaab94aa`
+- **Authoritative Basis:** `docs/GDD.md` §7.2, §7.3, §10.5, §14.4; `docs/GAME_RULES.md`; `docs/SCOPE_DECISIONS.md`.
+- **Primary Goal:** Connect the physical building objects in the isometric game world to the player's management interface, allowing players to click buildings, inspect live state, manage workforce, pause/resume operations, and safely demolish structures with conservation guarantees.
+
+### Summary of Completed Work
+1. **Authoritative Left-Click Building Footprint Selection & Priority:**
+   - Implemented 5-tier authoritative left-click selection hierarchy in `WorldView._handle_left_click(cell)`:
+     1. Tactical Military Units (prioritizes unit command)
+     2. Exact Citizen on clicked cell
+     3. Building occupying clicked cell via full footprint resolution (`WorldView._get_building_at_cell(cell)`)
+     4. Fuzzy 1-cell adjacent citizen fallback
+     5. Empty ground (clears active selection)
+   - Verified seamless footprint resolution for 1x1 (Watchtower, Palisade), 2x2 (House, Farm, Woodcutter, Mine, Quarry, Barracks, Workshop), and 3x3 (Town Hall, Storehouse, Market, Research Hall).
+   - Added camera centering via `WorldView.focus_camera_on_building(b_id)`.
+2. **2:1 Dimetric Diamond Selection Ground Highlight:**
+   - Created `BuildingSelectionHighlight` (`scripts/world/building_selection_highlight.gd`) extending `Node2D`.
+   - Implemented exact 2:1 dimetric diamond vertex mathematics `compute_diamond_vertices(origin, size)`:
+     - Top vertex: `((origin.x - origin.y) * 16, (origin.x + origin.y) * 8 - 8)`
+     - Right vertex: `((origin.x + size.x - origin.y) * 16, (origin.x + size.x + origin.y) * 8)`
+     - Bottom vertex: `((origin.x + size.x - (origin.y + size.y)) * 16, (origin.x + size.x + origin.y + size.y) * 8 + 8)`
+     - Left vertex: `((origin.x - (origin.y + size.y)) * 16, (origin.x + origin.y + size.y) * 8)`
+   - Rendered translucent gold polygon fill (`Color(1.0, 0.85, 0.2, 0.25)`), crisp 2px border polyline (`Color(1.0, 0.9, 0.3, 0.85)`), and 4 corner vertex dots.
+3. **In-Game HUD BuildingInspectPanel & Live State Reflection:**
+   - Designed responsive `BuildingInspectPanel` in `scenes/ui/hud.tscn` with title, coordinate & size readout, status badges (`Hoạt động`, `Tạm dừng`, `Đang xây dựng`, `Hư hại`), health bar, and operational action buttons.
+   - Throttled panel live updates in `HUD._process()` to 0.1s intervals.
+   - Workplace Section: Output resource name, live buffer amount and capacity progress bar, saturation badges (`Bình thường` <80%, `Cảnh báo` >=80%, `Tắc nghẽn` 100%), and dual-channel workshop display (`_smelt` and `_craft` channels).
+   - Assigned Workers Roster: Displays worker name, role, status reason, and Package 2B vocational skill data (Vocation display name, Level 1–5, Title, XP progress, and % efficiency bonus). Direct click on worker jumps straight to citizen inspector.
+   - Civic Buildings Section: Spec-compliant gameplay descriptions and functional stat breakdowns for all 7 civic building types (`town_hall`, `house`, `storehouse`, `barracks`, `watchtower`, `market`, `research_hall`).
+4. **Construction Site Inspection & Safe Cancellation Flow:**
+   - Live construction inspection showing builder slots, current hours / total required hours, and live progress bar.
+   - Preflight validation `BuildingSystem.can_cancel_construction(b_data, world_data, resource_mgr)`: All-or-nothing 50% refund calculation, fail-closed storage capacity check preventing resource voiding.
+   - Confirmation modal `CancelBuildConfirmOverlay` displaying exact refund breakdown. Safe worker release to `IDLE`, occupancy cleanup, and building record deletion.
+5. **Safe Building Demolition Flow & Storage Capacity Conservation:**
+   - Preflight validation `BuildingSystem.can_demolish_building(b_data, world_data, resource_mgr)`: Calculates 50% blueprint material refund, verifies storage capacity post-demolition (`cur_cap - storage_bonus - cur_stock >= refund`), and evaluates Town Hall status.
+   - Implemented `ResourceManager.remove_storage_capacity(res_id, bonus)` safely clamped to `maxi(0, cur_cap - bonus)`, preventing inventory destruction.
+   - Town Hall emergency collapse protection: Prominently warns player with emergency banner and modal warning; demolition triggers existing 72-hour kingdom collapse countdown.
+   - Demolition execution: Atomically awards refunds, removes storage capacity, releases workers to `IDLE`, unregisters workplaces and dropoffs, removes jobs, and frees visual nodes.
+6. **Operational Workplace Pause / Resume Lifecycle:**
+   - Added `is_paused: bool` to `WorkplaceData` and multi-channel synchronization via `WorkplaceManager.set_workplace_paused(wp_id, paused)`.
+   - Production suspension: `produce_to_buffer()` immediately aborts if workplace is paused (0 production, 0 input consumption, existing buffer preserved).
+   - Dynamic job executability in `JobManager`: Integrated `building_checker` and `wp_mgr.is_workplace_paused()`. Non-hauler jobs are non-executable during pause, releasing workers to `IDLE` with status `"Công trình tạm dừng hoạt động"`. Hauler jobs remain executable to clear accumulated buffers.
+   - Visual feedback: Sprite modulate dims to `Color(0.7, 0.7, 0.7, 0.85)` during pause.
+   - Persistence: Paused state and visual modulate survive save/load roundtrips idempotently.
+7. **Technical Debt Cleanups:**
+   - Standardized `scripts/combat/battle_resolver.gd`: Replaced 6 string literals with authoritative declared constants `VICTOR_ATTACKER`, `VICTOR_DEFENDER`, `VICTOR_STALEMATE`.
+   - Synchronized `docs/BACKLOG.md` Package 2E test statistics (9 suites, 2,304 checks/assertions, 0 failures).
+8. **Comprehensive Automated Test Suite (`test_building_management.gd`):**
+   - Implemented 30 test cases covering TC-BM.1 through TC-BM.30 (100% pass rate, Exit Code 0).
+9. **Live Visual Validation (`visual_package_2f_validation.gd`):**
+   - Captured 4 high-fidelity PNG screenshots in `docs/visual_validation/` at 1280x720 and 1024x576 (`p2f_01` through `p2f_04`).
+10. **Full Regression Test Matrix (10 Suites):**
+    - `test_workshop.gd`: PASSED (Exit Code 0)
+    - `test_building_management.gd`: 30/30 PASSED (Exit Code 0)
+    - `test_research_hall.gd`: 7/7 PASSED (Exit Code 0)
+    - `test_barracks.gd`: 7/7 PASSED (Exit Code 0)
+    - `test_market.gd`: 15/15 PASSED (Exit Code 0)
+    - `test_watchtower.gd`: 8/8 PASSED (Exit Code 0)
+    - `test_citizen_skills.gd`: 27/27 PASSED (Exit Code 0)
+    - `test_tactical_military.gd`: 419/419 PASSED (Exit Code 0)
+    - `test_field_siege.gd`: 98/98 PASSED (Exit Code 0)
+    - `test_autonomous_faction_conflict.gd`: 205/205 PASSED (Exit Code 0)
+    - Total across all suites: 10/10 suites PASSED with 0 failures.
+
+### Files Modified & Created
+- `scripts/combat/battle_resolver.gd` (Modified)
+- `scripts/economy/building_system.gd` (Modified)
+- `scripts/economy/resource_manager.gd` (Modified)
+- `scripts/economy/workplace_manager.gd` (Modified)
+- `scripts/jobs/job_manager.gd` (Modified)
+- `scripts/world/world_view.gd` (Modified)
+- `scenes/ui/hud.tscn` (Modified)
+- `scripts/ui/hud.gd` (Modified)
+- `scripts/world/building_selection_highlight.gd` (New)
+- `scripts/test/test_building_management.gd` (New)
+- `scripts/test/visual_package_2f_validation.gd` (New)
+- `docs/visual_validation/p2f_01_workplace_inspect_buffer_1280x720.png` (New)
+- `docs/visual_validation/p2f_02_demolish_confirm_overlay_1280x720.png` (New)
+- `docs/visual_validation/p2f_03_townhall_demolish_emergency_warning_1280x720.png` (New)
+- `docs/visual_validation/p2f_04_workplace_inspect_responsive_1024x576.png` (New)
+- `docs/BACKLOG.md` (Modified)
+- `docs/WORKLOG.md` (Modified)
+
+### Protected Assets & User Files
+- `project.godot`: Pre-existing user-owned modification (`-window/size/resizable=true`) strictly preserved and untouched.
+- Untracked files: All 92 historical untracked files + diagnostic runners preserved byte-for-byte.
+- User saves: Real user profile and saves completely untouched.
+
+### Next Exact Step
+- Stage allowed Package 2F files, commit with conventional commit message, and push branch `feature/package-2f-building-inspection-and-management` to remote repository `origin`. Await independent code review by ChatGPT.
 

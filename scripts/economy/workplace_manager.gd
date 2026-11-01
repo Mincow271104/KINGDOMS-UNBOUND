@@ -21,6 +21,7 @@ class WorkplaceData:
 	var recipe_id: String = ""
 	var required_inputs: Dictionary = {}
 	var output_amount: int = 1
+	var is_paused: bool = false
 
 class DropoffData:
 	var id: String
@@ -122,6 +123,23 @@ func unregister_workplace(id: String) -> void:
 	for wid in to_erase:
 		_workplaces.erase(wid)
 
+func unregister_dropoff(id: String) -> void:
+	_dropoffs.erase(id)
+
+func set_workplace_paused(workplace_id: String, paused: bool) -> void:
+	var wp: WorkplaceData = get_workplace(workplace_id)
+	if wp != null:
+		wp.is_paused = paused
+	for wid in _workplaces:
+		if _workplaces[wid].parent_building_id == workplace_id:
+			_workplaces[wid].is_paused = paused
+
+func is_workplace_paused(workplace_id: String) -> bool:
+	var wp: WorkplaceData = get_workplace(workplace_id)
+	if wp != null:
+		return wp.is_paused
+	return false
+
 func clear_dynamic_workplaces(preserve_ids: Array = ["farm_starter", "woodcutter_starter"]) -> void:
 	var to_remove: Array[String] = []
 	for id in _workplaces:
@@ -152,7 +170,7 @@ func get_buffer_capacity(workplace_id: String, resource_id: String = "") -> int:
 ## Supports recipe-based atomic input consumption for crafting workplaces.
 func produce_to_buffer(workplace_id: String, season_modifier: float = 1.0, resource_mgr: Node = null) -> int:
 	var wp: WorkplaceData = get_workplace(workplace_id)
-	if wp == null:
+	if wp == null or wp.is_paused:
 		return 0
 
 	# 1. Recipe-based production with atomic inputs

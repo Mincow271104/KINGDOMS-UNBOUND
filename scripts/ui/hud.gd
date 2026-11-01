@@ -123,6 +123,55 @@ var formation_scatter_btn: Button = null
 @onready var skill_bonus_label: Label = get_node_or_null("CitizenInspectPanel/MarginContainer/VBoxContainer/SkillContainer/SkillBonusLabel")
 @onready var skill_progress_bar: ProgressBar = get_node_or_null("CitizenInspectPanel/MarginContainer/VBoxContainer/SkillContainer/SkillProgressBar")
 
+# Building Inspection Panel (Package 2F)
+@onready var building_inspect_panel: Control = get_node_or_null("BuildingInspectPanel")
+@onready var building_title_label: Label = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/HeaderHBox/TitlesVBox/BuildingTitleLabel")
+@onready var building_coords_label: Label = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/HeaderHBox/TitlesVBox/BuildingCoordsLabel")
+@onready var close_building_btn: Button = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/HeaderHBox/CloseBuildingBtn")
+@onready var building_state_label: Label = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/StateHBox/BuildingStateLabel")
+@onready var building_health_label: Label = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/StateHBox/BuildingHealthLabel")
+@onready var building_health_bar: ProgressBar = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/BuildingHealthBar")
+
+# Building Content Sections
+@onready var construction_section: Control = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/ConstructionSection")
+@onready var construction_prog_label: Label = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/ConstructionSection/ConstructionProgressLabel")
+@onready var construction_prog_bar: ProgressBar = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/ConstructionSection/ConstructionProgressBar")
+@onready var construction_builders_label: Label = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/ConstructionSection/ConstructionBuildersLabel")
+@onready var cancel_build_btn: Button = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/ConstructionSection/CancelBuildBtn")
+
+@onready var workplace_section: Control = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/WorkplaceSection")
+@onready var buffer_amount_label: Label = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/WorkplaceSection/BufferAmountLabel")
+@onready var buffer_progress_bar: ProgressBar = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/WorkplaceSection/BufferProgressBar")
+@onready var buffer_saturation_label: Label = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/WorkplaceSection/BufferSaturationLabel")
+@onready var workshop_channels_container: Control = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/WorkplaceSection/WorkshopChannelsContainer")
+@onready var workers_title_label: Label = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/WorkplaceSection/WorkersTitleLabel")
+@onready var workers_container: Control = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/WorkplaceSection/WorkersContainer")
+
+@onready var civic_section: Control = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/CivicSection")
+@onready var civic_desc_label: Label = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/CivicSection/CivicDescLabel")
+@onready var civic_stats_label: Label = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/CivicSection/CivicStatsLabel")
+
+# Building Actions
+@onready var pause_resume_btn: Button = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ActionsHBox/PauseResumeBtn")
+@onready var demolish_btn: Button = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ActionsHBox/DemolishBtn")
+@onready var focus_cam_btn: Button = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ActionsHBox/FocusCamBtn")
+
+# Confirmation Modals
+@onready var demolish_confirm_overlay: Control = get_node_or_null("DemolishConfirmOverlay")
+@onready var demolish_msg_label: Label = get_node_or_null("DemolishConfirmOverlay/CenterContainer/PanelContainer/MarginContainer/VBoxContainer/DemolishMsgLabel")
+@onready var townhall_emergency_warning: Label = get_node_or_null("DemolishConfirmOverlay/CenterContainer/PanelContainer/MarginContainer/VBoxContainer/TownhallEmergencyWarning")
+@onready var confirm_demolish_btn: Button = get_node_or_null("DemolishConfirmOverlay/CenterContainer/PanelContainer/MarginContainer/VBoxContainer/ButtonsHBox/ConfirmDemolishBtn")
+@onready var cancel_demolish_btn: Button = get_node_or_null("DemolishConfirmOverlay/CenterContainer/PanelContainer/MarginContainer/VBoxContainer/ButtonsHBox/CancelDemolishBtn")
+
+@onready var cancel_build_confirm_overlay: Control = get_node_or_null("CancelBuildConfirmOverlay")
+@onready var cancel_build_msg_label: Label = get_node_or_null("CancelBuildConfirmOverlay/CenterContainer/PanelContainer/MarginContainer/VBoxContainer/CancelBuildMsgLabel")
+@onready var confirm_cancel_build_btn: Button = get_node_or_null("CancelBuildConfirmOverlay/CenterContainer/PanelContainer/MarginContainer/VBoxContainer/ButtonsHBox/ConfirmCancelBuildBtn")
+@onready var abort_cancel_build_btn: Button = get_node_or_null("CancelBuildConfirmOverlay/CenterContainer/PanelContainer/MarginContainer/VBoxContainer/ButtonsHBox/AbortCancelBuildBtn")
+
+var inspected_building_id: String = ""
+var inspected_building_data: Dictionary = {}
+var _building_refresh_timer: float = 0.0
+
 var inspected_citizen: Node = null
 var research_mgr: Object = null
 var faction_mgr: Object = null
@@ -226,6 +275,32 @@ func _ready() -> void:
 	close_citizen_btn.pressed.connect(func(): citizen_panel.visible = false)
 	_setup_role_options()
 	role_option_btn.item_selected.connect(_on_role_option_selected)
+
+	# Building inspector controls (Package 2F)
+	if building_inspect_panel:
+		building_inspect_panel.visible = false
+	if close_building_btn:
+		close_building_btn.pressed.connect(close_building_inspector)
+	if pause_resume_btn:
+		pause_resume_btn.pressed.connect(_on_pause_resume_building_pressed)
+	if demolish_btn:
+		demolish_btn.pressed.connect(_on_demolish_building_pressed)
+	if confirm_demolish_btn:
+		confirm_demolish_btn.pressed.connect(_on_confirm_demolish_pressed)
+	if cancel_demolish_btn:
+		cancel_demolish_btn.pressed.connect(_on_cancel_demolish_pressed)
+	if cancel_build_btn:
+		cancel_build_btn.pressed.connect(_on_cancel_build_pressed)
+	if confirm_cancel_build_btn:
+		confirm_cancel_build_btn.pressed.connect(_on_confirm_cancel_build_pressed)
+	if abort_cancel_build_btn:
+		abort_cancel_build_btn.pressed.connect(_on_abort_cancel_build_pressed)
+	if focus_cam_btn:
+		focus_cam_btn.pressed.connect(_on_focus_building_cam_pressed)
+	if demolish_confirm_overlay:
+		demolish_confirm_overlay.visible = false
+	if cancel_build_confirm_overlay:
+		cancel_build_confirm_overlay.visible = false
 
 	# Research Menu controls
 	research_menu_panel.visible = false
@@ -1457,10 +1532,22 @@ func _unhandled_input(event: InputEvent) -> void:
 			return
 
 		if k.keycode == KEY_ESCAPE:
-			if _army_move_targeting:
+			if demolish_confirm_overlay and demolish_confirm_overlay.visible:
+				demolish_confirm_overlay.visible = false
+				get_viewport().set_input_as_handled()
+				return
+			elif cancel_build_confirm_overlay and cancel_build_confirm_overlay.visible:
+				cancel_build_confirm_overlay.visible = false
+				get_viewport().set_input_as_handled()
+				return
+			elif building_inspect_panel and building_inspect_panel.visible:
+				close_building_inspector()
+				get_viewport().set_input_as_handled()
+				return
+			elif _army_move_targeting:
 				cancel_army_move_targeting()
 			elif citizen_panel.visible:
-				citizen_panel.visible = false
+				close_citizen_inspector()
 			elif build_menu_panel.visible:
 				build_menu_panel.visible = false
 			elif research_menu_panel.visible:
@@ -1501,11 +1588,18 @@ func _unhandled_input(event: InputEvent) -> void:
 		elif k.keycode == KEY_3 and not k.ctrl_pressed and not k.shift_pressed:
 			get_node("/root/TimeManager").set_speed(3)
 
-func _process(_delta: float) -> void:
+func _process(delta: float) -> void:
 	if citizen_panel.visible and inspected_citizen != null:
 		_refresh_inspected_citizen()
+	if building_inspect_panel != null and building_inspect_panel.visible and inspected_building_id != "":
+		_building_refresh_timer += delta
+		if _building_refresh_timer >= 0.1:
+			_building_refresh_timer = 0.0
+			refresh_building_inspector()
 
 func show_citizen_inspector(cit: Node) -> void:
+	if building_inspect_panel != null:
+		building_inspect_panel.visible = false
 	inspected_citizen = cit
 	citizen_panel.visible = true
 	_refresh_role_options()
@@ -1522,6 +1616,11 @@ func show_citizen_inspector(cit: Node) -> void:
 		"smith": role_option_btn.select(6)
 		"guard": role_option_btn.select(7)
 		_: role_option_btn.select(5)
+
+func close_citizen_inspector() -> void:
+	if citizen_panel != null:
+		citizen_panel.visible = false
+	inspected_citizen = null
 
 func _reselect_current_citizen_role() -> void:
 	if inspected_citizen == null:
@@ -2041,3 +2140,377 @@ func is_field_guide_open() -> bool:
 	if player_field_guide:
 		return player_field_guide.visible
 	return false
+
+# ==============================================================================
+# BUILDING INSPECTION & MANAGEMENT (Package 2F)
+# ==============================================================================
+
+func show_building_inspector(b_data: Dictionary) -> void:
+	if citizen_panel != null:
+		citizen_panel.visible = false
+	if b_data.is_empty():
+		close_building_inspector()
+		return
+	inspected_building_id = b_data.get("id", "")
+	inspected_building_data = b_data
+	if building_inspect_panel != null:
+		building_inspect_panel.visible = true
+	refresh_building_inspector()
+
+func close_building_inspector() -> void:
+	if building_inspect_panel != null:
+		building_inspect_panel.visible = false
+	if demolish_confirm_overlay != null:
+		demolish_confirm_overlay.visible = false
+	if cancel_build_confirm_overlay != null:
+		cancel_build_confirm_overlay.visible = false
+	inspected_building_id = ""
+	inspected_building_data = {}
+	if world_view_ref != null:
+		if world_view_ref.get("selected_building_id") != "":
+			world_view_ref.set("selected_building_id", "")
+		if world_view_ref.get("building_highlight") != null:
+			world_view_ref.building_highlight.clear_highlight()
+
+func refresh_building_inspector() -> void:
+	if inspected_building_id == "" or world_view_ref == null:
+		return
+	var b_data: Dictionary = inspected_building_data
+	if world_view_ref.get("world_data") != null:
+		var fetched: Dictionary = BuildingSystem.get_building_by_id(inspected_building_id, world_view_ref.world_data)
+		if not fetched.is_empty():
+			b_data = fetched
+	if b_data.is_empty():
+		close_building_inspector()
+		return
+	inspected_building_data = b_data
+
+	var b_id: String = b_data.get("id", "")
+	var b_type: String = b_data.get("type", "")
+	var origin: Vector2i = b_data.get("cell", Vector2i.ZERO)
+	var size: Vector2i = b_data.get("size", Vector2i(1, 1))
+	var state: String = b_data.get("state", "active")
+	var health: int = int(b_data.get("health", 100))
+	var bp: Dictionary = EconomyConfig.BLUEPRINTS.get(b_type, {})
+	var title_str: String = bp.get("name_vi", b_type.capitalize())
+
+	if building_title_label != null:
+		building_title_label.text = title_str
+	if building_coords_label != null:
+		building_coords_label.text = "Tọa độ: (%d, %d) | Kích thước: %dx%d" % [origin.x, origin.y, size.x, size.y]
+
+	if building_health_bar != null:
+		building_health_bar.value = health
+	if building_health_label != null:
+		building_health_label.text = "%d / 100 HP" % health
+
+	if building_state_label != null:
+		match state:
+			"under_construction":
+				building_state_label.text = "[ĐANG THI CÔNG]"
+				building_state_label.add_theme_color_override("font_color", Color(0.95, 0.75, 0.3, 1))
+			"paused":
+				building_state_label.text = "[TẠM DỪNG]"
+				building_state_label.add_theme_color_override("font_color", Color(0.95, 0.5, 0.2, 1))
+			"destroyed":
+				building_state_label.text = "[SỤP ĐỔ]"
+				building_state_label.add_theme_color_override("font_color", Color(0.9, 0.25, 0.25, 1))
+			_:
+				building_state_label.text = "[ĐANG HOẠT ĐỘNG]"
+				building_state_label.add_theme_color_override("font_color", Color(0.3, 0.85, 0.3, 1))
+
+	if state == "under_construction":
+		if construction_section != null:
+			construction_section.visible = true
+		if workplace_section != null:
+			workplace_section.visible = false
+		if civic_section != null:
+			civic_section.visible = false
+
+		var max_hours: float = float(b_data.get("construction_hours", bp.get("construction_hours", 12.0)))
+		var cur_prog: float = float(b_data.get("construction_progress", 0.0))
+		var pct: float = clampf((cur_prog / max_hours) * 100.0 if max_hours > 0.0 else 0.0, 0.0, 100.0)
+		if construction_prog_label != null:
+			construction_prog_label.text = "Tiến độ: %.1f / %.1f giờ (%.0f%%)" % [cur_prog, max_hours, pct]
+		if construction_prog_bar != null:
+			construction_prog_bar.value = pct
+
+		var builder_count: int = 0
+		var max_builders: int = BuildingSystem.get_construction_worker_capacity(b_type)
+		if world_view_ref.get("citizen_list") != null:
+			for cit in world_view_ref.citizen_list:
+				if is_instance_valid(cit) and cit.get("active_job") != null and JobManager.job_matches_building(cit.active_job, b_id):
+					builder_count += 1
+		if construction_builders_label != null:
+			construction_builders_label.text = "Thợ xây đang thi công: %d / %d" % [builder_count, max_builders]
+
+		if pause_resume_btn != null:
+			pause_resume_btn.visible = false
+		if demolish_btn != null:
+			demolish_btn.visible = false
+	else:
+		if construction_section != null:
+			construction_section.visible = false
+		if pause_resume_btn != null:
+			pause_resume_btn.visible = true
+			pause_resume_btn.text = "Tiếp Tục Hoạt Động" if state == "paused" else "Tạm Dừng Hoạt Động"
+		if demolish_btn != null:
+			demolish_btn.visible = true
+
+		var is_workplace: bool = b_type in ["farm", "woodcutter", "quarry", "mine", "workshop"]
+		if is_workplace:
+			if workplace_section != null:
+				workplace_section.visible = true
+			if civic_section != null:
+				civic_section.visible = false
+			_refresh_workplace_inspector(b_id, b_type, b_data)
+		else:
+			if workplace_section != null:
+				workplace_section.visible = false
+			if civic_section != null:
+				civic_section.visible = true
+			_refresh_civic_inspector(b_id, b_type, b_data)
+
+func _refresh_workplace_inspector(b_id: String, b_type: String, _b_data: Dictionary) -> void:
+	if world_view_ref == null or world_view_ref.get("workplace_mgr") == null:
+		return
+	var wp_mgr = world_view_ref.workplace_mgr
+
+	if b_type == "workshop":
+		if buffer_amount_label != null:
+			buffer_amount_label.visible = false
+		if buffer_progress_bar != null:
+			buffer_progress_bar.visible = false
+		if buffer_saturation_label != null:
+			buffer_saturation_label.visible = false
+		if workshop_channels_container != null:
+			workshop_channels_container.visible = true
+			for ch in workshop_channels_container.get_children():
+				workshop_channels_container.remove_child(ch)
+				ch.queue_free()
+
+			var ch_configs := [
+				{"suffix": "_smelt", "fallback_recipe": "smelt_metal", "name": "Luyện Kim", "res": "Kim loại"},
+				{"suffix": "_craft", "fallback_recipe": "craft_tools", "name": "Chế Tác Dụng Cụ", "res": "Công cụ"}
+			]
+			for cfg in ch_configs:
+				var ch_id: String = b_id + cfg["suffix"]
+				var ch_wp = wp_mgr.get_workplace(ch_id)
+				if ch_wp == null and wp_mgr.has_method("get_workplace_channel"):
+					ch_wp = wp_mgr.get_workplace_channel(b_id, cfg["fallback_recipe"])
+				if ch_wp != null:
+					var ch_vbox := VBoxContainer.new()
+					ch_vbox.add_theme_constant_override("separation", 2)
+
+					var ch_lbl := Label.new()
+					ch_lbl.text = "%s: %d / %d %s" % [cfg["name"], ch_wp.buffer_amount, ch_wp.buffer_capacity, cfg["res"]]
+					ch_lbl.add_theme_font_size_override("font_size", 11)
+					ch_vbox.add_child(ch_lbl)
+
+					var ch_bar := ProgressBar.new()
+					ch_bar.custom_minimum_size = Vector2(0, 10)
+					ch_bar.show_percentage = false
+					var ch_pct: float = clampf((float(ch_wp.buffer_amount) / float(maxi(1, ch_wp.buffer_capacity))) * 100.0, 0.0, 100.0)
+					ch_bar.value = ch_pct
+					ch_vbox.add_child(ch_bar)
+
+					var sat_lbl := Label.new()
+					sat_lbl.add_theme_font_size_override("font_size", 10)
+					if ch_wp.buffer_amount >= ch_wp.buffer_capacity:
+						sat_lbl.text = "Trạng thái: Đầy kho đệm (Tắc nghẽn sản xuất)"
+						sat_lbl.add_theme_color_override("font_color", Color(1, 0.3, 0.3, 1))
+					elif ch_wp.buffer_amount >= int(float(ch_wp.buffer_capacity) * 0.8):
+						sat_lbl.text = "Trạng thái: Gần đầy kho (Cảnh báo tắc nghẽn)"
+						sat_lbl.add_theme_color_override("font_color", Color(0.95, 0.7, 0.2, 1))
+					else:
+						sat_lbl.text = "Trạng thái: Hoạt động bình thường"
+						sat_lbl.add_theme_color_override("font_color", Color(0.3, 0.85, 0.3, 1))
+					ch_vbox.add_child(sat_lbl)
+
+					workshop_channels_container.add_child(ch_vbox)
+	else:
+		if workshop_channels_container != null:
+			workshop_channels_container.visible = false
+		if buffer_amount_label != null:
+			buffer_amount_label.visible = true
+		if buffer_progress_bar != null:
+			buffer_progress_bar.visible = true
+		if buffer_saturation_label != null:
+			buffer_saturation_label.visible = true
+
+		var wp = wp_mgr.get_workplace(b_id)
+		if wp != null:
+			var res_name: String = wp.output_resource.capitalize()
+			if buffer_amount_label != null:
+				buffer_amount_label.text = "Kho đệm (%s): %d / %d" % [res_name, wp.buffer_amount, wp.buffer_capacity]
+			var fill_pct: float = clampf((float(wp.buffer_amount) / float(maxi(1, wp.buffer_capacity))) * 100.0, 0.0, 100.0)
+			if buffer_progress_bar != null:
+				buffer_progress_bar.value = fill_pct
+
+			if buffer_saturation_label != null:
+				if wp.buffer_amount >= wp.buffer_capacity:
+					buffer_saturation_label.text = "Trạng thái: Đầy kho đệm (Tắc nghẽn sản xuất)"
+					buffer_saturation_label.add_theme_color_override("font_color", Color(1, 0.3, 0.3, 1))
+				elif wp.buffer_amount >= int(float(wp.buffer_capacity) * 0.8):
+					buffer_saturation_label.text = "Trạng thái: Gần đầy kho (Cảnh báo tắc nghẽn)"
+					buffer_saturation_label.add_theme_color_override("font_color", Color(0.95, 0.7, 0.2, 1))
+				else:
+					buffer_saturation_label.text = "Trạng thái: Hoạt động bình thường"
+					buffer_saturation_label.add_theme_color_override("font_color", Color(0.3, 0.85, 0.3, 1))
+
+	# Assigned workers roster
+	if workers_container != null:
+		for ch in workers_container.get_children():
+			workers_container.remove_child(ch)
+			ch.queue_free()
+
+		var assigned: Array = []
+		if world_view_ref.get("citizen_list") != null:
+			for cit in world_view_ref.citizen_list:
+				if is_instance_valid(cit) and cit.get("active_job") != null and JobManager.job_matches_building(cit.active_job, b_id):
+					assigned.append(cit)
+
+		if workers_title_label != null:
+			workers_title_label.text = "Lực Lượng Lao Động (%d):" % assigned.size()
+
+		if assigned.is_empty():
+			var empty_lbl := Label.new()
+			empty_lbl.text = "Chưa có công nhân nào đang làm việc tại đây."
+			empty_lbl.add_theme_font_size_override("font_size", 11)
+			empty_lbl.add_theme_color_override("font_color", Color(0.65, 0.65, 0.65, 1))
+			workers_container.add_child(empty_lbl)
+		else:
+			for cit in assigned:
+				var w_btn := Button.new()
+				w_btn.custom_minimum_size = Vector2(0, 24)
+				var c_name: String = cit.get("citizen_name")
+				var c_role: String = cit.get("role")
+				var skill_text := ""
+				if cit.has_method("get_skill_data"):
+					var s_data: CitizenSkillData = cit.get_skill_data()
+					var voc: String = CitizenSkillData.get_vocation_for_job(c_role)
+					if voc != "" and s_data != null:
+						var lvl: int = s_data.get_level(voc)
+						var bonus: int = s_data.get_efficiency_bonus_percent(voc)
+						skill_text = " [Cấp %d +%d%%]" % [lvl, bonus]
+				w_btn.text = "👤 %s (%s)%s" % [c_name, c_role, skill_text]
+				var target_cit: Node = cit
+				w_btn.pressed.connect(func(): show_citizen_inspector(target_cit))
+				workers_container.add_child(w_btn)
+
+func _refresh_civic_inspector(_b_id: String, b_type: String, b_data: Dictionary) -> void:
+	if civic_desc_label == null or civic_stats_label == null:
+		return
+
+	match b_type:
+		"townhall":
+			civic_desc_label.text = "Trung tâm quản trị vương quốc. Cung cấp không gian sinh sống, kho chứa trung tâm và duy trì nền tảng chính trị."
+			civic_stats_label.text = "• Sức chứa: 10 cư dân\n• Dung lượng kho: +2000 đơn vị\n• Tầm nhìn cảnh giới: 8 ô\n• Trụ cột sinh tồn: Mất Tòa Thị Chính quá 72 giờ sẽ dẫn đến sụp đổ vương quốc!"
+		"house":
+			civic_desc_label.text = "Khu nhà ở dân cư kiên cố giúp bảo vệ cư dân khỏi thời tiết khắc nghiệt và hồi phục thể lực."
+			civic_stats_label.text = "• Sức chứa: 4 cư dân\n• Giảm mệt mỏi khi nghỉ ngơi: Tốc độ cao\n• Nâng cao sĩ khí cộng đồng"
+		"storehouse":
+			civic_desc_label.text = "Kho chứa vật phẩm trung chuyển trung tâm, mở rộng sức chứa hàng hóa cho toàn bộ vương quốc."
+			civic_stats_label.text = "• Sức chứa mở rộng: +500 dung lượng cho mỗi loại tài nguyên\n• Điểm tiếp nhận hàng hóa của phu khuân vác"
+		"barracks":
+			civic_desc_label.text = "Doanh trại quân đội đồn trú, huấn luyện và chỉ huy lực lượng phòng thủ vương quốc."
+			civic_stats_label.text = "• Cung cấp vị trí tuần tra và phòng vệ cho Vệ Binh\n• Mở khóa phân công nghề nghiệp Vệ Binh trong bảng dân cư\n• Nâng cao sức chứa đội quân viễn chinh"
+		"watchtower":
+			civic_desc_label.text = "Tháp canh cảnh giới tầm xa, phát hiện sớm hiểm họa từ sương mù chiến tranh."
+			civic_stats_label.text = "• Tầm nhìn cảnh giới: 7 ô\n• Xóa sương mù chiến tranh xung quanh"
+		"market":
+			civic_desc_label.text = "Khu thương xá sầm uất, nơi tiếp đón các đoàn thương gia và tiến hành giao thương liên bang."
+			civic_stats_label.text = "• Điểm ghé chân và bốc dỡ hàng của các đoàn lạc đà buôn bán\n• Thúc đẩy chỉ số kinh tế và thịnh vượng vương quốc"
+		"research_hall":
+			civic_desc_label.text = "Viện hàn lâm nghiên cứu học thuật, mở khóa các tiến bộ khoa học kỹ thuật."
+			civic_stats_label.text = "• Cho phép thực hiện nghiên cứu công nghệ tại Menu Nghiên Cứu\n• Cung cấp chỗ làm việc cho các học giả"
+		_:
+			civic_desc_label.text = "Công trình vương quốc."
+			civic_stats_label.text = "• Kích thước: %dx%d" % [b_data.get("size", Vector2i(1,1)).x, b_data.get("size", Vector2i(1,1)).y]
+
+func _on_pause_resume_building_pressed() -> void:
+	if world_view_ref == null or inspected_building_id == "":
+		return
+	var cur_state: String = inspected_building_data.get("state", "active")
+	var target_state := "active" if cur_state == "paused" else "paused"
+	world_view_ref.set_building_state(inspected_building_id, target_state)
+	refresh_building_inspector()
+
+func _on_focus_building_cam_pressed() -> void:
+	if world_view_ref != null and inspected_building_id != "":
+		world_view_ref.focus_camera_on_building(inspected_building_id)
+
+func _on_demolish_building_pressed() -> void:
+	if world_view_ref == null or inspected_building_id == "":
+		return
+	var rm := get_node_or_null("/root/ResourceManager")
+	var check: Dictionary = BuildingSystem.can_demolish_building(inspected_building_data, world_view_ref.world_data, rm)
+	if not check.get("can_demolish", false):
+		show_event_banner("Không Thể Dỡ Bỏ", check.get("reason", "Không đủ điều kiện dỡ bỏ"), false, 4.0)
+		return
+
+	if demolish_msg_label != null:
+		var refund: Dictionary = check.get("refund", {})
+		var refund_str := ""
+		for r in refund:
+			refund_str += "%s: +%d  " % [r.capitalize(), refund[r]]
+		demolish_msg_label.text = "Bạn có chắc chắn muốn dỡ bỏ công trình này?\nHoàn trả 50%% nguyên vật liệu vào kho:\n%s" % (refund_str if refund_str != "" else "Không có hoàn trả tài nguyên")
+
+	if townhall_emergency_warning != null:
+		townhall_emergency_warning.visible = check.get("is_townhall", false)
+
+	if demolish_confirm_overlay != null:
+		demolish_confirm_overlay.visible = true
+
+func _on_confirm_demolish_pressed() -> void:
+	if demolish_confirm_overlay != null:
+		demolish_confirm_overlay.visible = false
+	if world_view_ref == null or inspected_building_id == "":
+		return
+	var b_id := inspected_building_id
+	var res: Dictionary = world_view_ref.demolish_building_project(b_id)
+	if res.get("success", false):
+		close_building_inspector()
+		show_event_banner("Dỡ Bỏ Thành Công", "Đã dỡ bỏ công trình và hoàn trả tài nguyên vào kho chứa.", true, 3.5)
+	else:
+		show_event_banner("Dỡ Bỏ Thất Bại", res.get("reason", "Không thể dỡ bỏ công trình"), false, 4.0)
+
+func _on_cancel_demolish_pressed() -> void:
+	if demolish_confirm_overlay != null:
+		demolish_confirm_overlay.visible = false
+
+func _on_cancel_build_pressed() -> void:
+	if world_view_ref == null or inspected_building_id == "":
+		return
+	var rm := get_node_or_null("/root/ResourceManager")
+	var check: Dictionary = BuildingSystem.can_cancel_construction(inspected_building_data, world_view_ref.world_data, rm)
+	if not check.get("can_cancel", false):
+		show_event_banner("Không Thể Hủy", check.get("reason", "Không thể hủy thi công"), false, 4.0)
+		return
+
+	if cancel_build_msg_label != null:
+		var refund: Dictionary = check.get("refund", {})
+		var refund_str := ""
+		for r in refund:
+			refund_str += "%s: +%d  " % [r.capitalize(), refund[r]]
+		cancel_build_msg_label.text = "Hủy thi công công trình sẽ giải phóng thợ xây và hoàn trả 50%% chi phí vào kho:\n%s" % (refund_str if refund_str != "" else "Không có hoàn trả tài nguyên")
+
+	if cancel_build_confirm_overlay != null:
+		cancel_build_confirm_overlay.visible = true
+
+func _on_confirm_cancel_build_pressed() -> void:
+	if cancel_build_confirm_overlay != null:
+		cancel_build_confirm_overlay.visible = false
+	if world_view_ref == null or inspected_building_id == "":
+		return
+	var b_id := inspected_building_id
+	var res: Dictionary = world_view_ref.cancel_construction_project(b_id)
+	if res.get("success", false):
+		close_building_inspector()
+		show_event_banner("Đã Hủy Thi Công", "Đã hủy dự án xây dựng và hoàn trả 50% nguyên vật liệu vào kho.", true, 3.5)
+	else:
+		show_event_banner("Hủy Thi Công Thất Bại", res.get("reason", "Không thể hủy thi công"), false, 4.0)
+
+func _on_abort_cancel_build_pressed() -> void:
+	if cancel_build_confirm_overlay != null:
+		cancel_build_confirm_overlay.visible = false
