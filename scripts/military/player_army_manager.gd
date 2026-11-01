@@ -23,9 +23,11 @@ signal upkeep_processed(day: int, cost_paid: int, success: bool)
 signal recruitment_completed(count: int, cost: Dictionary)
 signal movement_state_changed(state: int, current_cell: Vector2i, destination_cell: Vector2i)
 signal army_moved(new_cell: Vector2i)
+signal equipment_tier_changed(new_tier: int, multiplier: float)
 
 var world_view: Node = null
 var soldier_count: int = 0
+var equipment_tier: int = 1
 var is_supplied: bool = true
 var last_upkeep_day: int = -1
 
@@ -51,6 +53,7 @@ var _custom_time_mgr: Object = null
 func _init(wv: Node = null) -> void:
 	world_view = wv
 	soldier_count = 0
+	equipment_tier = 1
 	is_supplied = true
 	last_upkeep_day = -1
 	rally_cell = Vector2i(32, 33)
@@ -209,6 +212,162 @@ func get_recruitment_cost(count: int = 1) -> Dictionary:
 
 func get_combat_morale() -> float:
 	return EconomyConfigScript.ARMY_MORALE_SUPPLIED if is_supplied else EconomyConfigScript.ARMY_MORALE_UNSUPPLIED
+
+# -----------------------------------------------------------------------------
+# Equipment Tier Progression (Package 2J)
+# -----------------------------------------------------------------------------
+
+func get_equipment_tier() -> int:
+	return equipment_tier
+
+func get_equipment_combat_multiplier() -> float:
+	return EconomyConfigScript.get_army_equipment_multiplier(equipment_tier)
+
+func get_equipment_tier_name() -> String:
+	return EconomyConfigScript.get_army_equipment_name(equipment_tier)
+
+func get_equipment_upgrade_cost(target_tier: int = -1) -> Dictionary:
+	var target: int = target_tier
+	if target < 0:
+		target = equipment_tier + 1
+	return EconomyConfigScript.get_army_equipment_cost(target)
+
+func can_upgrade_equipment(target_tier: int = -1) -> Dictionary:
+	var target: int = target_tier
+	if target < 0:
+		target = equipment_tier + 1
+
+	if equipment_tier >= EconomyConfigScript.MAX_ARMY_EQUIPMENT_TIER:
+		return {
+			"can_upgrade": false,
+			"reason": "Trang bị quân đội đã đạt cấp tối đa (Cấp %d)" % EconomyConfigScript.MAX_ARMY_EQUIPMENT_TIER
+		}
+
+	if target != equipment_tier + 1:
+		return {
+			"can_upgrade": false,
+			"reason": "Chỉ có thể nâng cấp tuần tự lên cấp kế tiếp (Cấp %d)" % (equipment_tier + 1)
+		}
+
+	if target > EconomyConfigScript.MAX_ARMY_EQUIPMENT_TIER or target <= EconomyConfigScript.MIN_ARMY_EQUIPMENT_TIER:
+		return {
+			"can_upgrade": false,
+			"reason": "Cấp trang bị mục tiêu không hợp lệ (%d)" % target
+		}
+
+	if soldier_count <= 0:
+		return {
+			"can_upgrade": false,
+			"reason": "Cần ít nhất một binh sĩ để nâng cấp trang bị quân đội"
+		}
+
+	var wd = get_world_data()
+	if wd == null:
+		return {
+			"can_upgrade": false,
+			"reason": "Không tìm thấy dữ liệu bản đồ"
+		}
+
+	var active_barracks_count: int = BuildingSystemScript.get_active_barracks_count(wd)
+	if active_barracks_count <= 0:
+		return {
+			"can_upgrade": false,
+			"reason": "Cần ít nhất một Doanh Trại đang hoạt động để nâng cấp trang bị"
+		}
+
+	if movement_state == MovementState.MARCHING or not current_path.is_empty():
+		return {
+			"can_upgrade": false,
+			"reason": "Quân đội đang hành quân, chỉ có thể nâng cấp khi đóng quân tại căn cứ"
+		}
+
+	if current_cell != rally_cell:
+		return {
+			"can_upgrade": false,
+			"reason": "Quân đội đang dã chiến ngoài thành, chỉ có thể nâng cấp khi đóng quân tại căn cứ"
+		}
+
+	if movement_state != MovementState.GARRISONED:
+		return {
+			"can_upgrade": false,
+			"reason": "Quân đội phải ở trạng thái đóng quân tại căn cứ để nâng cấp"
+		}
+
+	var cost: Dictionary = get_equipment_upgrade_cost(target)
+	if cost.is_empty():
+		return {
+			"can_upgrade": false,
+			"reason": "Không tìm thấy chi phí nâng cấp cho cấp %d" % target
+		}
+
+	var rm = get_resource_manager()
+	if rm == null:
+		return {
+			"can_upgrade": false,
+			"reason": "Không tìm thấy kho tài nguyên"
+		}
+
+	if not rm.has_method("can_afford") or not rm.can_afford(cost):
+		return {
+			"can_upgrade": false,
+			"reason": "Không đủ tài nguyên nâng cấp trang bị (Yêu cầu: %d Gỗ, %d Kim loại)" % [cost.get(EconomyConfigScript.RES_WOOD, 0), cost.get(EconomyConfigScript.RES_METAL, 0)]
+		}
+
+	return {
+		"can_upgrade": true,
+		"reason": "",
+		"target_tier": target,
+		"cost": cost
+	}
+
+func upgrade_equipment(target_tier: int = -1) -> Dictionary:
+	var check: Dictionary = can_upgrade_equipment(target_tier)
+	if not check.get("can_upgrade", false):
+		return {
+			"success": false,
+			"reason": check.get("reason", "Không thể nâng cấp trang bị"),
+			"tier": equipment_tier,
+			"multiplier": get_equipment_combat_multiplier()
+		}
+
+	var cost: Dictionary = check.get("cost", {})
+	var target: int = int(check.get("target_tier", equipment_tier + 1))
+	var rm = get_resource_manager()
+	if rm == null or not (rm.has_method("reserve_cost") and rm.has_method("commit_cost")):
+		return {
+			"success": false,
+			"reason": "Giao dịch tài nguyên không khả dụng",
+			"tier": equipment_tier,
+			"multiplier": get_equipment_combat_multiplier()
+		}
+
+	# Atomic transaction: reserve, then commit
+	var reserved: bool = rm.call("reserve_cost", cost)
+	if not reserved:
+		return {
+			"success": false,
+			"reason": "Không thể dự trữ tài nguyên nâng cấp",
+			"tier": equipment_tier,
+			"multiplier": get_equipment_combat_multiplier()
+		}
+
+	rm.call("commit_cost", cost)
+
+	equipment_tier = target
+	var new_mult: float = get_equipment_combat_multiplier()
+	equipment_tier_changed.emit(equipment_tier, new_mult)
+
+	var em = get_event_manager()
+	if em != null and em.has_method("log_event"):
+		em.call("log_event", "Trang bị quân đội đã được nâng cấp lên %s (x%.2f sức chiến đấu)." % [get_equipment_tier_name(), new_mult])
+
+	return {
+		"success": true,
+		"tier": equipment_tier,
+		"multiplier": new_mult,
+		"cost": cost
+	}
+
 
 # -----------------------------------------------------------------------------
 # Recruitment Transaction
@@ -910,6 +1069,7 @@ func serialize() -> Dictionary:
 
 	return {
 		"soldier_count": soldier_count,
+		"equipment_tier": equipment_tier,
 		"is_supplied": is_supplied,
 		"last_upkeep_day": last_upkeep_day,
 		"current_cell": [current_cell.x, current_cell.y],
@@ -923,6 +1083,7 @@ func deserialize(data: Dictionary) -> void:
 	is_deserializing = true
 	if data.is_empty():
 		soldier_count = 0
+		equipment_tier = 1
 		is_supplied = true
 		last_upkeep_day = -1
 		rally_cell = get_default_rally_cell()
@@ -934,11 +1095,13 @@ func deserialize(data: Dictionary) -> void:
 			tactical_military_mgr.call("clear_all_units")
 		movement_state = get_settled_state_for_cell(current_cell)
 		army_changed.emit(soldier_count, get_army_capacity())
+		equipment_tier_changed.emit(equipment_tier, get_equipment_combat_multiplier())
 		movement_state_changed.emit(movement_state, current_cell, destination_cell)
 		is_deserializing = false
 		return
 
 	soldier_count = clampi(int(data.get("soldier_count", 0)), 0, 1000)
+	equipment_tier = clampi(int(data.get("equipment_tier", 1)), EconomyConfigScript.MIN_ARMY_EQUIPMENT_TIER, EconomyConfigScript.MAX_ARMY_EQUIPMENT_TIER)
 	is_supplied = bool(data.get("is_supplied", true))
 	var raw_last_upkeep: int = int(data.get("last_upkeep_day", -1))
 	if raw_last_upkeep < -1:
@@ -1069,6 +1232,7 @@ func deserialize(data: Dictionary) -> void:
 	step_accumulator = 0.0
 	army_changed.emit(soldier_count, get_army_capacity())
 	supply_status_changed.emit(is_supplied)
+	equipment_tier_changed.emit(equipment_tier, get_equipment_combat_multiplier())
 	movement_state_changed.emit(movement_state, current_cell, destination_cell)
 	is_deserializing = false
 

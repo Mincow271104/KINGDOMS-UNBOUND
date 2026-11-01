@@ -629,3 +629,39 @@ Upgrades cost a deterministic ratio of the original blueprint cost and take real
   - If upgrade construction reaches 100% required hours but finalization fails (e.g. Storehouse cannot obtain a valid `ResourceManager` or apply capacity delta), the system refuses to report false completion (`completed = false`, `completion_blocked = true`).
   - `upgrade_level`, `is_upgrading`, builder jobs, citizen work assignments, and resource capacities remain completely preserved in a retryable state.
   - Once dependencies become valid, subsequent work cycles complete the upgrade cleanly, apply the capacity delta exactly once, remove builder jobs, and release citizens without capacity drift.
+
+---
+
+## 18. Army Equipment Standard Progression (Package 2J)
+
+### 18.1 Equipment Standard Tiers & Multipliers
+- **Single Kingdom-Wide Standard:** Rather than individual soldier inventory or weapon slots, equipment is tracked as a centralized kingdom standard level in `PlayerArmyManager`.
+- **Three Standard Tiers:**
+  - **Tier 1 — Trang bị cơ bản:** $1.00\times$ combat multiplier (base standard, 0 cost).
+  - **Tier 2 — Trang bị cải tiến:** $1.25\times$ combat multiplier. Upgrade cost: 30 Wood, 15 Metal.
+  - **Tier 3 — Trang bị cao cấp:** $1.50\times$ combat multiplier. Upgrade cost: 60 Wood, 30 Metal.
+- **Combat Multiplier Formula:**
+  $$\text{Multiplier} = 1.0 + 0.25 \times (\text{Tier} - 1)$$
+
+### 18.2 Upgrade Preflight & Execution Rules
+- **Sequential Upgrades:** Upgrades must proceed sequentially ($1 \to 2 \to 3$). Skipping tiers or upgrading beyond Tier 3 is strictly rejected fail-closed.
+- **Active Soldiers Requirement:** The army must contain at least 1 living recruited soldier (`soldier_count > 0`). Empty armies cannot undergo equipment upgrades.
+- **Active Barracks Requirement:** The kingdom must possess at least 1 operational Barracks (`get_active_barracks_count > 0`).
+- **Garrison Requirement:** Upgrades can only be performed when the army is garrisoned at base:
+  - `movement_state == MovementState.GARRISONED`
+  - `current_path.is_empty()`
+  - `current_cell == rally_cell`
+  - Marching armies or armies deployed on field expeditions cannot be upgraded until they return home.
+- **Atomic Transaction:** The required Wood and Metal are reserved and committed atomically via `ResourceManager`. If reservation fails, the transaction is completely aborted with zero state mutation or resource loss.
+- **New Recruits Inheritance:** Recruits immediately inherit the kingdom's active equipment tier standard.
+
+### 18.3 Combat Integration
+- **Tactical Combat:** `TacticalUnit.get_effective_attack_damage()` dynamically applies the tier multiplier to base damage (`attack_damage * multiplier`). The base export property `attack_damage = 25.0` is never mutated, preserving baseline integrity across loads and upgrades.
+- **Faction Asymmetry:** Non-player factions and hostile enemy tactical units (`EnemyTacticalUnit`) are strictly capped at $1.00\times$ multiplier.
+- **Abstract Campaigns & Defense:** `BattleCampaignManager` queries `PlayerArmyManager.equipment_tier` for both offensive expeditions and defensive settlement garrison calculations in `BattleResolver`.
+- **Field Siege Operations:** Outposts and palisades take scaled damage when attacked by player soldiers wielding upgraded equipment.
+
+### 18.4 Persistence & Schema Validation
+- **Serialization:** `PlayerArmyManager.serialize()` includes `"equipment_tier"`.
+- **Schema Validation:** `SaveManager.validate_save_data()` requires `equipment_tier` to be an integer within $[1, 3]$ when present, failing closed on corrupt values, strings, non-integer floats, or out-of-range numbers.
+- **Backward Compatibility:** Legacy saves omitting `equipment_tier` automatically default to Tier 1 without schema errors or entity degradation.

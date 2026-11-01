@@ -9331,3 +9331,71 @@ Saved under `docs/visual_validation/rc2_live_acceptance/`:
 ### Next Exact Step
 - Stage documentation updates (`docs/SMOKE_TEST_CHECKLIST.md`, `docs/TEST_PLAN.md`, `docs/WORKLOG.md`), commit to `qa/rc2-live-gameplay-acceptance`, push to `origin`, and provide the final report in Vietnamese.
 
+---
+
+## 2026-11-02 — Phase 2: Package 2J — Army Equipment Progression & Combat Integration
+
+### Overview
+Implemented Package 2J connecting resource production (Mine Ore $\to$ Workshop Metal $\to$ Hauling $\to$ Storage) with kingdom military capability through a data-driven standard tier upgrade system (Tier 1 $\to$ Tier 2 $\to$ Tier 3). Integrates Equipment Tier into `EconomyConfig`, `PlayerArmyManager`, `BattleResolver`, `BattleCampaignManager`, `TacticalUnit`, `FieldSiegeManager`, `InGameHUD`, and `SaveManager`.
+
+### Completed Architectural Implementations
+1. **Economy Configuration (`scripts/economy/economy_config.gd`):**
+   - Configured `MIN_ARMY_EQUIPMENT_TIER = 1`, `MAX_ARMY_EQUIPMENT_TIER = 3`.
+   - Tier 1: "Trang bị cơ bản" (1.00x combat multiplier, 0 cost).
+   - Tier 2: "Trang bị cải tiến" (1.25x combat multiplier, cost: 30 Wood, 15 Metal).
+   - Tier 3: "Trang bị cao cấp" (1.50x combat multiplier, cost: 60 Wood, 30 Metal).
+   - Multiplier formula: $\text{multiplier} = 1.0 + 0.25 \times (\text{tier} - 1)$.
+   - Added static accessors: `get_army_equipment_cost()`, `get_army_equipment_multiplier()`, `get_army_equipment_name()`.
+2. **Player Army Manager (`scripts/military/player_army_manager.gd`):**
+   - Declared `equipment_tier` state and `equipment_tier_changed(new_tier, multiplier)` signal.
+   - Enforced strict preflight validation in `can_upgrade_equipment(target_tier)`:
+     - Sequential progression (`target_tier == equipment_tier + 1`).
+     - Gated by active soldiers (`soldier_count > 0`).
+     - Gated by active Barracks in kingdom (`get_active_barracks_count > 0`).
+     - Garrisoned at base requirement: `movement_state == GARRISONED`, `current_path.is_empty()`, `current_cell == rally_cell`.
+     - Read-only preflight with 0 side effects.
+   - Atomic transaction in `upgrade_equipment(target_tier)`: reserve-all-or-nothing and commit via `ResourceManager`.
+   - New recruits inherit kingdom's current equipment tier standard.
+3. **SaveManager Persistence & Schema Validation (`scripts/persistence/save_manager.gd`):**
+   - Serialized `equipment_tier` under `player_army`.
+   - Schema validation in `validate_save_data()`: validates `equipment_tier` is an integer in $[1, 3]$; rejects $< 1$, $> 3$, floats, and strings fail-closed.
+   - Backward compatibility: legacy saves safely default `equipment_tier` to 1.
+4. **Combat Integration & Dynamic Damage Scaling:**
+   - `scripts/combat/battle_campaign_manager.gd`: updated `construct_defending_force()` and `launch_player_offensive()` to dynamically read and pass `player_army_mgr.get_equipment_tier()`.
+   - `scripts/military/tactical_unit.gd`: dynamic calculation in `get_effective_attack_damage()` (`attack_damage * get_equipment_multiplier()`) without mutating base `attack_damage = 25.0`.
+   - `scripts/military/enemy_tactical_unit.gd`: non-player factions capped to 1.00x multiplier.
+   - `scripts/military/tactical_military_manager.gd`: unit instances automatically receive `player_army_mgr` reference.
+   - Field siege objectives receive scaled damage from higher equipment tiers.
+5. **HUD Army Panel UI (`scripts/ui/hud.gd`, `scenes/ui/hud.tscn`):**
+   - Added `EquipmentTierLabel` under `ArmyStatsVBox` displaying current tier standard, Vietnamese name, and combat multiplier.
+   - Added `UpgradeEquipmentBtn` and `UpgradeEquipmentCostLabel` dynamically reflecting next tier, exact costs, and affordability reasons.
+   - Handled max tier state (disabled button and "Đã đạt tiêu chuẩn trang bị hoàng gia cao nhất.").
+   - Connected `equipment_tier_changed` signal to refresh UI and resources.
+
+### Test & Validation Evidence
+1. **Package 2J Automated Test Suite (`scripts/test/test_army_equipment.gd`):**
+   - **21/21 PASSED (Exit Code 0)** covering TC-EQ.01 through TC-EQ.21.
+2. **Regression Test Suites Execution:**
+   - `scripts/test/test_player_army.gd`: **32/32 PASSED (Exit Code 0)**
+   - `scripts/test/test_army_movement.gd`: **32/32 PASSED (Exit Code 0)**
+   - `scripts/test/test_tactical_combat.gd`: **58/58 assertions PASSED (Exit Code 0)**
+   - `scripts/test/test_tactical_military.gd`: **419/419 assertions PASSED (Exit Code 0)**
+   - `scripts/test/test_field_siege.gd`: **98/98 assertions PASSED (Exit Code 0)**
+   - `scripts/test/test_save_load.gd`: **182/182 assertions PASSED (Exit Code 0)**
+   - `scripts/test/test_building_management.gd`: **53/53 PASSED (Exit Code 0)**
+   - `scripts/test/test_market.gd`: **26/26 PASSED (Exit Code 0)**
+   - `scripts/test/test_live_battle_loop.gd`: **19/19 PASSED (Exit Code 0)**
+   - `scripts/test/test_factions_and_battles.gd`: **48/48 assertions PASSED (Exit Code 0)**
+3. **Live Gameplay Visual Artifacts (`docs/visual_validation/package_2j/`):**
+   - `01_army_panel_tier1.png`: Army Panel showing Tier 1 standard (1.00x, Trang bị cơ bản).
+   - `02_army_panel_tier2.png`: Army Panel showing Tier 2 standard (1.25x, Trang bị cải tiến).
+   - `03_army_panel_tier3.png`: Army Panel showing Tier 3 standard (1.50x, Trang bị cao cấp, max tier).
+   - `04_tactical_combat_tier_damage.png`: Tactical combat showing 37.50 effective damage strike on enemy.
+   - `05_save_load_tier_persistence.png`: Restored game from disk verifying Tier 3 persistence.
+
+### Next Exact Step
+- Stage Package 2J modified and created files (excluding user's local edits and untracked files).
+- Commit candidate to `feature/package-2j-army-equipment-progression`.
+- Push branch to `origin`.
+- Provide Final Handoff Report in Vietnamese.
+

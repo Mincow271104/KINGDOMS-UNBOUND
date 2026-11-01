@@ -258,6 +258,54 @@ const ARMY_MORALE_SUPPLIED: float = 70.0
 const ARMY_MORALE_UNSUPPLIED: float = 45.0
 
 # -----------------------------------------------------------------------------
+# Army Equipment Progression Configuration (Package 2J)
+# -----------------------------------------------------------------------------
+const MIN_ARMY_EQUIPMENT_TIER: int = 1
+const MAX_ARMY_EQUIPMENT_TIER: int = 3
+
+const ARMY_EQUIPMENT_TIERS: Dictionary = {
+	1: {
+		"name": "Trang bị cơ bản",
+		"multiplier": 1.00,
+		"cost": {}
+	},
+	2: {
+		"name": "Trang bị cải tiến",
+		"multiplier": 1.25,
+		"cost": {
+			RES_WOOD: 30,
+			RES_METAL: 15
+		}
+	},
+	3: {
+		"name": "Trang bị cao cấp",
+		"multiplier": 1.50,
+		"cost": {
+			RES_WOOD: 60,
+			RES_METAL: 30
+		}
+	}
+}
+
+static func get_army_equipment_cost(target_tier: int) -> Dictionary:
+	if target_tier < 2 or target_tier > MAX_ARMY_EQUIPMENT_TIER:
+		return {}
+	var tier_data: Dictionary = ARMY_EQUIPMENT_TIERS.get(target_tier, {})
+	var cost_data: Dictionary = tier_data.get("cost", {})
+	return cost_data.duplicate()
+
+static func get_army_equipment_multiplier(tier: int) -> float:
+	var t: int = clampi(tier, MIN_ARMY_EQUIPMENT_TIER, MAX_ARMY_EQUIPMENT_TIER)
+	var tier_data: Dictionary = ARMY_EQUIPMENT_TIERS.get(t, {})
+	return float(tier_data.get("multiplier", 1.0 + 0.25 * float(t - 1)))
+
+static func get_army_equipment_name(tier: int) -> String:
+	var t: int = clampi(tier, MIN_ARMY_EQUIPMENT_TIER, MAX_ARMY_EQUIPMENT_TIER)
+	var tier_data: Dictionary = ARMY_EQUIPMENT_TIERS.get(t, {})
+	return str(tier_data.get("name", "Trang bị cơ bản"))
+
+
+# -----------------------------------------------------------------------------
 # Settlement Building Upgrades Configuration (Package 2I)
 # -----------------------------------------------------------------------------
 const UPGRADEABLE_BUILDINGS: Array[String] = ["house", "farm", "storehouse"]

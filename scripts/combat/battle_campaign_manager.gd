@@ -207,6 +207,9 @@ func get_player_army_manager() -> Object:
 func set_custom_army_manager(mgr: Object) -> void:
 	_custom_army_mgr = mgr
 
+func set_player_army_manager(mgr: Object) -> void:
+	_custom_army_mgr = mgr
+
 # -----------------------------------------------------------------------------
 # B1. Raid Scheduling & Queries
 # -----------------------------------------------------------------------------
@@ -325,11 +328,18 @@ func construct_defending_force() -> Dictionary:
 			if avail > 0:
 				def_resources[res_id] = avail
 
+	var player_equip: int = 1
+	if army_mgr != null:
+		if army_mgr.has_method("get_equipment_tier"):
+			player_equip = int(army_mgr.call("get_equipment_tier"))
+		elif "equipment_tier" in army_mgr:
+			player_equip = int(army_mgr.get("equipment_tier"))
+
 	return {
 		"troops": total_troops,
 		"army_soldiers": army_soldiers,
 		"guard_count": guard_count,
-		"equipment_tier": 1,
+		"equipment_tier": player_equip,
 		"morale": avg_morale,
 		"terrain_multiplier": 1.0,
 		"resources": def_resources
@@ -710,9 +720,15 @@ func launch_offensive_campaign(target_faction_id: String, custom_seed: int = -1)
 	# 1. Attacker Force (Player Army - Field Units only)
 	var atk_troops: int = int(army_mgr.call("get_field_unit_count")) if army_mgr.has_method("get_field_unit_count") else (int(army_mgr.call("get_army_count")) if army_mgr.has_method("get_army_count") else int(army_mgr.get("soldier_count")))
 	var atk_morale: float = float(army_mgr.call("get_combat_morale")) if army_mgr.has_method("get_combat_morale") else 70.0
+	var atk_equip: int = 1
+	if army_mgr != null:
+		if army_mgr.has_method("get_equipment_tier"):
+			atk_equip = int(army_mgr.call("get_equipment_tier"))
+		elif "equipment_tier" in army_mgr:
+			atk_equip = int(army_mgr.get("equipment_tier"))
 	var atk_force: Dictionary = {
 		"troops": atk_troops,
-		"equipment_tier": 1,
+		"equipment_tier": atk_equip,
 		"morale": atk_morale,
 		"terrain_multiplier": 1.0
 	}

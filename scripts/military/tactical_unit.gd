@@ -45,6 +45,7 @@ var move_speed_px: float = 48.0 # Visual catchup speed
 var sprite: Sprite2D = null
 var world_view: Node = null
 var _custom_time_mgr: Object = null
+var _custom_player_army_mgr: Object = null
 
 signal unit_reached_destination(unit_id: String, final_cell: Vector2i)
 signal unit_cell_changed(unit_id: String, new_cell: Vector2i)
@@ -87,6 +88,27 @@ func get_time_manager() -> Object:
 	if is_inside_tree() and has_node("/root/TimeManager"):
 		return get_node("/root/TimeManager")
 	return null
+
+func set_player_army_manager(mgr: Object) -> void:
+	_custom_player_army_mgr = mgr
+
+func get_player_army_manager() -> Object:
+	if _custom_player_army_mgr != null:
+		return _custom_player_army_mgr
+	if is_instance_valid(world_view) and world_view.get("player_army_mgr") != null:
+		return world_view.get("player_army_mgr")
+	return null
+
+func get_equipment_multiplier() -> float:
+	if faction_id != "player":
+		return 1.0
+	var mgr = get_player_army_manager()
+	if mgr != null and mgr.has_method("get_equipment_combat_multiplier"):
+		return float(mgr.call("get_equipment_combat_multiplier"))
+	return 1.0
+
+func get_effective_attack_damage() -> float:
+	return attack_damage * get_equipment_multiplier()
 
 func set_selected(selected: bool) -> void:
 	if is_selected != selected:
@@ -329,9 +351,10 @@ func advance_combat(delta: float, speed_mult: float = 1.0, nav: GridNavigation =
 			step_accumulator = 0.0
 		if attack_cooldown_remaining <= 0.0:
 			attack_cooldown_remaining = attack_cooldown
+			var eff_damage: float = get_effective_attack_damage()
 			if target_actor.has_method("take_damage"):
-				target_actor.take_damage(attack_damage, unit_id)
-			unit_attacked.emit(unit_id, target_actor_id, attack_damage)
+				target_actor.take_damage(eff_damage, unit_id)
+			unit_attacked.emit(unit_id, target_actor_id, eff_damage)
 			queue_redraw()
 	else:
 		# Out of range: step towards target cell

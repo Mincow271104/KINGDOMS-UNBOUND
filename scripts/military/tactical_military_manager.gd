@@ -78,6 +78,10 @@ func set_player_army_manager(mgr: PlayerArmyManager) -> void:
 				player_army_mgr.call("set_tactical_military_manager", self)
 			else:
 				player_army_mgr.set("tactical_military_mgr", self)
+		for uid in units:
+			var u = units[uid]
+			if u != null and is_instance_valid(u) and u.has_method("set_player_army_manager"):
+				u.set_player_army_manager(player_army_mgr)
 		sync_with_player_army()
 
 func _bind_army_manager(mgr: PlayerArmyManager) -> void:
@@ -304,6 +308,8 @@ func _create_unit_instance(u_id: String, spawn_cell: Vector2i) -> Node2D:
 	unit.target_cell = spawn_cell
 	unit.formation = current_formation
 	unit.set_world_view(world_view)
+	if player_army_mgr != null and unit.has_method("set_player_army_manager"):
+		unit.set_player_army_manager(player_army_mgr)
 	if _custom_time_mgr != null:
 		unit.set_custom_time_manager(_custom_time_mgr)
 

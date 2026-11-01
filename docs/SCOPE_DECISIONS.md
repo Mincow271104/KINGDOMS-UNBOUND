@@ -674,12 +674,27 @@
     - No upgrading Town Hall, Barracks, Workshop, Research Hall, Market, Watchtower, or Palisade.
     - No new resource types, blueprints, citizen jobs, or research technologies.
     - No visual 3D asset overhauls; clean UI badges and HUD inspection reflection.
+- **Package 2J — Army Equipment Progression & Combat Integration:**
+  - **In Scope:**
+    - Standard kingdom equipment tier ($1 \to 2 \to 3$) tracked in `PlayerArmyManager`.
+    - Tier 1: 1.00x, Tier 2: 1.25x (30 Wood, 15 Metal), Tier 3: 1.50x (60 Wood, 30 Metal).
+    - Sequential upgrades gated by active soldiers, active Barracks, garrisoned state, and resource affordability.
+    - Dynamic calculation of effective tactical attack damage without mutating base export property `attack_damage = 25.0`.
+    - Integration into `BattleCampaignManager` and `BattleResolver` for offensive and defensive calculations.
+    - HUD ArmyPanel UI inspection and upgrade controls.
+    - SaveManager persistence and fail-closed schema validation.
+  - **Explicit Non-Goals & Out of Scope:**
+    - No per-soldier inventory system, weapon slots, or armor equipment slots.
+    - No gear durability, weapon degradation, or repair cycles.
+    - No equipment item drops or 9th resource type.
+    - No new military buildings, no barracks upgrades, no workshop upgrades.
 
 ---
 
 ## 2. Deferred & Excluded Scope for MVP
 | Feature | GDD Section | Status for MVP | Rationale |
 |---|---|---|---|
+| Army Equipment Progression & Combat Integration | Phần VII & X | Implemented | Delivered end-to-end in Package 2J with 3-tier kingdom equipment standard (1.00x, 1.25x, 1.50x), atomic Wood/Metal upgrades, dynamic damage scaling, BattleResolver integration, HUD controls, and 100% save compatibility |
 | Settlement Building Upgrades & Infrastructure Progression | Phần VII | Implemented | Delivered end-to-end in Package 2I with 3-tier upgrade model for House, Farm, and Storehouse, builder construction routing, delta storage accounting, fail-closed cancellation, HUD controls, and 100% save compatibility |
 | Dynamic Market Pricing & Supply-Demand Economy | Phần VII & XI | Implemented | Delivered end-to-end in Package 2H with deterministic [0.80, 1.20] elasticity, reference baselines, spread invariant, unified price breakdown API, HUD tooltips, and 100% save compatibility |
 | Outpost Capture & Territorial Control | Phần X & XI | Implemented | Delivered end-to-end in Package 2G with persistent ownership, 35% health recovery, heraldic banners, friendly siege prevention, NPC sacking, collision avoidance, and fail-closed persistence |

@@ -864,6 +864,13 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 				return {"valid": false, "error": "Quân số soldier_count phải là số nguyên hợp lệ: %s." % str(s_count)}
 			if int(s_count) < 0 or int(s_count) > 1000:
 				return {"valid": false, "error": "Quân số soldier_count nằm ngoài phạm vi cho phép [0, 1000]: %s." % str(s_count)}
+		if army_val.has("equipment_tier"):
+			var eq_tier = army_val.get("equipment_tier")
+			if not _is_valid_integer_val(eq_tier):
+				return {"valid": false, "error": "Cấp trang bị equipment_tier phải là số nguyên hợp lệ: %s." % str(eq_tier)}
+			var eq_int: int = int(eq_tier)
+			if eq_int < 1 or eq_int > 3:
+				return {"valid": false, "error": "Cấp trang bị equipment_tier nằm ngoài phạm vi cho phép [1, 3]: %s." % str(eq_tier)}
 		if army_val.has("last_upkeep_day"):
 			var last_upkeep = army_val.get("last_upkeep_day")
 			if not _is_valid_integer_val(last_upkeep):

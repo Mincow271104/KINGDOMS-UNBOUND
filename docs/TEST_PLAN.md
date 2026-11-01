@@ -926,3 +926,39 @@ When Godot Editor is running with the MCP plugin:
    - *Reason:* Capturing an outpost in normal gameplay requires constructing a Barracks (completed at Day 35), recruiting a large expeditionary army (requires sustained metal smelting, weapons, and tools), declaring war against the owning faction via Diplomacy, and marching across the map to defeat a 2-4 unit garrison and deplete a 200-300 HP structure. Within an initial 15-35 day peaceful settlement acceptance run, attempting an unsupplied military assault would lead to total army wipeout and retaliatory settlement raids. Direct state mutation or debug cheats were strictly prohibited by prompt rules.
    - *Verification Evidence:* Fully verified through headless automated suite `test_outpost_territorial_control.gd` (200 assertions, Exit Code 0) and live visual inspection of the outpost actor (`09_outpost_ownership_display.png`).
 
+---
+
+## 4. Package 2J: Army Equipment Progression & Combat Integration Test Matrix
+
+### 4.1 Automated Test Suite (`scripts/test/test_army_equipment.gd`) — 21/21 PASSED (Exit Code 0)
+| Test ID | Test Category | Description | Verification Method | Result |
+|---|---|---|---|:---:|
+| **TC-EQ.01** | Initialization | Default equipment tier is 1, multiplier 1.00x, name 'Trang bị cơ bản', cost empty | Headless SceneTree assertion | **PASS** |
+| **TC-EQ.02** | Upgrade Tier 2 | Upgrade Tier 1 $\to$ 2: deducts 30 Wood, 15 Metal, sets tier=2, mult=1.25x, emits signal | Headless SceneTree assertion | **PASS** |
+| **TC-EQ.03** | Upgrade Tier 3 | Upgrade Tier 2 $\to$ 3: deducts 60 Wood, 30 Metal, sets tier=3, mult=1.50x, emits signal | Headless SceneTree assertion | **PASS** |
+| **TC-EQ.04** | Max Tier Guard | Reject upgrade beyond Tier 3 fail-closed (0 cost deducted) | Headless SceneTree assertion | **PASS** |
+| **TC-EQ.05** | Tier Skip Guard | Reject non-sequential tier skipping (Tier 1 $\to$ 3 directly rejected) | Headless SceneTree assertion | **PASS** |
+| **TC-EQ.06** | Active Soldier Guard | Reject upgrade when soldier_count == 0 | Headless SceneTree assertion | **PASS** |
+| **TC-EQ.07** | Active Barracks Guard| Reject upgrade when active barracks count == 0 | Headless SceneTree assertion | **PASS** |
+| **TC-EQ.08** | Marching Guard | Reject upgrade when army movement_state == MARCHING or current_path not empty | Headless SceneTree assertion | **PASS** |
+| **TC-EQ.09** | Deployed Guard | Reject upgrade when army movement_state == IDLE_AT_FIELD or current_cell != rally_cell | Headless SceneTree assertion | **PASS** |
+| **TC-EQ.10** | Resource Guard | Reject upgrade when insufficient Wood or Metal (0 resources deducted) | Headless SceneTree assertion | **PASS** |
+| **TC-EQ.11** | Atomic Rollback | Rollback leaves equipment at Tier 1 when reservation fails | Headless SceneTree assertion | **PASS** |
+| **TC-EQ.12** | Read-Only Preflight| can_upgrade_equipment is strictly read-only with 0 side effects | Headless SceneTree assertion | **PASS** |
+| **TC-EQ.13** | Recruit Inheritance | New recruits inherit kingdom's current equipment tier standard | Headless SceneTree assertion | **PASS** |
+| **TC-EQ.14** | Offensive Campaign | BattleResolver offensive campaign reflects player army equipment multiplier | Headless SceneTree assertion | **PASS** |
+| **TC-EQ.15** | Defensive Raid | BattleResolver defensive raid reflects player army equipment multiplier | Headless SceneTree assertion | **PASS** |
+| **TC-EQ.16** | Tactical Damage | TacticalUnit effective damage scales by tier without mutating base attack_damage | Headless SceneTree assertion | **PASS** |
+| **TC-EQ.17** | Enemy Immunity | EnemyTacticalUnit does NOT inherit player tier multiplier (strictly 1.00x) | Headless SceneTree assertion | **PASS** |
+| **TC-EQ.18** | Save/Load Roundtrip | Serialize and deserialize preserves equipment_tier across Tier 1, 2, 3 identically | Headless SceneTree assertion | **PASS** |
+| **TC-EQ.19** | Save Validation | SaveManager rejects invalid/corrupt equipment_tier (<1, >3, float, string) fail-closed | Headless SceneTree assertion | **PASS** |
+| **TC-EQ.20** | Legacy Migration | Legacy save lacking equipment_tier defaults smoothly to Tier 1 | Headless SceneTree assertion | **PASS** |
+| **TC-EQ.21** | HUD Integration | HUD ArmyPanel displays tier standard, multiplier, and upgrade button state | Headless SceneTree assertion | **PASS** |
+
+### 4.2 Visual Validation Artifacts (`docs/visual_validation/package_2j/`)
+1. `01_army_panel_tier1.png`: In-game Army Panel at Tier 1 (1.00x, Trang bị cơ bản).
+2. `02_army_panel_tier2.png`: In-game Army Panel at Tier 2 (1.25x, Trang bị cải tiến).
+3. `03_army_panel_tier3.png`: In-game Army Panel at Tier 3 (1.50x, Trang bị cao cấp, max tier).
+4. `04_tactical_combat_tier_damage.png`: Live tactical combat showing 37.50 effective damage strike.
+5. `05_save_load_tier_persistence.png`: Restored world state confirming Tier 3 persistence across save/load.
+

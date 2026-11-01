@@ -68,6 +68,9 @@ signal citizen_role_changed(citizen_id: String, new_role: String)
 @onready var attack_campaign_btn: Button = get_node_or_null("ArmyPanel/MarginContainer/VBoxContainer/AttackCampaignBtn")
 @onready var recruit_reason_label: Label = get_node_or_null("ArmyPanel/MarginContainer/VBoxContainer/RecruitReasonLabel")
 @onready var close_army_btn: Button = get_node_or_null("ArmyPanel/MarginContainer/VBoxContainer/CloseArmyBtn")
+@onready var equipment_tier_label: Label = get_node_or_null("ArmyPanel/MarginContainer/VBoxContainer/ArmyStatsVBox/EquipmentTierLabel")
+@onready var upgrade_equipment_btn: Button = get_node_or_null("ArmyPanel/MarginContainer/VBoxContainer/UpgradeEquipmentBtn")
+@onready var upgrade_equipment_cost_label: Label = get_node_or_null("ArmyPanel/MarginContainer/VBoxContainer/UpgradeEquipmentCostLabel")
 
 var player_army_mgr: Object = null
 var tactical_military_mgr: Object = null
@@ -352,6 +355,8 @@ func _ready() -> void:
 		return_home_btn.pressed.connect(_on_return_home_btn_pressed)
 	if attack_campaign_btn:
 		attack_campaign_btn.pressed.connect(_on_attack_campaign_btn_pressed)
+	if upgrade_equipment_btn:
+		upgrade_equipment_btn.pressed.connect(_on_upgrade_equipment_btn_pressed)
 
 	# Automation Editor controls
 	if automation_editor:
@@ -770,6 +775,8 @@ func set_player_army_manager(mgr: Object) -> void:
 			player_army_mgr.movement_state_changed.connect(_on_army_movement_state_changed)
 		if player_army_mgr.has_signal("army_moved") and not player_army_mgr.army_moved.is_connected(_on_army_moved):
 			player_army_mgr.army_moved.connect(_on_army_moved)
+		if player_army_mgr.has_signal("equipment_tier_changed") and not player_army_mgr.equipment_tier_changed.is_connected(_on_equipment_tier_changed):
+			player_army_mgr.equipment_tier_changed.connect(_on_equipment_tier_changed)
 	_setup_tactical_army_ui()
 	_refresh_army_panel()
 
@@ -886,6 +893,10 @@ func _on_army_movement_state_changed(_state: int, _cur: Vector2i, _dest: Vector2
 func _on_army_moved(_new_cell: Vector2i) -> void:
 	_refresh_army_panel()
 
+func _on_equipment_tier_changed(_new_tier: int, _mult: float) -> void:
+	_refresh_army_panel()
+	_refresh_all_resources()
+
 func _toggle_army_menu() -> void:
 	if not army_panel:
 		return
@@ -996,6 +1007,81 @@ func _refresh_army_panel() -> void:
 			cost_parts.append("%d %s" % [amt, r_name])
 		recruit_cost_label.text = "💰 Chi phí mỗi lính: " + ", ".join(cost_parts)
 
+	# Equipment Tier update (Package 2J)
+	var stats_vbox = army_panel.get_node_or_null("MarginContainer/VBoxContainer/ArmyStatsVBox")
+	if equipment_tier_label == null and stats_vbox != null:
+		equipment_tier_label = Label.new()
+		equipment_tier_label.name = "EquipmentTierLabel"
+		stats_vbox.add_child(equipment_tier_label)
+
+	var main_vbox = army_panel.get_node_or_null("MarginContainer/VBoxContainer")
+	if upgrade_equipment_btn == null and main_vbox != null:
+		upgrade_equipment_btn = Button.new()
+		upgrade_equipment_btn.name = "UpgradeEquipmentBtn"
+		upgrade_equipment_btn.custom_minimum_size = Vector2(0, 36)
+		upgrade_equipment_btn.add_theme_color_override("font_color", Color(0.3, 0.9, 1.0, 1.0))
+		upgrade_equipment_btn.pressed.connect(_on_upgrade_equipment_btn_pressed)
+		main_vbox.add_child(upgrade_equipment_btn)
+		if recruit_btn != null and recruit_btn.get_parent() == main_vbox:
+			main_vbox.move_child(upgrade_equipment_btn, recruit_btn.get_index() + 1)
+
+	if upgrade_equipment_cost_label == null and main_vbox != null:
+		upgrade_equipment_cost_label = Label.new()
+		upgrade_equipment_cost_label.name = "UpgradeEquipmentCostLabel"
+		upgrade_equipment_cost_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		upgrade_equipment_cost_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		main_vbox.add_child(upgrade_equipment_cost_label)
+		if upgrade_equipment_btn != null and upgrade_equipment_btn.get_parent() == main_vbox:
+			main_vbox.move_child(upgrade_equipment_cost_label, upgrade_equipment_btn.get_index() + 1)
+
+	var cur_tier: int = player_army_mgr.call("get_equipment_tier") if player_army_mgr.has_method("get_equipment_tier") else 1
+	var mult: float = player_army_mgr.call("get_equipment_combat_multiplier") if player_army_mgr.has_method("get_equipment_combat_multiplier") else 1.0
+	var tier_name: String = player_army_mgr.call("get_equipment_tier_name") if player_army_mgr.has_method("get_equipment_tier_name") else "Trang bị cơ bản"
+
+	if equipment_tier_label:
+		equipment_tier_label.text = "🛡️ Tiêu chuẩn trang bị: Cấp %d — %s (x%.2f sát thương)" % [cur_tier, tier_name, mult]
+		match cur_tier:
+			1:
+				equipment_tier_label.modulate = Color(0.9, 0.9, 0.9)
+			2:
+				equipment_tier_label.modulate = Color(0.4, 0.85, 1.0)
+			3:
+				equipment_tier_label.modulate = Color(1.0, 0.85, 0.3)
+
+	var next_tier: int = cur_tier + 1
+	var up_check: Dictionary = player_army_mgr.call("can_upgrade_equipment", next_tier) if player_army_mgr.has_method("can_upgrade_equipment") else {"can_upgrade": false, "reason": "Chưa hỗ trợ"}
+	var can_up: bool = up_check.get("can_upgrade", false)
+	var up_reason: String = up_check.get("reason", "")
+
+	if upgrade_equipment_btn:
+		if cur_tier >= EconomyConfig.MAX_ARMY_EQUIPMENT_TIER:
+			upgrade_equipment_btn.text = "🛡️ Trang bị tối đa (Cấp %d)" % cur_tier
+			upgrade_equipment_btn.disabled = true
+		else:
+			var next_name: String = EconomyConfig.get_army_equipment_name(next_tier)
+			var next_mult: float = EconomyConfig.get_army_equipment_multiplier(next_tier)
+			upgrade_equipment_btn.text = "🛡️ Nâng cấp: Cấp %d — %s (x%.2f)" % [next_tier, next_name, next_mult]
+			upgrade_equipment_btn.disabled = not can_up
+
+	if upgrade_equipment_cost_label:
+		if cur_tier >= EconomyConfig.MAX_ARMY_EQUIPMENT_TIER:
+			upgrade_equipment_cost_label.text = "Đã đạt tiêu chuẩn trang bị hoàng gia cao nhất."
+			upgrade_equipment_cost_label.modulate = Color(1.0, 0.85, 0.3)
+		else:
+			var up_cost: Dictionary = EconomyConfig.get_army_equipment_cost(next_tier)
+			var cost_parts: Array[String] = []
+			for res_id in up_cost:
+				var amt: int = up_cost[res_id]
+				var r_name: String = EconomyConfig.RESOURCE_NAMES_VI.get(res_id, res_id.capitalize())
+				cost_parts.append("%d %s" % [amt, r_name])
+			var cost_str: String = "Chi phí Cấp %d: " % next_tier + ", ".join(cost_parts)
+			if not can_up and not up_reason.is_empty():
+				upgrade_equipment_cost_label.text = "%s\n(%s)" % [cost_str, up_reason]
+				upgrade_equipment_cost_label.modulate = Color(1.0, 0.5, 0.5)
+			else:
+				upgrade_equipment_cost_label.text = cost_str
+				upgrade_equipment_cost_label.modulate = Color(0.8, 1.0, 0.8)
+
 	var check: Dictionary = player_army_mgr.call("can_recruit", 1)
 	var can_r: bool = check.get("can_recruit", false)
 	var reason: String = check.get("reason", "")
@@ -1036,6 +1122,26 @@ func _refresh_army_panel() -> void:
 			formation_col_btn.modulate = Color(1.2, 1.2, 0.4) if f_name == "Column" else Color(1, 1, 1)
 		if formation_scatter_btn:
 			formation_scatter_btn.modulate = Color(1.2, 1.2, 0.4) if f_name == "Scatter" else Color(1, 1, 1)
+
+func _on_upgrade_equipment_btn_pressed() -> void:
+	if player_army_mgr == null:
+		return
+	var res: Dictionary = player_army_mgr.call("upgrade_equipment")
+	if res.get("success", false):
+		var am = get_node_or_null("/root/AudioManager") if is_inside_tree() else null
+		if am and am.has_method("play_build"):
+			am.play_build()
+		var tier_num: int = int(res.get("tier", 1))
+		var tier_name: String = EconomyConfig.get_army_equipment_name(tier_num)
+		var mult: float = float(res.get("multiplier", 1.0))
+		show_event_banner("Nâng Cấp Trang Bị Quân Đội!", "Toàn quân đã được nâng lên %s (x%.2f sát thương)." % [tier_name, mult], true, 4.0)
+	else:
+		var am = get_node_or_null("/root/AudioManager") if is_inside_tree() else null
+		if am and am.has_method("play_error"):
+			am.play_error()
+		show_event_banner("Nâng Cấp Thất Bại", res.get("reason", "Không thể nâng cấp trang bị quân đội."), false, 4.0)
+	_refresh_army_panel()
+	_refresh_all_resources()
 
 func _on_attack_campaign_btn_pressed() -> void:
 	if faction_mgr == null:

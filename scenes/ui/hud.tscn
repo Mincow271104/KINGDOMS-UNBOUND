@@ -1030,9 +1030,9 @@ anchor_top = 0.5
 anchor_right = 0.5
 anchor_bottom = 0.5
 offset_left = -260.0
-offset_top = -220.0
+offset_top = -260.0
 offset_right = 260.0
-offset_bottom = 220.0
+offset_bottom = 260.0
 grow_horizontal = 2
 grow_vertical = 2
 
@@ -1084,6 +1084,10 @@ text = "🌾 Chi phí duy trì: 0 Lương thực / ngày"
 layout_mode = 2
 text = "💰 Chi phí mỗi lính: 20 Vàng, 2 Kim loại, 5 Lương thực"
 
+[node name="EquipmentTierLabel" type="Label" parent="ArmyPanel/MarginContainer/VBoxContainer/ArmyStatsVBox"]
+layout_mode = 2
+text = "🛡️ Tiêu chuẩn trang bị: Cấp 1 — Trang bị cơ bản (x1.00 sát thương)"
+
 [node name="HSeparator2" type="HSeparator" parent="ArmyPanel/MarginContainer/VBoxContainer"]
 layout_mode = 2
 
@@ -1092,6 +1096,19 @@ custom_minimum_size = Vector2(0, 36)
 layout_mode = 2
 theme_override_colors/font_color = Color(1, 0.85, 0.3, 1)
 text = "⚔️ Tuyển 1 lính"
+
+[node name="UpgradeEquipmentBtn" type="Button" parent="ArmyPanel/MarginContainer/VBoxContainer"]
+custom_minimum_size = Vector2(0, 36)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.3, 0.9, 1, 1)
+text = "🛡️ Nâng cấp trang bị quân đội"
+
+[node name="UpgradeEquipmentCostLabel" type="Label" parent="ArmyPanel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.85, 0.5, 1)
+text = "Chi phí Cấp 2: 30 Gỗ, 15 Kim loại"
+horizontal_alignment = 1
+autowrap_mode = 2
 
 [node name="MoveArmyBtn" type="Button" parent="ArmyPanel/MarginContainer/VBoxContainer"]
 custom_minimum_size = Vector2(0, 36)

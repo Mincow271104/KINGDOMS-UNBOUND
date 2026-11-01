@@ -705,3 +705,62 @@
   - All 53 tests in `test_building_management.gd` passed with 100% pass rate (Exit Code 0).
   - Full regression checks on `test_save_load.gd` (182 assertions) and `test_market.gd` (26 tests) passed with Exit Code 0.
   - Godot 4.7 headless editor scan passed with 0 errors.
+
+---
+
+## [Phase 2 — Package 2J] Army Equipment Progression & Combat Integration (Completed)
+
+- [x] **TASK-2J.1:** Economy Configuration & Equipment Standard Tiers (`EconomyConfig`):
+  - Added Army Equipment standard tier progression: `MIN_ARMY_EQUIPMENT_TIER = 1`, `MAX_ARMY_EQUIPMENT_TIER = 3`.
+  - Tier standards and multipliers:
+    - Tier 1: "Trang bị cơ bản" — $1.00\times$ combat multiplier, default starting tier.
+    - Tier 2: "Trang bị cải tiến" — $1.25\times$ combat multiplier, cost 30 Wood, 15 Metal.
+    - Tier 3: "Trang bị cao cấp" — $1.50\times$ combat multiplier, cost 60 Wood, 30 Metal.
+  - Multiplier formula: $\text{multiplier} = 1.0 + 0.25 \times (\text{tier} - 1)$.
+  - Static helpers: `get_army_equipment_cost()`, `get_army_equipment_multiplier()`, `get_army_equipment_name()`.
+- [x] **TASK-2J.2:** Player Army Manager State Machine & Atomic Upgrade Transactions (`PlayerArmyManager`):
+  - Authoritative tier state `var equipment_tier: int = 1` clamped to $[1, 3]$.
+  - Signal `signal equipment_tier_changed(new_tier: int, multiplier: float)`.
+  - Sequential upgrade preflight `can_upgrade_equipment(target_tier)` enforcing all constraints:
+    - Target tier must strictly equal `equipment_tier + 1` (no skip or downgrade).
+    - Army must have $> 0$ soldiers (`soldier_count > 0`).
+    - Kingdom must have $\ge 1$ active Barracks (`get_active_barracks_count > 0`).
+    - Army must be in base: `movement_state == MovementState.GARRISONED`, `current_path.is_empty()`, `current_cell == rally_cell`.
+    - Central storage must afford exact Wood and Metal costs.
+  - Atomic transaction `upgrade_equipment(target_tier)`: reserve-all-or-nothing and commit via `ResourceManager`, safely rolling back on failure.
+  - New recruits inherit kingdom's current equipment tier standard.
+- [x] **TASK-2J.3:** Combat Integration & Dynamic Damage Scaling (`BattleResolver`, `BattleCampaignManager`, `TacticalUnit`, `EnemyTacticalUnit`, `FieldSiege`):
+  - Dynamic tactical combat damage in `TacticalUnit.get_effective_attack_damage()`: calculates `attack_damage * get_equipment_multiplier()` on-the-fly without mutating base `attack_damage`.
+  - Base export stat `attack_damage = 25.0` preserved immutably for serialization and upgrades.
+  - Non-player factions / hostile enemy tactical units (`EnemyTacticalUnit`) strictly capped to $1.00\times$ multiplier.
+  - BattleResolver offensive campaigns and defensive raids dynamically incorporate `PlayerArmyManager.equipment_tier` instead of hardcoded 1.
+  - Field siege objectives receive scaled damage from higher equipment tiers.
+- [x] **TASK-2J.4:** In-Game HUD Army Panel UI Integration (`InGameHUD`, `scenes/ui/hud.tscn`):
+  - Added `EquipmentTierLabel` under `ArmyStatsVBox` displaying current tier standard, Vietnamese name, and combat multiplier.
+  - Added `UpgradeEquipmentBtn` and `UpgradeEquipmentCostLabel` dynamically updating next tier preview, exact resource cost, and fail-closed reason when unavailable.
+  - Disabled button and display message "Đã đạt tiêu chuẩn trang bị hoàng gia cao nhất." when Tier 3 reached.
+  - Connected `equipment_tier_changed` signal to dynamically refresh panel and resource stock.
+- [x] **TASK-2J.5:** Fail-Closed Save/Load Schema Persistence & Migration (`SaveManager`):
+  - Serializes `equipment_tier` under `player_army` section.
+  - Schema validation in `validate_save_data`: validates `equipment_tier` is an integer in $[1, 3]$; rejects $< 1$, $> 3$, floats, and strings fail-closed.
+  - Backward compatibility: legacy saves safely default `equipment_tier` to 1.
+- [x] **TASK-2J.6:** Automated Test Suite & Regression Verification (`test_army_equipment.gd`):
+  - Created comprehensive test suite covering TC-EQ.01 through TC-EQ.21: 21 test cases passing 100% (Exit Code 0).
+  - Executed all existing regression suites:
+    - `test_player_army.gd`: 32 tests passed (Exit Code 0).
+    - `test_army_movement.gd`: 32 tests passed (Exit Code 0).
+    - `test_tactical_combat.gd`: 58 assertions passed (Exit Code 0).
+    - `test_tactical_military.gd`: 419 assertions passed (Exit Code 0).
+    - `test_field_siege.gd`: 98 assertions passed (Exit Code 0).
+    - `test_save_load.gd`: 182 assertions passed (Exit Code 0).
+    - `test_building_management.gd`: 53 tests passed (Exit Code 0).
+    - `test_market.gd`: 26 tests passed (Exit Code 0).
+    - `test_live_battle_loop.gd`: 19 tests passed (Exit Code 0).
+    - `test_factions_and_battles.gd`: 48 assertions passed (Exit Code 0).
+- [x] **TASK-2J.7:** Live Gameplay Acceptance & Visual Validation:
+  - Captured 5 high-fidelity screenshots in `docs/visual_validation/package_2j/`:
+    - `01_army_panel_tier1.png`
+    - `02_army_panel_tier2.png`
+    - `03_army_panel_tier3.png`
+    - `04_tactical_combat_tier_damage.png`
+    - `05_save_load_tier_persistence.png`
