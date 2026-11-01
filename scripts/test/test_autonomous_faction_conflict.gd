@@ -27,7 +27,22 @@ const FieldSiegeManagerScript = preload("res://scripts/combat/field_siege_manage
 const TradeCaravanScript = preload("res://scripts/trade/trade_caravan.gd")
 const SaveManagerScript = preload("res://scripts/persistence/save_manager.gd")
 const EconomyConfigScript = preload("res://scripts/economy/economy_config.gd")
+const SiegeObjectiveActorScript = preload("res://scripts/combat/siege_objective_actor.gd")
 const WorldViewScene: PackedScene = preload("res://scenes/world/world_view.tscn")
+
+class SpyObjectiveActor extends Node2D:
+	var objective_id: String = ""
+	var owning_faction_id: String = ""
+	var health: float = 200.0
+	var max_health: float = 200.0
+	var is_alive: bool = true
+	var is_captured: bool = false
+	var redraw_called_count: int = 0
+
+	@warning_ignore("native_method_override")
+	func queue_redraw() -> void:
+		redraw_called_count += 1
+		super.queue_redraw()
 
 var frame_count: int = 0
 var world_instance: Node = null
@@ -107,6 +122,7 @@ func _run_all_tests() -> void:
 	_test_tc_2e_13_save_load_roundtrip_persistence()
 	_test_tc_2e_14_hud_integration_authoritative_state()
 	_test_tc_2e_15_bug_fixes_verification()
+	_test_tc_2e_16_campaign_sequence_and_lifecycle_interval()
 
 # -----------------------------------------------------------------------------
 # TC-2E.1: Pairwise war evaluation eligibility & threshold boundaries
@@ -679,44 +695,49 @@ func _test_tc_2e_14_hud_integration_authoritative_state() -> void:
 # -----------------------------------------------------------------------------
 func _test_tc_2e_15_bug_fixes_verification() -> void:
 	print("\n--- TC-2E.15: Verification of 6 Review Bug Fixes (BUG-2E-01 to BUG-2E-06) ---")
+
+	# 1. BUG-2E-01: Real end-to-end HUD signal integration for inter-faction battle
+	print("  - BUG-2E-01: Verifying real end-to-end HUD signal integration...")
 	var hud = world_instance.get_node_or_null("HUD")
-	var banner = hud.get_node_or_null("EventBanner")
+	_assert_true(hud != null, "TC-2E.15-BUG-01-HUD-EXISTS", "HUD exists in world for signal check")
+	var event_banner = hud.get_node_or_null("EventBanner")
+	_assert_true(event_banner != null, "TC-2E.15-BUG-01-BANNER-NODE", "EventBanner node exists on HUD")
+	var banner_title_lbl = event_banner.get_node_or_null("MarginContainer/VBoxContainer/EventTitle")
 
-	# 1. BUG-2E-01: Inter-faction battle must not trigger settlement defense banners on HUD
-	print("  - BUG-2E-01: Verifying HUD signal isolation for inter-faction battle...")
-	var dummy_report := BattleResolverScript.BattleReport.new()
-	dummy_report.victor = "attacker"
-	dummy_report.attacker_troops_initial = 10
-	dummy_report.defender_troops_initial = 5
-	dummy_report.attacker_casualties = 2
-	dummy_report.defender_casualties = 5
-	dummy_report.attacker_troops_remaining = 8
-	dummy_report.defender_troops_remaining = 0
-	dummy_report.explanation = "Iron Claws defeated Barony of Vanguard"
+	# Set up real BattleCampaignManager connected to HUD
+	var test_bcm := BattleCampaignManagerScript.new()
+	var test_fm := FactionManagerScript.new()
+	test_bcm.set_faction_manager(test_fm)
+	test_bcm.world_seed = 12345
 
-	var if_ctx := {
-		"is_inter_faction": true,
-		"attacker_id": "rival_military",
-		"defender_id": "rival_merchant",
-		"attacker_name": "Cổ Thành Thiết Giáp",
-		"defender_name": "Thương Hội Vân Đồn"
-	}
+	# Connect signals directly to HUD (replicating hud.connect_subsystems)
+	if not test_bcm.battle_resolved.is_connected(hud._on_battle_resolved):
+		test_bcm.battle_resolved.connect(hud._on_battle_resolved)
+	if not test_bcm.inter_faction_battle_resolved.is_connected(hud._on_inter_faction_battle_resolved):
+		test_bcm.inter_faction_battle_resolved.connect(hud._on_inter_faction_battle_resolved)
 
-	# Clear banner text
-	hud.show_event_banner("Baseline", "Baseline description", true, 0.1)
-	var banner_title_lbl = banner.get_node_or_null("MarginContainer/VBoxContainer/EventTitle") if banner != null else null
-	var prev_title: String = banner_title_lbl.text if banner_title_lbl != null else ""
+	# Setup at-war factions
+	test_fm.set_faction_pair_opinion("rival_military", "rival_merchant", -70.0)
+	test_fm.set_faction_pair_opinion("rival_merchant", "rival_military", -70.0)
+	var rel_init = test_fm.get_pairwise_relation_between("rival_military", "rival_merchant")
+	rel_init.is_at_war = true
+	rel_init.war_start_day = 1
 
-	# Calling _on_battle_resolved with is_inter_faction: true must be ignored fail-safe
-	hud._on_battle_resolved(dummy_report, if_ctx)
-	var current_title: String = banner_title_lbl.text if banner_title_lbl != null else ""
-	_assert_eq(current_title, prev_title, "TC-2E.15-BUG-01-IGNORED", "Inter-faction context ignored by settlement raid handler")
-	_assert_false("THẤT THỦ!" in current_title or "THẮNG TRẬN!" in current_title, "TC-2E.15-BUG-01-NO-DEFEAT-BANNER", "No spurious settlement defeat/victory banner shown")
+	# Schedule and resolve a real campaign through test_bcm
+	var sched = test_bcm.schedule_inter_faction_campaign("rival_military", "rival_merchant", 4, 1, "End-to-end signal test")
+	_assert_true(sched.get("success", false), "TC-2E.15-BUG-01-SCHED-OK", "Scheduled inter-faction campaign")
+	var camp_id: String = sched.get("campaign_id")
 
-	# Calling _on_inter_faction_battle_resolved shows proper world war outcome
-	hud._on_inter_faction_battle_resolved(dummy_report, if_ctx)
-	var if_title: String = banner_title_lbl.text if banner_title_lbl != null else ""
-	_assert_true("KẾT QUẢ CHIẾN SỰ" in if_title, "TC-2E.15-BUG-01-CORRECT-WORLD-BANNER", "Correct world war banner shown: %s" % if_title)
+	# Resolving the campaign emits BOTH battle_resolved and inter_faction_battle_resolved through real signal dispatch
+	var res_battle = test_bcm.resolve_inter_faction_campaign(camp_id, 4)
+	_assert_true(res_battle.get("success", false), "TC-2E.15-BUG-01-RESOLVE-OK", "Resolved campaign")
+
+	# Inspect HUD state after both signals fired
+	var live_banner_title: String = banner_title_lbl.text if banner_title_lbl != null else ""
+	_assert_true("KẾT QUẢ CHIẾN SỰ" in live_banner_title, "TC-2E.15-BUG-01-WORLD-BANNER-ACTIVE", "World war outcome banner active: %s" % live_banner_title)
+	_assert_false("THẤT THỦ!" in live_banner_title, "TC-2E.15-BUG-01-NO-DEFEAT-BANNER", "Settlement defeat banner 'THẤT THỦ!' was NOT triggered")
+	_assert_false("THẮNG TRẬN!" in live_banner_title, "TC-2E.15-BUG-01-NO-WIN-BANNER", "Settlement victory banner 'THẮNG TRẬN!' was NOT triggered")
+	_assert_false("CHIẾN DỊCH THẤT BẠI!" in live_banner_title, "TC-2E.15-BUG-01-NO-CAMPAIGN-FAIL", "Settlement offensive fail banner was NOT triggered")
 
 	# 2. BUG-2E-02: TradeCaravan is_origin_at_war persistence through SaveManager
 	print("  - BUG-2E-02: Verifying TradeCaravan wartime flag persistence...")
@@ -739,8 +760,11 @@ func _test_tc_2e_15_bug_fixes_verification() -> void:
 	var car_old_compat = TradeCaravanScript.deserialize(old_car_dict)
 	_assert_false(car_old_compat.is_origin_at_war, "TC-2E.15-BUG-02-OLD-COMPAT", "Old save without flag defaults safely to false")
 
-	# Real SaveManager persistence check with temporary file
-	var temp_save_path := "user://test_p2e_caravan_persistence.json"
+	# Real SaveManager persistence check with isolated temporary directory
+	var temp_dir := "user://__test_temp__/package_2e/"
+	if not DirAccess.dir_exists_absolute(temp_dir):
+		DirAccess.make_dir_recursive_absolute(temp_dir)
+	var temp_save_path := temp_dir + "test_p2e_caravan_persistence.json"
 	world_instance.set("active_caravan", caravan_war)
 	var save_res = SaveManagerScript.save_to_file(world_instance, temp_save_path)
 	_assert_true(save_res.get("success", false), "TC-2E.15-BUG-02-SM-SAVE-OK", "SaveManager successfully saved world with active caravan")
@@ -756,9 +780,11 @@ func _test_tc_2e_15_bug_fixes_verification() -> void:
 	_assert_true(restored_caravan.is_origin_at_war, "TC-2E.15-BUG-02-CARAVAN-WAR-PERSISTED", "is_origin_at_war is true after full SaveManager load")
 	_assert_true(restored_caravan.get_effective_sell_price(EconomyConfigScript.RES_WOOD, 0.0) > base_wood_price, "TC-2E.15-BUG-02-SURCHARGE-AFTER-LOAD", "Wartime surcharge active after full SaveManager load")
 
-	# Clean up temporary test file
+	# Clean up temporary test file and directory
 	if FileAccess.file_exists(temp_save_path):
 		DirAccess.remove_absolute(temp_save_path)
+	if DirAccess.dir_exists_absolute(temp_dir):
+		DirAccess.remove_absolute(temp_dir)
 
 	# 3. BUG-2E-03: FactionManager self-protecting diplomacy rules (treaties & truce)
 	print("  - BUG-2E-03: Verifying FactionManager treaty & truce protection...")
@@ -807,38 +833,204 @@ func _test_tc_2e_15_bug_fixes_verification() -> void:
 	bcm.set_faction_manager(fm)
 
 	var p_key_nm: String = "neutral_tribe__rival_military"
-	# Currently at war from test 3e, but cancel all pending campaigns to simulate missing queue
 	bcm.cancel_inter_faction_campaigns_for_pair(p_key_nm, "Simulated missing campaign")
 	_assert_false(bcm.has_pending_inter_faction_campaign_for_pair(p_key_nm), "TC-2E.15-BUG-04-NO-PENDING-BEFORE", "No pending campaign initially")
 
-	# Running process_daily_inter_faction_campaigns on Day 11 should recover the campaign
+	# 4a. Inactive faction blocks recovery
+	var fac_tribe = fm.get_faction("neutral_tribe")
+	fac_tribe.existence_status = FactionDataScript.STATUS_IN_EXILE
 	bcm.process_daily_inter_faction_campaigns(11)
-	_assert_true(bcm.has_pending_inter_faction_campaign_for_pair(p_key_nm), "TC-2E.15-BUG-04-RECOVERED", "Campaign auto-recovered on daily tick")
+	_assert_false(bcm.has_pending_inter_faction_campaign_for_pair(p_key_nm), "TC-2E.15-BUG-04-INACTIVE-NO-RECOVERY", "Recovery rejected when faction is inactive")
+
+	# 4b. Reactivating faction allows daily tick to recover
+	fac_tribe.existence_status = FactionDataScript.STATUS_ACTIVE
+	# Set a last battle report with sequence 2 to verify sequence increment
+	rel_nm.last_battle_report = {
+		"sequence": 2,
+		"attacker_id": "neutral_tribe",
+		"defender_id": "rival_military"
+	}
+	bcm.process_daily_inter_faction_campaigns(11)
+	_assert_true(bcm.has_pending_inter_faction_campaign_for_pair(p_key_nm), "TC-2E.15-BUG-04-RECOVERED", "Campaign auto-recovered on daily tick once active")
 	var rec_camp = bcm.get_pending_inter_faction_campaign_for_pair(p_key_nm)
 	_assert_eq(rec_camp.get("scheduled_day"), 11 + BattleCampaignManagerScript.INTER_FACTION_CAMPAIGN_PREP_DAYS, "TC-2E.15-BUG-04-PREP-DAYS", "Scheduled with 2-day prep delay (Day 13)")
+	_assert_eq(rec_camp.get("sequence"), 3, "TC-2E.15-BUG-04-SEQ-INCREMENTED", "Recovered sequence increments from last_battle_report (2 + 1 = 3)")
+	_assert_eq(rec_camp.get("attacker_id"), "rival_military", "TC-2E.15-BUG-04-ROLE-SWITCHED", "Roles switched from last battle report attacker")
 
-	# Running on Day 12 must NOT duplicate or reset the prep day
+	# 4c. Running on Day 12 must NOT duplicate or reset the prep day
 	bcm.process_daily_inter_faction_campaigns(12)
 	var rec_camp_day12 = bcm.get_pending_inter_faction_campaign_for_pair(p_key_nm)
 	_assert_eq(rec_camp_day12.get("scheduled_day"), 13, "TC-2E.15-BUG-04-NO-RESET", "Scheduled day remains Day 13 without resetting")
+	_assert_eq(bcm.get_all_pending_inter_faction_campaigns().size(), 1, "TC-2E.15-BUG-04-NO-DUPLICATE", "No duplicate campaigns generated")
 
-	# Signing peace cancels the recovered campaign
+	# 4d. Signing peace cancels the recovered campaign
 	fm.sign_peace_between_factions("rival_military", "neutral_tribe", 6, 12)
 	_assert_false(bcm.has_pending_inter_faction_campaign_for_pair(p_key_nm), "TC-2E.15-BUG-04-PEACE-CANCELLED", "Peace cancels recovered campaign")
 
-	# 5. BUG-2E-05: Outpost damage visual redraw trigger
-	print("  - BUG-2E-05: Verifying outpost redraw call on damage...")
+	# 5. BUG-2E-05: Outpost damage visual redraw trigger verified via test spy
+	print("  - BUG-2E-05: Verifying outpost redraw call on damage via test spy...")
 	var fsm := FieldSiegeManagerScript.new()
+	var spy_outpost = SpyObjectiveActor.new()
+	spy_outpost.objective_id = "outpost_neutral_tribe"
+	spy_outpost.owning_faction_id = "neutral_tribe"
+	spy_outpost.health = 200.0
+	spy_outpost.max_health = 200.0
+	spy_outpost.is_alive = true
+	fsm.objectives["outpost_neutral_tribe"] = spy_outpost
 	bcm.set_custom_field_siege_manager(fsm)
-	var outpost = fsm.register_objective("outpost_neutral_tribe", Vector2i(16, 48), "neutral_tribe", 100.0, 1)
-	_assert_true(outpost != null, "TC-2E.15-BUG-05-OUTPOST-EXISTS", "Outpost registered in FSM")
 
-	# 6. BUG-2E-06: propose_treaty_between_factions truce calculation
-	print("  - BUG-2E-06: Verifying propose_treaty_between_factions sets truce properly...")
+	_assert_eq(spy_outpost.redraw_called_count, 0, "TC-2E.15-BUG-05-REDRAW-ZERO-INIT", "Spy outpost redraw count is initially 0")
+
+	# Prepare war targeting neutral_tribe outpost
+	fm.set_faction_pair_opinion("rival_military", "neutral_tribe", -70.0)
+	fm.set_faction_pair_opinion("neutral_tribe", "rival_military", -70.0)
+	var rel_nm_war = fm.get_pairwise_relation_between("rival_military", "neutral_tribe")
+	rel_nm_war.is_at_war = true
+	rel_nm_war.war_start_day = 12
+
+	var camp_outpost = bcm.schedule_inter_faction_campaign("rival_military", "neutral_tribe", 14, 1, "Outpost siege test")
+	_assert_true(camp_outpost.get("success", false), "TC-2E.15-BUG-05-OUTPOST-CAMP-SCHED", "Campaign targeting outpost scheduled")
+	var camp_outpost_id: String = camp_outpost.get("campaign_id")
+
+	# Resolve battle where rival_military attacks and damages the outpost
+	var res_outpost = bcm.resolve_inter_faction_campaign(camp_outpost_id, 14)
+	_assert_true(res_outpost.get("success", false), "TC-2E.15-BUG-05-OUTPOST-RESOLVE-OK", "Outpost campaign resolved")
+	_assert_true(spy_outpost.redraw_called_count >= 1, "TC-2E.15-BUG-05-REDRAW-INVOKED", "Outpost queue_redraw() was invoked on damage (called %d times)" % spy_outpost.redraw_called_count)
+
+	spy_outpost.free()
+
+	# 6. BUG-2E-06 & BUG-2E-08: propose_treaty_between_factions peace fail-closed validation & truce setting
+	print("  - BUG-2E-08: Verifying propose_treaty_between_factions day resolution and fail-closed validation...")
 	var rel_mm = fm.get_pairwise_relation_between("rival_military", "rival_merchant")
 	rel_mm.has_alliance = false
 	rel_mm.has_nap = false
 	rel_mm.is_at_war = true
-	var treaty_res = fm.propose_treaty_between_factions("rival_military", "rival_merchant", "peace", 20)
-	_assert_true(treaty_res.get("success", false), "TC-2E.15-BUG-06-PEACE-OK", "propose_treaty_between_factions peace signed")
-	_assert_eq(rel_mm.truce_until_day, 20 + 6, "TC-2E.15-BUG-06-TRUCE-SET", "truce_until_day set to 26")
+	rel_mm.truce_until_day = -1
+	rel_mm.opinion_a_to_b = -50.0
+	rel_mm.opinion_b_to_a = -50.0
+
+	# 6a. Explicit day passed -> Sets 6-day truce accurately (Day 20 -> Day 26)
+	var treaty_res_explicit = fm.propose_treaty_between_factions("rival_military", "rival_merchant", "peace", 20)
+	_assert_true(treaty_res_explicit.get("success", false), "TC-2E.15-BUG-08-EXPLICIT-OK", "Peace succeeds with explicit day")
+	_assert_eq(rel_mm.truce_until_day, 26, "TC-2E.15-BUG-08-EXPLICIT-TRUCE", "truce_until_day set to 26 (20 + 6)")
+	_assert_false(rel_mm.is_at_war, "TC-2E.15-BUG-08-EXPLICIT-WAR-CLEARED", "War cleared")
+
+	# Reset for test 6b: Day resolved via TimeManager
+	rel_mm.is_at_war = true
+	rel_mm.truce_until_day = -1
+	rel_mm.opinion_a_to_b = -50.0
+	rel_mm.opinion_b_to_a = -50.0
+	fm.set_custom_current_day(15) # Simulates active day 15
+	var treaty_res_tm = fm.propose_treaty_between_factions("rival_military", "rival_merchant", "peace")
+	_assert_true(treaty_res_tm.get("success", false), "TC-2E.15-BUG-08-TM-DAY-OK", "Peace succeeds when day is resolved via TimeManager/source")
+	_assert_eq(rel_mm.truce_until_day, 21, "TC-2E.15-BUG-08-TM-DAY-TRUCE", "truce_until_day set to 21 (15 + 6)")
+	_assert_false(rel_mm.is_at_war, "TC-2E.15-BUG-08-TM-WAR-CLEARED", "War cleared")
+
+	# Reset for test 6c: Unresolvable day must fail closed with ERR_INVALID_DAY and ZERO mutation
+	rel_mm.is_at_war = true
+	rel_mm.truce_until_day = -1
+	rel_mm.opinion_a_to_b = -50.0
+	rel_mm.opinion_b_to_a = -50.0
+	fm.set_custom_current_day(-999) # Explicit sentinel simulating no valid time source
+
+	var treaty_res_unresolvable = fm.propose_treaty_between_factions("rival_military", "rival_merchant", "peace")
+	_assert_false(treaty_res_unresolvable.get("success", true), "TC-2E.15-BUG-08-UNRESOLVABLE-FAIL", "Peace rejected when day cannot be resolved")
+	_assert_eq(treaty_res_unresolvable.get("reason_code"), FactionManagerScript.PAIR_REASON_ERR_INVALID_DAY, "TC-2E.15-BUG-08-UNRESOLVABLE-CODE", "Reason code is ERR_INVALID_DAY")
+	_assert_true(rel_mm.is_at_war, "TC-2E.15-BUG-08-NO-MUTATION-WAR", "is_at_war remains true (zero mutation)")
+	_assert_eq(rel_mm.truce_until_day, -1, "TC-2E.15-BUG-08-NO-MUTATION-TRUCE", "truce_until_day remains -1 (zero mutation)")
+	_assert_approx(rel_mm.opinion_a_to_b, -50.0, "TC-2E.15-BUG-08-NO-MUTATION-OP-AB")
+	_assert_approx(rel_mm.opinion_b_to_a, -50.0, "TC-2E.15-BUG-08-NO-MUTATION-OP-BA")
+
+	# 6d. NAP and Alliance proposals remain functional and unaffected by day parameter
+	fm.set_faction_pair_opinion("neutral_tribe", "rival_merchant", 20.0)
+	fm.set_faction_pair_opinion("rival_merchant", "neutral_tribe", 20.0)
+	var rel_nt_rm = fm.get_pairwise_relation_between("neutral_tribe", "rival_merchant")
+	rel_nt_rm.is_at_war = false
+	var nap_res = fm.propose_treaty_between_factions("neutral_tribe", "rival_merchant", "nap")
+	_assert_true(nap_res.get("success", false), "TC-2E.15-BUG-08-NAP-UNAFFECTED", "NAP proposal succeeds independently of day")
+	_assert_true(rel_nt_rm.has_nap, "TC-2E.15-BUG-08-NAP-SIGNED", "NAP signed successfully")
+
+# -----------------------------------------------------------------------------
+# TC-2E.16: Campaign Sequence & Lifecycle Interval Across Consecutive Battles (BUG-2E-07)
+# -----------------------------------------------------------------------------
+func _test_tc_2e_16_campaign_sequence_and_lifecycle_interval() -> void:
+	print("\n--- TC-2E.16: Campaign Sequence & Lifecycle Interval Across Consecutive Battles (BUG-2E-07) ---")
+	var fm := FactionManagerScript.new()
+	var bcm := BattleCampaignManagerScript.new()
+	bcm.set_faction_manager(fm)
+	bcm.world_seed = 12345
+
+	# Factions setup with ample power and stability to sustain multiple battles
+	var mil_fac: FactionData = fm.get_faction("rival_military")
+	var merch_fac: FactionData = fm.get_faction("rival_merchant")
+	mil_fac.military_power = 95.0
+	mil_fac.stability = 90.0
+	merch_fac.military_power = 90.0
+	merch_fac.stability = 85.0
+
+	# Fortified outpost with high durability so it is not sacked prematurely
+	var fsm := FieldSiegeManagerScript.new()
+	var outpost_merch = fsm.register_objective("outpost_rival_merchant", Vector2i(30, 30), "rival_merchant", 500.0, 4)
+	var outpost_mil = fsm.register_objective("outpost_rival_military", Vector2i(10, 10), "rival_military", 500.0, 4)
+	bcm.set_custom_field_siege_manager(fsm)
+
+	# 1. Initialize war on Day 4
+	bcm.set_custom_current_day(4)
+	fm.set_faction_pair_opinion("rival_military", "rival_merchant", -60.0)
+	fm.set_faction_pair_opinion("rival_merchant", "rival_military", -60.0)
+	var war_decl = fm.declare_war_between_factions("rival_military", "rival_merchant", "War for territory", 4)
+	_assert_true(war_decl.get("success", false), "TC-2E.16-WAR-INIT", "War initialized between rival_military and rival_merchant")
+
+	# 1b. Verify initial campaign auto-scheduled for Day 6 (Day 4 + 2 prep delay) with sequence 1
+	var pair_km = "rival_merchant__rival_military"
+	_assert_true(bcm.has_pending_inter_faction_campaign_for_pair(pair_km), "TC-2E.16-INIT-SCHED-EXISTS", "Initial campaign auto-scheduled for pair")
+	var init_camp = bcm.get_pending_inter_faction_campaign_for_pair(pair_km)
+	_assert_eq(init_camp.get("scheduled_day"), 6, "TC-2E.16-INIT-DAY-6", "Initial campaign scheduled for Day 6")
+	_assert_eq(init_camp.get("sequence"), 1, "TC-2E.16-INIT-SEQ-1", "Initial campaign has sequence 1")
+
+	# 2. Run first battle on Day 6
+	bcm.set_custom_current_day(6)
+	var daily_res_6 = bcm.process_daily_inter_faction_campaigns(6)
+	_assert_eq(daily_res_6.size(), 1, "TC-2E.16-BATTLE-1-RESOLVED-COUNT", "Battle 1 resolved on Day 6")
+	_assert_true(daily_res_6[0].get("success", false), "TC-2E.16-BATTLE-1-SUCCESS", "Battle 1 succeeded")
+	_assert_false(daily_res_6[0].get("peace_signed", true), "TC-2E.16-BATTLE-1-WAR-CONTINUES", "War continues after Battle 1")
+
+	# 3. Check subsequent campaign scheduled at exactly Day 10 (Day 6 + 4, NOT Day 8) with sequence 2
+	var pending_camps_post_6 = bcm.get_all_pending_inter_faction_campaigns()
+	_assert_eq(pending_camps_post_6.size(), 1, "TC-2E.16-POST-1-PENDING-COUNT", "Exactly one pending campaign after Battle 1")
+	var camp_2 = pending_camps_post_6[0]
+	_assert_eq(camp_2.get("scheduled_day"), 10, "TC-2E.16-BATTLE-2-DAY-10", "Next campaign scheduled on Day 10 (Day + 4, NOT Day 8)")
+	_assert_eq(camp_2.get("sequence"), 2, "TC-2E.16-BATTLE-2-SEQ-2", "Next campaign has sequence 2")
+	_assert_eq(camp_2.get("attacker_id"), "rival_merchant", "TC-2E.16-BATTLE-2-COUNTER-ATTACKER", "Attacker switched to counter-attacking defender")
+	_assert_eq(camp_2.get("defender_id"), "rival_military", "TC-2E.16-BATTLE-2-DEFENDER", "Defender switched to rival_military")
+
+	# 4. Advance through intervening days (Day 7, 8, 9) and verify no duplicate or early resolution
+	for d in [7, 8, 9]:
+		bcm.set_custom_current_day(d)
+		var mid_res = bcm.process_daily_inter_faction_campaigns(d)
+		_assert_eq(mid_res.size(), 0, "TC-2E.16-DAY-%d-NO-BATTLE" % d, "No battle prematurely resolved on Day %d" % d)
+		_assert_eq(bcm.get_all_pending_inter_faction_campaigns().size(), 1, "TC-2E.16-DAY-%d-ONE-PENDING" % d, "Still exactly one pending campaign on Day %d" % d)
+
+	# 5. Run second battle on Day 10
+	bcm.set_custom_current_day(10)
+	var daily_res_10 = bcm.process_daily_inter_faction_campaigns(10)
+	_assert_eq(daily_res_10.size(), 1, "TC-2E.16-BATTLE-2-RESOLVED-COUNT", "Battle 2 resolved on Day 10")
+	_assert_true(daily_res_10[0].get("success", false), "TC-2E.16-BATTLE-2-SUCCESS", "Battle 2 succeeded")
+	_assert_false(daily_res_10[0].get("peace_signed", true), "TC-2E.16-BATTLE-2-WAR-CONTINUES", "War continues after Battle 2")
+
+	# 6. Check third campaign scheduled at Day 14 (Day 10 + 4) with sequence 3
+	var pending_camps_post_10 = bcm.get_all_pending_inter_faction_campaigns()
+	_assert_eq(pending_camps_post_10.size(), 1, "TC-2E.16-POST-2-PENDING-COUNT", "Exactly one pending campaign after Battle 2")
+	var camp_3 = pending_camps_post_10[0]
+	_assert_eq(camp_3.get("scheduled_day"), 14, "TC-2E.16-BATTLE-3-DAY-14", "Third campaign scheduled on Day 14 (Day 10 + 4)")
+	_assert_eq(camp_3.get("sequence"), 3, "TC-2E.16-BATTLE-3-SEQ-3", "Third campaign has sequence 3")
+	_assert_eq(camp_3.get("attacker_id"), "rival_military", "TC-2E.16-BATTLE-3-ATTACKER", "Attacker switched back to rival_military")
+	_assert_eq(camp_3.get("defender_id"), "rival_merchant", "TC-2E.16-BATTLE-3-DEFENDER", "Defender switched back to rival_merchant")
+
+	# 7. Verify no duplicate campaigns across multiple recovery probes
+	bcm.recover_missing_inter_faction_campaigns(10)
+	bcm.recover_missing_inter_faction_campaigns(11)
+	_assert_eq(bcm.get_all_pending_inter_faction_campaigns().size(), 1, "TC-2E.16-NO-DUPLICATES", "No duplicate campaigns generated by recovery or tick")
+
+	outpost_merch.free()
+	outpost_mil.free()

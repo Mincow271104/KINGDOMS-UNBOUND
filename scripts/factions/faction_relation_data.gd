@@ -139,14 +139,17 @@ func apply_declare_war(start_day: int = -1, reason: String = "") -> void:
 	opinion_a_to_b = clampf(opinion_a_to_b + DELTA_DECLARE_WAR, OPINION_MIN, OPINION_MAX)
 	opinion_b_to_a = clampf(opinion_b_to_a + DELTA_DECLARE_WAR, OPINION_MIN, OPINION_MAX)
 
-func apply_sign_peace(truce_duration: int = 6, current_day: int = -1) -> void:
+func apply_sign_peace(truce_duration: int = 6, current_day: int = -1) -> bool:
+	if current_day < 1:
+		return false
 	is_at_war = false
-	if current_day >= 1 and truce_duration > 0:
+	if truce_duration > 0:
 		truce_until_day = current_day + truce_duration
 	else:
 		truce_until_day = -1
 	opinion_a_to_b = clampf(opinion_a_to_b + DELTA_SIGN_PEACE, OPINION_MIN, OPINION_MAX)
 	opinion_b_to_a = clampf(opinion_b_to_a + DELTA_SIGN_PEACE, OPINION_MIN, OPINION_MAX)
+	return true
 
 func is_on_truce(current_day: int) -> bool:
 	return not is_at_war and truce_until_day >= 1 and current_day < truce_until_day

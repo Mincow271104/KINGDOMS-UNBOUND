@@ -8117,5 +8117,53 @@ Enforce all authoritative design rules:
 - User saves: Real user profile and saves completely untouched.
 
 ### Next Exact Step
-- Package 2E implementation, code review bug fixes, full regression verification, and visual proof complete. Create local checkpoint commit on `feature/package-2e-autonomous-faction-conflict` and push branch to remote `origin`.
+- Package 2E initial review fixes complete. Proceed to independent Code Review Round 2 verification.
+
+---
+
+## 2026-11-01 — Package 2E: Fix Review Round 2 & Hardened Verification (Completed)
+
+### Summary of Completed Work
+- **BUG-2E-07 (Critical Campaign Lifecycle Scheduling & Sequence Defect):**
+  - Resolved lifecycle scheduling conflict in `BattleCampaignManager.resolve_inter_faction_campaign()`: erased completed campaign from `_pending_inter_faction_campaigns` and marked as `"resolved"` BEFORE evaluating war continuation and scheduling the next counter-attack.
+  - Verified subsequent campaigns are scheduled at exact 4-day intervals (`INTER_FACTION_SUBSEQUENT_INTERVAL_DAYS = 4`, e.g. Day 6 -> Day 10 -> Day 14), preventing recovery from misinterpreting completed campaigns as duplicates or rescheduling with a premature 2-day prep delay.
+  - Fixed campaign sequence calculation in `recover_missing_inter_faction_campaigns()` to increment strictly from `last_battle_report.get("sequence", 0) + 1` (starting at 1 if no battles occurred, minimum 2 if a report exists), eliminating dependence on `war_count` (which tracks war declarations, not battles).
+- **BUG-2E-08 (Treaty Wrapper Fail-Closed Validation on Unresolvable Day):**
+  - Updated `FactionManager.propose_treaty_between_factions()` and `sign_peace_between_factions()`: when `treaty_type == "peace"`, resolves the authoritative current day (`_resolve_current_day(current_day)`).
+  - Enforced strict fail-closed behavior: if day cannot be resolved (`eff_day < 1`), rejects peace with `PAIR_REASON_ERR_INVALID_DAY` and enforces ZERO mutation (no changes to `is_at_war`, opinions, truce or treaties).
+  - Hardened `FactionRelationData.apply_sign_peace()` to refuse mutation if `current_day < 1`.
+  - Preserved non-temporal treaty APIs (`sign_nap_between_factions`, `sign_alliance_between_factions`) without regressions.
+- **Upgraded Verification & Test Hardening:**
+  - **BUG-2E-01:** Converted HUD verification to end-to-end signal integration by wiring a live `BattleCampaignManager` directly to `HUD`, resolving an actual inter-faction campaign, and proving `inter_faction_battle_resolved` displays the world war banner while settlement defense banners (`"THẤT THỦ!"`, `"THẮNG TRẬN!"`) are completely suppressed.
+  - **BUG-2E-02 & Section 5 Data Protection:** Relocated test save/load operations to an isolated temporary directory (`user://__test_temp__/package_2e/`) with automatic recursive directory creation and full cleanup after test completion, completely protecting user saves.
+  - **BUG-2E-04:** Verified recovery behavior with inactive factions (blocked when inactive, recovered on reactivation with correct sequence and roles, idempotent without duplicates).
+  - **BUG-2E-05:** Created `SpyObjectiveActor` in test suite verifying concrete invocation of `queue_redraw()` when hostile outposts take siege damage during inter-faction campaigns.
+  - **TC-2E.16:** Added multi-battle sequence & interval lifecycle test covering Day 6, Day 10, and Day 14 battles, verifying sequence 1 -> 2 -> 3, interval of 4 days, role switching, and zero duplicates.
+- **Full Project Regression Test Matrix (9 Suites):**
+  - `test_autonomous_faction_conflict.gd`: 185/185 PASS (Exit Code 0)
+  - `test_faction_relation_matrix.gd`: 162/162 PASS (Exit Code 0)
+  - `test_save_load.gd`: 182/182 PASS (Exit Code 0)
+  - `test_faction_diplomacy_ai.gd`: 437/437 PASS (Exit Code 0)
+  - `test_faction_strategy_execution.gd`: 951/951 PASS (Exit Code 0)
+  - `test_market.gd`: 15/15 PASS (Exit Code 0)
+  - `test_field_siege.gd`: 98/98 PASS (Exit Code 0)
+  - `test_surplus_treasury_conversion.gd`: 124/124 PASS (Exit Code 0)
+  - `test_player_field_guide.gd`: 130/130 PASS (Exit Code 0)
+  - Total across all suites: 2,284 checks / assertions passed, 0 failures.
+
+### Files Modified
+- `scripts/combat/battle_campaign_manager.gd` (Modified)
+- `scripts/factions/faction_manager.gd` (Modified)
+- `scripts/factions/faction_relation_data.gd` (Modified)
+- `scripts/test/test_autonomous_faction_conflict.gd` (Modified)
+- `docs/WORKLOG.md` (Modified)
+
+### Protected Assets & User Files
+- `project.godot`: Pre-existing user-owned modification (`-window/size/resizable=true`) strictly preserved and untouched.
+- Untracked files: All 92 historical untracked files + diagnostic runners preserved byte-for-byte.
+- User saves: Real user profile and saves completely untouched.
+
+### Next Exact Step
+- Commit Round 2 fixes with descriptive conventional commit message and push branch `feature/package-2e-autonomous-faction-conflict` to remote repository `Mincow271104/KINGDOMS-UNBOUND`.
+
 

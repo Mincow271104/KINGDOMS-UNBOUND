@@ -1059,6 +1059,15 @@ func resolve_inter_faction_campaign(campaign_id: String, current_day: int = -1) 
 	if _recent_inter_faction_reports.size() > 5:
 		_recent_inter_faction_reports.pop_back()
 
+	# CRITICAL LIFECYCLE (BUG-2E-07): Mark current campaign as resolved and remove from
+	# pending BEFORE checking peace and scheduling the next campaign.
+	# Otherwise has_pending_inter_faction_campaign_for_pair() would falsely reject the subsequent campaign
+	# as a duplicate, leaving the pair without a campaign until recovery incorrectly rescheduled at +2 days.
+	record["status"] = "resolved"
+	_pending_inter_faction_campaigns.erase(campaign_id)
+	_processed_inter_faction_campaigns[campaign_id] = true
+	_in_flight_inter_faction.erase(campaign_id)
+
 	# 10. Check Peace / Next Campaign Scheduling
 	var peace_signed_after_battle: bool = false
 	var mil_depleted: bool = atk_fac.military_power <= FactionDiplomacyPlanner.PEACE_MAX_MILITARY_POWER or def_fac.military_power <= FactionDiplomacyPlanner.PEACE_MAX_MILITARY_POWER
@@ -1069,12 +1078,13 @@ func resolve_inter_faction_campaign(campaign_id: String, current_day: int = -1) 
 		peace_signed_after_battle = true
 	else:
 		# War continues: Schedule next campaign with roles switched (defender counter-attacks)
+		# Exactly 4 days interval (INTER_FACTION_SUBSEQUENT_INTERVAL_DAYS = 4)
 		var next_sched_day: int = current_day + INTER_FACTION_SUBSEQUENT_INTERVAL_DAYS
-		schedule_inter_faction_campaign(def_id, atk_id, next_sched_day, camp_seq + 1, str(record.get("casus_belli", "")))
-
-	_pending_inter_faction_campaigns.erase(campaign_id)
-	_processed_inter_faction_campaigns[campaign_id] = true
-	_in_flight_inter_faction.erase(campaign_id)
+		var next_camp_res: Dictionary = schedule_inter_faction_campaign(
+			def_id, atk_id, next_sched_day, camp_seq + 1, str(record.get("casus_belli", ""))
+		)
+		if not bool(next_camp_res.get("success", false)):
+			push_warning("Failed to schedule subsequent inter-faction campaign: %s" % str(next_camp_res.get("reason", "")))
 
 	inter_faction_battle_resolved.emit(report, context)
 	battle_resolved.emit(report, context)
@@ -1118,9 +1128,17 @@ func recover_missing_inter_faction_campaigns(current_day: int) -> Array[Dictiona
 			if last_atk == rel.faction_a:
 				atk_id = rel.faction_b
 				def_id = rel.faction_a
+		elif fb.military_power > fa.military_power:
+			atk_id = rel.faction_b
+			def_id = rel.faction_a
 
 		var sched_day: int = current_day + INTER_FACTION_CAMPAIGN_PREP_DAYS
-		var seq: int = rel.war_count + 1
+		# BUG-2E-07: Sequence must increment from last battle report, not war_count (war declaration count)
+		var seq: int = 1
+		if not rel.last_battle_report.is_empty():
+			var last_seq: int = int(rel.last_battle_report.get("sequence", 0))
+			seq = maxi(2, last_seq + 1)
+
 		var res = schedule_inter_faction_campaign(atk_id, def_id, sched_day, seq, rel.casus_belli)
 		if res.get("success", false):
 			scheduled_list.append(res)

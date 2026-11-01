@@ -462,7 +462,14 @@ func sign_peace_between_factions(id_1: String, id_2: String, truce_duration: int
 			"reason_code": PAIR_REASON_ERR_NOT_AT_WAR,
 			"reason": "Hai thế lực đang trong trạng thái hòa bình"
 		}
-	rec.apply_sign_peace(truce_duration, current_day)
+	var eff_day: int = _resolve_current_day(current_day)
+	if eff_day < 1:
+		return {
+			"success": false,
+			"reason_code": PAIR_REASON_ERR_INVALID_DAY,
+			"reason": "Không thể ký hòa ước vì không xác định được ngày hiện tại hợp lệ để thiết lập đình chiến"
+		}
+	rec.apply_sign_peace(truce_duration, eff_day)
 	var p_key: String = rec.get_pair_key()
 	faction_pair_peace_signed.emit(rec.faction_a, rec.faction_b, p_key)
 	_emit_pair_opinion_signals(rec)
@@ -594,6 +601,19 @@ func propose_treaty_between_factions(id_1: String, id_2: String, treaty_type: St
 	var eff_day: int = _resolve_current_day(current_day)
 	match treaty_type:
 		"peace":
+			if eff_day < 1:
+				var check: Dictionary = _validate_faction_pair_ids(id_1, id_2)
+				if not bool(check.get("valid", false)):
+					return {
+						"success": false,
+						"reason_code": str(check.get("reason_code", PAIR_REASON_ERR_UNKNOWN_FACTION)),
+						"reason": str(check.get("reason", ""))
+					}
+				return {
+					"success": false,
+					"reason_code": PAIR_REASON_ERR_INVALID_DAY,
+					"reason": "Không thể ký hòa ước vì không xác định được ngày hiện tại hợp lệ để thiết lập đình chiến"
+				}
 			return sign_peace_between_factions(id_1, id_2, FactionDiplomacyPlanner.INTER_TRUCE_DURATION_DAYS, eff_day)
 		"nap":
 			return sign_nap_between_factions(id_1, id_2)
