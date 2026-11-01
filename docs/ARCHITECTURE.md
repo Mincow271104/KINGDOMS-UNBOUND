@@ -194,3 +194,36 @@ To ensure entities sort naturally behind and in front of buildings and foliage w
 4. **Pure Strategic Intent Evaluator (`FactionStrategyPlanner`):** Stateless, side-effect-free evaluator (`evaluate_faction_intent(fac)`) mapping active faction goals and wartime posture into structured intent dictionaries (`intent_id`, `eligible`, `reason_code`, `posture`).
 5. **Bounded Deterministic Executor (`FactionStrategyExecutor`):** Receives `FactionData` and planner decision dictionaries, validates status/goal/cost/cap/idempotency constraints fail-closed, applies atomic resource deductions and clamped attribute deltas, and returns structured execution results (`faction_id`, `day`, `intent_id`, `success`, `reason_code`, `changes`, `posture`).
 6. **Daily Coordination & Persistence (`FactionManager` & `SaveManager`):** `FactionManager.update_daily_simulation(day)` runs neutral tribe ascension first, then evaluates and executes autonomous diplomacy (`execute_faction_diplomatic_action(fid, day)`) in sorted alphabetical order (`neutral_tribe`, `rival_merchant`, `rival_military`) emitting `diplomatic_action_evaluated` and `diplomatic_action_executed` while routing war/peace through `declare_war()` and `propose_treaty(..., "peace")`, and finally evaluates and executes active faction strategic intents emitting `strategic_intent_evaluated` and `strategic_intent_executed`. `SaveManager` persists and validates `factions.strategy_executor` (`last_executed_days`, `last_tribe_growth_day`, `last_diplomacy_days`) and `factions.pairwise_relations` to guarantee Save/Load idempotency, anti-oscillation, and fail-closed relational integrity.
+
+---
+
+## 10. Outpost Capture & Territorial Control Architecture (Package 2G)
+
+### 10.1 Authoritative Outpost Domain Model (`SiegeObjectiveActor`)
+- **Core Entity Lifecycle:** `SiegeObjectiveActor` (`scripts/combat/siege_objective_actor.gd`) manages physical outpost persistence on the map.
+- **State Transition & Idempotency:**
+  - `transfer_ownership(new_owner_id, tx_id)` provides atomic mutation guarded against duplicate transactions (`last_capture_tx_id == tx_id`) and redundant assignment (`owning_faction_id == new_owner_id`).
+  - Restores health to `round(max_health * 0.35)`, sets `is_alive = true`, `is_captured = true`, `is_under_active_siege = false`, updates display name, clears defenders, triggers redraw, and emits `objective_ownership_changed(objective_id, prev_owner, new_owner, tx_id)`.
+- **Presentation Layer:**
+  - `_draw()` renders faction-specific banner colors (Royal Blue for player with golden pole and finials; Crimson Red for military; Amber Gold for merchants; Forest Green for tribes).
+  - Health bar renders green for player outposts and red for enemy outposts.
+
+### 10.2 Field Siege Orchestration (`FieldSiegeManager`)
+- **Central Coordinator:** `FieldSiegeManager` (`scripts/combat/field_siege_manager.gd`) coordinates player and NPC sieges.
+- **Authoritative Ownership Routing:** `transfer_outpost_ownership(obj_id, new_owner_id, tx_id)` validates owner IDs against known factions and `"player"`, routes to the target objective actor, and emits `outpost_ownership_changed(objective_id, prev_owner, new_owner, tx_id)`.
+- **Player Siege Resolution:** Successful player sieges trigger `_resolve_siege_outcome()` with `VICTORY`, invoking `transfer_outpost_ownership(current_objective_id, "player", "player_siege_" + current_siege_id)`.
+- **Friendly Siege Prevention:** `can_launch_field_siege()` prevents the player from sieging their own captured outposts.
+
+### 10.3 Inter-Faction Autonomous Warfare Integration (`BattleCampaignManager`)
+- **Dynamic Targeting:** `BattleCampaignManager.schedule_inter_faction_campaign()` and `resolve_inter_faction_campaign()` dynamically query live outposts belonging to the defending faction.
+- **Objective Sacking:** Attacker victory inflicts real siege damage ($15.0$ HP per surviving troop). When reduced to $\le 0.0\text{ HP}$, the outpost is sacked, transitioning ownership to the attacker via `fsm.transfer_outpost_ownership()`.
+- **Active Siege Collision Protection:** Outposts with `is_under_active_siege == true` are strictly bypassed by NPC campaign combat to prevent state races with ongoing player field battles.
+
+### 10.4 Presentation & Event Transparency (`WorldView` & `HUD`)
+- **HUD Event Banners:** `WorldView` connects to `field_siege_mgr.outpost_ownership_changed`, surfacing immediate Vietnamese event banners:
+  - Player conquest: `"ĐÃ CHIẾM TIỀN ĐỒN! Vương quốc đã làm chủ [Tên Tiền Đồn]!"`
+  - NPC conquest: `"BIẾN ĐỘNG LÃNH THỔ! [Phe Tấn Công] đã chiếm đóng [Tên Tiền Đồn] từ tay [Phe Bị Chiếm]!"`
+
+### 10.5 Fail-Closed Persistence & Backward Compatibility (`SaveManager`)
+- **Schema Validation:** `SaveManager.validate_save_data()` enforces type safety and bounds for Package 2G metadata (`original_owner_id`, `previous_owner_id`, `capture_revision`, `last_capture_tx_id`).
+- **Migration Contract:** Legacy saves missing territorial control metadata initialize safely with original owner equal to `owning_faction_id`, empty previous owner, 0 revision, and empty transaction ID.

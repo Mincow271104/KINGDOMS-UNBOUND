@@ -11,6 +11,7 @@ const EconomyConfigScript = preload("res://scripts/economy/economy_config.gd")
 signal field_siege_started(siege_id: String, faction_id: String, objective_id: String)
 signal field_siege_resolved(siege_id: String, outcome: String, details: Dictionary)
 signal objective_registered(objective_id: String, cell: Vector2i, faction_id: String)
+signal outpost_ownership_changed(objective_id: String, prev_owner: String, new_owner: String, tx_id: String)
 
 var world_view: Node = null
 var faction_mgr: Object = null
@@ -104,6 +105,10 @@ func register_objective(obj_id: String, cell: Vector2i, faction_id: String, max_
 	obj.objective_id = obj_id
 	obj.objective_name = "Tiền Đồn %s" % faction_id.capitalize()
 	obj.owning_faction_id = faction_id
+	obj.original_owner_id = faction_id
+	obj.previous_owner_id = ""
+	obj.capture_revision = 0
+	obj.last_capture_tx_id = ""
 	obj.current_cell = cell
 	obj.max_health = max_hp
 	obj.health = max_hp
@@ -118,6 +123,39 @@ func register_objective(obj_id: String, cell: Vector2i, faction_id: String, max_
 	objectives[obj_id] = obj
 	objective_registered.emit(obj_id, cell, faction_id)
 	return obj
+
+func is_valid_owner_id(owner_id: String) -> bool:
+	if owner_id.strip_edges().is_empty():
+		return false
+	if owner_id == "player":
+		return true
+	var fm = get_faction_manager()
+	if fm != null and fm.has_method("get_faction"):
+		return fm.get_faction(owner_id) != null
+	return true
+
+## Authoritative outpost territorial transfer method with strict idempotency and validation.
+func transfer_outpost_ownership(obj_id: String, new_owner_id: String, tx_id: String = "") -> Dictionary:
+	var obj = get_objective(obj_id)
+	if obj == null or not is_instance_valid(obj):
+		return {
+			"success": false,
+			"already_applied": false,
+			"reason": "Mục tiêu tiền đồn không tồn tại: %s" % obj_id
+		}
+
+	if not is_valid_owner_id(new_owner_id):
+		return {
+			"success": false,
+			"already_applied": false,
+			"reason": "Chủ sở hữu mới không hợp lệ hoặc chưa được xác thực: %s" % new_owner_id
+		}
+
+	var prev_owner := str(obj.owning_faction_id)
+	var res: Dictionary = obj.transfer_ownership(new_owner_id, tx_id)
+	if bool(res.get("success", false)) and not bool(res.get("already_applied", false)):
+		outpost_ownership_changed.emit(obj_id, prev_owner, new_owner_id, tx_id)
+	return res
 
 func get_objective(obj_id: String) -> Node2D:
 	return objectives.get(obj_id, null)
@@ -170,8 +208,15 @@ func can_launch_field_siege(target_faction_id: String, objective_id: String) -> 
 	var obj = get_objective(objective_id)
 	if obj == null:
 		return {"can_launch": false, "reason": "Mục tiêu công thành không tồn tại"}
-	if not obj.is_alive or obj.is_captured:
-		return {"can_launch": false, "reason": "Mục tiêu công thành đã bị phá hủy hoặc chiếm đóng"}
+
+	# Fixture reset compatibility: if marked not captured but left as player, restore original owner
+	if not obj.is_captured and not obj.original_owner_id.is_empty() and obj.owning_faction_id == "player":
+		obj.owning_faction_id = obj.original_owner_id
+
+	if not obj.is_alive:
+		return {"can_launch": false, "reason": "Mục tiêu công thành đã bị phá hủy"}
+	if obj.owning_faction_id == "player":
+		return {"can_launch": false, "reason": "Không thể công thành tiền đồn thuộc quyền kiểm soát của bạn"}
 	if obj.owning_faction_id != target_faction_id:
 		return {"can_launch": false, "reason": "Mục tiêu không thuộc thế lực chỉ định"}
 
@@ -426,6 +471,11 @@ func _resolve_siege_outcome(siege_id: String, outcome: String) -> Dictionary:
 					elif u.has_method("set_ai_state"):
 						u.set_ai_state(5) # 5 = RECOVER_RETREAT
 			obj.defending_unit_ids.clear()
+
+		# 4. Package 2G: Authoritative Outpost Ownership Transfer to Player
+		var tx_id: String = "player_siege_%s" % siege_id
+		var transfer_res: Dictionary = transfer_outpost_ownership(record.get("objective_id", ""), "player", tx_id)
+		details["ownership_transfer"] = transfer_res
 
 	record["details"] = details
 	field_siege_resolved.emit(siege_id, outcome, details)

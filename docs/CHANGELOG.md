@@ -8,6 +8,21 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### [Package 2G] - 2026-11-01
+#### Added
+- Outpost Capture & Territorial Control (`SiegeObjectiveActor`, `FieldSiegeManager`, `BattleCampaignManager`, `WorldView`, `SaveManager`):
+  - Authoritative outpost ownership model tracking dynamic `owning_faction_id`, immutable founding `original_owner_id`, historical `previous_owner_id`, monotonic `capture_revision`, and transaction idempotency token `last_capture_tx_id`.
+  - Atomic, idempotent ownership transfer via `SiegeObjectiveActor.transfer_ownership(new_owner_id, tx_id)` and authoritative coordinator `FieldSiegeManager.transfer_outpost_ownership(obj_id, new_owner_id, tx_id)`.
+  - Post-conquest recovery contract: Outposts are never permanently deleted from the world map. Upon capture, health is restored to exactly 35% of `max_health` (`round(max_health * 0.35)`), resetting `is_alive = true`, `is_captured = true`, and clearing active siege state.
+  - Distinct visual territorial recognition with faction heraldry colors: Royal Blue (`Color(0.2, 0.45, 0.85)`) with golden pole and conquest finial for `"player"`, Crimson Red for `rival_military`, Amber Gold for `rival_merchant`, and Forest Green for `neutral_tribe`.
+  - Dynamic health bar color: Player-owned outposts render green health bars (`Color(0.2, 0.8, 0.2)`), while hostile/NPC outposts render red health bars (`Color(0.8, 0.2, 0.2)`).
+  - Real-time HUD conquest event banners: `"ĐÃ CHIẾM TIỀN ĐỒN!"` for player field siege conquest and `"BIẾN ĐỘNG LÃNH THỔ!"` for NPC autonomous warfare territorial conquests.
+  - Tactical field siege integration: Resolving a field siege as `VICTORY` authoritatively transfers the outpost to `"player"`, resets defenders, and prevents friendly sieges against player-owned outposts.
+  - Inter-faction warfare campaign integration: Attacking NPC victories dynamically resolve the defender's outpost, inflict siege damage, sack the outpost on breach, and transfer territorial ownership with unique campaign transaction IDs.
+  - Collision avoidance: Campaigns strictly skip damaging or capturing outposts currently under active player siege (`is_under_active_siege == true`).
+  - Fail-closed Save/Load schema validation with 100% backward compatibility: Deserializes legacy saves safely by setting `original_owner_id = owning_faction_id`, `previous_owner_id = ""`, `capture_revision = 0`, and `last_capture_tx_id = ""`.
+  - Automated test suite `scripts/test/test_outpost_territorial_control.gd` covering 8 mandatory test groups and 108 assertions (100% pass rate, Exit Code 0).
+
 ### [Package 2B] - 2026-10-31
 #### Added
 - Citizen Skill Progression & Vocational Specialization (`CitizenSkillData`, `CitizenController`, `HUD`, `SaveManager`):

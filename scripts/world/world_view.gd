@@ -222,10 +222,23 @@ func _generate_and_build_world() -> void:
 		field_siege_mgr.set_resource_manager(rm_node)
 	field_siege_mgr.field_siege_resolved.connect(func(_sid: String, outcome: String, _details: Dictionary):
 		if hud != null:
-			if outcome == "VICTORY":
-				hud.show_event_banner("Chiến Thắng Công Thành!", "Đã chiếm thành công tiền đồn địch! Thu được chiến lợi phẩm phong phú.", true, 5.0)
-			elif outcome == "DEFEAT":
+			if outcome == "DEFEAT":
 				hud.show_event_banner("Thất Bại Công Thành!", "Toàn bộ lực lượng công thành đã bị đẩy lui.", false, 5.0)
+			elif outcome == "WITHDRAWAL":
+				hud.show_event_banner("Rút Quân Công Thành", "Lực lượng công thành đã rút lui khỏi chiến địa.", false, 4.0)
+	)
+	field_siege_mgr.outpost_ownership_changed.connect(func(_obj_id: String, prev_owner: String, new_owner: String, _tx_id: String):
+		if hud != null:
+			var prev_name := _get_faction_display_name(prev_owner)
+			if new_owner == "player":
+				var title := "ĐÃ CHIẾM TIỀN ĐỒN!"
+				var desc := "Quân đội hoàng gia đã chiếm tiền đồn của %s. Quyền kiểm soát hiện thuộc về Vương quốc của bạn." % prev_name
+				hud.show_event_banner(title, desc, true, 5.0)
+			else:
+				var new_name := _get_faction_display_name(new_owner)
+				var title := "BIẾN ĐỘNG LÃNH THỔ!"
+				var desc := "%s đã chiếm tiền đồn từ %s." % [new_name, prev_name]
+				hud.show_event_banner(title, desc, true, 5.0)
 	)
 	_setup_selection_box_overlay()
 
@@ -677,6 +690,15 @@ func get_enemy_military_manager() -> RefCounted:
 
 func get_field_siege_manager() -> RefCounted:
 	return field_siege_mgr
+
+func _get_faction_display_name(fac_id: String) -> String:
+	if fac_id == "player":
+		return "Vương quốc của bạn"
+	if faction_mgr != null and faction_mgr.has_method("get_faction"):
+		var f = faction_mgr.get_faction(fac_id)
+		if f != null and f.get("name") != null:
+			return str(f.get("name"))
+	return fac_id.capitalize()
 
 func _find_valid_outpost_cell(preferred_center: Vector2i, min_dist_from_rally: int = 15) -> Vector2i:
 	var rally := Vector2i(30, 30)

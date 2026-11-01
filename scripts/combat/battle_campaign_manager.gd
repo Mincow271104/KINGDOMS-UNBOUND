@@ -840,7 +840,21 @@ func schedule_inter_faction_campaign(
 	var camp_id: String = "if_camp_%d" % _next_inter_faction_campaign_index
 	_next_inter_faction_campaign_index += 1
 
-	var target_outpost: String = "outpost_%s" % defender_id
+	# Package 2G: Deterministically identify defender's live outpost if available
+	var target_outpost: String = ""
+	var fsm = get_field_siege_manager()
+	if fsm != null and fsm.has_method("get_all_objectives"):
+		var cand_objs: Array = []
+		for o in fsm.get_all_objectives():
+			if is_instance_valid(o) and str(o.get("owning_faction_id")) == defender_id:
+				var o_al = o.get("is_alive")
+				if o_al == null or bool(o_al):
+					cand_objs.append(o)
+		if not cand_objs.is_empty():
+			cand_objs.sort_custom(func(a, b): return str(a.get("objective_id")) < str(b.get("objective_id")))
+			target_outpost = str(cand_objs[0].get("objective_id"))
+	if target_outpost.is_empty():
+		target_outpost = "outpost_%s" % defender_id
 	var record: Dictionary = {
 		"campaign_id": camp_id,
 		"pair_key": p_key,
@@ -987,25 +1001,56 @@ func resolve_inter_faction_campaign(campaign_id: String, current_day: int = -1) 
 				def_fac.resources[r_id] = int(def_fac.resources.get(r_id, 0)) + taken
 				plundered_applied[r_id] = taken
 
-	# 7. Outpost Damage (Target Outpost)
+	# 7. Outpost Damage & Conquest (Target Outpost - Package 2G)
 	var outpost_sacked: bool = false
 	var fsm = get_field_siege_manager()
+	var target_obj: Object = null
 	var target_obj_id: String = str(record.get("target_outpost_id", ""))
-	if fsm != null and not target_obj_id.is_empty():
-		var obj = fsm.get_objective(target_obj_id)
-		if obj != null and is_instance_valid(obj) and obj.is_alive:
+	if fsm != null:
+		if not target_obj_id.is_empty():
+			var cand = fsm.get_objective(target_obj_id)
+			if cand != null and is_instance_valid(cand) and str(cand.get("owning_faction_id")) == def_fac.id:
+				var c_alive = cand.get("is_alive")
+				if c_alive == null or bool(c_alive):
+					target_obj = cand
+		if target_obj == null and fsm.has_method("get_all_objectives"):
+			var cand_objs: Array = []
+			for o in fsm.get_all_objectives():
+				if is_instance_valid(o) and str(o.get("owning_faction_id")) == def_fac.id:
+					var o_alive = o.get("is_alive")
+					if o_alive == null or bool(o_alive):
+						cand_objs.append(o)
+			if not cand_objs.is_empty():
+				cand_objs.sort_custom(func(a, b): return str(a.get("objective_id")) < str(b.get("objective_id")))
+				target_obj = cand_objs[0]
+				target_obj_id = str(target_obj.get("objective_id"))
+				record["target_outpost_id"] = target_obj_id
+
+	var tgt_alive = target_obj.get("is_alive") if target_obj != null else null
+	if target_obj != null and is_instance_valid(target_obj) and (tgt_alive == null or bool(tgt_alive)):
+		var raw_siege = target_obj.get("is_under_active_siege")
+		var is_in_active_siege: bool = (raw_siege != null and bool(raw_siege))
+		if not is_in_active_siege and fsm != null and fsm.has_method("is_siege_active_for_objective"):
+			is_in_active_siege = fsm.is_siege_active_for_objective(str(target_obj.get("objective_id")))
+
+		if not is_in_active_siege:
 			if report.victor == "attacker":
 				var dmg: float = float(report.attacker_troops_remaining) * 15.0
-				obj.health = maxf(0.0, obj.health - dmg)
-				if obj.health <= 0.0:
-					obj.health = 0.0
-					obj.is_alive = false
-					obj.is_captured = true
-					outpost_sacked = true
-					if fsm.has_method("_on_objective_destroyed"):
-						fsm.call("_on_objective_destroyed", obj.objective_id, atk_fac.id)
-				if obj.has_method("queue_redraw"):
-					obj.queue_redraw()
+				target_obj.health = maxf(0.0, float(target_obj.get("health")) - dmg)
+				if float(target_obj.get("health")) <= 0.0:
+					var tx_id: String = "npc_campaign_%s" % campaign_id
+					var transfer_res: Dictionary = {}
+					if fsm != null and fsm.has_method("transfer_outpost_ownership"):
+						transfer_res = fsm.transfer_outpost_ownership(str(target_obj.get("objective_id")), atk_fac.id, tx_id)
+					elif target_obj.has_method("transfer_ownership"):
+						transfer_res = target_obj.transfer_ownership(atk_fac.id, tx_id)
+
+					if bool(transfer_res.get("success", false)) and not bool(transfer_res.get("already_applied", false)):
+						outpost_sacked = true
+						if fsm != null and fsm.has_method("_on_objective_destroyed"):
+							fsm.call("_on_objective_destroyed", str(target_obj.get("objective_id")), atk_fac.id)
+				if target_obj.has_method("queue_redraw"):
+					target_obj.queue_redraw()
 
 	# 8. Stability Shifts
 	if report.victor == "attacker":
@@ -1048,7 +1093,11 @@ func resolve_inter_faction_campaign(campaign_id: String, current_day: int = -1) 
 		"plunder": plundered_applied,
 		"plundered_resources": plundered_applied,
 		"outpost_sacked": outpost_sacked,
+		"outpost_captured": outpost_sacked,
 		"target_outpost_id": target_obj_id,
+		"captured_outpost_id": str(target_obj.get("objective_id")) if (outpost_sacked and target_obj != null) else "",
+		"previous_owner_id": def_fac.id if outpost_sacked else "",
+		"new_owner_id": atk_fac.id if outpost_sacked else "",
 		"casus_belli": record.get("casus_belli", ""),
 		"explanation": report.explanation,
 		"is_inter_faction": true

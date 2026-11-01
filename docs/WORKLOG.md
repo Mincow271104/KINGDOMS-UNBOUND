@@ -8795,3 +8795,100 @@ Total: 2,824 checks/assertions/tests passed (0 failures, 0 skipped, 16/16 suites
 
 ### Next Exact Step
 - Create Round 7 commit, push to `feature/package-2f-building-inspection-and-management` on remote `origin`, and await ChatGPT independent review. Do NOT proceed to Package 2G.
+
+---
+
+## 2026-11-01 — Package 2G: Outpost Capture & Territorial Control (Completed)
+
+### Context & Objective
+Implement Package 2G: Outpost Capture & Territorial Control for KINGDOMS UNBOUND as an Autonomous Senior Godot 4.7 Game Developer.
+Unify outpost destruction, player siege operations, and NPC-NPC autonomous warfare into one persistent, authoritative territorial control lifecycle with ownership transfer, 35% health recovery, strict idempotency, visual banner feedback, HUD alerts, backward-compatible save/load, dedicated test suite, and 100% regression passing across 16 established suites.
+
+### Implementation Summary
+1. **Authoritative Outpost Ownership Model (`scripts/combat/siege_objective_actor.gd`):**
+   - Added persistent fields: `@export var original_owner_id: String = ""`, `previous_owner_id: String = ""`, `capture_revision: int = 0`, and `last_capture_tx_id: String = ""`.
+   - Added signal: `signal objective_ownership_changed(objective_id: String, previous_owner_id: String, new_owner_id: String, transaction_id: String)`.
+   - Removed `is_captured` block from `take_damage()` so alive recaptured outposts can receive damage and be sieged repeatedly.
+   - Implemented `transfer_ownership(new_owner_id, tx_id)`:
+     - Atomic mutation guarded by transaction idempotency (`last_capture_tx_id == tx_id`) and redundant owner check (`owning_faction_id == new_owner_id`).
+     - Post-conquest recovery contract: Restores health to `round(max_health * 0.35)`, sets `is_alive = true`, `is_captured = true`, `is_under_active_siege = false`.
+     - Clears defender units (`defenders.clear()`).
+     - Updates display name: `"Tiền Đồn Vương Quốc"` for `"player"`, `"Tiền Đồn %s"` for factions.
+     - Triggers `queue_redraw()` and emits `objective_ownership_changed`.
+   - Dynamic banner presentation in `_draw()`:
+     - Faction banner colors: Royal Blue (`Color(0.2, 0.45, 0.85)`) for `"player"` with gold pole and conquest finial; Crimson Red (`Color(0.8, 0.2, 0.2)`) for `rival_military`; Amber Gold (`Color(0.85, 0.65, 0.15)`) for `rival_merchant`; Forest Green (`Color(0.2, 0.65, 0.3)`) for `neutral_tribe`.
+     - Health bar color: Green (`Color(0.2, 0.8, 0.2)`) for player-owned outposts; Red (`Color(0.8, 0.2, 0.2)`) for hostile/NPC outposts.
+   - Serialization & Deserialization: Extended `serialize()` and `deserialize()` with default migration for legacy saves.
+
+2. **Field Siege Orchestration & Player Conquest (`scripts/combat/field_siege_manager.gd`):**
+   - Added signal: `signal outpost_ownership_changed(objective_id: String, previous_owner_id: String, new_owner_id: String, transaction_id: String)`.
+   - Initial objective registration: sets `original_owner_id = faction_id`.
+   - Implemented `is_valid_owner_id(owner_id)` accepting known faction IDs and `"player"`.
+   - Implemented authoritative coordinator: `transfer_outpost_ownership(obj_id, new_owner_id, tx_id)`.
+   - Player siege victory: In `_resolve_siege_outcome()`, on `VICTORY`, authoritatively calls `transfer_outpost_ownership(current_objective_id, "player", "player_siege_" + current_siege_id)`.
+   - Friendly siege prevention: In `can_launch_field_siege()`, strictly blocks launching sieges against player-owned outposts (`owning_faction_id == "player"`). Allows sieging recaptured hostile outposts.
+
+3. **Autonomous NPC Warfare Sacking & Collision Protection (`scripts/combat/battle_campaign_manager.gd`):**
+   - Enhanced `schedule_inter_faction_campaign()` and `resolve_inter_faction_campaign()` to dynamically query the defending faction's live regional outpost.
+   - Attacker victory inflicts real siege damage ($15.0$ HP per surviving troop). When reduced to $\le 0.0$ HP, the outpost is sacked, transfers ownership to the attacking faction, and increments `capture_revision`.
+   - Collision protection: If an outpost has `is_under_active_siege == true`, campaigns strictly skip dealing damage or transferring ownership.
+   - Safe boolean extraction for arbitrary double properties (`raw_siege != null and bool(raw_siege)`), avoiding Godot 4.7 `bool(null)` crash.
+
+4. **World Presentation & Real-Time Alerts (`scripts/world/world_view.gd`):**
+   - Wired `field_siege_mgr.outpost_ownership_changed` to display real-time HUD event banners:
+     - Player conquest: `"ĐÃ CHIẾM TIỀN ĐỒN! Vương quốc đã làm chủ [Tên Tiền Đồn]!"`
+     - NPC conquest: `"BIẾN ĐỘNG LÃNH THỔ! [Phe Tấn Công] đã chiếm đóng [Tên Tiền Đồn] từ tay [Phe Bị Chiếm]!"`
+   - Suppressed duplicate victory event banners in `_on_field_siege_resolved()`.
+
+5. **Fail-Closed Save/Load Schema & Migration (`scripts/persistence/save_manager.gd`):**
+   - Updated `validate_save_data()` with fail-closed validation for `original_owner_id`, `previous_owner_id`, `capture_revision`, and `last_capture_tx_id`.
+   - Legacy saves deserialize cleanly with `original_owner_id = owning_faction_id`, `previous_owner_id = ""`, `capture_revision = 0`, and `last_capture_tx_id = ""`.
+
+6. **Dedicated Test Suite (`scripts/test/test_outpost_territorial_control.gd`):**
+   - Covered all 8 mandatory test groups (TC-OTC.G1 through TC-OTC.G8) with 108 automated assertions.
+   - Result: 108/108 assertions passed (Exit Code 0).
+
+### Verification & Regression Matrix (17 Suites, 0 Failures)
+All suites executed via Godot 4.7 headless runner:
+1. `scripts/test/test_outpost_territorial_control.gd`: 108 assertions passed (Exit Code 0) — Package 2G Dedicated Suite
+2. `scripts/test/test_autonomous_faction_conflict.gd`: 205 checks passed (Exit Code 0)
+3. `scripts/test/test_faction_relation_matrix.gd`: 162 checks passed (Exit Code 0)
+4. `scripts/test/test_save_load.gd`: 182 assertions passed (Exit Code 0)
+5. `scripts/test/test_faction_diplomacy_ai.gd`: 437 checks passed (Exit Code 0)
+6. `scripts/test/test_faction_strategy_execution.gd`: 951 checks passed (Exit Code 0)
+7. `scripts/test/test_market.gd`: 15 test cases passed (Exit Code 0)
+8. `scripts/test/test_field_siege.gd`: 16 test cases, 98 assertions passed (Exit Code 0)
+9. `scripts/test/test_surplus_treasury_conversion.gd`: 15 requirements, 124 checks passed (Exit Code 0)
+10. `scripts/test/test_player_field_guide.gd`: 9 test groups, 130 checks passed (Exit Code 0)
+11. `scripts/test/test_workshop.gd`: 7 test groups passed (Exit Code 0)
+12. `scripts/test/test_research_hall.gd`: 7 test groups passed (Exit Code 0)
+13. `scripts/test/test_barracks.gd`: 7 test groups passed (Exit Code 0)
+14. `scripts/test/test_watchtower.gd`: 9 test groups passed (Exit Code 0)
+15. `scripts/test/test_citizen_skills.gd`: 27 test cases passed (Exit Code 0)
+16. `scripts/test/test_tactical_military.gd`: 11 groups, 419 assertions passed (Exit Code 0)
+17. `scripts/test/test_building_management.gd`: 34 test cases passed (Exit Code 0)
+
+Godot Engine headless parse check: `Godot_v4.7-stable_win64_console.exe --headless --editor --quit` executed with 0 errors (Exit Code 0).
+
+### Files Created, Modified & Protected
+- **Modified:**
+  - `scripts/combat/siege_objective_actor.gd`
+  - `scripts/combat/field_siege_manager.gd`
+  - `scripts/combat/battle_campaign_manager.gd`
+  - `scripts/world/world_view.gd`
+  - `scripts/persistence/save_manager.gd`
+  - `docs/WORKLOG.md`
+  - `docs/BACKLOG.md`
+  - `docs/GAME_RULES.md`
+  - `docs/ARCHITECTURE.md`
+  - `docs/SCOPE_DECISIONS.md`
+  - `docs/CHANGELOG.md`
+- **Created:**
+  - `scripts/test/test_outpost_territorial_control.gd`
+- **Protected:**
+  - `project.godot` (pre-existing uncommitted diff preserved)
+  - 92 historical untracked diagnostic/validation/screenshot/UID files strictly preserved
+  - User save files preserved
+
+### Next Exact Step
+- Commit Package 2G changes and push branch `feature/package-2g-outpost-territorial-control` to remote `origin`. Await user guidance before proceeding to Package 2H.

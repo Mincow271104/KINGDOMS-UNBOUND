@@ -602,11 +602,40 @@
     - Diplomacy Panel Section 3 dynamically lists all 3 canonical NPC-NPC pairs with color-coded status badges, 2-way opinion readouts, Casus Belli, war duration, pending campaign status, recent battle summaries, and player alliance warnings.
     - Save/Load: Full versioned persistence of inter-faction campaigns, reports, and pairwise metadata (`truce_until_day`, `war_start_day`, `casus_belli`, `war_count`, `last_battle_report`) with fail-closed schema validation in `SaveManager`.
 
+### 1.33 Package 2G — Outpost Capture & Territorial Control (GDD §10.1, §10.5, §11.1)
+- **Problem:** When an outpost was defeated in a field siege or autonomous inter-faction campaign, it remained permanently marked as dead or retained its original owner in `owning_faction_id`, failing to transfer territorial control or reflect world conquest.
+- **Approved & Authoritative Design Decisions:**
+  - *Authoritative Outpost Ownership Model:*
+    - Tracks dynamic `owning_faction_id` (`"player"`, `"rival_military"`, `"rival_merchant"`, `"neutral_tribe"`), immutable founding `original_owner_id`, historical `previous_owner_id`, monotonic `capture_revision`, and transaction idempotency token `last_capture_tx_id`.
+    - Centralized in `SiegeObjectiveActor` and coordinated by `FieldSiegeManager`.
+  - *Post-Conquest State & 35% Health Recovery:*
+    - Outposts are permanent map fixtures; they are never deleted or permanently dead.
+    - Capturing an outpost atomically restores health to exactly $35\%$ of `max_health` (`round(max_health * 0.35)`), resets `is_alive = true`, `is_captured = true`, `is_under_active_siege = false`, and clears remaining defender units.
+    - Living outposts can be sieged and recaptured indefinitely.
+  - *Distinct Visual Territorial Presentation:*
+    - Faction heraldry banner colors: Royal Blue (`Color(0.2, 0.45, 0.85)`) with golden pole and finials for `"player"`, Crimson Red for `rival_military`, Amber Gold for `rival_merchant`, and Forest Green for `neutral_tribe`.
+    - Health bar color: Green (`Color(0.2, 0.8, 0.2)`) for player-owned outposts, Red (`Color(0.8, 0.2, 0.2)`) for hostile/NPC outposts.
+    - Dynamic building name: `"Tiền Đồn Vương Quốc"` for player, `"Tiền Đồn [Faction Name]"` for factions.
+  - *Combat & Campaign Integration:*
+    - Player field siege victory transfers outpost to `"player"` with `tx_id = "player_siege_" + siege_id`.
+    - Friendly siege prevention: Players cannot launch field sieges against outposts they already own.
+    - Autonomous NPC campaigns dynamically target defender outposts, inflict siege damage on victory, sack outposts on breach ($HP \le 0.0$), and transfer ownership with unique campaign transaction IDs.
+    - Collision avoidance: NPC campaigns strictly bypass outposts currently under active player siege (`is_under_active_siege == true`).
+  - *Persistence & Backward Compatibility:*
+    - Strict fail-closed schema validation in `SaveManager.validate_save_data()` for Package 2G metadata.
+    - 100% backward compatibility for legacy saves lacking territorial control fields.
+- **Explicit Scope Boundaries & Non-Goals:**
+  - No 64x64 whole-map territory grid: Outposts serve as discrete territorial control nodes.
+  - No new building blueprints, resources, or factions.
+  - No fake player faction inserted into `FactionManager._factions` (reserved `"player"` owner ID only).
+  - No faction elimination or exile solely from losing outposts.
+
 ---
 
 ## 2. Deferred & Excluded Scope for MVP
 | Feature | GDD Section | Status for MVP | Rationale |
 |---|---|---|---|
+| Outpost Capture & Territorial Control | Phần X & XI | Implemented | Delivered end-to-end in Package 2G with persistent ownership, 35% health recovery, heraldic banners, friendly siege prevention, NPC sacking, collision avoidance, and fail-closed persistence |
 | Autonomous Faction Conflict & Inter-Faction Warfare | Phần X & XI | Implemented | Delivered end-to-end in Package 2E with pairwise war/peace AI, BattleResolver campaigns, resource plunder conservation, outpost siege damage, truce cooldowns, caravan surcharges, and Section 3 UI |
 | In-Game Player Field Guide & 30-Day Starter Manual | Phần I, VI & XIII | Implemented | Delivered end-to-end in Package 2D with 6 chapters, zero world mutation, input isolation, and 1280x720 / 1024x576 responsive layout |
 | Citizen Skill Progression & Vocational Specialization | Phần VI & XIV | Implemented | Delivered end-to-end in Package 2B with 6 vocations, 1.00x-1.35x bounded multipliers, real-work XP, and HUD Inspector |

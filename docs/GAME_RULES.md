@@ -450,3 +450,46 @@ An NPC faction autonomously initiates war against another NPC faction if and onl
 - **World Warfare Transparency:**
   - Real-time HUD event banners notify the player of world war declarations, peace treaties, campaign mobilization, and battle results with casualty reports.
   - Section 3 of the Diplomacy Panel ("⚔️ QUAN HỆ & CHIẾN SỰ GIỮA CÁC THẾ LỰC (NPC — NPC)") displays all 3 canonical pairs with color-coded status badges, 2-way opinion readouts, Casus Belli, war duration, pending campaign info, recent battle summaries, and player alliance warnings.
+
+---
+
+## 15. Outpost Capture & Territorial Control Rules (Package 2G)
+
+### 15.1 Authoritative Outpost Ownership Model
+Each regional outpost (`SiegeObjectiveActor`) tracked by `FieldSiegeManager` maintains persistent ownership metadata:
+1. `owning_faction_id`: Current authoritative controlling faction (`"player"`, `"rival_military"`, `"rival_merchant"`, `"neutral_tribe"`).
+2. `original_owner_id`: Founding faction identifier, set upon initial objective registration and immutable across captures.
+3. `previous_owner_id`: Controlling faction immediately preceding the most recent conquest transaction.
+4. `capture_revision`: Monotonically increasing non-negative integer tracking the total number of ownership transfers.
+5. `last_capture_tx_id`: Unique transaction identifier (`"player_siege_<id>"` or `"npc_campaign_<id>"`), guaranteeing idempotent execution.
+
+### 15.2 Post-Conquest State & Health Recovery Contract
+- **Never Permanently Destroyed:** Outposts are permanent territorial anchor points. When reduced to $0.0\text{ HP}$ or captured via siege, they are never deleted from the world map or freed from memory.
+- **Health Restoration Formula:** Upon successful capture, the outpost's health is atomically restored to exactly $35\%$ of its maximum health:
+  $$\text{health} = \text{round}(\text{max\_health} \times 0.35)$$
+- **State Normalization:** Capture resets `is_alive = true`, `is_captured = true`, `is_under_active_siege = false`, and clears remaining defender units (`defenders.clear()`).
+- **Recapture Capability:** Living outposts (`is_alive == true`) can receive damage and be sieged repeatedly regardless of `is_captured == true`.
+
+### 15.3 Visual Territorial Presentation & Banner Heraldry
+Outpost banners dynamically display the heraldic colors and conquest markers of their current controller:
+- **Player Banner:** Royal Blue (`Color(0.2, 0.45, 0.85)`), golden banner pole (`Color(0.85, 0.75, 0.3)`), golden conquest finial, and dynamic building label `"Tiền Đồn Vương Quốc"`.
+- **Rival Military Banner:** Crimson Red (`Color(0.8, 0.2, 0.2)`), dark iron pole (`Color(0.35, 0.35, 0.35)`), and label `"Tiền Đồn Quân Phiệt"`.
+- **Rival Merchant Banner:** Amber Gold (`Color(0.85, 0.65, 0.15)`), bronze pole (`Color(0.5, 0.4, 0.2)`), and label `"Tiền Đồn Thương Hội"`.
+- **Neutral Tribe Banner:** Forest Green (`Color(0.2, 0.65, 0.3)`), wooden pole (`Color(0.4, 0.3, 0.2)`), and label `"Tiền Đồn Bộ Tộc"`.
+- **Health Bar Color Coding:**
+  - Player-controlled outposts render a vibrant green health bar (`Color(0.2, 0.8, 0.2)`).
+  - Hostile/NPC-controlled outposts render a standard crimson health bar (`Color(0.8, 0.2, 0.2)`).
+
+### 15.4 Tactical Field Siege Integration & Friendly Siege Prevention
+- **Player Conquest Flow:** When a player army conducts a successful field siege resolving to `VICTORY`, `FieldSiegeManager._resolve_siege_outcome()` triggers `transfer_ownership("player", "player_siege_" + siege_id)`.
+- **Friendly Siege Prevention:** `FieldSiegeManager.can_launch_field_siege()` strictly rejects launching sieges against player-controlled outposts (`owning_faction_id == "player"`).
+- **Recapture Allowance:** The player is freely permitted to siege hostile NPC outposts that were previously player-owned or recaptured.
+
+### 15.5 NPC Autonomous Warfare Outpost Sacking & Conflict Resolution
+- **Dynamic Defender Objective Targeting:** `BattleCampaignManager.schedule_inter_faction_campaign()` and `resolve_inter_faction_campaign()` dynamically resolve target outposts belonging to the defending faction.
+- **Outpost Sacking:** Attacker victory inflicts real siege damage ($15.0\text{ HP}$ per surviving troop). If outpost health drops to $0.0\text{ HP}$, the outpost is sacked and authoritatively transferred to the attacking faction with `tx_id = "npc_campaign_" + campaign_id`.
+- **Active Player Siege Collision Protection:** If an outpost is currently under active player siege (`is_under_active_siege == true`), NPC inter-faction campaigns strictly skip dealing damage or transferring ownership to prevent desynchronization.
+
+### 15.6 Fail-Closed Save/Load Schema & Migration
+- **Schema Validation:** `SaveManager.validate_save_data()` strictly validates the types and values of `original_owner_id` (String), `previous_owner_id` (String), `capture_revision` (non-negative int), and `last_capture_tx_id` (String).
+- **100% Backward-Compatible Migration:** Legacy saves without Package 2G metadata automatically default to `original_owner_id = owning_faction_id`, `previous_owner_id = ""`, `capture_revision = 0`, and `last_capture_tx_id = ""`.

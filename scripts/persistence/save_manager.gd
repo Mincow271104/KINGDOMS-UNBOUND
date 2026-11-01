@@ -1413,6 +1413,20 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 					if not _is_valid_integer_val(o.get("garrison_count")) or int(o.get("garrison_count")) < 0:
 						return {"valid": false, "error": "garrison_count của mục tiêu %s không hợp lệ." % oid_str}
 
+				# Package 2G: Outpost territorial control metadata validation
+				if o.has("original_owner_id"):
+					if not (o.get("original_owner_id") is String):
+						return {"valid": false, "error": "original_owner_id của mục tiêu %s phải là String." % oid_str}
+				if o.has("previous_owner_id"):
+					if not (o.get("previous_owner_id") is String):
+						return {"valid": false, "error": "previous_owner_id của mục tiêu %s phải là String." % oid_str}
+				if o.has("capture_revision"):
+					if not _is_valid_integer_val(o.get("capture_revision")) or int(o.get("capture_revision")) < 0:
+						return {"valid": false, "error": "capture_revision của mục tiêu %s phải là số nguyên không âm." % oid_str}
+				if o.has("last_capture_tx_id"):
+					if not (o.get("last_capture_tx_id") is String):
+						return {"valid": false, "error": "last_capture_tx_id của mục tiêu %s phải là String." % oid_str}
+
 		if siege_val.has("active_sieges"):
 			var sieges_dict = siege_val.get("active_sieges")
 			if not (sieges_dict is Dictionary):

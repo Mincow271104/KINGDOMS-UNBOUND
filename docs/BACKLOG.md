@@ -575,3 +575,36 @@
   - Created `scripts/test/test_building_management.gd` with 30 comprehensive test cases (TC-BM.1 through TC-BM.30), all passing with 100% pass rate (Exit Code 0).
   - Created `scripts/test/visual_package_2f_validation.gd` capturing 4 high-fidelity PNG screenshots in `docs/visual_validation/` at 1280x720 and 1024x576 (`p2f_01` through `p2f_04`).
   - Full project regression test matrix verified across all 10 suites: 100% green, 0 failures.
+
+---
+
+## [Phase 2 — Package 2G] Outpost Capture & Territorial Control (Completed)
+
+- [x] **TASK-2G.1:** Authoritative Outpost Ownership Model:
+  - Extended `SiegeObjectiveActor` with authoritative ownership tracking: dynamic `owning_faction_id`, immutable founding `original_owner_id`, historical `previous_owner_id`, monotonic `capture_revision`, and transaction idempotency token `last_capture_tx_id`.
+  - Added `objective_ownership_changed(obj_id, prev_owner, new_owner, tx_id)` signal on `SiegeObjectiveActor` and `outpost_ownership_changed(obj_id, prev_owner, new_owner, tx_id)` on `FieldSiegeManager`.
+- [x] **TASK-2G.2:** Idempotent Ownership Transfer & Health Recovery Lifecycle:
+  - Implemented `SiegeObjectiveActor.transfer_ownership(new_owner_id, tx_id)`: atomic transition with strict idempotency guarding against duplicate transaction IDs and redundant owner assignment.
+  - Post-conquest recovery contract: Outposts are never permanently deleted from the world map. Upon capture, health is restored to exactly 35% of `max_health` (`round(max_health * 0.35)`), resetting `is_alive = true`, `is_captured = true`, and clearing active siege state.
+  - Implemented authoritative coordinator `FieldSiegeManager.transfer_outpost_ownership(obj_id, new_owner_id, tx_id)` with owner ID validation.
+- [x] **TASK-2G.3:** Visual Banner Representation & Dynamic Faction Palette:
+  - Enhanced `SiegeObjectiveActor._draw()` with dynamic banner colors by faction: Royal Blue (`Color(0.2, 0.45, 0.85)`) for `"player"` with golden pole and conquest finial, Crimson Red (`Color(0.8, 0.2, 0.2)`) for `rival_military`, Amber Gold (`Color(0.85, 0.65, 0.15)`) for `rival_merchant`, and Forest Green (`Color(0.2, 0.65, 0.3)`) for `neutral_tribe`.
+  - Dynamic health bar color: Player-owned outposts render green health bars (`Color(0.2, 0.8, 0.2)`), while hostile/NPC outposts render red health bars (`Color(0.8, 0.2, 0.2)`).
+  - Dynamic display name: "Tiền Đồn Vương Quốc" for player-owned outposts, and "Tiền Đồn [Faction Name]" for factions.
+- [x] **TASK-2G.4:** Tactical Field Siege Integration & Friendly Siege Prevention:
+  - Updated `FieldSiegeManager._resolve_siege_outcome()`: on `VICTORY`, authoritatively transfers outpost ownership to `"player"` with `tx_id = "player_siege_" + siege_id`, resets defenders, and emits ownership signals.
+  - Updated `FieldSiegeManager.can_launch_field_siege()`: strictly prevents launching sieges against player-owned outposts (`owning_faction_id == "player"`), and permits sieging recaptured hostile outposts.
+- [x] **TASK-2G.5:** NPC-NPC Autonomous Warfare Campaign Integration & Collision Avoidance:
+  - Enhanced `BattleCampaignManager.schedule_inter_faction_campaign()` and `resolve_inter_faction_campaign()`: dynamically resolves the defender faction's live regional outpost.
+  - Attacker victory inflicts real siege damage ($15.0$ HP per surviving troop); if breached ($HP \le 0.0$), the outpost is sacked, transfers ownership to the attacking faction, and increments `capture_revision`.
+  - Active siege collision avoidance: NPC campaigns strictly skip damaging or capturing outposts currently under active player siege (`is_under_active_siege == true`).
+- [x] **TASK-2G.6:** In-Game HUD Real-Time Conquest Banners:
+  - Wired `FieldSiegeManager.outpost_ownership_changed` in `WorldView` to trigger real-time HUD event banners: `"ĐÃ CHIẾM TIỀN ĐỒN!"` for player conquest and `"BIẾN ĐỘNG LÃNH THỔ!"` for NPC autonomous warfare conquests.
+  - Suppressed duplicate victory event banners in `WorldView._on_field_siege_resolved()`.
+- [x] **TASK-2G.7:** Fail-Closed Save/Load Schema Validation & Backward Compatibility:
+  - Updated `SaveManager.validate_save_data()` with strict fail-closed validation for `original_owner_id`, `previous_owner_id`, `capture_revision`, and `last_capture_tx_id`.
+  - Backward compatibility: Legacy save files deserialize cleanly with `original_owner_id = owning_faction_id`, `previous_owner_id = ""`, `capture_revision = 0`, and `last_capture_tx_id = ""`.
+- [x] **TASK-2G.8:** Dedicated Automated Test Suite & Full Regression Matrix Verification:
+  - Created `scripts/test/test_outpost_territorial_control.gd` covering 8 mandatory test groups and 108 assertions (100% pass rate, Exit Code 0).
+  - Executed all 17 regression test suites cleanly with 0 failures (Exit Code 0 across all suites).
+  - Executed Godot 4.7 editor headless parse check cleanly with 0 errors.
