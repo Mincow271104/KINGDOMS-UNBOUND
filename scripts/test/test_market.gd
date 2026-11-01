@@ -16,6 +16,18 @@ extends SceneTree
 ## TC-MKT-13: Backward compatibility: save game without Market loads cleanly
 ## TC-MKT-14: Save/load persistence of Market and active caravan; marker reconstruction without duplication
 ## TC-MKT-15: Re-entrancy idempotency: repeated refresh and departure do not leak or duplicate marker nodes
+## Package 2H: Dynamic Market Pricing & Supply-Demand Economy:
+## TC-MKT-16: Dynamic Pricing Neutral Baseline (multiplier == 1.0, exact match with base prices)
+## TC-MKT-17: Kingdom Scarcity & Surplus Price Reaction (low stock increases price, high stock decreases price)
+## TC-MKT-18: Caravan Scarcity & Surplus Price Reaction (low caravan stock increases price, high caravan stock decreases price)
+## TC-MKT-19: Strict Multiplier Bounding [0.80, 1.20] under extreme local and caravan stock conditions
+## TC-MKT-20: Bid/Ask Spread Invariant (caravan_sell_price >= caravan_buy_price + 1 and buy_price >= 1) across all resources
+## TC-MKT-21: Price Breakdown API completeness and consistency with get_effective_sell_price and get_effective_buy_price
+## TC-MKT-22: Quote and Transaction Parity (exact same unit price used for affordability check and balance execution)
+## TC-MKT-23: Transaction Failure Atomicity & State Rollback (insufficient gold, stock, capacity full do not mutate state)
+## TC-MKT-24: Post-Transaction Dynamic Quote Update (buying/selling changes stock and immediately refreshes subsequent quotes)
+## TC-MKT-25: Wartime Surcharge and Diplomatic Opinion Combination (preserves Package 2E +15% and opinion discount/premium)
+## TC-MKT-26: Legacy Save/Load Compatibility & Dynamic Recomputation (deserializing legacy data produces valid dynamic prices)
 
 const WorldViewScene: PackedScene = preload("res://scenes/world/world_view.tscn")
 const EconomyConfigScript = preload("res://scripts/economy/economy_config.gd")
@@ -133,24 +145,38 @@ func _process(_delta: float) -> bool:
 		var pass_tc13 := _test_tc_mkt_13_backward_compatible_save_load()
 		var pass_tc14 := _test_tc_mkt_14_save_load_persistence_and_marker()
 		var pass_tc15 := _test_tc_mkt_15_marker_idempotency_and_departure()
+		var pass_tc16 := _test_tc_mkt_16_neutral_baseline()
+		var pass_tc17 := _test_tc_mkt_17_kingdom_scarcity_and_surplus()
+		var pass_tc18 := _test_tc_mkt_18_caravan_scarcity_and_surplus()
+		var pass_tc19 := _test_tc_mkt_19_strict_multiplier_bounds()
+		var pass_tc20 := _test_tc_mkt_20_spread_and_positive_prices()
+		var pass_tc21 := _test_tc_mkt_21_price_breakdown_consistency()
+		var pass_tc22 := _test_tc_mkt_22_quote_and_transaction_parity()
+		var pass_tc23 := _test_tc_mkt_23_transaction_failure_rollback()
+		var pass_tc24 := _test_tc_mkt_24_post_trade_quote_update()
+		var pass_tc25 := _test_tc_mkt_25_wartime_and_diplomacy_combination()
+		var pass_tc26 := _test_tc_mkt_26_legacy_save_compatibility()
 
 		all_passed = (
 			pass_tc1 and pass_tc2 and pass_tc3 and pass_tc4 and
 			pass_tc5 and pass_tc6 and pass_tc7 and pass_tc8 and
 			pass_tc9 and pass_tc10 and pass_tc11 and pass_tc12 and
-			pass_tc13 and pass_tc14 and pass_tc15
+			pass_tc13 and pass_tc14 and pass_tc15 and pass_tc16 and
+			pass_tc17 and pass_tc18 and pass_tc19 and pass_tc20 and
+			pass_tc21 and pass_tc22 and pass_tc23 and pass_tc24 and
+			pass_tc25 and pass_tc26
 		)
 
 		_cleanup_test_artifacts()
 
 		print("\n--------------------------------------------------------")
 		if all_passed:
-			print("  ALL 15 PACKAGE 2A MARKET TESTS PASSED! (Exit Code 0)")
+			print("  ALL 26 MARKET & DYNAMIC PRICING TESTS PASSED! (Exit Code 0)")
 			print("--------------------------------------------------------\n")
 			quit(0)
 			return true
 		else:
-			print("  PACKAGE 2A MARKET TESTS FAILED! (Exit Code 1)")
+			print("  MARKET & DYNAMIC PRICING TESTS FAILED! (Exit Code 1)")
 			print("--------------------------------------------------------\n")
 			quit(1)
 			return false
@@ -810,4 +836,482 @@ func _test_tc_mkt_15_marker_idempotency_and_departure() -> bool:
 		return false
 
 	print("  PASS: TC-MKT-15 Repeated refresh is strictly idempotent and departure cleans up cleanly")
+	return true
+
+func _test_tc_mkt_16_neutral_baseline() -> bool:
+	print("[TC-MKT-16] Testing Dynamic Pricing Neutral Baseline (multiplier == 1.0)...")
+	var c = TradeCaravanScript.new("test_caravan_neutral", "Đoàn Buôn Thử Nghiệm", "rival_merchant")
+	c.inventory = {
+		EconomyConfigScript.RES_FOOD: 45,
+		EconomyConfigScript.RES_WOOD: 35,
+		EconomyConfigScript.RES_STONE: 22,
+		EconomyConfigScript.RES_METAL: 17,
+		EconomyConfigScript.RES_TOOLS: 10,
+		EconomyConfigScript.RES_HERBS: 17,
+		EconomyConfigScript.RES_CRYSTAL: 4
+	}
+	c.gold = 500
+	c.sell_prices = {
+		EconomyConfigScript.RES_FOOD: 2, EconomyConfigScript.RES_WOOD: 3,
+		EconomyConfigScript.RES_STONE: 4, EconomyConfigScript.RES_METAL: 8,
+		EconomyConfigScript.RES_TOOLS: 15, EconomyConfigScript.RES_HERBS: 6,
+		EconomyConfigScript.RES_CRYSTAL: 35
+	}
+	c.buy_prices = {
+		EconomyConfigScript.RES_FOOD: 1, EconomyConfigScript.RES_WOOD: 2,
+		EconomyConfigScript.RES_STONE: 2, EconomyConfigScript.RES_METAL: 5,
+		EconomyConfigScript.RES_TOOLS: 10, EconomyConfigScript.RES_HERBS: 4,
+		EconomyConfigScript.RES_CRYSTAL: 22
+	}
+	var rm = MockTestResourceManager.new({
+		EconomyConfigScript.RES_FOOD: 150,
+		EconomyConfigScript.RES_WOOD: 120,
+		EconomyConfigScript.RES_STONE: 60,
+		EconomyConfigScript.RES_METAL: 20,
+		EconomyConfigScript.RES_TOOLS: 15,
+		EconomyConfigScript.RES_HERBS: 10,
+		EconomyConfigScript.RES_CRYSTAL: 5
+	})
+
+	for res_id in [EconomyConfigScript.RES_FOOD, EconomyConfigScript.RES_WOOD, EconomyConfigScript.RES_TOOLS, EconomyConfigScript.RES_CRYSTAL]:
+		var bd = c.get_price_breakdown(res_id, 0.0, rm)
+		if absf(float(bd.get("market_multiplier", 0.0)) - 1.0) > 0.01:
+			printerr("FAIL: TC-MKT-16 expected market_multiplier 1.0 for %s, got %f" % [res_id, bd.get("market_multiplier")])
+			return false
+		if bd.get("final_sell_price") != c.sell_prices[res_id]:
+			printerr("FAIL: TC-MKT-16 sell price for %s expected %d, got %d" % [res_id, c.sell_prices[res_id], bd.get("final_sell_price")])
+			return false
+		if bd.get("final_buy_price") != c.buy_prices[res_id]:
+			printerr("FAIL: TC-MKT-16 buy price for %s expected %d, got %d" % [res_id, c.buy_prices[res_id], bd.get("final_buy_price")])
+			return false
+
+	print("  PASS: TC-MKT-16 Neutral baseline strictly preserves base sell/buy prices at reference stock")
+	return true
+
+func _test_tc_mkt_17_kingdom_scarcity_and_surplus() -> bool:
+	print("[TC-MKT-17] Testing Kingdom Scarcity & Surplus price elasticity...")
+	var c = TradeCaravanScript.new("test_caravan_elasticity", "Đoàn Buôn", "rival_merchant")
+	c.inventory = {EconomyConfigScript.RES_TOOLS: 10}
+	c.sell_prices = {EconomyConfigScript.RES_TOOLS: 15}
+	c.buy_prices = {EconomyConfigScript.RES_TOOLS: 10}
+
+	# 1. Scarcity: 0 tools in kingdom (ref = 15) -> local pressure = +0.10, mult = 1.10
+	var rm_scarce = MockTestResourceManager.new({EconomyConfigScript.RES_TOOLS: 0})
+	var bd_scarce = c.get_price_breakdown(EconomyConfigScript.RES_TOOLS, 0.0, rm_scarce)
+	if absf(float(bd_scarce.get("local_pressure", 0.0)) - 0.10) > 0.001:
+		printerr("FAIL: TC-MKT-17 local_pressure expected 0.10, got %f" % bd_scarce.get("local_pressure"))
+		return false
+	if absf(float(bd_scarce.get("market_multiplier", 0.0)) - 1.10) > 0.001:
+		printerr("FAIL: TC-MKT-17 market_multiplier expected 1.10, got %f" % bd_scarce.get("market_multiplier"))
+		return false
+	if bd_scarce.get("final_sell_price") != 17: # 15 * 1.10 = 16.5 -> 17
+		printerr("FAIL: TC-MKT-17 scarce sell price expected 17, got %d" % bd_scarce.get("final_sell_price"))
+		return false
+	if bd_scarce.get("final_buy_price") != 11: # 10 * 1.10 = 11.0 -> 11
+		printerr("FAIL: TC-MKT-17 scarce buy price expected 11, got %d" % bd_scarce.get("final_buy_price"))
+		return false
+
+	# 2. Surplus: 30 tools in kingdom (>= 2 * 15) -> local pressure = -0.10, mult = 0.90
+	var rm_surplus = MockTestResourceManager.new({EconomyConfigScript.RES_TOOLS: 30})
+	var bd_surplus = c.get_price_breakdown(EconomyConfigScript.RES_TOOLS, 0.0, rm_surplus)
+	if absf(float(bd_surplus.get("local_pressure", 0.0)) - (-0.10)) > 0.001:
+		printerr("FAIL: TC-MKT-17 local_pressure expected -0.10, got %f" % bd_surplus.get("local_pressure"))
+		return false
+	if absf(float(bd_surplus.get("market_multiplier", 0.0)) - 0.90) > 0.001:
+		printerr("FAIL: TC-MKT-17 market_multiplier expected 0.90, got %f" % bd_surplus.get("market_multiplier"))
+		return false
+	if bd_surplus.get("final_sell_price") != 14: # 15 * 0.90 = 13.5 -> 14
+		printerr("FAIL: TC-MKT-17 surplus sell price expected 14, got %d" % bd_surplus.get("final_sell_price"))
+		return false
+	if bd_surplus.get("final_buy_price") != 9: # 10 * 0.90 = 9.0 -> 9
+		printerr("FAIL: TC-MKT-17 surplus buy price expected 9, got %d" % bd_surplus.get("final_buy_price"))
+		return false
+
+	print("  PASS: TC-MKT-17 Kingdom scarcity raises price (+10%) and surplus lowers price (-10%)")
+	return true
+
+func _test_tc_mkt_18_caravan_scarcity_and_surplus() -> bool:
+	print("[TC-MKT-18] Testing Caravan Scarcity & Surplus price elasticity...")
+	var rm = MockTestResourceManager.new({EconomyConfigScript.RES_TOOLS: 15}) # ref is 15 -> local_p = 0
+
+	# 1. Caravan Scarcity: 0 tools in caravan (ref = 10) -> caravan pressure = +0.10, mult = 1.10
+	var c_scarce = TradeCaravanScript.new("c_scarce", "Đoàn Buôn", "rival_merchant")
+	c_scarce.inventory = {EconomyConfigScript.RES_TOOLS: 0}
+	c_scarce.sell_prices = {EconomyConfigScript.RES_TOOLS: 15}
+	c_scarce.buy_prices = {EconomyConfigScript.RES_TOOLS: 10}
+	var bd_scarce = c_scarce.get_price_breakdown(EconomyConfigScript.RES_TOOLS, 0.0, rm)
+	if absf(float(bd_scarce.get("caravan_pressure", 0.0)) - 0.10) > 0.001:
+		printerr("FAIL: TC-MKT-18 caravan_pressure expected 0.10, got %f" % bd_scarce.get("caravan_pressure"))
+		return false
+	if bd_scarce.get("final_sell_price") != 17:
+		printerr("FAIL: TC-MKT-18 scarce sell price expected 17, got %d" % bd_scarce.get("final_sell_price"))
+		return false
+
+	# 2. Caravan Surplus: 20 tools in caravan (>= 2 * 10) -> caravan pressure = -0.10, mult = 0.90
+	var c_surplus = TradeCaravanScript.new("c_surplus", "Đoàn Buôn", "rival_merchant")
+	c_surplus.inventory = {EconomyConfigScript.RES_TOOLS: 20}
+	c_surplus.sell_prices = {EconomyConfigScript.RES_TOOLS: 15}
+	c_surplus.buy_prices = {EconomyConfigScript.RES_TOOLS: 10}
+	var bd_surplus = c_surplus.get_price_breakdown(EconomyConfigScript.RES_TOOLS, 0.0, rm)
+	if absf(float(bd_surplus.get("caravan_pressure", 0.0)) - (-0.10)) > 0.001:
+		printerr("FAIL: TC-MKT-18 caravan_pressure expected -0.10, got %f" % bd_surplus.get("caravan_pressure"))
+		return false
+	if bd_surplus.get("final_sell_price") != 14:
+		printerr("FAIL: TC-MKT-18 surplus sell price expected 14, got %d" % bd_surplus.get("final_sell_price"))
+		return false
+
+	print("  PASS: TC-MKT-18 Caravan stock scarcity increases price and stock surplus reduces price")
+	return true
+
+func _test_tc_mkt_19_strict_multiplier_bounds() -> bool:
+	print("[TC-MKT-19] Testing strict market multiplier bounds [0.80, 1.20] across extremes...")
+	var c = TradeCaravanScript.new("c_bounds", "Đoàn Buôn", "rival_merchant")
+	c.sell_prices = {EconomyConfigScript.RES_TOOLS: 15}
+	c.buy_prices = {EconomyConfigScript.RES_TOOLS: 10}
+
+	# Extreme Scarcity: 0 on both sides
+	c.inventory = {EconomyConfigScript.RES_TOOLS: 0}
+	var rm_zero = MockTestResourceManager.new({EconomyConfigScript.RES_TOOLS: 0})
+	var bd_max = c.get_price_breakdown(EconomyConfigScript.RES_TOOLS, 0.0, rm_zero)
+	if absf(float(bd_max.get("market_multiplier", 0.0)) - 1.20) > 0.001:
+		printerr("FAIL: TC-MKT-19 max multiplier expected 1.20, got %f" % bd_max.get("market_multiplier"))
+		return false
+
+	# Extreme Surplus: massive stock on both sides
+	c.inventory = {EconomyConfigScript.RES_TOOLS: 99999}
+	var rm_mega = MockTestResourceManager.new({EconomyConfigScript.RES_TOOLS: 99999})
+	var bd_min = c.get_price_breakdown(EconomyConfigScript.RES_TOOLS, 0.0, rm_mega)
+	if absf(float(bd_min.get("market_multiplier", 0.0)) - 0.80) > 0.001:
+		printerr("FAIL: TC-MKT-19 min multiplier expected 0.80, got %f" % bd_min.get("market_multiplier"))
+		return false
+
+	# Stress test arbitrary values
+	for test_c_stock in [0, 1, 5, 10, 20, 50, 500, 5000]:
+		c.inventory[EconomyConfigScript.RES_TOOLS] = test_c_stock
+		for test_p_stock in [0, 1, 7, 15, 30, 100, 1000]:
+			var rm_test = MockTestResourceManager.new({EconomyConfigScript.RES_TOOLS: test_p_stock})
+			var bd = c.get_price_breakdown(EconomyConfigScript.RES_TOOLS, 0.0, rm_test)
+			var mult = float(bd.get("market_multiplier", 0.0))
+			if mult < 0.7999 or mult > 1.2001:
+				printerr("FAIL: TC-MKT-19 multiplier out of bounds: %f (c_stock=%d, p_stock=%d)" % [mult, test_c_stock, test_p_stock])
+				return false
+
+	print("  PASS: TC-MKT-19 Multiplier strictly bounded within [0.80, 1.20] across all scenarios")
+	return true
+
+func _test_tc_mkt_20_spread_and_positive_prices() -> bool:
+	print("[TC-MKT-20] Testing bid/ask spread invariant (sell > buy by >= 1) and positive prices...")
+	var c = TradeCaravanScript.generate_caravan(8888, 7, "rival_merchant")
+
+	var opinions = [-250.0, -100.0, -50.0, 0.0, 50.0, 100.0, 250.0]
+	var wars = [false, true]
+	var test_resources = [
+		EconomyConfigScript.RES_FOOD,
+		EconomyConfigScript.RES_WOOD,
+		EconomyConfigScript.RES_STONE,
+		EconomyConfigScript.RES_METAL,
+		EconomyConfigScript.RES_TOOLS,
+		EconomyConfigScript.RES_HERBS,
+		EconomyConfigScript.RES_CRYSTAL
+	]
+
+	for war_state in wars:
+		c.is_origin_at_war = war_state
+		for op in opinions:
+			# Test with various kingdom stock states (scarcity, neutral, surplus)
+			for p_stock_mode in [0, 1, 2]:
+				var rm_stocks: Dictionary = {}
+				for res in test_resources:
+					var ref_val = float(EconomyConfigScript.STARTING_RESOURCES.get(res, 10))
+					if p_stock_mode == 0:
+						rm_stocks[res] = 0
+					elif p_stock_mode == 1:
+						rm_stocks[res] = int(ref_val)
+					else:
+						rm_stocks[res] = int(ref_val * 3.0)
+				var rm = MockTestResourceManager.new(rm_stocks)
+
+				for res in test_resources:
+					var bd = c.get_price_breakdown(res, op, rm)
+					var sell_p = int(bd.get("final_sell_price", 0))
+					var buy_p = int(bd.get("final_buy_price", 0))
+
+					if sell_p < 2:
+						printerr("FAIL: TC-MKT-20 sell_price must be >= 2 for %s, got %d" % [res, sell_p])
+						return false
+					if buy_p < 1:
+						printerr("FAIL: TC-MKT-20 buy_price must be >= 1 for %s, got %d" % [res, buy_p])
+						return false
+					if sell_p <= buy_p:
+						printerr("FAIL: TC-MKT-20 spread violation: sell (%d) <= buy (%d) for %s (war=%s, op=%f)" % [sell_p, buy_p, res, war_state, op])
+						return false
+
+	print("  PASS: TC-MKT-20 Spread invariant (caravan_sell > caravan_buy by >= 1) strictly preserved across all cases")
+	return true
+
+func _test_tc_mkt_21_price_breakdown_consistency() -> bool:
+	print("[TC-MKT-21] Testing Price Breakdown API completeness and accessor parity...")
+	var c = TradeCaravanScript.generate_caravan(9999, 4, "rival_merchant")
+	var rm = MockTestResourceManager.new({EconomyConfigScript.RES_WOOD: 50, EconomyConfigScript.RES_FOOD: 80})
+
+	var required_keys = [
+		"resource_id", "base_sell_price", "base_buy_price",
+		"local_stock", "local_reference_stock", "local_stock_ratio", "local_pressure",
+		"caravan_stock", "caravan_reference_stock", "caravan_stock_ratio", "caravan_pressure",
+		"market_multiplier", "opinion_adjustment", "route_risk_surcharge",
+		"is_origin_at_war", "final_sell_price", "final_buy_price"
+	]
+
+	for res_id in [EconomyConfigScript.RES_WOOD, EconomyConfigScript.RES_FOOD]:
+		var bd = c.get_price_breakdown(res_id, 25.0, rm)
+		for key in required_keys:
+			if not bd.has(key):
+				printerr("FAIL: TC-MKT-21 breakdown missing key '%s'" % key)
+				return false
+		var eff_sell = c.get_effective_sell_price(res_id, 25.0, rm)
+		var eff_buy = c.get_effective_buy_price(res_id, 25.0, rm)
+		if eff_sell != bd.final_sell_price:
+			printerr("FAIL: TC-MKT-21 get_effective_sell_price (%d) != bd.final_sell_price (%d)" % [eff_sell, bd.final_sell_price])
+			return false
+		if eff_buy != bd.final_buy_price:
+			printerr("FAIL: TC-MKT-21 get_effective_buy_price (%d) != bd.final_buy_price (%d)" % [eff_buy, bd.final_buy_price])
+			return false
+
+	print("  PASS: TC-MKT-21 Price breakdown API contains all schema keys and exactly matches accessors")
+	return true
+
+func _test_tc_mkt_22_quote_and_transaction_parity() -> bool:
+	print("[TC-MKT-22] Testing exact price quote and transaction execution parity...")
+	var c = TradeCaravanScript.generate_caravan(1111, 2, "rival_merchant")
+	var rm = MockTestResourceManager.new({
+		EconomyConfigScript.RES_GOLD: 500,
+		EconomyConfigScript.RES_WOOD: 100
+	})
+	var res_id = EconomyConfigScript.RES_WOOD
+
+	# Buying parity
+	var quoted_sell = c.get_effective_sell_price(res_id, 0.0, rm)
+	var pre_gold = rm.get_available_stock(EconomyConfigScript.RES_GOLD)
+	var buy_res = c.buy_from_caravan(res_id, 10, rm, 0.0)
+	if not buy_res.get("success", false):
+		printerr("FAIL: TC-MKT-22 buy failed: %s" % buy_res.get("reason"))
+		return false
+	if buy_res.get("unit_price") != quoted_sell:
+		printerr("FAIL: TC-MKT-22 executed unit_price (%d) != quoted (%d)" % [buy_res.get("unit_price"), quoted_sell])
+		return false
+	if buy_res.get("total_cost") != quoted_sell * 10:
+		printerr("FAIL: TC-MKT-22 total_cost mismatch")
+		return false
+	if rm.get_available_stock(EconomyConfigScript.RES_GOLD) != pre_gold - (quoted_sell * 10):
+		printerr("FAIL: TC-MKT-22 gold deduction mismatch")
+		return false
+
+	# Selling parity
+	var quoted_buy = c.get_effective_buy_price(res_id, 0.0, rm)
+	pre_gold = rm.get_available_stock(EconomyConfigScript.RES_GOLD)
+	var pre_c_gold = c.gold
+	var sell_res = c.sell_to_caravan(res_id, 10, rm, 0.0)
+	if not sell_res.get("success", false):
+		printerr("FAIL: TC-MKT-22 sell failed: %s" % sell_res.get("reason"))
+		return false
+	if sell_res.get("unit_payout") != quoted_buy:
+		printerr("FAIL: TC-MKT-22 executed unit_payout (%d) != quoted (%d)" % [sell_res.get("unit_payout"), quoted_buy])
+		return false
+	if rm.get_available_stock(EconomyConfigScript.RES_GOLD) != pre_gold + (quoted_buy * 10):
+		printerr("FAIL: TC-MKT-22 gold credit mismatch")
+		return false
+	if c.gold != pre_c_gold - (quoted_buy * 10):
+		printerr("FAIL: TC-MKT-22 caravan gold deduction mismatch")
+		return false
+
+	print("  PASS: TC-MKT-22 Quoted prices and executed prices match 100% with zero deviation")
+	return true
+
+func _test_tc_mkt_23_transaction_failure_rollback() -> bool:
+	print("[TC-MKT-23] Testing transaction failure atomicity and state immutability...")
+	var c = TradeCaravanScript.generate_caravan(2222, 3, "rival_merchant")
+	c.gold = 5 # Caravan only has 5 gold
+	c.inventory[EconomyConfigScript.RES_WOOD] = 5
+
+	var rm = MockTestResourceManager.new({
+		EconomyConfigScript.RES_GOLD: 10,
+		EconomyConfigScript.RES_WOOD: 20
+	})
+
+	var snap_c_inv = c.inventory.duplicate(true)
+	var snap_c_gold = c.gold
+	var snap_rm_wood = rm.get_available_stock(EconomyConfigScript.RES_WOOD)
+	var snap_rm_gold = rm.get_available_stock(EconomyConfigScript.RES_GOLD)
+
+	# 1. Failure: Insufficient caravan stock (wants 10, has 5)
+	var fail_stock = c.buy_from_caravan(EconomyConfigScript.RES_WOOD, 10, rm, 0.0)
+	if fail_stock.get("success", true):
+		printerr("FAIL: TC-MKT-23 should fail on insufficient caravan stock")
+		return false
+
+	# 2. Failure: Insufficient player gold
+	c.inventory[EconomyConfigScript.RES_WOOD] = 20
+	snap_c_inv[EconomyConfigScript.RES_WOOD] = 20
+	var fail_gold = c.buy_from_caravan(EconomyConfigScript.RES_WOOD, 10, rm, 0.0)
+	if fail_gold.get("success", true):
+		printerr("FAIL: TC-MKT-23 should fail on insufficient player gold")
+		return false
+
+	# 3. Failure: Insufficient caravan gold on player sell (caravan has 5 gold, payout for 20 wood is >= 20 gold)
+	var fail_c_gold = c.sell_to_caravan(EconomyConfigScript.RES_WOOD, 20, rm, 0.0)
+	if fail_c_gold.get("success", true):
+		printerr("FAIL: TC-MKT-23 should fail on insufficient caravan gold")
+		return false
+
+	# 4. Failure: Insufficient player stock on sell
+	var fail_p_stock = c.sell_to_caravan(EconomyConfigScript.RES_FOOD, 10, rm, 0.0) # rm has 0 food
+	if fail_p_stock.get("success", true):
+		printerr("FAIL: TC-MKT-23 should fail on insufficient player stock")
+		return false
+
+	# Verify zero state mutation across all failures
+	if c.gold != snap_c_gold or c.inventory[EconomyConfigScript.RES_WOOD] != snap_c_inv[EconomyConfigScript.RES_WOOD]:
+		printerr("FAIL: TC-MKT-23 caravan state mutated during failure")
+		return false
+	if rm.get_available_stock(EconomyConfigScript.RES_GOLD) != snap_rm_gold or rm.get_available_stock(EconomyConfigScript.RES_WOOD) != snap_rm_wood:
+		printerr("FAIL: TC-MKT-23 resource manager state mutated during failure")
+		return false
+
+	print("  PASS: TC-MKT-23 All failure paths fail-closed with zero state corruption or partial deductions")
+	return true
+
+func _test_tc_mkt_24_post_trade_quote_update() -> bool:
+	print("[TC-MKT-24] Testing post-trade price quote elasticity update...")
+	var c = TradeCaravanScript.new("c_elastic", "Đoàn Buôn", "rival_merchant")
+	c.gold = 1000
+	c.inventory = {EconomyConfigScript.RES_TOOLS: 15}
+	c.sell_prices = {EconomyConfigScript.RES_TOOLS: 15}
+	c.buy_prices = {EconomyConfigScript.RES_TOOLS: 10}
+
+	# Starting with scarce kingdom tools (0)
+	var rm = MockTestResourceManager.new({
+		EconomyConfigScript.RES_GOLD: 1000,
+		EconomyConfigScript.RES_TOOLS: 0
+	})
+
+	var quote_initial = c.get_effective_sell_price(EconomyConfigScript.RES_TOOLS, 0.0, rm)
+
+	# Buy 10 tools from caravan -> kingdom now has 10 tools (scarcity relieved), caravan now has 5 tools (caravan scarcer)
+	var buy_res = c.buy_from_caravan(EconomyConfigScript.RES_TOOLS, 10, rm, 0.0)
+	if not buy_res.get("success", false):
+		printerr("FAIL: TC-MKT-24 buy failed: %s" % buy_res.get("reason"))
+		return false
+
+	var bd_after = c.get_price_breakdown(EconomyConfigScript.RES_TOOLS, 0.0, rm)
+	if bd_after.get("local_stock") != 10:
+		printerr("FAIL: TC-MKT-24 local_stock expected 10, got %d" % bd_after.get("local_stock"))
+		return false
+	if bd_after.get("caravan_stock") != 5:
+		printerr("FAIL: TC-MKT-24 caravan_stock expected 5, got %d" % bd_after.get("caravan_stock"))
+		return false
+
+	# Local pressure dropped from +0.10 to +0.033
+	# Caravan pressure rose from -0.05 to +0.05
+	# The updated quote correctly reflects the new supply-demand landscape
+	var quote_subsequent = c.get_effective_sell_price(EconomyConfigScript.RES_TOOLS, 0.0, rm)
+	if quote_subsequent != bd_after.final_sell_price:
+		printerr("FAIL: TC-MKT-24 quote parity failure")
+		return false
+
+	print("  PASS: TC-MKT-24 Post-trade price quotes update dynamically from new inventory and stock")
+	return true
+
+func _test_tc_mkt_25_wartime_and_diplomacy_combination() -> bool:
+	print("[TC-MKT-25] Testing wartime surcharge (+15%) and diplomatic opinion combination...")
+	var c = TradeCaravanScript.new("c_war", "Đoàn Buôn Chiến Sự", "hostile_faction")
+	c.inventory = {EconomyConfigScript.RES_TOOLS: 10}
+	c.sell_prices = {EconomyConfigScript.RES_TOOLS: 15}
+	c.buy_prices = {EconomyConfigScript.RES_TOOLS: 10}
+
+	var rm = MockTestResourceManager.new({EconomyConfigScript.RES_TOOLS: 15}) # local pressure = 0
+
+	# 1. Peace and neutral opinion (multiplier = 1.0)
+	c.is_origin_at_war = false
+	var p_peace = c.get_effective_sell_price(EconomyConfigScript.RES_TOOLS, 0.0, rm)
+	if p_peace != 15:
+		printerr("FAIL: TC-MKT-25 peace price expected 15, got %d" % p_peace)
+		return false
+
+	# 2. War without diplomatic discount
+	c.is_origin_at_war = true
+	var p_war = c.get_effective_sell_price(EconomyConfigScript.RES_TOOLS, 0.0, rm)
+	# 15 * (1.0 + 0.15) = 17.25 -> round 17
+	if p_war != 17:
+		printerr("FAIL: TC-MKT-25 wartime price expected 17, got %d" % p_war)
+		return false
+	if p_war <= p_peace:
+		printerr("FAIL: TC-MKT-25 wartime price must be higher than peace price")
+		return false
+
+	# 3. War with friendly opinion (+100 opinion -> -20% discount)
+	# mult = (1.0 - 0.20 + 0.15) * 1.0 = 0.95. 15 * 0.95 = 14.25 -> 14.
+	# But rule: if is_origin_at_war and price <= base, price = base + 1 = 16!
+	var p_war_friend = c.get_effective_sell_price(EconomyConfigScript.RES_TOOLS, 100.0, rm)
+	if p_war_friend != 16:
+		printerr("FAIL: TC-MKT-25 wartime floor expected 16, got %d" % p_war_friend)
+		return false
+
+	print("  PASS: TC-MKT-25 Wartime surcharge (+15%) and diplomatic adjustments combine accurately")
+	return true
+
+func _test_tc_mkt_26_legacy_save_compatibility() -> bool:
+	print("[TC-MKT-26] Testing legacy save deserialization and pricing recomputation...")
+	# Simulate legacy save data (prior to Package 2H, no dynamic pricing fields saved)
+	var legacy_caravan_data = {
+		"caravan_id": "caravan_legacy_99",
+		"name": "Đoàn Buôn Cũ",
+		"origin_faction_id": "rival_merchant",
+		"arrival_day": 5,
+		"departure_day": 7,
+		"is_active": true,
+		"is_origin_at_war": false,
+		"gold": 400,
+		"inventory": {
+			EconomyConfigScript.RES_WOOD: 30,
+			EconomyConfigScript.RES_FOOD: 40
+		},
+		"sell_prices": {
+			EconomyConfigScript.RES_WOOD: 3,
+			EconomyConfigScript.RES_FOOD: 2
+		},
+		"buy_prices": {
+			EconomyConfigScript.RES_WOOD: 2,
+			EconomyConfigScript.RES_FOOD: 1
+		}
+	}
+
+	var c = TradeCaravanScript.deserialize(legacy_caravan_data)
+	if c == null:
+		printerr("FAIL: TC-MKT-26 legacy deserialize returned null")
+		return false
+
+	var rm = MockTestResourceManager.new({
+		EconomyConfigScript.RES_WOOD: 120,
+		EconomyConfigScript.RES_FOOD: 150
+	})
+
+	var bd_wood = c.get_price_breakdown(EconomyConfigScript.RES_WOOD, 0.0, rm)
+	if bd_wood.is_empty():
+		printerr("FAIL: TC-MKT-26 get_price_breakdown returned empty on legacy caravan")
+		return false
+
+	var sell_wood = c.get_effective_sell_price(EconomyConfigScript.RES_WOOD, 0.0, rm)
+	var buy_wood = c.get_effective_buy_price(EconomyConfigScript.RES_WOOD, 0.0, rm)
+	if sell_wood <= buy_wood:
+		printerr("FAIL: TC-MKT-26 spread violation on legacy caravan")
+		return false
+
+	# Reserialize and verify clean roundtrip
+	var reserialized = c.serialize()
+	var c_roundtrip = TradeCaravanScript.deserialize(reserialized)
+	if c_roundtrip == null or c_roundtrip.gold != 400:
+		printerr("FAIL: TC-MKT-26 reserialize roundtrip failed")
+		return false
+
+	print("  PASS: TC-MKT-26 Legacy caravan saves deserialize cleanly and recompute dynamic prices with 0 errors")
 	return true

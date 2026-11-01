@@ -608,3 +608,43 @@
   - Created `scripts/test/test_outpost_territorial_control.gd` covering 8 mandatory test groups and 108 assertions (100% pass rate, Exit Code 0).
   - Executed all 17 regression test suites cleanly with 0 failures (Exit Code 0 across all suites).
   - Executed Godot 4.7 editor headless parse check cleanly with 0 errors.
+
+---
+
+## [Phase 2 — Package 2H] Dynamic Market Pricing & Supply-Demand Economy (Completed)
+
+- [x] **TASK-2H.1:** Dynamic Supply-Demand Market Pricing Engine & Mathematical Multiplier:
+  - Standardized reference stocks: Local Kingdom reference from `EconomyConfig.STARTING_RESOURCES` and Caravan reference stock from midpoint generation ranges (`Food: 45.0`, `Wood: 35.0`, `Stone: 22.5`, `Metal: 17.5`, `Tools: 10.0`, `Herbs: 17.5`, `Crystal: 4.0`).
+  - Implemented dual supply pressures:
+    - $local\_stock\_ratio = \text{clamp}(available\_stock / local\_ref, 0.0, 2.0)$
+    - $caravan\_stock\_ratio = \text{clamp}(caravan\_inventory / caravan\_ref, 0.0, 2.0)$
+    - $local\_pressure = \text{clamp}(1.0 - local\_stock\_ratio, -1.0, 1.0) \times 0.10$
+    - $caravan\_pressure = \text{clamp}(1.0 - caravan\_stock\_ratio, -1.0, 1.0) \times 0.10$
+    - $market\_multiplier = \text{clamp}(1.0 + local\_pressure + caravan\_pressure, 0.80, 1.20)$
+  - Completely deterministic, zero RNG, bounded strictly within $[0.80, 1.20]$, neutral baseline exactly equal to $1.00$.
+- [x] **TASK-2H.2:** TradeCaravan Unified Price Breakdown API & Atomic Transaction Parity:
+  - Created `TradeCaravan.get_price_breakdown(res_id, faction_opinion, resource_mgr) -> Dictionary` returning base prices, stock ratios, pressures, multiplier, opinion adjustment, wartime surcharge, and final prices.
+  - Extended `get_effective_sell_price` and `get_effective_buy_price` with backward-compatible defaults accepting `resource_mgr`.
+  - Guaranteed mathematical bid/ask spread invariant: `final_sell_price >= 2`, `final_buy_price = clampi(raw_buy, 1, final_sell_price - 1)`, ensuring $Ask > Bid$ by at least 1 Gold under all conditions and eliminating arbitrage.
+  - Preserved Package 2E wartime price surcharge (+15%) and diplomatic opinion adjustments.
+  - Refactored `buy_from_caravan()` and `sell_to_caravan()` to resolve prices atomically using the single breakdown helper, ensuring 100% parity between quotes and executions with zero partial state mutation on failure.
+- [x] **TASK-2H.3:** In-Game HUD Caravan Panel Upgrades & Real-Time Feedback:
+  - Enhanced Caravan trade section in `scripts/ui/hud.gd` with supply-demand market explanation banner.
+  - Buttons now display unit price and total cost/payout for 10 units (`"Mua 10 [Res] (X/đv • Y Vàng)"` / `"Bán 10 [Res] (X/đv • +Y Vàng)"`).
+  - Added comprehensive hover tooltips displaying complete price breakdowns (base price, kingdom stock/pressure, caravan stock/pressure, market multiplier, diplomatic adjustments, and wartime surcharges).
+  - Immediate real-time quote refresh following trade execution via event-driven `_refresh_diplomacy_ui()` without per-frame polling.
+- [x] **TASK-2H.4:** Dedicated Automated Test Suite Expansion (TC-MKT-01 through TC-MKT-26):
+  - Expanded `scripts/test/test_market.gd` from 15 to 26 comprehensive automated test cases:
+    - TC-MKT-16: Dynamic Pricing Neutral Baseline ($multiplier = 1.00$).
+    - TC-MKT-17: Kingdom Scarcity & Surplus Price Reaction ($\pm 10\%$).
+    - TC-MKT-18: Caravan Scarcity & Surplus Price Reaction ($\pm 10\%$).
+    - TC-MKT-19: Strict Multiplier Bounding within $[0.80, 1.20]$ across extreme ranges.
+    - TC-MKT-20: Bid/Ask Spread Invariant ($Sell > Buy \ge 1$) & positive price guarantees.
+    - TC-MKT-21: Price Breakdown API completeness and accessor parity.
+    - TC-MKT-22: Quoted price and executed transaction price 100% parity.
+    - TC-MKT-23: Transaction failure atomicity and state immutability.
+    - TC-MKT-24: Post-trade price quote dynamic elasticity updates.
+    - TC-MKT-25: Wartime surcharge (+15%) and diplomatic opinion combination.
+    - TC-MKT-26: Legacy save deserialization, migration, and dynamic price recomputation.
+  - All 26 tests passed with 100% pass rate (Exit Code 0).
+  - Full regression checks on `test_autonomous_faction_conflict.gd` (205 checks), `test_save_load.gd` (182 assertions), and headless editor parse check cleanly passed.

@@ -629,12 +629,33 @@
   - No new building blueprints, resources, or factions.
   - No fake player faction inserted into `FactionManager._factions` (reserved `"player"` owner ID only).
   - No faction elimination or exile solely from losing outposts.
+- **1.30 Dynamic Market Pricing & Supply-Demand Economy (GDD §11.1 — Package 2H):**
+  - **Dynamic Pricing Elasticity & Hard Bounds:**
+    - Unit prices dynamically react to kingdom available unreserved stock and caravan inventory stock.
+    - Symmetric supply pressures bounded to $[-0.10, +0.10]$ ($10\%$ pressure from local stock, $10\%$ pressure from caravan inventory).
+    - Market multiplier is strictly clamped to $[0.80, 1.20]$ ($\pm 20\%$).
+    - Zero RNG is used in pricing; baseline multiplier is identically $1.00$ at reference stock levels.
+  - **Reference Stock Baselines:**
+    - Local Kingdom reference: Sourced directly from `EconomyConfig.STARTING_RESOURCES` (`Food: 150`, `Wood: 120`, `Stone: 60`, `Metal: 20`, `Tools: 15`, `Herbs: 10`, `Crystal: 5`). Available stock queries `ResourceManager.get_available_stock(res_id)`.
+    - Caravan reference: Sourced from the exact midpoint of generated inventory ranges (`Food: 45.0`, `Wood: 35.0`, `Stone: 22.5`, `Metal: 17.5`, `Tools: 10.0`, `Herbs: 17.5`, `Crystal: 4.0`).
+  - **Multi-Factor Price Synthesis & Spread Invariant:**
+    - Player purchase price combines base sell price, diplomatic opinion discount (up to $-20\%$), wartime route surcharge ($+15\%$), and the dynamic multiplier.
+    - Player sale payout combines base buy price, diplomatic premium (up to $+20\%$), and the dynamic multiplier.
+    - Guaranteed bid/ask spread: `final_sell_price >= 2`, `final_buy_price = clampi(raw_buy, 1, final_sell_price - 1)`. Caravan sell price is strictly greater than buy price by $\ge 1\text{ Gold}$ across all conditions, eliminating arbitrage loops and guaranteeing positive integer prices.
+  - **Persistence & Backward Compatibility:**
+    - Dynamic pricing recomputes deterministically from existing state. Zero schema migrations or new persisted fields required.
+  - **Explicit Non-Goals & Out of Scope:**
+    - No new resource types or merchant classes.
+    - No NPC market keeper citizens or physical trading routes.
+    - No complex stock exchange or futures trading.
+    - No random price walk or 25% emergency trade penalties.
 
 ---
 
 ## 2. Deferred & Excluded Scope for MVP
 | Feature | GDD Section | Status for MVP | Rationale |
 |---|---|---|---|
+| Dynamic Market Pricing & Supply-Demand Economy | Phần VII & XI | Implemented | Delivered end-to-end in Package 2H with deterministic [0.80, 1.20] elasticity, reference baselines, spread invariant, unified price breakdown API, HUD tooltips, and 100% save compatibility |
 | Outpost Capture & Territorial Control | Phần X & XI | Implemented | Delivered end-to-end in Package 2G with persistent ownership, 35% health recovery, heraldic banners, friendly siege prevention, NPC sacking, collision avoidance, and fail-closed persistence |
 | Autonomous Faction Conflict & Inter-Faction Warfare | Phần X & XI | Implemented | Delivered end-to-end in Package 2E with pairwise war/peace AI, BattleResolver campaigns, resource plunder conservation, outpost siege damage, truce cooldowns, caravan surcharges, and Section 3 UI |
 | In-Game Player Field Guide & 30-Day Starter Manual | Phần I, VI & XIII | Implemented | Delivered end-to-end in Package 2D with 6 chapters, zero world mutation, input isolation, and 1280x720 / 1024x576 responsive layout |

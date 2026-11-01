@@ -1206,6 +1206,12 @@ func _refresh_diplomacy_ui() -> void:
 		c_title.text = "HÀNG HÓA THƯƠNG ĐOÀN (Giao dịch 10 món):"
 		c_title.modulate = Color(0.4, 1.2, 0.6)
 		c_vbox.add_child(c_title)
+
+		var c_desc := Label.new()
+		c_desc.text = "⚖️ Thị trường cung–cầu: Giá biến động (±20%) theo tồn kho vương quốc & thương đoàn. Quan hệ ngoại giao và phụ phí chiến sự (+15%) áp dụng đồng thời."
+		c_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		c_desc.modulate = Color(0.85, 0.9, 0.95)
+		c_vbox.add_child(c_desc)
 		
 		var c_grid := GridContainer.new()
 		c_grid.columns = 3
@@ -1219,8 +1225,32 @@ func _refresh_diplomacy_ui() -> void:
 			if inv[res_id] > 0:
 				var cur_res: String = res_id
 				var buy_btn := Button.new()
-				var price: int = active_caravan.call("get_effective_sell_price", cur_res, caravan_opinion)
-				buy_btn.text = "Mua 10 %s (%d Vàng)" % [cur_res, price * 10]
+				var bd: Dictionary = active_caravan.call("get_price_breakdown", cur_res, caravan_opinion, rm) if active_caravan.has_method("get_price_breakdown") else {}
+				var unit_price: int = int(bd.get("final_sell_price", active_caravan.call("get_effective_sell_price", cur_res, caravan_opinion, rm)))
+				var total_cost: int = unit_price * 10
+				buy_btn.text = "Mua 10 %s (%d/đv • %d Vàng)" % [cur_res, unit_price, total_cost]
+				
+				var mult_val: float = float(bd.get("market_multiplier", 1.0))
+				var local_p: float = float(bd.get("local_pressure", 0.0)) * 100.0
+				var car_p: float = float(bd.get("caravan_pressure", 0.0)) * 100.0
+				var op_adj: float = float(bd.get("opinion_adjustment", 0.0)) * -100.0
+				var tt: String = "Mua %s:\n• Giá gốc: %d Vàng/đv\n• Cung vương quốc: %d (chuẩn %.0f) -> Áp lực: %+.1f%%\n• Hàng thương đoàn: %d (chuẩn %.1f) -> Áp lực: %+.1f%%\n• Hệ số thị trường: x%.2f\n• Ngoại giao: %+.1f%%\n• Đơn giá: %d Vàng (Tổng 10: %d Vàng)" % [
+					cur_res,
+					int(bd.get("base_sell_price", unit_price)),
+					int(bd.get("local_stock", 0)),
+					float(bd.get("local_reference_stock", 0.0)),
+					local_p,
+					int(bd.get("caravan_stock", 0)),
+					float(bd.get("caravan_reference_stock", 0.0)),
+					car_p,
+					mult_val,
+					op_adj,
+					unit_price,
+					total_cost
+				]
+				if bd.get("is_origin_at_war", false):
+					tt += "\n⚠️ Phụ phí vùng chiến sự: +15%"
+				buy_btn.tooltip_text = tt
 				buy_btn.pressed.connect(func():
 					_handle_caravan_buy(cur_res, 10)
 				)
@@ -1231,10 +1261,23 @@ func _refresh_diplomacy_ui() -> void:
 			var cur_res: String = res_id
 			var avail_stock: int = rm.get_available_stock(cur_res) if rm != null else 0
 			if avail_stock >= 10:
-				var sell_price: int = active_caravan.call("get_effective_buy_price", cur_res, caravan_opinion)
+				var bd_sell: Dictionary = active_caravan.call("get_price_breakdown", cur_res, caravan_opinion, rm) if active_caravan.has_method("get_price_breakdown") else {}
+				var sell_price: int = int(bd_sell.get("final_buy_price", active_caravan.call("get_effective_buy_price", cur_res, caravan_opinion, rm)))
+				var total_payout: int = sell_price * 10
 				var sell_btn := Button.new()
-				sell_btn.text = "Bán 10 %s (+%d Vàng)" % [cur_res, sell_price * 10]
+				sell_btn.text = "Bán 10 %s (%d/đv • +%d Vàng)" % [cur_res, sell_price, total_payout]
 				sell_btn.modulate = Color(1.1, 1.1, 0.7)
+				
+				var mult_val: float = float(bd_sell.get("market_multiplier", 1.0))
+				var op_gain: float = float(bd_sell.get("opinion_adjustment", 0.0)) * 100.0
+				sell_btn.tooltip_text = "Bán %s cho thương đoàn:\n• Giá gốc: %d Vàng/đv\n• Hệ số thị trường: x%.2f\n• Ưu đãi ngoại giao: %+.1f%%\n• Đơn giá thu mua: %d Vàng (Tổng 10: +%d Vàng)" % [
+					cur_res,
+					int(bd_sell.get("base_buy_price", sell_price)),
+					mult_val,
+					op_gain,
+					sell_price,
+					total_payout
+				]
 				sell_btn.pressed.connect(func():
 					_handle_caravan_sell(cur_res, 10)
 				)

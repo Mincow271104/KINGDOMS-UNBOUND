@@ -505,3 +505,62 @@ Outpost banners dynamically display the heraldic colors and conquest markers of 
   - Surviving defenders are never deleted instantly, maintaining immersion and simulation consistency.
 - **Fail-Closed Garrison Protection:** Invalid transactions, non-existent owners, duplicate transaction IDs, and same-owner transfers strictly do not trigger garrison release or retreat state transitions.
 - **Defensive Faction Ownership Filtering during Siege Launch:** `FieldSiegeManager.launch_field_siege()` strictly filters candidate defenders from `defending_unit_ids`, `get_garrison_defenders_by_objective()`, and proximity reuse using `is_eligible_garrison_defender()`. A defender is only accepted if it belongs to `target_faction_id`, is alive, is not in `RECOVER_RETREAT`, and is not assigned to a different outpost. Soldiers of a former owner are never reused to defend an outpost for the current owner.
+
+---
+
+## 16. Dynamic Market Pricing & Supply-Demand Economy (Package 2H)
+
+### 16.1 Reference Stock Methodology
+Dynamic pricing establishes deterministic reference baselines for both the local kingdom and visiting trade caravans:
+- **Local Kingdom Reference Stock:** Sourced authoritatively from `EconomyConfig.STARTING_RESOURCES` for each tradeable resource:
+  - Food: $150.0$
+  - Wood: $120.0$
+  - Stone: $60.0$
+  - Metal: $20.0$
+  - Tools: $15.0$
+  - Herbs: $10.0$
+  - Crystal: $5.0$
+  Available unreserved stock is queried via `ResourceManager.get_available_stock(res_id)`. If `resource_mgr` is unavailable or reference stock is non-positive, local supply pressure defaults neutrally to $0.0$.
+- **Caravan Reference Stock:** Sourced from the exact midpoint of generated caravan inventory ranges:
+  - Food: $45.0$ (range 30–60)
+  - Wood: $35.0$ (range 20–50)
+  - Stone: $22.5$ (range 15–30)
+  - Metal: $17.5$ (range 10–25)
+  - Tools: $10.0$ (range 5–15)
+  - Herbs: $17.5$ (range 10–25)
+  - Crystal: $4.0$ (range 2–6)
+
+### 16.2 Dual Supply Pressures & Market Multiplier
+For every tradeable resource, supply ratios are clamped to $[0.0, 2.0]$:
+$$\text{local\_stock\_ratio} = \text{clamp}\left(\frac{\text{available\_stock}}{\text{local\_reference\_stock}}, 0.0, 2.0\right)$$
+$$\text{caravan\_stock\_ratio} = \text{clamp}\left(\frac{\text{caravan\_inventory}}{\text{caravan\_reference\_stock}}, 0.0, 2.0\right)$$
+
+Dual pressures operate symmetrically within $[-0.10, +0.10]$:
+$$\text{local\_pressure} = \text{clamp}(1.0 - \text{local\_stock\_ratio}, -1.0, 1.0) \times 0.10$$
+$$\text{caravan\_pressure} = \text{clamp}(1.0 - \text{caravan\_stock\_ratio}, -1.0, 1.0) \times 0.10$$
+
+The total dynamic market multiplier is bounded strictly within $[0.80, 1.20]$:
+$$\text{market\_multiplier} = \text{clamp}(1.0 + \text{local\_pressure} + \text{caravan\_pressure}, 0.80, 1.20)$$
+
+- **Scarcity Effect:** Depleted kingdom or caravan stock generates positive pressure, increasing unit prices up to $+20\%$ ($1.20$).
+- **Surplus Effect:** Abundant kingdom or caravan stock generates negative pressure, reducing unit prices down to $-20\%$ ($0.80$).
+- **Neutral Baseline:** At reference stock, $\text{local\_pressure} = 0.0$, $\text{caravan\_pressure} = 0.0$, and $\text{market\_multiplier} = 1.00$. Zero RNG is utilized.
+
+### 16.3 Multi-Layer Price Synthesis & Spread Invariant
+- **Effective Sell Price (Player BUYS from caravan):**
+  $$\text{sell\_mult} = \left(1.0 - \text{clamp}\left(\frac{\text{opinion}}{500.0}, -0.2, 0.2\right) + \text{surcharge}\right) \times \text{market\_multiplier}$$
+  $$\text{raw\_sell} = \text{round}(\text{base\_sell} \times \text{sell\_mult})$$
+  $$\text{if } \text{is\_origin\_at\_war} \text{ and } \text{raw\_sell} \le \text{base\_sell}: \text{raw\_sell} = \text{base\_sell} + 1$$
+  $$\text{final\_sell\_price} = \max(2, \text{raw\_sell})$$
+- **Effective Buy Price (Player SELLS to caravan):**
+  $$\text{buy\_mult} = \left(1.0 + \text{clamp}\left(\frac{\text{opinion}}{500.0}, -0.2, 0.2\right)\right) \times \text{market\_multiplier}$$
+  $$\text{raw\_buy} = \text{round}(\text{base\_buy} \times \text{buy\_mult})$$
+  $$\text{final\_buy\_price} = \text{clamp}(\text{raw\_buy}, 1, \text{final\_sell\_price} - 1)$$
+- **Mathematical Arbitrage Guarantee:**
+  Since $\text{final\_sell\_price} \ge 2$ and $\text{final\_buy\_price} \le \text{final\_sell\_price} - 1$, the bid/ask spread satisfies $\text{final\_sell\_price} - \text{final\_buy\_price} \ge 1\text{ Gold}$ across all resources, opinion values, war states, and stock conditions. Players can never buy and immediately sell at a profit. Prices are guaranteed strictly positive ($\ge 1\text{ Gold}$).
+
+### 16.4 Transaction Atomicity & HUD Quote Parity
+- **Unified Querying:** Both UI quote rendering and transaction execution (`buy_from_caravan`, `sell_to_caravan`) invoke `TradeCaravan.get_price_breakdown()`, guaranteeing 100% price parity.
+- **Fail-Closed Execution:** Full affordability, available stock, and storage capacity checks are validated upfront. If any check fails, zero state mutations occur (caravan gold, caravan inventory, player gold, and player stock remain strictly untouched).
+- **Event-Driven HUD Refresh:** Immediately upon trade completion, `_show_diplomacy_feedback()` triggers `_refresh_diplomacy_ui()`, dynamically updating quotes for remaining stock without polling per frame.
+- **Persistence Compatibility:** Dynamic prices are recomputed deterministically on load from existing state (`inventory`, `gold`, `sell_prices`, `buy_prices`, `is_origin_at_war`, and live `ResourceManager` stock). No new schema fields are introduced, preserving 100% backward compatibility with legacy saves.

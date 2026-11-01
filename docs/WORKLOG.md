@@ -8985,3 +8985,54 @@ Address final independent review finding regarding outpost garrison ownership pe
 
 ### Next Exact Step
 - Commit changes with `fix(outposts): release previous garrison on ownership transfer` and push branch `feature/package-2g-outpost-territorial-control` to `origin`. Await final independent review.
+
+---
+
+## 2026-11-02 — Package 2H: Dynamic Market Pricing & Supply-Demand Economy (Completed)
+
+### Context & Objective
+Implement dynamic supply-demand market pricing for Kingdoms Unbound under Package 2H:
+1. **Dynamic Elasticity:** Reflect kingdom unreserved stock and visiting caravan inventory stock in trade prices deterministically within $[0.80, 1.20]$ ($\pm 20\%$) with zero RNG.
+2. **Reference Baselines:** Local kingdom reference stock derived from `EconomyConfig.STARTING_RESOURCES`; caravan reference stock derived from the midpoints of generation ranges.
+3. **Multi-Factor Synthesis:** Integrate base prices, diplomatic opinion adjustments (up to $\pm 20\%$), Package 2E wartime route surcharge ($+15\%$), and the dynamic market multiplier into a unified price breakdown.
+4. **Bid/Ask Spread Guarantee:** Enforce $Ask > Bid$ by at least 1 Gold (`final_sell_price >= 2`, `final_buy_price = clampi(raw_buy, 1, final_sell_price - 1)`), eliminating arbitrage loops and ensuring positive integer prices.
+5. **HUD Upgrades:** Update `InGameHUD` with unit price and 10-unit total labels, descriptive supply-demand breakdown tooltips, and real-time post-trade quote refresh.
+6. **Persistence & Backward Compatibility:** Zero new schema fields; dynamic pricing recomputes cleanly on load with 100% legacy save compatibility.
+
+### Implementation Summary
+1. **Dynamic Pricing Engine & Helper API (`scripts/trade/trade_caravan.gd`):**
+   - Added `CARAVAN_REFERENCE_STOCK` defining generation midpoints (`Food: 45.0`, `Wood: 35.0`, `Stone: 22.5`, `Metal: 17.5`, `Tools: 10.0`, `Herbs: 17.5`, `Crystal: 4.0`).
+   - Implemented `get_price_breakdown(res_id: String, faction_opinion: float = 0.0, resource_mgr: Object = null) -> Dictionary` computing local stock ratio, caravan stock ratio, symmetric supply pressures $[-0.10, +0.10]$, clamped market multiplier $[0.80, 1.20]$, diplomatic multipliers, route risk surcharge, and final prices.
+   - Updated `get_effective_sell_price()` and `get_effective_buy_price()` to accept optional `resource_mgr` with backward-compatible defaults, delegating to `get_price_breakdown()`.
+   - Guaranteed `final_sell_price >= 2` and `final_buy_price = clampi(raw_buy, 1, final_sell_price - 1)`, enforcing $\text{spread} \ge 1\text{ Gold}$ and $\text{buy\_price} \ge 1\text{ Gold}$ across all conditions.
+   - Refactored `buy_from_caravan()` and `sell_to_caravan()` to resolve prices atomically through the breakdown helper, verifying affordability, stock, and storage upfront before mutating balances.
+2. **In-Game HUD Integration (`scripts/ui/hud.gd`):**
+   - Added supply-demand market explanation text to the Caravan trade panel.
+   - Buy and sell buttons display both unit price and 10-unit total price (`"Mua 10 [Res] (X/đv • Y Vàng)"` / `"Bán 10 [Res] (X/đv • +Y Vàng)"`).
+   - Added rich hover tooltips displaying base price, kingdom stock/pressure, caravan inventory/pressure, market multiplier, opinion adjustment, wartime surcharge, and final prices.
+   - Trade execution calls `_show_diplomacy_feedback()`, which automatically triggers `_refresh_diplomacy_ui()` and rebuilds quotes immediately with new stock levels.
+3. **Automated Test Suite Expansion (`scripts/test/test_market.gd`):**
+   - Added test cases TC-MKT-16 through TC-MKT-26:
+     - TC-MKT-16: Neutral baseline verification ($multiplier = 1.00$, exact base prices).
+     - TC-MKT-17: Kingdom scarcity ($+10\%$) and surplus ($-10\%$) elasticity.
+     - TC-MKT-18: Caravan scarcity ($+10\%$) and surplus ($-10\%$) elasticity.
+     - TC-MKT-19: Strict bounding $[0.80, 1.20]$ across extreme inventory/stock sweeps.
+     - TC-MKT-20: Bid/ask spread invariant ($Sell > Buy \ge 1$) and positive prices across all resources, opinions, and war states.
+     - TC-MKT-21: Price breakdown API schema completeness and accessor parity.
+     - TC-MKT-22: Exact quoted unit price and executed transaction price 100% parity.
+     - TC-MKT-23: Fail-closed transaction failure atomicity and state immutability.
+     - TC-MKT-24: Post-trade dynamic price quote updates.
+     - TC-MKT-25: Wartime surcharge (+15%) and diplomatic adjustments combination.
+     - TC-MKT-26: Legacy save deserialization and dynamic pricing recomputation.
+4. **Documentation Synchronization:**
+   - Synchronized `docs/BACKLOG.md` (Package 2H tasks), `docs/GAME_RULES.md` (Section 16), `docs/SCOPE_DECISIONS.md` (Section 1.30 & MVP table), `docs/CHANGELOG.md` (Package 2H), and `docs/WORKLOG.md`.
+
+### Verification & Regression Results (Targeted Scope)
+1. `scripts/test/test_market.gd`: **26/26 tests PASSED (Exit Code 0)**
+2. `scripts/test/test_autonomous_faction_conflict.gd`: **205/205 checks PASSED (Exit Code 0)**
+3. `scripts/test/test_save_load.gd`: **182/182 assertions PASSED (Exit Code 0)**
+4. `scripts/test/test_gold_transactions.gd`: **9/9 checks PASSED (Exit Code 0)**
+5. Headless Editor Parse Check (`Godot_v4.7-stable_win64_console.exe --headless --editor --quit`): **Exit Code 0, 0 errors**.
+
+### Next Exact Step
+- Review git diff, stage modified files explicitly (`git add scripts/trade/trade_caravan.gd scripts/ui/hud.gd scripts/test/test_market.gd docs/BACKLOG.md docs/GAME_RULES.md docs/SCOPE_DECISIONS.md docs/CHANGELOG.md docs/WORKLOG.md`), commit with `feat(trade): add dynamic supply-demand market pricing`, push branch `feature/package-2h-dynamic-market-pricing` to remote `origin`, and deliver the handoff report in Vietnamese.

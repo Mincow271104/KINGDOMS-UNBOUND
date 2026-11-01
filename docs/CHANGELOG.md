@@ -8,6 +8,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### [Package 2H] - 2026-11-02
+#### Added
+- Dynamic Market Pricing & Supply-Demand Economy (`TradeCaravan`, `InGameHUD`, `EconomyConfig`, `ResourceManager`):
+  - Deterministic, bounded supply-demand pricing engine reacting symmetrically to local kingdom available stock and caravan inventory stock.
+  - Authoritative reference stock baselines: Local kingdom reference derived from `EconomyConfig.STARTING_RESOURCES` (`ResourceManager.get_available_stock`) and caravan reference derived from midpoints of generation ranges.
+  - Multiplier bounding $[0.80, 1.20]$: Dual supply pressures clamp to $[-0.10, +0.10]$ each, providing up to $\pm 20\%$ price elasticity without RNG.
+  - Single Price Breakdown API (`TradeCaravan.get_price_breakdown()`): Unifies price resolution between HUD quote display and transaction execution, eliminating price mismatch defects.
+  - Bid/Ask Spread Invariant: Enforces `caravan_sell_price >= caravan_buy_price + 1` with `sell_price >= 2` and `buy_price >= 1` under all conditions, completely eliminating arbitrage opportunities while guaranteeing strictly positive integer prices.
+  - Integration with diplomatic opinion adjustments (up to $\pm 20\%$) and Package 2E wartime route surcharge ($+15\%$).
+  - Transaction atomicity & fail-closed immutability: Validates full inventory, gold affordability, unreserved stock, and storage limits upfront; failures leave caravan and player balances completely untouched.
+  - Enhanced HUD Caravan Panel (`scripts/ui/hud.gd`): Added supply-demand market explanation, unit price and 10-unit total labels, detailed hover breakdown tooltips, and instant event-driven quote updates post-trade.
+  - Save/Load compatibility: Recomputed dynamically on load from live stock and caravan inventory without schema modifications, preserving 100% backward compatibility with legacy saves.
+  - Automated test suite expansion in `scripts/test/test_market.gd`: Added TC-MKT-16 through TC-MKT-26 (26/26 tests passed, Exit Code 0).
+
 ### [Package 2G] - 2026-11-01
 #### Added
 - Outpost Capture & Territorial Control (`SiegeObjectiveActor`, `FieldSiegeManager`, `BattleCampaignManager`, `WorldView`, `SaveManager`):
