@@ -499,6 +499,20 @@ func _on_faction_pair_peace_signed(faction_a_id: String, faction_b_id: String, _
 var battle_campaign_mgr: Object = null
 
 func set_battle_campaign_manager(mgr: Object) -> void:
+	if battle_campaign_mgr != null and is_instance_valid(battle_campaign_mgr):
+		if battle_campaign_mgr.has_signal("raid_scheduled") and battle_campaign_mgr.raid_scheduled.is_connected(_on_battle_raid_scheduled):
+			battle_campaign_mgr.raid_scheduled.disconnect(_on_battle_raid_scheduled)
+		if battle_campaign_mgr.has_signal("raid_cancelled") and battle_campaign_mgr.raid_cancelled.is_connected(_on_battle_raid_cancelled):
+			battle_campaign_mgr.raid_cancelled.disconnect(_on_battle_raid_cancelled)
+		if battle_campaign_mgr.has_signal("battle_resolved") and battle_campaign_mgr.battle_resolved.is_connected(_on_battle_resolved):
+			battle_campaign_mgr.battle_resolved.disconnect(_on_battle_resolved)
+		if battle_campaign_mgr.has_signal("inter_faction_campaign_scheduled") and battle_campaign_mgr.inter_faction_campaign_scheduled.is_connected(_on_inter_faction_campaign_scheduled):
+			battle_campaign_mgr.inter_faction_campaign_scheduled.disconnect(_on_inter_faction_campaign_scheduled)
+		if battle_campaign_mgr.has_signal("inter_faction_campaign_cancelled") and battle_campaign_mgr.inter_faction_campaign_cancelled.is_connected(_on_inter_faction_campaign_cancelled):
+			battle_campaign_mgr.inter_faction_campaign_cancelled.disconnect(_on_inter_faction_campaign_cancelled)
+		if battle_campaign_mgr.has_signal("inter_faction_battle_resolved") and battle_campaign_mgr.inter_faction_battle_resolved.is_connected(_on_inter_faction_battle_resolved):
+			battle_campaign_mgr.inter_faction_battle_resolved.disconnect(_on_inter_faction_battle_resolved)
+
 	battle_campaign_mgr = mgr
 	if battle_campaign_mgr != null:
 		if not battle_campaign_mgr.raid_scheduled.is_connected(_on_battle_raid_scheduled):
@@ -531,14 +545,28 @@ func _on_inter_faction_battle_resolved(report: BattleResolver.BattleReport, cont
 	var atk_name: String = _get_faction_display_name(atk_id)
 	var def_name: String = _get_faction_display_name(def_id)
 	var victor: String = report.victor
-	var victor_name: String = atk_name if victor == "attacker" else (def_name if victor == "defender" else "Bất phân thắng bại")
-	var title: String = "KẾT QUẢ CHIẾN SỰ: %s CHIẾN THẮNG!" % victor_name.to_upper() if victor != "draw" else "KẾT QUẢ CHIẾN SỰ: BẤT PHÂN THẮNG BẠI!"
+	var title: String = ""
+	if victor == BattleResolver.VICTOR_STALEMATE or victor == "stalemate":
+		title = "KẾT QUẢ CHIẾN SỰ: BẤT PHÂN THẮNG BẠI!"
+	elif victor == BattleResolver.VICTOR_ATTACKER or victor == "attacker":
+		title = "KẾT QUẢ CHIẾN SỰ: %s CHIẾN THẮNG!" % atk_name.to_upper()
+	elif victor == BattleResolver.VICTOR_DEFENDER or victor == "defender":
+		title = "KẾT QUẢ CHIẾN SỰ: %s CHIẾN THẮNG!" % def_name.to_upper()
+	else:
+		title = "KẾT QUẢ CHIẾN SỰ: BẤT PHÂN THẮNG BẠI!"
+
 	var atk_lost: int = context.get("attacker_casualties", 0)
 	var def_lost: int = context.get("defender_casualties", 0)
-	var spoils: Dictionary = context.get("plundered_resources", {})
+	var spoils: Dictionary = context.get("plunder", context.get("plundered_resources", {}))
 	var spoils_str: String = ""
 	if not spoils.is_empty():
-		spoils_str = " | Cướp phá: %s" % str(spoils)
+		var plunder_items: Array[String] = []
+		for r_id in spoils.keys():
+			var amt: int = int(spoils[r_id])
+			if amt > 0:
+				plunder_items.append("%s: %d" % [str(r_id), amt])
+		if not plunder_items.is_empty():
+			spoils_str = " | Cướp phá: %s" % ", ".join(plunder_items)
 	var desc: String = "%s vs %s\n%s\n[Thương vong: %s mất %d lính | %s mất %d lính%s]" % [
 		atk_name, def_name, report.explanation, atk_name, atk_lost, def_name, def_lost, spoils_str
 	]
@@ -1318,7 +1346,15 @@ func _refresh_diplomacy_ui() -> void:
 				if not last_rep.is_empty():
 					var last_lbl := Label.new()
 					var vic_id: String = String(last_rep.get("victor", ""))
-					var vic_display: String = _get_faction_display_name(vic_id) if not vic_id.is_empty() and vic_id != "draw" else "Hòa"
+					var vic_display: String = "Hòa"
+					if vic_id == "attacker":
+						vic_display = String(last_rep.get("attacker_name", _get_faction_display_name(String(last_rep.get("attacker_id", fa_name)))))
+					elif vic_id == "defender":
+						vic_display = String(last_rep.get("defender_name", _get_faction_display_name(String(last_rep.get("defender_id", fb_name)))))
+					elif vic_id == "stalemate" or vic_id == "draw":
+						vic_display = "Hòa"
+					elif not vic_id.is_empty():
+						vic_display = _get_faction_display_name(vic_id)
 					last_lbl.text = "Trận gần nhất (Ngày %d): Thắng: %s (Tổn thất: %s mất %d, %s mất %d)" % [
 						last_rep.get("day", 1),
 						vic_display,

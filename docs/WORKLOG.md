@@ -8166,4 +8166,65 @@ Enforce all authoritative design rules:
 ### Next Exact Step
 - Commit Round 2 fixes with descriptive conventional commit message and push branch `feature/package-2e-autonomous-faction-conflict` to remote repository `Mincow271104/KINGDOMS-UNBOUND`.
 
+---
+
+## 2026-11-01 — Package 2E: Fix Review Round 3 & Hardened Verification (Completed)
+
+### Summary of Completed Work
+- **BUG-2E-09 (BattleResult Enum Mismatch & Stalemate Banner Title):**
+  - Formally declared and standardized authoritative constants in `BattleResolver`:
+    - `const VICTOR_ATTACKER: String = "attacker"`
+    - `const VICTOR_DEFENDER: String = "defender"`
+    - `const VICTOR_STALEMATE: String = "stalemate"`
+  - Updated `HUD._on_inter_faction_battle_resolved()`: eliminated buggy `victor != "draw"` check that caused stalemate results to evaluate to true and produce contradictory `"BẤT PHÂN THẮNG BẠI CHIẾN THẮNG!"` banners.
+  - Enforced explicit 3-way outcome branch:
+    - `victor == BattleResolver.VICTOR_STALEMATE` or `"stalemate"` -> `"KẾT QUẢ CHIẾN SỰ: BẤT PHÂN THẮNG BẠI!"` (strictly without `"CHIẾN THẮNG!"` suffix).
+    - `victor == BattleResolver.VICTOR_ATTACKER` or `"attacker"` -> `"KẾT QUẢ CHIẾN SỰ: %s CHIẾN THẮNG!" % atk_name.to_upper()`.
+    - `victor == BattleResolver.VICTOR_DEFENDER` or `"defender"` -> `"KẾT QUẢ CHIẾN SỰ: %s CHIẾN THẮNG!" % def_name.to_upper()`.
+  - Updated `scripts/ui/hud.gd` diplomacy panel last battle label to properly resolve victor name (`"Hòa"` for stalemate/draw, attacker/defender faction name for victor).
+  - Fixed `scripts/test/test_autonomous_faction_conflict.gd` TC-2E.6 assertion: replaced `["attacker", "defender", "draw"]` with `[BattleResolver.VICTOR_ATTACKER, BattleResolver.VICTOR_DEFENDER, BattleResolver.VICTOR_STALEMATE]`.
+- **BUG-2E-10 (Mismatched Plunder Context Key & HUD Display Formatting):**
+  - Resolved key mismatch between `BattleCampaignManager` and `HUD`:
+    - `BattleCampaignManager.resolve_inter_faction_campaign()` now writes both `"plunder": plundered_applied` and `"plundered_resources": plundered_applied` into `context`.
+    - `BattleCampaignManager.resolve_campaign()` now provides both `"plundered_resources"` and `"plunder"`.
+    - `HUD._on_inter_faction_battle_resolved()` reads `context.get("plunder", context.get("plundered_resources", {}))`.
+  - Formatted plunder output in HUD banner: displays `" | Cướp phá: food: 15, wood: 10"` when spoils exist.
+  - Guaranteed clean output when plunder is empty `{}` or zero-amount: hides the plunder string entirely (`spoils_str = ""`) to prevent phantom or unsightly formatting.
+- **HUD Production Wiring & Integration Test Hardening:**
+  - Upgraded `HUD.set_battle_campaign_manager()`: properly disconnects signals from any previous `battle_campaign_mgr` before binding the new manager, preventing signal leaks and duplicate handlers.
+  - Upgraded `TC-2E.15` in `test_autonomous_faction_conflict.gd` to wire `test_bcm` through `hud.set_battle_campaign_manager(test_bcm)` and restore previous manager afterwards.
+  - Added `TC-2E.17` dedicated test suite (16 new checks):
+    - Verified `BattleResolver` constants (`VICTOR_ATTACKER`, `VICTOR_DEFENDER`, `VICTOR_STALEMATE`).
+    - Verified 0 vs 0 yields stalemate.
+    - Verified HUD stalemate banner produces exactly `"KẾT QUẢ CHIẾN SỰ: BẤT PHÂN THẮNG BẠI!"` with no `"CHIẾN THẮNG!"`.
+    - Verified attacker and defender victory banner formatting.
+    - Verified plunder formatting with dual keys, single key fallback, empty spoils, and zero amounts.
+- **Full Project Regression Test Matrix (9 Suites):**
+  - `test_autonomous_faction_conflict.gd`: 205/205 PASS (Exit Code 0)
+  - `test_faction_relation_matrix.gd`: 162/162 PASS (Exit Code 0)
+  - `test_save_load.gd`: 182/182 PASS (Exit Code 0)
+  - `test_faction_diplomacy_ai.gd`: 437/437 PASS (Exit Code 0)
+  - `test_faction_strategy_execution.gd`: 951/951 PASS (Exit Code 0)
+  - `test_market.gd`: 15/15 PASS (Exit Code 0)
+  - `test_field_siege.gd`: 98/98 PASS (Exit Code 0)
+  - `test_surplus_treasury_conversion.gd`: 124/124 PASS (Exit Code 0)
+  - `test_player_field_guide.gd`: 130/130 PASS (Exit Code 0)
+  - Total across all suites: 2,304 checks / assertions passed, 0 failures.
+
+### Files Modified
+- `scripts/combat/battle_resolver.gd` (Modified)
+- `scripts/combat/battle_campaign_manager.gd` (Modified)
+- `scripts/ui/hud.gd` (Modified)
+- `scripts/test/test_autonomous_faction_conflict.gd` (Modified)
+- `docs/WORKLOG.md` (Modified)
+
+### Protected Assets & User Files
+- `project.godot`: Pre-existing user-owned modification (`-window/size/resizable=true`) strictly preserved and untouched.
+- Untracked files: All 92 historical untracked files + diagnostic runners preserved byte-for-byte.
+- User saves: Real user profile and saves completely untouched.
+
+### Next Exact Step
+- Commit Round 3 candidate fixes and push to `feature/package-2e-autonomous-faction-conflict` on `origin`. Await final independent code review by ChatGPT.
+
+
 

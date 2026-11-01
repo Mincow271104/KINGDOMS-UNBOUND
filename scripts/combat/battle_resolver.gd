@@ -5,6 +5,10 @@ extends RefCounted
 ## Multi-factor combat model factoring troops, equipment, fortifications, morale, and terrain.
 ## Produces explainable casualty breakdowns, spoils, and diplomatic consequences.
 
+const VICTOR_ATTACKER: String = "attacker"
+const VICTOR_DEFENDER: String = "defender"
+const VICTOR_STALEMATE: String = "stalemate"
+
 class BattleReport:
 	var victor: String # "attacker", "defender", "stalemate"
 	var attacker_troops_initial: int

@@ -123,6 +123,7 @@ func _run_all_tests() -> void:
 	_test_tc_2e_14_hud_integration_authoritative_state()
 	_test_tc_2e_15_bug_fixes_verification()
 	_test_tc_2e_16_campaign_sequence_and_lifecycle_interval()
+	_test_tc_2e_17_stalemate_and_plunder_banner_formatting()
 
 # -----------------------------------------------------------------------------
 # TC-2E.1: Pairwise war evaluation eligibility & threshold boundaries
@@ -368,7 +369,7 @@ func _test_tc_2e_6_real_battle_resolution() -> void:
 
 	var report = resolved_reports[0]["report"]
 	var context = resolved_reports[0]["context"]
-	_assert_true(report.victor in ["attacker", "defender", "draw"], "TC-2E.6-VICTOR", "Valid victor decided: %s" % report.victor)
+	_assert_true(report.victor in [BattleResolver.VICTOR_ATTACKER, BattleResolver.VICTOR_DEFENDER, BattleResolver.VICTOR_STALEMATE], "TC-2E.6-VICTOR", "Valid victor decided: %s" % report.victor)
 	_assert_true(context.get("attacker_casualties", 0) >= 0, "TC-2E.6-ATK-CAS", "Non-negative attacker casualties")
 	_assert_true(context.get("defender_casualties", 0) >= 0, "TC-2E.6-DEF-CAS", "Non-negative defender casualties")
 
@@ -416,6 +417,11 @@ func _test_tc_2e_7_conservation_of_resources_and_plunder() -> void:
 		_assert_eq(final_total_food, initial_total_food, "TC-2E.7-CONSERVE-FOOD", "Food strictly conserved across factions (no fabrication)")
 		_assert_true(int(mil_fac.resources.get("gold", 0)) > 50, "TC-2E.7-PLUNDER-GAINED", "Attacker gained plundered gold")
 		_assert_true(int(mer_fac.resources.get("gold", 0)) < 200, "TC-2E.7-PLUNDER-LOST", "Defender lost plundered gold")
+
+		var ctx: Dictionary = results[0].get("context", {})
+		_assert_true(ctx.has("plunder"), "TC-2E.7-HAS-PLUNDER", "Context has plunder key")
+		_assert_true(ctx.has("plundered_resources"), "TC-2E.7-HAS-PLUNDERED-RES", "Context has plundered_resources key")
+		_assert_eq(ctx.get("plunder"), ctx.get("plundered_resources"), "TC-2E.7-PLUNDER-EQUAL", "plunder and plundered_resources keys match exactly")
 
 # -----------------------------------------------------------------------------
 # TC-2E.8: Concrete world impact (outpost damage, sacking, stability loss)
@@ -704,17 +710,15 @@ func _test_tc_2e_15_bug_fixes_verification() -> void:
 	_assert_true(event_banner != null, "TC-2E.15-BUG-01-BANNER-NODE", "EventBanner node exists on HUD")
 	var banner_title_lbl = event_banner.get_node_or_null("MarginContainer/VBoxContainer/EventTitle")
 
-	# Set up real BattleCampaignManager connected to HUD
+	# Set up real BattleCampaignManager connected to HUD via official API
+	var prev_bcm = hud.battle_campaign_mgr
 	var test_bcm := BattleCampaignManagerScript.new()
 	var test_fm := FactionManagerScript.new()
 	test_bcm.set_faction_manager(test_fm)
 	test_bcm.world_seed = 12345
 
-	# Connect signals directly to HUD (replicating hud.connect_subsystems)
-	if not test_bcm.battle_resolved.is_connected(hud._on_battle_resolved):
-		test_bcm.battle_resolved.connect(hud._on_battle_resolved)
-	if not test_bcm.inter_faction_battle_resolved.is_connected(hud._on_inter_faction_battle_resolved):
-		test_bcm.inter_faction_battle_resolved.connect(hud._on_inter_faction_battle_resolved)
+	# Wire HUD using production set_battle_campaign_manager
+	hud.set_battle_campaign_manager(test_bcm)
 
 	# Setup at-war factions
 	test_fm.set_faction_pair_opinion("rival_military", "rival_merchant", -70.0)
@@ -738,6 +742,9 @@ func _test_tc_2e_15_bug_fixes_verification() -> void:
 	_assert_false("THẤT THỦ!" in live_banner_title, "TC-2E.15-BUG-01-NO-DEFEAT-BANNER", "Settlement defeat banner 'THẤT THỦ!' was NOT triggered")
 	_assert_false("THẮNG TRẬN!" in live_banner_title, "TC-2E.15-BUG-01-NO-WIN-BANNER", "Settlement victory banner 'THẮNG TRẬN!' was NOT triggered")
 	_assert_false("CHIẾN DỊCH THẤT BẠI!" in live_banner_title, "TC-2E.15-BUG-01-NO-CAMPAIGN-FAIL", "Settlement offensive fail banner was NOT triggered")
+
+	# Restore previous manager to guarantee zero signal interference with subsequent tests
+	hud.set_battle_campaign_manager(prev_bcm)
 
 	# 2. BUG-2E-02: TradeCaravan is_origin_at_war persistence through SaveManager
 	print("  - BUG-2E-02: Verifying TradeCaravan wartime flag persistence...")
@@ -1034,3 +1041,133 @@ func _test_tc_2e_16_campaign_sequence_and_lifecycle_interval() -> void:
 
 	outpost_merch.free()
 	outpost_mil.free()
+
+# -----------------------------------------------------------------------------
+# TC-2E.17: Stalemate & Plunder Banner Formatting Verification (BUG-2E-09 & BUG-2E-10)
+# -----------------------------------------------------------------------------
+func _test_tc_2e_17_stalemate_and_plunder_banner_formatting() -> void:
+	print("\n--- TC-2E.17: Stalemate & Plunder Banner Formatting Verification (BUG-2E-09 & BUG-2E-10) ---")
+
+	# 1. BUG-2E-09: BattleResolver enum constants and outcome states
+	_assert_eq(BattleResolver.VICTOR_ATTACKER, "attacker", "TC-2E.17-ENUM-ATTACKER", "VICTOR_ATTACKER is 'attacker'")
+	_assert_eq(BattleResolver.VICTOR_DEFENDER, "defender", "TC-2E.17-ENUM-DEFENDER", "VICTOR_DEFENDER is 'defender'")
+	_assert_eq(BattleResolver.VICTOR_STALEMATE, "stalemate", "TC-2E.17-ENUM-STALEMATE", "VICTOR_STALEMATE is 'stalemate'")
+
+	var zero_rep = BattleResolverScript.resolve_battle({"troops": 0}, {"troops": 0}, 12345)
+	_assert_eq(zero_rep.victor, BattleResolver.VICTOR_STALEMATE, "TC-2E.17-ZERO-STALEMATE", "0 vs 0 yields stalemate")
+
+	var hud = world_instance.get_node_or_null("HUD")
+	_assert_true(hud != null, "TC-2E.17-HUD-EXISTS", "HUD exists in world")
+	var event_banner = hud.get_node_or_null("EventBanner")
+	_assert_true(event_banner != null, "TC-2E.17-BANNER-EXISTS", "EventBanner exists in HUD")
+	var banner_title_lbl = event_banner.get_node_or_null("MarginContainer/VBoxContainer/EventTitle")
+	var banner_desc_lbl = event_banner.get_node_or_null("MarginContainer/VBoxContainer/EventDesc")
+
+	var prev_bcm = hud.battle_campaign_mgr
+	var test_bcm := BattleCampaignManagerScript.new()
+	var test_fm := FactionManagerScript.new()
+	test_bcm.set_faction_manager(test_fm)
+	hud.set_battle_campaign_manager(test_bcm)
+
+	# 2. BUG-2E-09: Stalemate title banner verification
+	var rep_stale := BattleResolver.BattleReport.new()
+	rep_stale.victor = BattleResolver.VICTOR_STALEMATE
+	rep_stale.explanation = "Trận chiến bất phân thắng bại."
+	var ctx_stale := {
+		"attacker_id": "rival_military",
+		"defender_id": "rival_merchant",
+		"attacker_casualties": 5,
+		"defender_casualties": 5,
+		"plunder": {},
+		"plundered_resources": {}
+	}
+	hud._on_inter_faction_battle_resolved(rep_stale, ctx_stale)
+
+	var stale_title: String = banner_title_lbl.text if banner_title_lbl != null else ""
+	_assert_eq(stale_title, "KẾT QUẢ CHIẾN SỰ: BẤT PHÂN THẮNG BẠI!", "TC-2E.17-STALEMATE-TITLE-EXACT", "Stalemate banner title is exactly 'KẾT QUẢ CHIẾN SỰ: BẤT PHÂN THẮNG BẠI!'")
+	_assert_false("CHIẾN THẮNG!" in stale_title, "TC-2E.17-NO-VICTORY-SUFFIX-ON-STALEMATE", "Stalemate banner has no 'CHIẾN THẮNG!' suffix")
+
+	# Attacker victory banner check
+	var rep_atk := BattleResolver.BattleReport.new()
+	rep_atk.victor = BattleResolver.VICTOR_ATTACKER
+	rep_atk.explanation = "Phe Tấn Công thắng lớn."
+	hud._on_inter_faction_battle_resolved(rep_atk, ctx_stale)
+	var atk_title: String = banner_title_lbl.text if banner_title_lbl != null else ""
+	_assert_true("CHIẾN THẮNG!" in atk_title, "TC-2E.17-ATK-VICTORY-TITLE", "Attacker victory has CHIẾN THẮNG! suffix: %s" % atk_title)
+
+	# Defender victory banner check
+	var rep_def := BattleResolver.BattleReport.new()
+	rep_def.victor = BattleResolver.VICTOR_DEFENDER
+	rep_def.explanation = "Phe Phòng Thủ phòng vệ kiên cố."
+	hud._on_inter_faction_battle_resolved(rep_def, ctx_stale)
+	var def_title: String = banner_title_lbl.text if banner_title_lbl != null else ""
+	_assert_true("CHIẾN THẮNG!" in def_title, "TC-2E.17-DEF-VICTORY-TITLE", "Defender victory has CHIẾN THẮNG! suffix: %s" % def_title)
+
+	# 3. BUG-2E-10: Plunder context keys and HUD display formatting
+	# 3a. Battle with actual plunder (both keys present)
+	var ctx_plunder := {
+		"attacker_id": "rival_military",
+		"defender_id": "rival_merchant",
+		"attacker_casualties": 3,
+		"defender_casualties": 8,
+		"plunder": {"food": 15, "wood": 10},
+		"plundered_resources": {"food": 15, "wood": 10}
+	}
+	hud._on_inter_faction_battle_resolved(rep_atk, ctx_plunder)
+	var plunder_desc: String = banner_desc_lbl.text if banner_desc_lbl != null else ""
+	_assert_true("Cướp phá:" in plunder_desc, "TC-2E.17-PLUNDER-LABEL-PRESENT", "Plunder label present when spoils exist")
+	_assert_true("food: 15" in plunder_desc, "TC-2E.17-PLUNDER-FOOD-FORMATTED", "Food plunder formatted correctly in desc")
+	_assert_true("wood: 10" in plunder_desc, "TC-2E.17-PLUNDER-WOOD-FORMATTED", "Wood plunder formatted correctly in desc")
+
+	# 3b. Backward compatibility fallback: only context["plunder"]
+	var ctx_fallback_plunder := {
+		"attacker_id": "rival_military",
+		"defender_id": "rival_merchant",
+		"attacker_casualties": 2,
+		"defender_casualties": 6,
+		"plunder": {"gold": 25}
+	}
+	hud._on_inter_faction_battle_resolved(rep_atk, ctx_fallback_plunder)
+	var desc_fb1: String = banner_desc_lbl.text if banner_desc_lbl != null else ""
+	_assert_true("gold: 25" in desc_fb1, "TC-2E.17-FALLBACK-PLUNDER-ONLY", "HUD reads fallback context['plunder']")
+
+	# 3c. Backward compatibility fallback: only context["plundered_resources"]
+	var ctx_fallback_legacy := {
+		"attacker_id": "rival_military",
+		"defender_id": "rival_merchant",
+		"attacker_casualties": 2,
+		"defender_casualties": 6,
+		"plundered_resources": {"iron": 12}
+	}
+	hud._on_inter_faction_battle_resolved(rep_atk, ctx_fallback_legacy)
+	var desc_fb2: String = banner_desc_lbl.text if banner_desc_lbl != null else ""
+	_assert_true("iron: 12" in desc_fb2, "TC-2E.17-FALLBACK-PLUNDERED-RES-ONLY", "HUD reads fallback context['plundered_resources']")
+
+	# 3d. Battle without plunder (empty dictionary)
+	var ctx_no_plunder := {
+		"attacker_id": "rival_military",
+		"defender_id": "rival_merchant",
+		"attacker_casualties": 2,
+		"defender_casualties": 2,
+		"plunder": {},
+		"plundered_resources": {}
+	}
+	hud._on_inter_faction_battle_resolved(rep_stale, ctx_no_plunder)
+	var desc_no_plunder: String = banner_desc_lbl.text if banner_desc_lbl != null else ""
+	_assert_false("Cướp phá:" in desc_no_plunder, "TC-2E.17-NO-PLUNDER-DESC-CLEAN", "No plunder string displayed when plunder is empty")
+
+	# 3e. Battle with 0-amount plunder
+	var ctx_zero_plunder := {
+		"attacker_id": "rival_military",
+		"defender_id": "rival_merchant",
+		"attacker_casualties": 1,
+		"defender_casualties": 1,
+		"plunder": {"food": 0, "wood": 0},
+		"plundered_resources": {"food": 0, "wood": 0}
+	}
+	hud._on_inter_faction_battle_resolved(rep_stale, ctx_zero_plunder)
+	var desc_zero_plunder: String = banner_desc_lbl.text if banner_desc_lbl != null else ""
+	_assert_false("Cướp phá:" in desc_zero_plunder, "TC-2E.17-ZERO-PLUNDER-DESC-CLEAN", "No plunder string displayed when all plunder amounts are 0")
+
+	# 4. Cleanup: restore previous HUD manager
+	hud.set_battle_campaign_manager(prev_bcm)
