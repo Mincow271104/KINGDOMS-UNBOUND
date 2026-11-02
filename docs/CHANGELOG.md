@@ -26,8 +26,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - Field siege integration: Outposts and palisades take scaled damage when attacked by soldiers with upgraded equipment.
   - HUD Army Panel UI: Added `EquipmentTierLabel` displaying tier standard, Vietnamese name, and combat multiplier; added `UpgradeEquipmentBtn` and `UpgradeEquipmentCostLabel` dynamically updating next tier preview, exact resource cost, and fail-closed reason when unavailable; max tier display when Tier 3 reached.
   - Save/Load schema validation: Persists `equipment_tier` under `player_army`; validates strict `int` in $[1, 3]$ fail-closed, with JSON integral float normalization for seamless disk save/load; legacy saves default to Tier 1 without schema bump.
-  - Automated test suite in `scripts/test/test_army_equipment.gd`: Expanded from 21 to 27 tests (TC-EQ.01 through TC-EQ.27, 68 assertions passed, Exit Code 0).
-  - High-fidelity visual validation: Captured 12 visual artifacts in `docs/visual_validation/package_2j/` across 1280x720 and 1024x576.
+  - Automated test suite in `scripts/test/test_army_equipment.gd`: Expanded to 27 tests (TC-EQ.01 through TC-EQ.27, 103 assertions passed, Exit Code 0), including TC-EQ.23 disk save parsing and float normalization.
+  - Synthetic visual validation harness: Captured 12 visual artifacts in `docs/visual_validation/package_2j/` across 1280x720 and 1024x576 via deterministic integration test fixture; normal gameplay acceptance marked as NOT VERIFIED (Partial Acceptance).
 
 ### [Package 2I] - 2026-11-02
 #### Added

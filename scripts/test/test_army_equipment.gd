@@ -3,8 +3,8 @@ extends SceneTree
 ## Covers TC-EQ.01 through TC-EQ.27:
 ## Progression & Economy:
 ##   TC-EQ.01: Baseline initialization (Tier 1, 1.00x multiplier, name 'Trang bị cơ bản')
-##   TC-EQ.02: Upgrade Tier 1 -> Tier 2 (cost 30 Wood, 15 Metal -> 1.25x multiplier, signal emitted)
-##   TC-EQ.03: Upgrade Tier 2 -> Tier 3 (cost 60 Wood, 30 Metal -> 1.50x multiplier, signal emitted)
+##   TC-EQ.02: Upgrade Tier 1 -> Tier 2 (cost 30 Wood, 15 Metal -> 1.25x multiplier, name 'Trang bị rèn', signal emitted)
+##   TC-EQ.03: Upgrade Tier 2 -> Tier 3 (cost 60 Wood, 30 Metal -> 1.50x multiplier, name 'Trang bị tinh luyện', signal emitted)
 ##   TC-EQ.04: Reject upgrade beyond Tier 3 fail-closed (0 cost deducted)
 ##   TC-EQ.05: Reject skipping tier (Tier 1 -> Tier 3 directly rejected)
 ##   TC-EQ.06: Reject upgrade when soldier_count == 0
@@ -16,20 +16,21 @@ extends SceneTree
 ##   TC-EQ.12: Preflight check can_upgrade_equipment is strictly read-only with 0 side effects
 ##   TC-EQ.13: New recruits inherit current army tier
 ##   TC-EQ.22: Re-entrancy guard against concurrent/nested upgrade calls during resource reservation
+## Persistence & UI:
+##   TC-EQ.18: Save/Load roundtrip preserves Tier 1, 2, 3 and restores identically
+##   TC-EQ.19: SaveManager in-memory validation rejects invalid/corrupt equipment_tier fail-closed (2, 2.0, 2.5, "2", true, 0, 4, legacy)
+##   TC-EQ.20: Legacy save lacking equipment_tier defaults smoothly to Tier 1
+##   TC-EQ.21: HUD ArmyPanel displays tier standard, multiplier, and upgrade button state
+##   TC-EQ.23: SaveManager disk-loading validation and integral float normalization (file roundtrip, 2.0, 2.5, "2", true, 0, 4, legacy)
 ## Combat Integration:
 ##   TC-EQ.14: BattleResolver offensive campaign reflects tier multiplier
 ##   TC-EQ.15: BattleResolver defensive raid reflects tier multiplier
 ##   TC-EQ.16: TacticalUnit effective damage scales by tier without mutating base attack_damage
 ##   TC-EQ.17: EnemyTacticalUnit does NOT inherit player tier multiplier
 ##   TC-EQ.24: TacticalUnit real attack loop damage application, cooldown, and attack_damage immutability
-##   TC-EQ.25: BattleCampaignManager.launch_offensive_campaign() with PlayerArmyManager as source of truth
-##   TC-EQ.26: Defending raid resolution with mixed defense (recruited army + citizen guards)
-##   TC-EQ.27: Tactical damage against Siege Objective (Outpost) at Tier 1 vs Tier 3
-## Persistence & UI:
-##   TC-EQ.18: Save/Load roundtrip preserves Tier 1, 2, 3 and restores identically
-##   TC-EQ.19: SaveManager validation rejects invalid/corrupt equipment_tier fail-closed (2, 2.0, 2.5, "2", true, 0, 4, legacy)
-##   TC-EQ.20: Legacy save lacking equipment_tier defaults smoothly to Tier 1
-##   TC-EQ.21: HUD ArmyPanel displays tier standard, multiplier, and upgrade button state
+##   TC-EQ.25: BattleCampaignManager.launch_offensive_campaign() with PlayerArmyManager as source of truth (controlled seed)
+##   TC-EQ.26: Defending raid resolution with mixed defense (recruited army + citizen guards) and settlement battle resolution
+##   TC-EQ.27: Tactical strike against SiegeObjectiveActor durability at Tier 1 vs Tier 3
 
 const PlayerArmyManagerScript = preload("res://scripts/military/player_army_manager.gd")
 const BattleCampaignManagerScript = preload("res://scripts/combat/battle_campaign_manager.gd")
@@ -49,6 +50,7 @@ const WorldViewScene: PackedScene = preload("res://scenes/world/world_view.tscn"
 var frame_count: int = 0
 var world_instance: Node = null
 var failures: int = 0
+var passed_count: int = 0
 
 class MockResourceManager:
 	signal resource_changed(res_id: String, available: int, total: int)
@@ -135,20 +137,40 @@ func _process(_delta: float) -> bool:
 		_run_all_tests()
 		print("\n--------------------------------------------------------")
 		if failures == 0:
-			print("  PACKAGE 2J ACCEPTANCE TESTS: ALL PASSED!")
+			print("  PACKAGE 2J ACCEPTANCE TESTS: ALL %d ASSERTIONS PASSED! (0 Failures)" % passed_count)
 		else:
-			printerr("  PACKAGE 2J ACCEPTANCE TESTS: %d FAILURE(S) ENCOUNTERED" % failures)
+			printerr("  PACKAGE 2J ACCEPTANCE TESTS: %d FAILURE(S) ENCOUNTERED (%d Passed)" % [failures, passed_count])
 		print("========================================================\n")
 		quit(failures)
 	return false
 
 func _assert(condition: bool, test_name: String, error_msg: String = "") -> void:
 	if condition:
+		passed_count += 1
 		print("  [PASS] %s" % test_name)
 	else:
 		failures += 1
 		var extra := (" - " + error_msg) if not error_msg.is_empty() else ""
 		printerr("  [FAIL] %s%s" % [test_name, extra])
+
+func _write_temp_disk_save(path: String, army_tier_val: Variant, has_field: bool = true) -> bool:
+	var army_dict: Dictionary = {"soldier_count": 5}
+	if has_field:
+		army_dict["equipment_tier"] = army_tier_val
+	var save_data: Dictionary = {
+		"schema_version": SaveManagerScript.SAVE_SCHEMA_VERSION,
+		"metadata": {"world_id": "test_tc_eq_23"},
+		"resources": {},
+		"buildings": [],
+		"citizens": [],
+		"player_army": army_dict
+	}
+	var f := FileAccess.open(path, FileAccess.WRITE)
+	if f == null:
+		return false
+	f.store_string(JSON.stringify(save_data))
+	f.close()
+	return true
 
 func _create_test_world_data_with_barracks(active_count: int = 1) -> WorldGenerator.WorldData:
 	var wd = WorldGeneratorScript.generate(12345)
@@ -283,6 +305,7 @@ func _run_all_tests() -> void:
 	_assert(up_t2.get("success", false), "TC-EQ.02: Upgrade Tier 1 -> 2 succeeds")
 	_assert(army_mgr.get_equipment_tier() == 2, "TC-EQ.02: Equipment tier is now 2")
 	_assert(is_equal_approx(army_mgr.get_equipment_combat_multiplier(), 1.25), "TC-EQ.02: Tier 2 multiplier is 1.25x")
+	_assert(army_mgr.get_equipment_tier_name() == "Trang bị rèn", "TC-EQ.02: Tier 2 name is 'Trang bị rèn'")
 	_assert(sig_data["tier"] == 2 and is_equal_approx(sig_data["mult"], 1.25), "TC-EQ.02: equipment_tier_changed signal fired correctly")
 	_assert(mock_rm.get_available_stock(EconomyConfigScript.RES_WOOD) == wood_before - 30, "TC-EQ.02: Deducted 30 Wood")
 	_assert(mock_rm.get_available_stock(EconomyConfigScript.RES_METAL) == metal_before - 15, "TC-EQ.02: Deducted 15 Metal")
@@ -296,6 +319,7 @@ func _run_all_tests() -> void:
 	_assert(up_t3.get("success", false), "TC-EQ.03: Upgrade Tier 2 -> 3 succeeds")
 	_assert(army_mgr.get_equipment_tier() == 3, "TC-EQ.03: Equipment tier is now 3")
 	_assert(is_equal_approx(army_mgr.get_equipment_combat_multiplier(), 1.50), "TC-EQ.03: Tier 3 multiplier is 1.50x")
+	_assert(army_mgr.get_equipment_tier_name() == "Trang bị tinh luyện", "TC-EQ.03: Tier 3 name is 'Trang bị tinh luyện'")
 	_assert(sig_data["tier"] == 3 and is_equal_approx(sig_data["mult"], 1.50), "TC-EQ.03: equipment_tier_changed signal fired for Tier 3")
 	_assert(mock_rm.get_available_stock(EconomyConfigScript.RES_WOOD) == wood_before_t3 - 60, "TC-EQ.03: Deducted 60 Wood")
 	_assert(mock_rm.get_available_stock(EconomyConfigScript.RES_METAL) == metal_before_t3 - 30, "TC-EQ.03: Deducted 30 Metal")
@@ -529,6 +553,71 @@ func _run_all_tests() -> void:
 	_assert(reentrant_signals.size() == 2 and reentrant_signals[1]["tier"] == 3, "TC-EQ.22: Second signal emitted for Tier 3")
 
 	# -------------------------------------------------------------------------
+	# TC-EQ.23: SaveManager disk-loading validation & JSON integral float normalization
+	# Tests load_from_file() and _read_and_validate_save_file() with genuine disk JSON files:
+	# 1. Valid on-disk Tier 1 loads and validates as int(1)
+	# 2. Valid on-disk Tier 2 normalizes JSON float 2.0 to strict int(2)
+	# 3. Valid on-disk Tier 3 normalizes JSON float 3.0 to strict int(3)
+	# 4. Malformed on-disk fractional float 2.5 rejected fail-closed
+	# 5. Malformed on-disk string "2" rejected fail-closed
+	# 6. Malformed on-disk boolean true rejected fail-closed
+	# 7. Out-of-bounds on-disk 0 rejected fail-closed
+	# 8. Out-of-bounds on-disk 4 rejected fail-closed
+	# 9. Legacy on-disk save lacking equipment_tier loads cleanly and defaults to Tier 1
+	# -------------------------------------------------------------------------
+	var tmp_disk_save_path := "user://saves/test_tc_eq_23_tmp.json"
+
+	# 1. On-disk Tier 1
+	_write_temp_disk_save(tmp_disk_save_path, 1)
+	var disk_res_t1 := SaveManagerScript._read_and_validate_save_file(tmp_disk_save_path)
+	_assert(disk_res_t1.get("valid", false) and disk_res_t1.get("data", {}).get("player_army", {}).get("equipment_tier") == 1, "TC-EQ.23: On-disk Tier 1 loads and validates as int(1)")
+
+	# 2. On-disk Tier 2 (integral float normalization from JSON)
+	_write_temp_disk_save(tmp_disk_save_path, 2)
+	var disk_res_t2 := SaveManagerScript._read_and_validate_save_file(tmp_disk_save_path)
+	_assert(disk_res_t2.get("valid", false) and disk_res_t2.get("data", {}).get("player_army", {}).get("equipment_tier") == 2, "TC-EQ.23: On-disk Tier 2 normalizes JSON float 2.0 to strict int(2)")
+
+	# 3. On-disk Tier 3 (integral float normalization from JSON)
+	_write_temp_disk_save(tmp_disk_save_path, 3)
+	var disk_res_t3 := SaveManagerScript._read_and_validate_save_file(tmp_disk_save_path)
+	_assert(disk_res_t3.get("valid", false) and disk_res_t3.get("data", {}).get("player_army", {}).get("equipment_tier") == 3, "TC-EQ.23: On-disk Tier 3 normalizes JSON float 3.0 to strict int(3)")
+
+	# 4. Malformed on-disk fractional value: 2.5
+	_write_temp_disk_save(tmp_disk_save_path, 2.5)
+	var disk_res_frac := SaveManagerScript._read_and_validate_save_file(tmp_disk_save_path)
+	_assert(not disk_res_frac.get("valid", true), "TC-EQ.23: On-disk fractional float 2.5 rejected fail-closed")
+
+	# 5. Malformed on-disk string: "2"
+	_write_temp_disk_save(tmp_disk_save_path, "2")
+	var disk_res_str := SaveManagerScript._read_and_validate_save_file(tmp_disk_save_path)
+	_assert(not disk_res_str.get("valid", true), "TC-EQ.23: On-disk string '2' rejected fail-closed")
+
+	# 6. Malformed on-disk boolean: true
+	_write_temp_disk_save(tmp_disk_save_path, true)
+	var disk_res_bool := SaveManagerScript._read_and_validate_save_file(tmp_disk_save_path)
+	_assert(not disk_res_bool.get("valid", true), "TC-EQ.23: On-disk boolean true rejected fail-closed")
+
+	# 7. Out-of-bounds on-disk: 0
+	_write_temp_disk_save(tmp_disk_save_path, 0)
+	var disk_res_oob0 := SaveManagerScript._read_and_validate_save_file(tmp_disk_save_path)
+	_assert(not disk_res_oob0.get("valid", true), "TC-EQ.23: On-disk out-of-bounds 0 rejected fail-closed")
+
+	# 8. Out-of-bounds on-disk: 4
+	_write_temp_disk_save(tmp_disk_save_path, 4)
+	var disk_res_oob4 := SaveManagerScript._read_and_validate_save_file(tmp_disk_save_path)
+	_assert(not disk_res_oob4.get("valid", true), "TC-EQ.23: On-disk out-of-bounds 4 rejected fail-closed")
+
+	# 9. Legacy on-disk save lacking equipment_tier
+	_write_temp_disk_save(tmp_disk_save_path, null, false)
+	var disk_res_legacy := SaveManagerScript._read_and_validate_save_file(tmp_disk_save_path)
+	_assert(disk_res_legacy.get("valid", false), "TC-EQ.23: On-disk legacy save without equipment_tier passes schema validation")
+	_assert(not disk_res_legacy.get("data", {}).get("player_army", {}).has("equipment_tier"), "TC-EQ.23: On-disk legacy payload preserves missing field for runtime migration")
+
+	# Clean up temporary test file
+	if FileAccess.file_exists(tmp_disk_save_path):
+		DirAccess.remove_absolute(tmp_disk_save_path)
+
+	# -------------------------------------------------------------------------
 	# TC-EQ.24: Real TacticalUnit attack loop execution (Tier 1 vs Tier 2 vs Tier 3)
 	# Asserts real damage application via advance_combat(), cooldown, and base attack_damage immutability
 	# -------------------------------------------------------------------------
@@ -595,6 +684,7 @@ func _run_all_tests() -> void:
 
 	# -------------------------------------------------------------------------
 	# TC-EQ.25: Offensive Campaign through BattleCampaignManager with PlayerArmyManager
+	# Verifies actual player attacker combat score scales by tier under controlled seed 12345
 	# -------------------------------------------------------------------------
 	var off_camp_mgr := BattleCampaignManagerScript.new()
 	var off_army_mgr := PlayerArmyManagerScript.new()
@@ -614,27 +704,42 @@ func _run_all_tests() -> void:
 	rival_fac.existence_status = FactionDataScript.STATUS_ACTIVE
 	off_camp_mgr.set_faction_manager(fm)
 
-	off_army_mgr.equipment_tier = 1
-	var off_t1 := off_camp_mgr.launch_offensive_campaign("rival_military", 123)
-	_assert(off_t1.get("success", false), "TC-EQ.25: Tier 1 offensive campaign launched successfully")
+	const CONTROLLED_CAMPAIGN_SEED: int = 12345
 
-	# Refresh state between campaigns to guarantee valid campaign conditions
+	# Tier 1 offensive campaign
+	off_army_mgr.equipment_tier = 1
+	var off_t1: Dictionary = off_camp_mgr.launch_offensive_campaign("rival_military", CONTROLLED_CAMPAIGN_SEED)
+	_assert(off_t1.get("success", false), "TC-EQ.25: Tier 1 offensive campaign launched successfully")
+	var rep_t1: BattleResolverScript.BattleReport = off_t1.get("report")
+	var score_t1: float = float(rep_t1.details.get("attacker_combat_score", 0.0))
+	_assert(score_t1 > 0.0, "TC-EQ.25: Tier 1 attacker combat score generated")
+
+	# Refresh conditions and test Tier 2 with identical seed
 	off_army_mgr.soldier_count = 10
 	rival_fac.military_power = 50.0
 	rival_fac.is_at_war = true
 	off_army_mgr.equipment_tier = 2
-	var off_t2 := off_camp_mgr.launch_offensive_campaign("rival_military", 124)
+	var off_t2: Dictionary = off_camp_mgr.launch_offensive_campaign("rival_military", CONTROLLED_CAMPAIGN_SEED)
 	_assert(off_t2.get("success", false), "TC-EQ.25: Tier 2 offensive campaign launched successfully")
+	var rep_t2: BattleResolverScript.BattleReport = off_t2.get("report")
+	var score_t2: float = float(rep_t2.details.get("attacker_combat_score", 0.0))
+	_assert(is_equal_approx(score_t2 / score_t1, 1.25), "TC-EQ.25: Attacker combat score with Tier 2 equipment is exactly 1.25x Tier 1 score")
 
+	# Refresh conditions and test Tier 3 with identical seed
 	off_army_mgr.soldier_count = 10
 	rival_fac.military_power = 50.0
 	rival_fac.is_at_war = true
 	off_army_mgr.equipment_tier = 3
-	var off_t3 := off_camp_mgr.launch_offensive_campaign("rival_military", 125)
+	var off_t3: Dictionary = off_camp_mgr.launch_offensive_campaign("rival_military", CONTROLLED_CAMPAIGN_SEED)
 	_assert(off_t3.get("success", false), "TC-EQ.25: Tier 3 offensive campaign launched successfully")
+	var rep_t3: BattleResolverScript.BattleReport = off_t3.get("report")
+	var score_t3: float = float(rep_t3.details.get("attacker_combat_score", 0.0))
+	_assert(is_equal_approx(score_t3 / score_t1, 1.50), "TC-EQ.25: Attacker combat score with Tier 3 equipment is exactly 1.50x Tier 1 score")
 
 	# -------------------------------------------------------------------------
-	# TC-EQ.26: Defensive Raid with mixed defense (recruited army + citizen guards)
+	# TC-EQ.26: Defensive Raid resolution with mixed defense (recruited army + citizen guards)
+	# Verifies composite force construction and actual defensive settlement raid resolution
+	# Single consistent rule: Kingdom-wide equipment_tier applies to the total settlement defending force
 	# -------------------------------------------------------------------------
 	var def_camp_mgr := BattleCampaignManagerScript.new()
 	var def_army_mgr := PlayerArmyManagerScript.new()
@@ -651,29 +756,54 @@ func _run_all_tests() -> void:
 	guard_1.citizen_id = "guard_01"
 	guard_1.role = "guard"
 	guard_1.health = 100.0
-	guard_1.morale = 80.0
+	guard_1.morale = 70.0
 
 	var guard_2 := CitizenControllerScript.new()
 	guard_2.citizen_id = "guard_02"
 	guard_2.role = "guard"
 	guard_2.health = 100.0
-	guard_2.morale = 80.0
+	guard_2.morale = 70.0
 
 	def_camp_mgr.set_custom_citizen_list([guard_1, guard_2])
 
 	var mixed_def_force: Dictionary = def_camp_mgr.construct_defending_force()
 	_assert(mixed_def_force.get("troops") == 8, "TC-EQ.26: Total defending troops = 6 army + 2 guards = 8")
+	_assert(mixed_def_force.get("army_soldiers") == 6, "TC-EQ.26: Army soldier sub-count = 6")
+	_assert(mixed_def_force.get("guard_count") == 2, "TC-EQ.26: Citizen guard sub-count = 2")
 	_assert(mixed_def_force.get("equipment_tier") == 2, "TC-EQ.26: Kingdom-wide equipment tier 2 applies to defending force")
 
-	def_army_mgr.equipment_tier = 3
-	var mixed_def_force_t3: Dictionary = def_camp_mgr.construct_defending_force()
-	_assert(mixed_def_force_t3.get("equipment_tier") == 3, "TC-EQ.26: Kingdom-wide equipment tier 3 applies to defending force")
+	# Execute real defensive settlement raid resolution with controlled seed 54321
+	const DEF_RAID_SEED: int = 54321
+	var atk_raid_force: Dictionary = {"troops": 8, "equipment_tier": 1, "morale": 70.0}
 
-	guard_1.queue_free()
-	guard_2.queue_free()
+	# Resolve settlement battle at Tier 2
+	var raid_report_t2: BattleResolverScript.BattleReport = BattleResolverScript.resolve_settlement_battle(
+		atk_raid_force,
+		mixed_def_force,
+		wd,
+		DEF_RAID_SEED
+	)
+	var def_score_t2: float = float(raid_report_t2.details.get("defender_combat_score", 0.0))
+	_assert(def_score_t2 > 0.0, "TC-EQ.26: Real defensive raid resolved with positive defender score")
+
+	# Compare with settlement battle at Tier 1 with identical seed and forces
+	var mixed_def_t1: Dictionary = mixed_def_force.duplicate(true)
+	mixed_def_t1["equipment_tier"] = 1
+	var raid_report_t1: BattleResolverScript.BattleReport = BattleResolverScript.resolve_settlement_battle(
+		atk_raid_force,
+		mixed_def_t1,
+		wd,
+		DEF_RAID_SEED
+	)
+	var def_score_t1: float = float(raid_report_t1.details.get("defender_combat_score", 0.0))
+	_assert(is_equal_approx(def_score_t2 / def_score_t1, 1.25), "TC-EQ.26: Settlement defense combat score with Tier 2 equipment is exactly 1.25x Tier 1 score")
+
+	guard_1.free()
+	guard_2.free()
 
 	# -------------------------------------------------------------------------
-	# TC-EQ.27: Tactical damage against Siege Objective (Outpost) at Tier 1 vs Tier 3
+	# TC-EQ.27: Tactical strike against SiegeObjectiveActor durability at Tier 1 vs Tier 3
+	# (Verifies tactical unit strike damage against fortified outpost; not full FieldSiegeManager campaign)
 	# -------------------------------------------------------------------------
 	var siege_army_mgr := PlayerArmyManagerScript.new()
 	siege_army_mgr.soldier_count = 3
@@ -703,7 +833,7 @@ func _run_all_tests() -> void:
 	var hp_before_siege_t1 := outpost_objective.health
 	siege_player_unit.advance_combat(0.016, 1.0)
 	var siege_dmg_t1 := hp_before_siege_t1 - outpost_objective.health
-	_assert(is_equal_approx(siege_dmg_t1, 25.00), "TC-EQ.27: Tier 1 tactical attack dealt exactly 25.00 damage to siege objective")
+	_assert(is_equal_approx(siege_dmg_t1, 25.00), "TC-EQ.27: Tier 1 tactical strike dealt exactly 25.00 damage to SiegeObjectiveActor")
 
 	# Upgrade to Tier 3: deals 37.50 damage
 	siege_army_mgr.equipment_tier = 3
@@ -711,8 +841,8 @@ func _run_all_tests() -> void:
 	var hp_before_siege_t3 := outpost_objective.health
 	siege_player_unit.advance_combat(0.016, 1.0)
 	var siege_dmg_t3 := hp_before_siege_t3 - outpost_objective.health
-	_assert(is_equal_approx(siege_dmg_t3, 37.50), "TC-EQ.27: Tier 3 tactical attack dealt exactly 37.50 damage (1.50x) to siege objective")
-	_assert(outpost_objective.health < hp_before_siege_t3, "TC-EQ.27: Outpost objective HP reduced cleanly")
+	_assert(is_equal_approx(siege_dmg_t3, 37.50), "TC-EQ.27: Tier 3 tactical strike dealt exactly 37.50 damage (1.50x) to SiegeObjectiveActor")
+	_assert(outpost_objective.health < hp_before_siege_t3, "TC-EQ.27: SiegeObjectiveActor HP reduced cleanly")
 
 	siege_player_unit.queue_free()
 	outpost_objective.queue_free()

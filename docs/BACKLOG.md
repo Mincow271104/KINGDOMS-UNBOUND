@@ -747,9 +747,10 @@
   - JSON integral float normalization in `_read_and_validate_save_file()` for seamless disk persistence roundtrips.
   - Backward compatibility: legacy saves safely default `equipment_tier` to 1.
 - [x] **TASK-2J.6:** Automated Test Suite & Regression Verification (`test_army_equipment.gd`):
-  - Created comprehensive test suite covering TC-EQ.01 through TC-EQ.27: 27 test cases passing 100% (68 assertions, Exit Code 0).
+  - Created comprehensive test suite covering TC-EQ.01 through TC-EQ.27: 27 test cases passing 100% (103 assertions, Exit Code 0).
+  - Added TC-EQ.23 disk save parsing and integral float normalization verification.
   - Executed all 15 regression suites:
-    - `test_army_equipment.gd`: 27 tests passed (Exit Code 0).
+    - `test_army_equipment.gd`: 27 tests passed (103 assertions, Exit Code 0).
     - `test_player_army.gd`: 31/32 passed (Exit Code 1, 1 known baseline limitation in TC-ARMY.32).
     - `test_army_movement.gd`: 32 tests passed (Exit Code 0).
     - `test_workshop.gd`: 36 assertions passed (Exit Code 0).
@@ -765,5 +766,7 @@
     - `test_building_management.gd`: 53 tests passed (Exit Code 0).
     - `test_market.gd`: 26 tests passed (Exit Code 0).
   - Godot MCP `validate_scripts`: 119 scripts validated, 0 errors.
-- [x] **TASK-2J.7:** Live Gameplay Acceptance & Visual Validation:
+- [x] **TASK-2J.7:** Synthetic Visual Validation Harness & Honest Acceptance Classification:
   - Captured 12 high-fidelity visual artifacts across 1280x720 and 1024x576 in `docs/visual_validation/package_2j/`.
+  - Classified `scripts/test/visual_package_2j_validation.gd` as an automated deterministic integration test fixture.
+  - Normal gameplay acceptance (manual citizen work, natural smelting, physical hauling, manual UI clicks) honestly marked as **NOT VERIFIED**; Package 2J status: **PARTIAL ACCEPTANCE**.

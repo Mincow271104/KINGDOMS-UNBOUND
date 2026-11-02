@@ -659,7 +659,7 @@ Upgrades cost a deterministic ratio of the original blueprint cost and take real
 ### 18.3 Combat Integration
 - **Tactical Combat:** `TacticalUnit.get_effective_attack_damage()` dynamically applies the tier multiplier to base damage (`attack_damage * multiplier`). The base export property `attack_damage = 25.0` is never mutated, preserving baseline integrity across loads and upgrades.
 - **Faction Asymmetry:** Non-player factions and hostile enemy tactical units (`EnemyTacticalUnit`) are strictly capped at $1.00\times$ multiplier.
-- **Abstract Campaigns & Defense:** `BattleCampaignManager` queries `PlayerArmyManager.equipment_tier` for both offensive expeditions and defensive settlement garrison calculations in `BattleResolver`.
+- **Abstract Campaigns & Defense:** `BattleCampaignManager` queries `PlayerArmyManager.equipment_tier` for both offensive expeditions and defensive settlement garrison calculations in `BattleResolver`. In settlement defense (`construct_defending_force()`), the kingdom-wide equipment standard applies to the unified composite defense force (both recruited soldiers and active citizen guards).
 - **Field Siege Operations:** Outposts and palisades take scaled damage when attacked by player soldiers wielding upgraded equipment.
 
 ### 18.4 Persistence & Schema Validation

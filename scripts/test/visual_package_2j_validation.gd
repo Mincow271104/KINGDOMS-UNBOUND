@@ -4,6 +4,12 @@ extends SceneTree
 ## Army Equipment Progression & Combat Integration
 ## Captures high-fidelity PNG screenshots in docs/visual_validation/package_2j/
 ## Supports both 1280x720 and 1024x576 display resolutions.
+##
+## NOTE ON ACCEPTANCE CLASSIFICATION:
+## This harness is an automated deterministic integration test fixture.
+## Normal end-to-end player gameplay acceptance (unassisted citizen mining,
+## natural workshop smelting, physical hauler cartage, manual UI clicks) is
+## explicitly marked as NOT VERIFIED in accordance with QA Stage 2 standards.
 ## =============================================================================
 
 const WorldViewScene = preload("res://scenes/world/world_view.tscn")
@@ -62,14 +68,14 @@ func _process(_delta: float) -> bool:
 		tac_mgr = world_inst.get("tactical_military_mgr")
 		rm = world_inst.get("resource_mgr") if world_inst.get("resource_mgr") != null else root.get_node_or_null("ResourceManager")
 
-		# Step 1: Initial Settlement & Economic Progression Trace
-		# Verify Starter resources, Ore mining and Workshop Metal smelting
+		# Step 1: Deterministic Resource Allocation for Automated Visual Verification
+		# Inject resources to simulate stockpiled material (Mine/Workshop flow)
 		if rm != null and rm.has_method("add_resource"):
-			# Provide resources representing real economic flow (Mine -> Workshop -> Hauler)
-			rm.add_resource(EconomyConfigScript.RES_WOOD, 500)
-			rm.add_resource(EconomyConfigScript.RES_METAL, 300)
-			rm.add_resource(EconomyConfigScript.RES_GOLD, 500)
-			rm.add_resource(EconomyConfigScript.RES_FOOD, 300)
+			var added_w: int = rm.add_resource(EconomyConfigScript.RES_WOOD, 500)
+			var added_m: int = rm.add_resource(EconomyConfigScript.RES_METAL, 300)
+			var added_g: int = rm.add_resource(EconomyConfigScript.RES_GOLD, 500)
+			var added_f: int = rm.add_resource(EconomyConfigScript.RES_FOOD, 300)
+			assert(added_w > 0 and added_m > 0 and added_g > 0 and added_f > 0, "Resource allocation into storage must succeed")
 
 		# Ensure Barracks exists and is active for recruiting
 		var has_barracks := false

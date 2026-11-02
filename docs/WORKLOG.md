@@ -9421,15 +9421,17 @@ Following the Package 2J implementation, an independent acceptance audit identif
    - Enforced fail-closed checks in `can_upgrade_equipment()` and `upgrade_equipment()` if an upgrade is already in progress.
    - Wrapped atomic reservation, commit, tier mutation, and signal emission inside the active guard, releasing cleanly on all exit paths.
    - Added regression test `TC-EQ.22` attaching a one-shot `resource_changed` listener attempting re-entrant upgrade: verified only 1 upgrade succeeded, exact single cost deducted, and 0 stranded reservations.
-3. **Stage C (Visual Validation Harness Remediation):**
-   - Updated `scripts/test/visual_package_2j_validation.gd` to use canonical `rm.add_resource()`.
+3. **Stage C (Visual Validation Harness Remediation & Honest Classification):**
+   - Explicitly classified `scripts/test/visual_package_2j_validation.gd` as an automated deterministic integration test fixture; normal gameplay acceptance (manual citizen work, natural smelting, physical hauling, manual UI clicks) is honestly marked as **NOT VERIFIED**.
+   - Fixed `rm.add_resource()` check to verify `int` return amount stored rather than an invalid dictionary key.
    - Replaced fake manual damage calls (`enemy_unit.take_damage()`) with authentic tactical unit combat strikes (`advance_combat()`) executing real attack orders.
    - Added field siege outpost durability strike verifying 37.50 damage dealt to fortified outposts with Tier 3 equipment.
    - Added dual resolution support: capturing both 1280x720 and 1024x576 high-fidelity visual artifacts.
 4. **Stage D (Real Combat & Campaign Integration Test Hardening):**
+   - Added `TC-EQ.23`: Disk-loading validation & JSON integral float normalization testing real temporary files on disk: valid 1, 2, 3, integral float `2.0` normalized to `int(2)`, fail-closed rejection of fractional float `2.5`, string `"2"`, bool `true`, out-of-range `0`, `4`, and legacy save missing field defaulting to Tier 1.
    - Added `TC-EQ.24`: TacticalUnit real attack loop damage application (Tier 1: 25.0, Tier 2: 31.25, Tier 3: 37.5), cooldown resetting, and base `attack_damage = 25.0` immutability.
-   - Added `TC-EQ.25`: `BattleCampaignManager.launch_offensive_campaign()` with real `PlayerArmyManager` as authoritative source of truth.
-   - Added `TC-EQ.26`: Settlement raid defense resolution with mixed forces (recruited army + active citizen guards).
+   - Strengthened `TC-EQ.25`: `BattleCampaignManager.launch_offensive_campaign()` tested with controlled seed `12345`; asserts attacker combat scores scale by exactly 1.25x and 1.50x.
+   - Strengthened `TC-EQ.26`: Settlement raid defense resolution with mixed forces (6 soldiers + 2 guards = 8 troops) and real battle resolution via `resolve_settlement_battle()` with controlled seed `54321`, verifying exact 1.25x defense multiplier.
    - Added `TC-EQ.27`: Real tactical strike against Siege Objective Outpost verifying durability reduction (500 -> 475 -> 437.50).
 5. **Stage E (Save/Load Strict Type Hardening & Deserialization Normalization):**
    - In `SaveManager.validate_save_data()`: enforced strict `eq_tier is int`, failing closed on floats (`2.0`, `2.5`), strings (`"2"`), booleans (`true`), and out-of-bounds (`0`, `4`).
@@ -9438,14 +9440,14 @@ Following the Package 2J implementation, an independent acceptance audit identif
    - Reverted `scripts/world/world_view.gd` to match baseline RC2 (`5b489407fdd011ec102f0e46d104e7f0241f99d7`) with zero extraneous diff.
    - Documented `TC-ARMY.32` failure as a known baseline issue introduced in Package 2F (`a55021c`) due to building state restriction, not caused by Package 2J.
 7. **Stage G (Economic Balance Review & Naming Standardization):**
-   - Standardized Vietnamese names:
-     - Tier 1: "Trang bị cơ bản (1.00x)"
-     - Tier 2: "Trang bị rèn (1.25x)"
-     - Tier 3: "Trang bị tinh luyện (1.50x)"
-   - Verified resource sink balance: Tier 2 (30 Wood, 15 Metal) and Tier 3 (60 Wood, 30 Metal) relative to starter stock (120 Wood, 20 Metal) and Workshop production (2 Metal / 4s).
+   - Standardized Vietnamese names across codebase, UI, and documentation:
+     - Tier 1: "Trang bị cơ bản" (1.00x)
+     - Tier 2: "Trang bị rèn" (1.25x)
+     - Tier 3: "Trang bị tinh luyện" (1.50x)
+   - Economic Balance Correction: Workshop recipe `smelt_metal` requires 2 Ore $\to$ 1 Metal, duration 3.0 game-hours. Starting metal is 20; 3 recruits cost 6 Metal (14 remaining); Tier 2 costs 15 Metal (1 Metal deficit), Tier 3 costs 30 Metal (total deficit = 31 Metal, requiring 31 smelting cycles, 62 Ore, and 93.0 game-hours of smith labor).
 
 ### Validation & Test Execution Evidence
-1. `scripts/test/test_army_equipment.gd`: **27/27 test cases / 68 assertions PASSED (Exit Code 0)**
+1. `scripts/test/test_army_equipment.gd`: **27/27 test cases / 103 assertions PASSED (Exit Code 0)**
 2. `scripts/test/test_player_army.gd`: **31/32 PASSED (Exit Code 1)** (1 known baseline failure TC-ARMY.32)
 3. `scripts/test/test_army_movement.gd`: **32/32 PASSED (Exit Code 0)**
 4. `scripts/test/test_workshop.gd`: **36/36 assertions PASSED (Exit Code 0)**
@@ -9479,7 +9481,14 @@ Generated with Godot 4.7-stable on NVIDIA GeForce RTX 3050 Ti Laptop GPU (D3D12 
   - `05_field_siege_outpost_damage_1024x576.png`
   - `06_save_load_tier_persistence_1024x576.png`
 
+### Acceptance Classification & Gate Status
+- **Automated Unit & System Tests:** PASS (100% of Package 2J tests passed, 103 assertions).
+- **Subsystem & Campaign Integration:** PASS (offensive campaigns, mixed settlement defense, real tactical damage, disk save/load).
+- **Deterministic UI/Integration Harness:** PASS (all visual states and transitions verified).
+- **Normal Gameplay Acceptance:** **NOT VERIFIED** (end-to-end unassisted gameplay without synthetic harness or resource injection was not executed).
+- **Gate Recommendation:** **PARTIAL ACCEPTANCE (Chấp thuận nghiệm thu một phần)**.
+
 ### Next Exact Step
-- Stage Package 2J files and commit candidate.
+- Stage Package 2J files and commit.
 - Push `feature/package-2j-army-equipment-progression` to `origin`.
-- Provide Final Handoff Report in Vietnamese.
+- Provide Final Remediation & Acceptance Report in Vietnamese.

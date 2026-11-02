@@ -270,7 +270,7 @@ const ARMY_EQUIPMENT_TIERS: Dictionary = {
 		"cost": {}
 	},
 	2: {
-		"name": "Trang bị cải tiến",
+		"name": "Trang bị rèn",
 		"multiplier": 1.25,
 		"cost": {
 			RES_WOOD: 30,
@@ -278,7 +278,7 @@ const ARMY_EQUIPMENT_TIERS: Dictionary = {
 		}
 	},
 	3: {
-		"name": "Trang bị cao cấp",
+		"name": "Trang bị tinh luyện",
 		"multiplier": 1.50,
 		"cost": {
 			RES_WOOD: 60,
