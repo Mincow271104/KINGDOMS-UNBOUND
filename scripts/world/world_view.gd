@@ -1858,13 +1858,11 @@ func set_building_state(b_id: String, new_state: String) -> bool:
 		if old_state != "active":
 			return false
 	elif new_state == "active":
-		# Can only resume if currently paused, damaged, or completing construction
-		if old_state != "paused" and old_state != "under_construction" and old_state != "damaged":
+		# Can only resume if currently paused, or completing construction
+		if old_state != "paused" and old_state != "under_construction":
 			return false
 		if old_state == "paused" and not BuildingSystem.is_building_pausable(type):
 			return false
-	elif new_state == "damaged":
-		pass
 	else:
 		return false
 

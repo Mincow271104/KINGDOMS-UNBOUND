@@ -13,10 +13,11 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Army Equipment Standard Progression & Combat Integration (`EconomyConfig`, `PlayerArmyManager`, `BattleCampaignManager`, `BattleResolver`, `TacticalUnit`, `EnemyTacticalUnit`, `HUD`, `SaveManager`):
   - Centralized 3-tier equipment progression standard:
     - Tier 1: "Trang bị cơ bản" ($1.00\times$ combat multiplier, starting baseline).
-    - Tier 2: "Trang bị cải tiến" ($1.25\times$ combat multiplier, cost: 30 Wood, 15 Metal).
-    - Tier 3: "Trang bị cao cấp" ($1.50\times$ combat multiplier, cost: 60 Wood, 30 Metal).
+    - Tier 2: "Trang bị rèn" ($1.25\times$ combat multiplier, cost: 30 Wood, 15 Metal).
+    - Tier 3: "Trang bị tinh luyện" ($1.50\times$ combat multiplier, cost: 60 Wood, 30 Metal).
   - Combat multiplier formula: $\text{multiplier} = 1.0 + 0.25 \times (\text{tier} - 1)$.
   - Authoritative tier state in `PlayerArmyManager`: sequential progression ($1 \to 2 \to 3$), gated by active soldiers ($> 0$), active Barracks ($\ge 1$), and garrisoned at base status (`MovementState.GARRISONED`, empty path, at rally cell).
+  - Transaction re-entrancy guard: `_is_upgrading_equipment` prevents nested or concurrent upgrade attempts during resource reservation and signal dispatch.
   - Atomic transactions via `ResourceManager.reserve_cost()` and `commit_cost()`, with 100% rollback upon failure.
   - Recruits automatically inherit active kingdom equipment standard.
   - Tactical unit dynamic damage scaling: `TacticalUnit.get_effective_attack_damage()` dynamically evaluates `attack_damage * get_equipment_multiplier()` without mutating base export stat `attack_damage = 25.0`.
@@ -24,9 +25,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   - BattleResolver campaign integration: `BattleCampaignManager.construct_defending_force()` and `launch_player_offensive()` dynamically query `PlayerArmyManager.equipment_tier` for settlement defense and offensive expeditions.
   - Field siege integration: Outposts and palisades take scaled damage when attacked by soldiers with upgraded equipment.
   - HUD Army Panel UI: Added `EquipmentTierLabel` displaying tier standard, Vietnamese name, and combat multiplier; added `UpgradeEquipmentBtn` and `UpgradeEquipmentCostLabel` dynamically updating next tier preview, exact resource cost, and fail-closed reason when unavailable; max tier display when Tier 3 reached.
-  - Save/Load schema validation: Persists `equipment_tier` under `player_army`; validates integer in $[1, 3]$ fail-closed; legacy saves default to Tier 1 without schema bump.
-  - Automated test suite in `scripts/test/test_army_equipment.gd`: Added TC-EQ.01 through TC-EQ.21 (21/21 tests passed, Exit Code 0).
-  - High-fidelity visual validation: Captured 5 screenshots in `docs/visual_validation/package_2j/`.
+  - Save/Load schema validation: Persists `equipment_tier` under `player_army`; validates strict `int` in $[1, 3]$ fail-closed, with JSON integral float normalization for seamless disk save/load; legacy saves default to Tier 1 without schema bump.
+  - Automated test suite in `scripts/test/test_army_equipment.gd`: Expanded from 21 to 27 tests (TC-EQ.01 through TC-EQ.27, 68 assertions passed, Exit Code 0).
+  - High-fidelity visual validation: Captured 12 visual artifacts in `docs/visual_validation/package_2j/` across 1280x720 and 1024x576.
 
 ### [Package 2I] - 2026-11-02
 #### Added

@@ -9394,8 +9394,92 @@ Implemented Package 2J connecting resource production (Mine Ore $\to$ Workshop M
    - `05_save_load_tier_persistence.png`: Restored game from disk verifying Tier 3 persistence.
 
 ### Next Exact Step
-- Stage Package 2J modified and created files (excluding user's local edits and untracked files).
-- Commit candidate to `feature/package-2j-army-equipment-progression`.
-- Push branch to `origin`.
-- Provide Final Handoff Report in Vietnamese.
+- Complete Stage B-K remediation and independent audit.
 
+---
+
+## 2026-11-02 — Package 2J Remediation & Independent Acceptance Audit (Completed)
+
+### Context & Remediation Scope
+Following the Package 2J implementation, an independent acceptance audit identified critical technical discrepancies requiring remediation:
+1. Transaction re-entrancy risk in `PlayerArmyManager.upgrade_equipment()` during `ResourceManager.reserve_cost()` signal emissions.
+2. Visual validation harness API mismatch (`add_stock` vs `add_resource`) and manual damage bypass bypassing real tactical combat loops.
+3. Insufficient test coverage for tactical combat damage loops, offensive campaign resolution with real `PlayerArmyManager`, mixed defense raid resolution, and field siege outpost durability.
+4. Schema validation type rigidity: strict GDScript `int` check rejecting JSON numbers parsed from disk without normalization.
+5. Out-of-scope modification to `scripts/world/world_view.gd` introduced to mask a pre-existing test failure in `test_player_army.gd TC-ARMY.32`.
+6. Base commit and Remote HEAD discrepancy in previous reports.
+
+### Completed Remediation Tasks
+1. **Stage A (Preflight & Base Verification):**
+   - Verified local branch: `feature/package-2j-army-equipment-progression`.
+   - Verified Remote HEAD: `95c57a85412e05ca53a6aef37ec6faebdde00802`.
+   - Confirmed merge-base: `5b489407fdd011ec102f0e46d104e7f0241f99d7` (RC2 checkpoint).
+   - Preserved user's local `project.godot` changes and untracked artifacts.
+   - Clean whitespace check with `git diff --check`.
+2. **Stage B (Transaction Re-Entrancy Guard):**
+   - Implemented in-flight transaction guard `_is_upgrading_equipment: bool = false` and accessor `is_upgrading_equipment() -> bool` in `scripts/military/player_army_manager.gd`.
+   - Enforced fail-closed checks in `can_upgrade_equipment()` and `upgrade_equipment()` if an upgrade is already in progress.
+   - Wrapped atomic reservation, commit, tier mutation, and signal emission inside the active guard, releasing cleanly on all exit paths.
+   - Added regression test `TC-EQ.22` attaching a one-shot `resource_changed` listener attempting re-entrant upgrade: verified only 1 upgrade succeeded, exact single cost deducted, and 0 stranded reservations.
+3. **Stage C (Visual Validation Harness Remediation):**
+   - Updated `scripts/test/visual_package_2j_validation.gd` to use canonical `rm.add_resource()`.
+   - Replaced fake manual damage calls (`enemy_unit.take_damage()`) with authentic tactical unit combat strikes (`advance_combat()`) executing real attack orders.
+   - Added field siege outpost durability strike verifying 37.50 damage dealt to fortified outposts with Tier 3 equipment.
+   - Added dual resolution support: capturing both 1280x720 and 1024x576 high-fidelity visual artifacts.
+4. **Stage D (Real Combat & Campaign Integration Test Hardening):**
+   - Added `TC-EQ.24`: TacticalUnit real attack loop damage application (Tier 1: 25.0, Tier 2: 31.25, Tier 3: 37.5), cooldown resetting, and base `attack_damage = 25.0` immutability.
+   - Added `TC-EQ.25`: `BattleCampaignManager.launch_offensive_campaign()` with real `PlayerArmyManager` as authoritative source of truth.
+   - Added `TC-EQ.26`: Settlement raid defense resolution with mixed forces (recruited army + active citizen guards).
+   - Added `TC-EQ.27`: Real tactical strike against Siege Objective Outpost verifying durability reduction (500 -> 475 -> 437.50).
+5. **Stage E (Save/Load Strict Type Hardening & Deserialization Normalization):**
+   - In `SaveManager.validate_save_data()`: enforced strict `eq_tier is int`, failing closed on floats (`2.0`, `2.5`), strings (`"2"`), booleans (`true`), and out-of-bounds (`0`, `4`).
+   - In `SaveManager._read_and_validate_save_file()`: added JSON integral float normalization converting whole floats to `int` prior to validation, allowing transparent roundtrips from disk without corrupting in-memory strictness.
+6. **Stage F (WorldView Scope Review & Baseline Isolation):**
+   - Reverted `scripts/world/world_view.gd` to match baseline RC2 (`5b489407fdd011ec102f0e46d104e7f0241f99d7`) with zero extraneous diff.
+   - Documented `TC-ARMY.32` failure as a known baseline issue introduced in Package 2F (`a55021c`) due to building state restriction, not caused by Package 2J.
+7. **Stage G (Economic Balance Review & Naming Standardization):**
+   - Standardized Vietnamese names:
+     - Tier 1: "Trang bị cơ bản (1.00x)"
+     - Tier 2: "Trang bị rèn (1.25x)"
+     - Tier 3: "Trang bị tinh luyện (1.50x)"
+   - Verified resource sink balance: Tier 2 (30 Wood, 15 Metal) and Tier 3 (60 Wood, 30 Metal) relative to starter stock (120 Wood, 20 Metal) and Workshop production (2 Metal / 4s).
+
+### Validation & Test Execution Evidence
+1. `scripts/test/test_army_equipment.gd`: **27/27 test cases / 68 assertions PASSED (Exit Code 0)**
+2. `scripts/test/test_player_army.gd`: **31/32 PASSED (Exit Code 1)** (1 known baseline failure TC-ARMY.32)
+3. `scripts/test/test_army_movement.gd`: **32/32 PASSED (Exit Code 0)**
+4. `scripts/test/test_workshop.gd`: **36/36 assertions PASSED (Exit Code 0)**
+5. `scripts/test/test_tactical_combat.gd`: **58/58 assertions PASSED (Exit Code 0)**
+6. `scripts/test/test_tactical_military.gd`: **419/419 assertions PASSED (Exit Code 0)**
+7. `scripts/test/test_enemy_military_ai.gd`: **54/54 assertions PASSED (Exit Code 0)**
+8. `scripts/test/test_factions_and_battles.gd`: **48/48 assertions PASSED (Exit Code 0)**
+9. `scripts/test/test_live_battle_loop.gd`: **19/19 PASSED (Exit Code 0)**
+10. `scripts/test/test_field_siege.gd`: **98/98 assertions PASSED (Exit Code 0)**
+11. `scripts/test/test_outpost_territorial_control.gd`: **200/200 assertions PASSED (Exit Code 0)**
+12. `scripts/test/test_save_load.gd`: **182/182 assertions PASSED (Exit Code 0)**
+13. `scripts/test/test_dynamic_workplaces.gd`: **14/14 PASSED (Exit Code 0)**
+14. `scripts/test/test_building_management.gd`: **53/53 PASSED (Exit Code 0)**
+15. `scripts/test/test_market.gd`: **26/26 PASSED (Exit Code 0)**
+16. Godot MCP `validate_scripts`: **119/119 scripts VALID (0 errors)**
+
+### Visual Validation Artifacts (`docs/visual_validation/package_2j/`)
+Generated with Godot 4.7-stable on NVIDIA GeForce RTX 3050 Ti Laptop GPU (D3D12 Forward+):
+- **1280x720:**
+  - `01_army_panel_tier1.png` / `01_army_panel_tier1_1280x720.png`: Army Panel at Tier 1 (1.00x).
+  - `02_army_panel_tier2.png` / `02_army_panel_tier2_1280x720.png`: Army Panel at Tier 2 (1.25x).
+  - `03_army_panel_tier3.png` / `03_army_panel_tier3_1280x720.png`: Army Panel at Tier 3 (1.50x, Max Tier).
+  - `04_tactical_combat_tier_damage.png` / `04_tactical_combat_tier_damage_1280x720.png`: Real tactical combat loop strike applying 37.50 damage.
+  - `05_field_siege_outpost_damage.png` / `05_field_siege_outpost_damage_1280x720.png`: Real field siege strike applying 37.50 damage to outpost (250 -> 212.50).
+  - `06_save_load_tier_persistence.png` / `06_save_load_tier_persistence_1280x720.png`: Reloaded world state confirming Tier 3 persistence across disk save/load.
+- **1024x576:**
+  - `01_army_panel_tier1_1024x576.png`
+  - `02_army_panel_tier2_1024x576.png`
+  - `03_army_panel_tier3_1024x576.png`
+  - `04_tactical_combat_tier_damage_1024x576.png`
+  - `05_field_siege_outpost_damage_1024x576.png`
+  - `06_save_load_tier_persistence_1024x576.png`
+
+### Next Exact Step
+- Stage Package 2J files and commit candidate.
+- Push `feature/package-2j-army-equipment-progression` to `origin`.
+- Provide Final Handoff Report in Vietnamese.

@@ -866,9 +866,9 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 				return {"valid": false, "error": "Quân số soldier_count nằm ngoài phạm vi cho phép [0, 1000]: %s." % str(s_count)}
 		if army_val.has("equipment_tier"):
 			var eq_tier = army_val.get("equipment_tier")
-			if not _is_valid_integer_val(eq_tier):
-				return {"valid": false, "error": "Cấp trang bị equipment_tier phải là số nguyên hợp lệ: %s." % str(eq_tier)}
-			var eq_int: int = int(eq_tier)
+			if not (eq_tier is int):
+				return {"valid": false, "error": "Cấp trang bị equipment_tier phải là số nguyên (int) nghiêm ngặt: %s." % str(eq_tier)}
+			var eq_int: int = eq_tier
 			if eq_int < 1 or eq_int > 3:
 				return {"valid": false, "error": "Cấp trang bị equipment_tier nằm ngoài phạm vi cho phép [1, 3]: %s." % str(eq_tier)}
 		if army_val.has("last_upkeep_day"):
@@ -1601,6 +1601,14 @@ static func _read_and_validate_save_file(path: String) -> Dictionary:
 	var data = json.get_data()
 	if not (data is Dictionary):
 		return {"valid": false, "error": "Dữ liệu JSON không đúng định dạng Dictionary."}
+
+	# Normalize JSON numeric types for fields requiring strict integer semantics in memory
+	if data.has("player_army") and (data["player_army"] is Dictionary):
+		var p_army: Dictionary = data["player_army"]
+		if p_army.has("equipment_tier") and (p_army["equipment_tier"] is float):
+			var f_tier: float = float(p_army["equipment_tier"])
+			if not is_nan(f_tier) and not is_inf(f_tier) and floor(f_tier) == f_tier:
+				p_army["equipment_tier"] = int(f_tier)
 
 	# FIX-1Z-U: A production world-save file must unconditionally pass complete schema validation
 	var val_res := validate_save_data(data)

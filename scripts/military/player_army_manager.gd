@@ -28,6 +28,7 @@ signal equipment_tier_changed(new_tier: int, multiplier: float)
 var world_view: Node = null
 var soldier_count: int = 0
 var equipment_tier: int = 1
+var _is_upgrading_equipment: bool = false
 var is_supplied: bool = true
 var last_upkeep_day: int = -1
 
@@ -232,7 +233,16 @@ func get_equipment_upgrade_cost(target_tier: int = -1) -> Dictionary:
 		target = equipment_tier + 1
 	return EconomyConfigScript.get_army_equipment_cost(target)
 
+func is_upgrading_equipment() -> bool:
+	return _is_upgrading_equipment
+
 func can_upgrade_equipment(target_tier: int = -1) -> Dictionary:
+	if _is_upgrading_equipment:
+		return {
+			"can_upgrade": false,
+			"reason": "Giao dịch nâng cấp trang bị đang được xử lý"
+		}
+
 	var target: int = target_tier
 	if target < 0:
 		target = equipment_tier + 1
@@ -321,6 +331,14 @@ func can_upgrade_equipment(target_tier: int = -1) -> Dictionary:
 	}
 
 func upgrade_equipment(target_tier: int = -1) -> Dictionary:
+	if _is_upgrading_equipment:
+		return {
+			"success": false,
+			"reason": "Giao dịch nâng cấp trang bị đang được xử lý",
+			"tier": equipment_tier,
+			"multiplier": get_equipment_combat_multiplier()
+		}
+
 	var check: Dictionary = can_upgrade_equipment(target_tier)
 	if not check.get("can_upgrade", false):
 		return {
@@ -341,6 +359,12 @@ func upgrade_equipment(target_tier: int = -1) -> Dictionary:
 			"multiplier": get_equipment_combat_multiplier()
 		}
 
+	_is_upgrading_equipment = true
+	var res: Dictionary = _execute_upgrade_transaction(rm, cost, target)
+	_is_upgrading_equipment = false
+	return res
+
+func _execute_upgrade_transaction(rm: Object, cost: Dictionary, target: int) -> Dictionary:
 	# Atomic transaction: reserve, then commit
 	var reserved: bool = rm.call("reserve_cost", cost)
 	if not reserved:

@@ -1,6 +1,6 @@
 extends SceneTree
 ## Automated Test Suite for KINGDOMS UNBOUND — Package 2J: Army Equipment Progression & Combat Integration
-## Covers TC-EQ.01 through TC-EQ.21:
+## Covers TC-EQ.01 through TC-EQ.27:
 ## Progression & Economy:
 ##   TC-EQ.01: Baseline initialization (Tier 1, 1.00x multiplier, name 'Trang bị cơ bản')
 ##   TC-EQ.02: Upgrade Tier 1 -> Tier 2 (cost 30 Wood, 15 Metal -> 1.25x multiplier, signal emitted)
@@ -15,14 +15,19 @@ extends SceneTree
 ##   TC-EQ.11: Atomic transaction rollback on reservation failure
 ##   TC-EQ.12: Preflight check can_upgrade_equipment is strictly read-only with 0 side effects
 ##   TC-EQ.13: New recruits inherit current army tier
+##   TC-EQ.22: Re-entrancy guard against concurrent/nested upgrade calls during resource reservation
 ## Combat Integration:
 ##   TC-EQ.14: BattleResolver offensive campaign reflects tier multiplier
 ##   TC-EQ.15: BattleResolver defensive raid reflects tier multiplier
 ##   TC-EQ.16: TacticalUnit effective damage scales by tier without mutating base attack_damage
 ##   TC-EQ.17: EnemyTacticalUnit does NOT inherit player tier multiplier
+##   TC-EQ.24: TacticalUnit real attack loop damage application, cooldown, and attack_damage immutability
+##   TC-EQ.25: BattleCampaignManager.launch_offensive_campaign() with PlayerArmyManager as source of truth
+##   TC-EQ.26: Defending raid resolution with mixed defense (recruited army + citizen guards)
+##   TC-EQ.27: Tactical damage against Siege Objective (Outpost) at Tier 1 vs Tier 3
 ## Persistence & UI:
 ##   TC-EQ.18: Save/Load roundtrip preserves Tier 1, 2, 3 and restores identically
-##   TC-EQ.19: SaveManager validation rejects invalid/corrupt equipment_tier fail-closed
+##   TC-EQ.19: SaveManager validation rejects invalid/corrupt equipment_tier fail-closed (2, 2.0, 2.5, "2", true, 0, 4, legacy)
 ##   TC-EQ.20: Legacy save lacking equipment_tier defaults smoothly to Tier 1
 ##   TC-EQ.21: HUD ArmyPanel displays tier standard, multiplier, and upgrade button state
 
@@ -34,6 +39,10 @@ const EconomyConfigScript = preload("res://scripts/economy/economy_config.gd")
 const SaveManagerScript = preload("res://scripts/persistence/save_manager.gd")
 const TacticalUnitScript = preload("res://scripts/military/tactical_unit.gd")
 const EnemyTacticalUnitScript = preload("res://scripts/military/enemy_tactical_unit.gd")
+const SiegeObjectiveActorScript = preload("res://scripts/combat/siege_objective_actor.gd")
+const CitizenControllerScript = preload("res://scripts/entities/citizen_controller.gd")
+const FactionManagerScript = preload("res://scripts/factions/faction_manager.gd")
+const FactionDataScript = preload("res://scripts/factions/faction_data.gd")
 const WorldGeneratorScript = preload("res://scripts/world/world_generator.gd")
 const WorldViewScene: PackedScene = preload("res://scenes/world/world_view.tscn")
 
@@ -42,6 +51,8 @@ var world_instance: Node = null
 var failures: int = 0
 
 class MockResourceManager:
+	signal resource_changed(res_id: String, available: int, total: int)
+
 	var stock: Dictionary = {}
 	var reserved: Dictionary = {}
 	var fail_reservation: bool = false
@@ -83,6 +94,7 @@ class MockResourceManager:
 			return false
 		for res_id in cost:
 			reserved[res_id] = reserved.get(res_id, 0) + cost[res_id]
+			resource_changed.emit(res_id, get_available_stock(res_id), stock.get(res_id, 0))
 		return true
 
 	func commit_cost(cost: Dictionary) -> void:
@@ -91,10 +103,12 @@ class MockResourceManager:
 			var amt: int = cost[res_id]
 			reserved[res_id] = maxi(0, reserved.get(res_id, 0) - amt)
 			stock[res_id] = maxi(0, stock.get(res_id, 0) - amt)
+			resource_changed.emit(res_id, get_available_stock(res_id), stock.get(res_id, 0))
 
 	func release_cost(cost: Dictionary) -> void:
 		for res_id in cost:
 			reserved[res_id] = maxi(0, reserved.get(res_id, 0) - cost[res_id])
+			resource_changed.emit(res_id, get_available_stock(res_id), stock.get(res_id, 0))
 
 	func consume_resource(res_id: String, amount: int) -> bool:
 		var avail = get_available_stock(res_id)
@@ -362,6 +376,7 @@ func _run_all_tests() -> void:
 
 	# -------------------------------------------------------------------------
 	# TC-EQ.19: SaveManager validation rejects invalid/corrupt equipment_tier fail-closed
+	# Tests exact cases: 2, 2.0, 2.5, "2", true, 0, 4, and missing legacy field
 	# -------------------------------------------------------------------------
 	var base_save: Dictionary = {
 		"schema_version": SaveManagerScript.SAVE_SCHEMA_VERSION,
@@ -371,30 +386,53 @@ func _run_all_tests() -> void:
 		"citizens": []
 	}
 
-	var test_save_t0: Dictionary = base_save.duplicate(true)
-	test_save_t0["player_army"] = {"soldier_count": 2, "equipment_tier": 0}
-	var v_t0: Dictionary = SaveManagerScript.validate_save_data(test_save_t0)
-	_assert(not v_t0.get("valid", true), "TC-EQ.19: SaveManager rejects equipment_tier 0")
-
-	var test_save_t4: Dictionary = base_save.duplicate(true)
-	test_save_t4["player_army"] = {"soldier_count": 2, "equipment_tier": 4}
-	var v_t4: Dictionary = SaveManagerScript.validate_save_data(test_save_t4)
-	_assert(not v_t4.get("valid", true), "TC-EQ.19: SaveManager rejects equipment_tier 4")
-
-	var test_save_str: Dictionary = base_save.duplicate(true)
-	test_save_str["player_army"] = {"soldier_count": 2, "equipment_tier": "two"}
-	var v_str: Dictionary = SaveManagerScript.validate_save_data(test_save_str)
-	_assert(not v_str.get("valid", true), "TC-EQ.19: SaveManager rejects string equipment_tier")
-
-	var test_save_float: Dictionary = base_save.duplicate(true)
-	test_save_float["player_army"] = {"soldier_count": 2, "equipment_tier": 2.5}
-	var v_float: Dictionary = SaveManagerScript.validate_save_data(test_save_float)
-	_assert(not v_float.get("valid", true), "TC-EQ.19: SaveManager rejects non-integer float equipment_tier")
-
+	# 1. Valid strict int: 2
 	var test_save_valid: Dictionary = base_save.duplicate(true)
 	test_save_valid["player_army"] = {"soldier_count": 2, "equipment_tier": 2}
 	var v_valid: Dictionary = SaveManagerScript.validate_save_data(test_save_valid)
-	_assert(v_valid.get("valid", false), "TC-EQ.19: SaveManager accepts valid equipment_tier 2")
+	_assert(v_valid.get("valid", false), "TC-EQ.19: SaveManager accepts valid strict int equipment_tier (2)")
+
+	# 2. Strict int enforcement: 2.0 (float rejected in memory validation)
+	var test_save_float_integral: Dictionary = base_save.duplicate(true)
+	test_save_float_integral["player_army"] = {"soldier_count": 2, "equipment_tier": 2.0}
+	var v_float_int: Dictionary = SaveManagerScript.validate_save_data(test_save_float_integral)
+	_assert(not v_float_int.get("valid", true), "TC-EQ.19: SaveManager strictly rejects float 2.0")
+
+	# 3. Float with fractional part: 2.5
+	var test_save_float: Dictionary = base_save.duplicate(true)
+	test_save_float["player_army"] = {"soldier_count": 2, "equipment_tier": 2.5}
+	var v_float: Dictionary = SaveManagerScript.validate_save_data(test_save_float)
+	_assert(not v_float.get("valid", true), "TC-EQ.19: SaveManager rejects non-integer float 2.5")
+
+	# 4. String representation: "2"
+	var test_save_str: Dictionary = base_save.duplicate(true)
+	test_save_str["player_army"] = {"soldier_count": 2, "equipment_tier": "2"}
+	var v_str: Dictionary = SaveManagerScript.validate_save_data(test_save_str)
+	_assert(not v_str.get("valid", true), "TC-EQ.19: SaveManager rejects string '2'")
+
+	# 5. Boolean value: true
+	var test_save_bool: Dictionary = base_save.duplicate(true)
+	test_save_bool["player_army"] = {"soldier_count": 2, "equipment_tier": true}
+	var v_bool: Dictionary = SaveManagerScript.validate_save_data(test_save_bool)
+	_assert(not v_bool.get("valid", true), "TC-EQ.19: SaveManager rejects bool true")
+
+	# 6. Lower out of bounds: 0
+	var test_save_t0: Dictionary = base_save.duplicate(true)
+	test_save_t0["player_army"] = {"soldier_count": 2, "equipment_tier": 0}
+	var v_t0: Dictionary = SaveManagerScript.validate_save_data(test_save_t0)
+	_assert(not v_t0.get("valid", true), "TC-EQ.19: SaveManager rejects equipment_tier 0 (< 1)")
+
+	# 7. Upper out of bounds: 4
+	var test_save_t4: Dictionary = base_save.duplicate(true)
+	test_save_t4["player_army"] = {"soldier_count": 2, "equipment_tier": 4}
+	var v_t4: Dictionary = SaveManagerScript.validate_save_data(test_save_t4)
+	_assert(not v_t4.get("valid", true), "TC-EQ.19: SaveManager rejects equipment_tier 4 (> 3)")
+
+	# 8. Missing legacy field
+	var test_save_legacy: Dictionary = base_save.duplicate(true)
+	test_save_legacy["player_army"] = {"soldier_count": 2}
+	var v_legacy: Dictionary = SaveManagerScript.validate_save_data(test_save_legacy)
+	_assert(v_legacy.get("valid", false), "TC-EQ.19: SaveManager accepts missing legacy field smoothly")
 
 	# -------------------------------------------------------------------------
 	# TC-EQ.20: Legacy save lacking equipment_tier defaults smoothly to Tier 1
@@ -425,3 +463,256 @@ func _run_all_tests() -> void:
 			_assert(up_btn.disabled, "TC-EQ.21: Upgrade button disabled when already at max Tier 3")
 	else:
 		_assert(false, "TC-EQ.21: HUD node not found in world_instance")
+
+	# -------------------------------------------------------------------------
+	# TC-EQ.22: Safe synchronous transaction guard against re-entrancy (STAGE B)
+	# Attaches a one-shot resource_changed listener that calls upgrade_equipment() during reservation.
+	# With sufficient resources for 2 upgrades (Tier 1->2: 30W, 15M; Tier 2->3: 60W, 30M -> total 90W, 45M).
+	# Stock: 150 Wood, 100 Metal.
+	# -------------------------------------------------------------------------
+	var reentrant_army_mgr := PlayerArmyManagerScript.new()
+	reentrant_army_mgr.soldier_count = 5
+	reentrant_army_mgr.movement_state = PlayerArmyManagerScript.MovementState.GARRISONED
+	reentrant_army_mgr.current_cell = reentrant_army_mgr.rally_cell
+	reentrant_army_mgr._custom_world_data = _create_test_world_data_with_barracks(1)
+
+	var reentrant_rm := MockResourceManager.new({
+		EconomyConfigScript.RES_WOOD: 150,
+		EconomyConfigScript.RES_METAL: 100
+	})
+	reentrant_army_mgr._custom_resource_mgr = reentrant_rm
+
+	var reentrant_signals: Array[Dictionary] = []
+	reentrant_army_mgr.equipment_tier_changed.connect(func(t, m):
+		reentrant_signals.append({"tier": t, "mult": m})
+	)
+
+	var nested_call_result: Dictionary = {}
+	var reentrant_cb: Callable
+	reentrant_cb = func(res_id: String, _avail: int, _total: int):
+		if res_id == EconomyConfigScript.RES_WOOD and not nested_call_result.has("called"):
+			nested_call_result["called"] = true
+			# Attempt nested re-entrant upgrade during the first reservation
+			nested_call_result["res"] = reentrant_army_mgr.upgrade_equipment()
+
+	reentrant_rm.resource_changed.connect(reentrant_cb)
+
+	# Execute primary upgrade Tier 1 -> Tier 2
+	var primary_res := reentrant_army_mgr.upgrade_equipment()
+
+	reentrant_rm.resource_changed.disconnect(reentrant_cb)
+
+	# Assertions for TC-EQ.22
+	_assert(primary_res.get("success", false), "TC-EQ.22: Primary upgrade succeeded")
+	_assert(nested_call_result.get("called", false), "TC-EQ.22: Re-entrant listener was invoked during reservation")
+	_assert(not nested_call_result.get("res", {}).get("success", true), "TC-EQ.22: Nested re-entrant upgrade was safely blocked fail-closed")
+	_assert(nested_call_result.get("res", {}).get("reason", "").contains("đang được xử lý"), "TC-EQ.22: Nested upgrade failed with in-flight transaction reason")
+
+	# Stock deduction verification: exactly 1 upgrade cost deducted (30 Wood, 15 Metal)
+	# 150 - 30 = 120 Wood, 100 - 15 = 85 Metal
+	_assert(reentrant_rm.stock[EconomyConfigScript.RES_WOOD] == 120 and reentrant_rm.stock[EconomyConfigScript.RES_METAL] == 85, "TC-EQ.22: Exactly one upgrade cost deducted (120W, 85M remaining)")
+
+	# Equipment tier must be 2, NOT 3
+	_assert(reentrant_army_mgr.get_equipment_tier() == 2, "TC-EQ.22: Equipment tier transitioned exactly once (Tier 2)")
+
+	# Signal must be emitted exactly once
+	_assert(reentrant_signals.size() == 1 and reentrant_signals[0]["tier"] == 2, "TC-EQ.22: Exactly one equipment_tier_changed signal emitted")
+
+	# No stranded reserved resources
+	_assert(reentrant_rm.reserved[EconomyConfigScript.RES_WOOD] == 0 and reentrant_rm.reserved[EconomyConfigScript.RES_METAL] == 0, "TC-EQ.22: Zero reserved resources stranded in stock")
+
+	# Subsequent normal upgrade works when in-flight transaction is complete
+	var subsequent_res := reentrant_army_mgr.upgrade_equipment(3)
+	_assert(subsequent_res.get("success", false), "TC-EQ.22: Subsequent normal upgrade to Tier 3 succeeded")
+	_assert(reentrant_army_mgr.get_equipment_tier() == 3, "TC-EQ.22: Equipment tier reached Tier 3 on subsequent upgrade")
+	_assert(reentrant_rm.stock[EconomyConfigScript.RES_WOOD] == 60 and reentrant_rm.stock[EconomyConfigScript.RES_METAL] == 55, "TC-EQ.22: Additional 60W, 30M deducted for Tier 3 (60W, 55M remaining)")
+	_assert(reentrant_signals.size() == 2 and reentrant_signals[1]["tier"] == 3, "TC-EQ.22: Second signal emitted for Tier 3")
+
+	# -------------------------------------------------------------------------
+	# TC-EQ.24: Real TacticalUnit attack loop execution (Tier 1 vs Tier 2 vs Tier 3)
+	# Asserts real damage application via advance_combat(), cooldown, and base attack_damage immutability
+	# -------------------------------------------------------------------------
+	var combat_army_mgr := PlayerArmyManagerScript.new()
+	combat_army_mgr.soldier_count = 5
+	combat_army_mgr.equipment_tier = 1
+
+	var player_combat_unit := TacticalUnitScript.new()
+	player_combat_unit.unit_id = "test_player_soldier"
+	player_combat_unit.faction_id = "player"
+	player_combat_unit.attack_damage = 25.0
+	player_combat_unit.current_cell = Vector2i(10, 10)
+	player_combat_unit.set_player_army_manager(combat_army_mgr)
+	world_instance.add_child(player_combat_unit)
+
+	var target_enemy := EnemyTacticalUnitScript.new()
+	target_enemy.unit_id = "test_enemy_soldier"
+	target_enemy.faction_id = "hostile_factions"
+	target_enemy.owning_faction_id = "hostile_factions"
+	target_enemy.attack_damage = 25.0
+	target_enemy.max_health = 200.0
+	target_enemy.health = 200.0
+	target_enemy.current_cell = Vector2i(10, 11) # adjacent Manhattan distance 1
+	target_enemy.set_player_army_manager(combat_army_mgr)
+	world_instance.add_child(target_enemy)
+
+	# Tier 1 strike: 25.00 damage
+	player_combat_unit.order_attack(target_enemy)
+	player_combat_unit.attack_cooldown_remaining = 0.0
+	var hp_before_t1 := target_enemy.health
+	player_combat_unit.advance_combat(0.016, 1.0)
+	var dmg_t1 := hp_before_t1 - target_enemy.health
+	_assert(is_equal_approx(dmg_t1, 25.00), "TC-EQ.24: Tier 1 real combat strike dealt exactly 25.00 damage")
+	_assert(is_equal_approx(player_combat_unit.attack_damage, 25.0), "TC-EQ.24: Base attack_damage is strictly 25.00 (immutable)")
+
+	# Upgrade to Tier 2 and strike: 31.25 damage
+	combat_army_mgr.equipment_tier = 2
+	player_combat_unit.attack_cooldown_remaining = 0.0
+	var hp_before_t2 := target_enemy.health
+	player_combat_unit.advance_combat(0.016, 1.0)
+	var dmg_t2 := hp_before_t2 - target_enemy.health
+	_assert(is_equal_approx(dmg_t2, 31.25), "TC-EQ.24: Tier 2 real combat strike dealt exactly 31.25 damage (1.25x)")
+	_assert(is_equal_approx(player_combat_unit.attack_damage, 25.0), "TC-EQ.24: Base attack_damage still strictly 25.00 after Tier 2 strike")
+
+	# Upgrade to Tier 3 and strike: 37.50 damage
+	combat_army_mgr.equipment_tier = 3
+	player_combat_unit.attack_cooldown_remaining = 0.0
+	var hp_before_t3 := target_enemy.health
+	player_combat_unit.advance_combat(0.016, 1.0)
+	var dmg_t3 := hp_before_t3 - target_enemy.health
+	_assert(is_equal_approx(dmg_t3, 37.50), "TC-EQ.24: Tier 3 real combat strike dealt exactly 37.50 damage (1.50x)")
+	_assert(is_equal_approx(player_combat_unit.attack_damage, 25.0), "TC-EQ.24: Base attack_damage still strictly 25.00 after Tier 3 strike")
+
+	# Enemy unit strikes back: does NOT inherit player tier multiplier
+	target_enemy.order_attack(player_combat_unit)
+	target_enemy.attack_cooldown_remaining = 0.0
+	var player_hp_before := player_combat_unit.health
+	target_enemy.advance_combat(0.016, 1.0)
+	var enemy_dmg := player_hp_before - player_combat_unit.health
+	_assert(is_equal_approx(enemy_dmg, 25.00), "TC-EQ.24: Enemy strike deals 25.00 damage without player multiplier")
+
+	player_combat_unit.queue_free()
+	target_enemy.queue_free()
+
+	# -------------------------------------------------------------------------
+	# TC-EQ.25: Offensive Campaign through BattleCampaignManager with PlayerArmyManager
+	# -------------------------------------------------------------------------
+	var off_camp_mgr := BattleCampaignManagerScript.new()
+	var off_army_mgr := PlayerArmyManagerScript.new()
+	off_army_mgr.soldier_count = 10
+	off_army_mgr.movement_state = PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD
+	off_army_mgr.current_cell = Vector2i(45, 45)
+	off_army_mgr.rally_cell = Vector2i(32, 33)
+	off_army_mgr.equipment_tier = 1
+	off_camp_mgr.set_player_army_manager(off_army_mgr)
+	off_camp_mgr.set_custom_world_data(wd)
+	off_camp_mgr.set_custom_resource_manager(mock_rm)
+
+	var fm := FactionManagerScript.new()
+	var rival_fac = fm.get_faction("rival_military")
+	rival_fac.military_power = 50.0
+	rival_fac.is_at_war = true
+	rival_fac.existence_status = FactionDataScript.STATUS_ACTIVE
+	off_camp_mgr.set_faction_manager(fm)
+
+	off_army_mgr.equipment_tier = 1
+	var off_t1 := off_camp_mgr.launch_offensive_campaign("rival_military", 123)
+	_assert(off_t1.get("success", false), "TC-EQ.25: Tier 1 offensive campaign launched successfully")
+
+	# Refresh state between campaigns to guarantee valid campaign conditions
+	off_army_mgr.soldier_count = 10
+	rival_fac.military_power = 50.0
+	rival_fac.is_at_war = true
+	off_army_mgr.equipment_tier = 2
+	var off_t2 := off_camp_mgr.launch_offensive_campaign("rival_military", 124)
+	_assert(off_t2.get("success", false), "TC-EQ.25: Tier 2 offensive campaign launched successfully")
+
+	off_army_mgr.soldier_count = 10
+	rival_fac.military_power = 50.0
+	rival_fac.is_at_war = true
+	off_army_mgr.equipment_tier = 3
+	var off_t3 := off_camp_mgr.launch_offensive_campaign("rival_military", 125)
+	_assert(off_t3.get("success", false), "TC-EQ.25: Tier 3 offensive campaign launched successfully")
+
+	# -------------------------------------------------------------------------
+	# TC-EQ.26: Defensive Raid with mixed defense (recruited army + citizen guards)
+	# -------------------------------------------------------------------------
+	var def_camp_mgr := BattleCampaignManagerScript.new()
+	var def_army_mgr := PlayerArmyManagerScript.new()
+	def_army_mgr.soldier_count = 6
+	def_army_mgr.movement_state = PlayerArmyManagerScript.MovementState.GARRISONED
+	def_army_mgr.current_cell = def_army_mgr.rally_cell
+	def_army_mgr.equipment_tier = 2 # Tier 2 (1.25x)
+	def_camp_mgr.set_player_army_manager(def_army_mgr)
+	def_camp_mgr.set_custom_world_data(wd)
+	def_camp_mgr.set_custom_resource_manager(mock_rm)
+
+	# Mock 2 living citizen guards
+	var guard_1 := CitizenControllerScript.new()
+	guard_1.citizen_id = "guard_01"
+	guard_1.role = "guard"
+	guard_1.health = 100.0
+	guard_1.morale = 80.0
+
+	var guard_2 := CitizenControllerScript.new()
+	guard_2.citizen_id = "guard_02"
+	guard_2.role = "guard"
+	guard_2.health = 100.0
+	guard_2.morale = 80.0
+
+	def_camp_mgr.set_custom_citizen_list([guard_1, guard_2])
+
+	var mixed_def_force: Dictionary = def_camp_mgr.construct_defending_force()
+	_assert(mixed_def_force.get("troops") == 8, "TC-EQ.26: Total defending troops = 6 army + 2 guards = 8")
+	_assert(mixed_def_force.get("equipment_tier") == 2, "TC-EQ.26: Kingdom-wide equipment tier 2 applies to defending force")
+
+	def_army_mgr.equipment_tier = 3
+	var mixed_def_force_t3: Dictionary = def_camp_mgr.construct_defending_force()
+	_assert(mixed_def_force_t3.get("equipment_tier") == 3, "TC-EQ.26: Kingdom-wide equipment tier 3 applies to defending force")
+
+	guard_1.queue_free()
+	guard_2.queue_free()
+
+	# -------------------------------------------------------------------------
+	# TC-EQ.27: Tactical damage against Siege Objective (Outpost) at Tier 1 vs Tier 3
+	# -------------------------------------------------------------------------
+	var siege_army_mgr := PlayerArmyManagerScript.new()
+	siege_army_mgr.soldier_count = 3
+	siege_army_mgr.equipment_tier = 1
+
+	var siege_player_unit := TacticalUnitScript.new()
+	siege_player_unit.unit_id = "siege_striker"
+	siege_player_unit.faction_id = "player"
+	siege_player_unit.attack_damage = 25.0
+	siege_player_unit.current_cell = Vector2i(20, 20)
+	siege_player_unit.set_player_army_manager(siege_army_mgr)
+	world_instance.add_child(siege_player_unit)
+
+	var outpost_objective := SiegeObjectiveActorScript.new()
+	outpost_objective.objective_id = "test_outpost_obj"
+	outpost_objective.objective_name = "Tiền Đồn Địch"
+	outpost_objective.owning_faction_id = "hostile_outpost"
+	outpost_objective.max_health = 500.0
+	outpost_objective.health = 500.0
+	outpost_objective.current_cell = Vector2i(20, 21) # adjacent Manhattan 1
+	outpost_objective.is_under_active_siege = true
+	world_instance.add_child(outpost_objective)
+
+	# Tier 1 siege attack: deals 25.00 damage
+	siege_player_unit.order_attack(outpost_objective)
+	siege_player_unit.attack_cooldown_remaining = 0.0
+	var hp_before_siege_t1 := outpost_objective.health
+	siege_player_unit.advance_combat(0.016, 1.0)
+	var siege_dmg_t1 := hp_before_siege_t1 - outpost_objective.health
+	_assert(is_equal_approx(siege_dmg_t1, 25.00), "TC-EQ.27: Tier 1 tactical attack dealt exactly 25.00 damage to siege objective")
+
+	# Upgrade to Tier 3: deals 37.50 damage
+	siege_army_mgr.equipment_tier = 3
+	siege_player_unit.attack_cooldown_remaining = 0.0
+	var hp_before_siege_t3 := outpost_objective.health
+	siege_player_unit.advance_combat(0.016, 1.0)
+	var siege_dmg_t3 := hp_before_siege_t3 - outpost_objective.health
+	_assert(is_equal_approx(siege_dmg_t3, 37.50), "TC-EQ.27: Tier 3 tactical attack dealt exactly 37.50 damage (1.50x) to siege objective")
+	_assert(outpost_objective.health < hp_before_siege_t3, "TC-EQ.27: Outpost objective HP reduced cleanly")
+
+	siege_player_unit.queue_free()
+	outpost_objective.queue_free()

@@ -638,8 +638,8 @@ Upgrades cost a deterministic ratio of the original blueprint cost and take real
 - **Single Kingdom-Wide Standard:** Rather than individual soldier inventory or weapon slots, equipment is tracked as a centralized kingdom standard level in `PlayerArmyManager`.
 - **Three Standard Tiers:**
   - **Tier 1 — Trang bị cơ bản:** $1.00\times$ combat multiplier (base standard, 0 cost).
-  - **Tier 2 — Trang bị cải tiến:** $1.25\times$ combat multiplier. Upgrade cost: 30 Wood, 15 Metal.
-  - **Tier 3 — Trang bị cao cấp:** $1.50\times$ combat multiplier. Upgrade cost: 60 Wood, 30 Metal.
+  - **Tier 2 — Trang bị rèn:** $1.25\times$ combat multiplier. Upgrade cost: 30 Wood, 15 Metal.
+  - **Tier 3 — Trang bị tinh luyện:** $1.50\times$ combat multiplier. Upgrade cost: 60 Wood, 30 Metal.
 - **Combat Multiplier Formula:**
   $$\text{Multiplier} = 1.0 + 0.25 \times (\text{Tier} - 1)$$
 
@@ -652,6 +652,7 @@ Upgrades cost a deterministic ratio of the original blueprint cost and take real
   - `current_path.is_empty()`
   - `current_cell == rally_cell`
   - Marching armies or armies deployed on field expeditions cannot be upgraded until they return home.
+- **Transaction Guard & Re-Entrancy Protection:** `PlayerArmyManager` maintains an in-flight transaction guard (`_is_upgrading_equipment`) that prevents nested or re-entrant calls during `ResourceManager` reservation, signal emission, and tier mutation.
 - **Atomic Transaction:** The required Wood and Metal are reserved and committed atomically via `ResourceManager`. If reservation fails, the transaction is completely aborted with zero state mutation or resource loss.
 - **New Recruits Inheritance:** Recruits immediately inherit the kingdom's active equipment tier standard.
 
@@ -663,5 +664,6 @@ Upgrades cost a deterministic ratio of the original blueprint cost and take real
 
 ### 18.4 Persistence & Schema Validation
 - **Serialization:** `PlayerArmyManager.serialize()` includes `"equipment_tier"`.
-- **Schema Validation:** `SaveManager.validate_save_data()` requires `equipment_tier` to be an integer within $[1, 3]$ when present, failing closed on corrupt values, strings, non-integer floats, or out-of-range numbers.
+- **Schema Validation:** `SaveManager.validate_save_data()` requires `equipment_tier` to be a strict integer within $[1, 3]$ when present, failing closed on corrupt values, strings, non-integer floats, or out-of-range numbers.
+- **Deserialization Normalization:** Whole-number floats parsed by the JSON engine from disk are normalized to `int` in `_read_and_validate_save_file()`, guaranteeing seamless disk roundtrips.
 - **Backward Compatibility:** Legacy saves omitting `equipment_tier` automatically default to Tier 1 without schema errors or entity degradation.

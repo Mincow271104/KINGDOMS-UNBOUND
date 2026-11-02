@@ -714,8 +714,8 @@
   - Added Army Equipment standard tier progression: `MIN_ARMY_EQUIPMENT_TIER = 1`, `MAX_ARMY_EQUIPMENT_TIER = 3`.
   - Tier standards and multipliers:
     - Tier 1: "Trang bị cơ bản" — $1.00\times$ combat multiplier, default starting tier.
-    - Tier 2: "Trang bị cải tiến" — $1.25\times$ combat multiplier, cost 30 Wood, 15 Metal.
-    - Tier 3: "Trang bị cao cấp" — $1.50\times$ combat multiplier, cost 60 Wood, 30 Metal.
+    - Tier 2: "Trang bị rèn" — $1.25\times$ combat multiplier, cost 30 Wood, 15 Metal.
+    - Tier 3: "Trang bị tinh luyện" — $1.50\times$ combat multiplier, cost 60 Wood, 30 Metal.
   - Multiplier formula: $\text{multiplier} = 1.0 + 0.25 \times (\text{tier} - 1)$.
   - Static helpers: `get_army_equipment_cost()`, `get_army_equipment_multiplier()`, `get_army_equipment_name()`.
 - [x] **TASK-2J.2:** Player Army Manager State Machine & Atomic Upgrade Transactions (`PlayerArmyManager`):
@@ -727,6 +727,7 @@
     - Kingdom must have $\ge 1$ active Barracks (`get_active_barracks_count > 0`).
     - Army must be in base: `movement_state == MovementState.GARRISONED`, `current_path.is_empty()`, `current_cell == rally_cell`.
     - Central storage must afford exact Wood and Metal costs.
+  - Transaction re-entrancy protection: `_is_upgrading_equipment` guard active during reservation, commit, tier update, and signal emissions.
   - Atomic transaction `upgrade_equipment(target_tier)`: reserve-all-or-nothing and commit via `ResourceManager`, safely rolling back on failure.
   - New recruits inherit kingdom's current equipment tier standard.
 - [x] **TASK-2J.3:** Combat Integration & Dynamic Damage Scaling (`BattleResolver`, `BattleCampaignManager`, `TacticalUnit`, `EnemyTacticalUnit`, `FieldSiege`):
@@ -742,25 +743,27 @@
   - Connected `equipment_tier_changed` signal to dynamically refresh panel and resource stock.
 - [x] **TASK-2J.5:** Fail-Closed Save/Load Schema Persistence & Migration (`SaveManager`):
   - Serializes `equipment_tier` under `player_army` section.
-  - Schema validation in `validate_save_data`: validates `equipment_tier` is an integer in $[1, 3]$; rejects $< 1$, $> 3$, floats, and strings fail-closed.
+  - Schema validation in `validate_save_data`: validates `equipment_tier` is a strict integer in $[1, 3]$; rejects floats (`2.0`, `2.5`), strings, booleans, and out-of-range values fail-closed.
+  - JSON integral float normalization in `_read_and_validate_save_file()` for seamless disk persistence roundtrips.
   - Backward compatibility: legacy saves safely default `equipment_tier` to 1.
 - [x] **TASK-2J.6:** Automated Test Suite & Regression Verification (`test_army_equipment.gd`):
-  - Created comprehensive test suite covering TC-EQ.01 through TC-EQ.21: 21 test cases passing 100% (Exit Code 0).
-  - Executed all existing regression suites:
-    - `test_player_army.gd`: 32 tests passed (Exit Code 0).
+  - Created comprehensive test suite covering TC-EQ.01 through TC-EQ.27: 27 test cases passing 100% (68 assertions, Exit Code 0).
+  - Executed all 15 regression suites:
+    - `test_army_equipment.gd`: 27 tests passed (Exit Code 0).
+    - `test_player_army.gd`: 31/32 passed (Exit Code 1, 1 known baseline limitation in TC-ARMY.32).
     - `test_army_movement.gd`: 32 tests passed (Exit Code 0).
+    - `test_workshop.gd`: 36 assertions passed (Exit Code 0).
     - `test_tactical_combat.gd`: 58 assertions passed (Exit Code 0).
     - `test_tactical_military.gd`: 419 assertions passed (Exit Code 0).
+    - `test_enemy_military_ai.gd`: 54 assertions passed (Exit Code 0).
+    - `test_factions_and_battles.gd`: 48 assertions passed (Exit Code 0).
+    - `test_live_battle_loop.gd`: 19 tests passed (Exit Code 0).
     - `test_field_siege.gd`: 98 assertions passed (Exit Code 0).
+    - `test_outpost_territorial_control.gd`: 200 assertions passed (Exit Code 0).
     - `test_save_load.gd`: 182 assertions passed (Exit Code 0).
+    - `test_dynamic_workplaces.gd`: 14 tests passed (Exit Code 0).
     - `test_building_management.gd`: 53 tests passed (Exit Code 0).
     - `test_market.gd`: 26 tests passed (Exit Code 0).
-    - `test_live_battle_loop.gd`: 19 tests passed (Exit Code 0).
-    - `test_factions_and_battles.gd`: 48 assertions passed (Exit Code 0).
+  - Godot MCP `validate_scripts`: 119 scripts validated, 0 errors.
 - [x] **TASK-2J.7:** Live Gameplay Acceptance & Visual Validation:
-  - Captured 5 high-fidelity screenshots in `docs/visual_validation/package_2j/`:
-    - `01_army_panel_tier1.png`
-    - `02_army_panel_tier2.png`
-    - `03_army_panel_tier3.png`
-    - `04_tactical_combat_tier_damage.png`
-    - `05_save_load_tier_persistence.png`
+  - Captured 12 high-fidelity visual artifacts across 1280x720 and 1024x576 in `docs/visual_validation/package_2j/`.

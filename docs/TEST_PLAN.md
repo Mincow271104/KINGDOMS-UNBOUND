@@ -930,7 +930,7 @@ When Godot Editor is running with the MCP plugin:
 
 ## 4. Package 2J: Army Equipment Progression & Combat Integration Test Matrix
 
-### 4.1 Automated Test Suite (`scripts/test/test_army_equipment.gd`) — 21/21 PASSED (Exit Code 0)
+### 4.1 Automated Test Suite (`scripts/test/test_army_equipment.gd`) — 27/27 PASSED (Exit Code 0, 68 Assertions)
 | Test ID | Test Category | Description | Verification Method | Result |
 |---|---|---|---|:---:|
 | **TC-EQ.01** | Initialization | Default equipment tier is 1, multiplier 1.00x, name 'Trang bị cơ bản', cost empty | Headless SceneTree assertion | **PASS** |
@@ -954,11 +954,27 @@ When Godot Editor is running with the MCP plugin:
 | **TC-EQ.19** | Save Validation | SaveManager rejects invalid/corrupt equipment_tier (<1, >3, float, string) fail-closed | Headless SceneTree assertion | **PASS** |
 | **TC-EQ.20** | Legacy Migration | Legacy save lacking equipment_tier defaults smoothly to Tier 1 | Headless SceneTree assertion | **PASS** |
 | **TC-EQ.21** | HUD Integration | HUD ArmyPanel displays tier standard, multiplier, and upgrade button state | Headless SceneTree assertion | **PASS** |
+| **TC-EQ.22** | Re-entrancy Guard | Synchronous transaction guard prevents nested/re-entrant upgrade calls during reservation | Headless SceneTree assertion | **PASS** |
+| **TC-EQ.23** | Strict Save Type Matrix | Validates 8 save data variants: 2 (pass), 2.0 (fail), 2.5 (fail), "2" (fail), true (fail), 0 (fail), 4 (fail), legacy (pass) | Headless SceneTree assertion | **PASS** |
+| **TC-EQ.24** | Real Combat Damage Loop | Real combat strikes apply exact scaled damage (Tier 1: 25.0, Tier 2: 31.25, Tier 3: 37.5) with base attack_damage immutable | Headless SceneTree assertion | **PASS** |
+| **TC-EQ.25** | Offensive Campaign Real Integration | BattleCampaignManager.launch_offensive_campaign() with PlayerArmyManager as single source of truth | Headless SceneTree assertion | **PASS** |
+| **TC-EQ.26** | Mixed Defense Resolution | Defensive raid correctly combines recruited soldiers and citizen guards with tier multiplier | Headless SceneTree assertion | **PASS** |
+| **TC-EQ.27** | Field Siege Outpost Damage | Tactical damage against hostile siege objective outpost scales with tier multiplier (25.0 -> 37.5) | Headless SceneTree assertion | **PASS** |
 
 ### 4.2 Visual Validation Artifacts (`docs/visual_validation/package_2j/`)
-1. `01_army_panel_tier1.png`: In-game Army Panel at Tier 1 (1.00x, Trang bị cơ bản).
-2. `02_army_panel_tier2.png`: In-game Army Panel at Tier 2 (1.25x, Trang bị cải tiến).
-3. `03_army_panel_tier3.png`: In-game Army Panel at Tier 3 (1.50x, Trang bị cao cấp, max tier).
-4. `04_tactical_combat_tier_damage.png`: Live tactical combat showing 37.50 effective damage strike.
-5. `05_save_load_tier_persistence.png`: Restored world state confirming Tier 3 persistence across save/load.
+Captured using Godot 4.7-stable on NVIDIA GeForce RTX 3050 Ti Laptop GPU (D3D12 Forward+):
+- **1280x720 Display Resolution:**
+  1. `01_army_panel_tier1.png` / `01_army_panel_tier1_1280x720.png`: In-game Army Panel at Tier 1 (1.00x, Trang bị cơ bản).
+  2. `02_army_panel_tier2.png` / `02_army_panel_tier2_1280x720.png`: In-game Army Panel at Tier 2 (1.25x, Trang bị rèn).
+  3. `03_army_panel_tier3.png` / `03_army_panel_tier3_1280x720.png`: In-game Army Panel at Tier 3 (1.50x, Trang bị tinh luyện, max tier).
+  4. `04_tactical_combat_tier_damage.png` / `04_tactical_combat_tier_damage_1280x720.png`: Live tactical combat showing 37.50 effective damage strike.
+  5. `05_field_siege_outpost_damage.png` / `05_field_siege_outpost_damage_1280x720.png`: Real field siege strike applying 37.50 damage to hostile outpost (250 -> 212.50).
+  6. `06_save_load_tier_persistence.png` / `06_save_load_tier_persistence_1280x720.png`: Restored world state confirming Tier 3 persistence across save/load.
+- **1024x576 Display Resolution:**
+  1. `01_army_panel_tier1_1024x576.png`
+  2. `02_army_panel_tier2_1024x576.png`
+  3. `03_army_panel_tier3_1024x576.png`
+  4. `04_tactical_combat_tier_damage_1024x576.png`
+  5. `05_field_siege_outpost_damage_1024x576.png`
+  6. `06_save_load_tier_persistence_1024x576.png`
 
