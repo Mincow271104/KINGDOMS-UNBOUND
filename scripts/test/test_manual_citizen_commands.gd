@@ -48,6 +48,10 @@ func _init() -> void:
 	_run_tc_man_13_multi_citizen_isolation()
 	_run_tc_man_14_citizen_death_cleanup()
 	_run_tc_man_15_vocational_xp_award_on_completion()
+	_run_tc_man_16_survival_interruption_during_cargo_hauling()
+	_run_tc_man_17_full_storage_arrival_and_stationing()
+	_run_tc_man_18_work_command_rejection_while_carrying_cargo()
+	_run_tc_man_19_save_load_during_cargo_hauling()
 
 	print("\n--------------------------------------------------------")
 	if failures == 0:
@@ -688,3 +692,224 @@ func _run_tc_man_15_vocational_xp_award_on_completion() -> void:
 
 	cit.queue_free()
 	rm.queue_free()
+
+## TC-MAN.16: Survival Interruption During Cargo Hauling & Resumption
+func _run_tc_man_16_survival_interruption_during_cargo_hauling() -> void:
+	print("--- TC-MAN.16: Survival Interruption During Cargo Hauling & Resumption ---")
+	var wd = _create_test_world()
+	var nav = GridNavigationScript.new(wd)
+	var jm = JobManagerScript.new()
+	var rm = ResourceManagerScript.new()
+	root.add_child(rm)
+	rm.reset_economy()
+
+	var cit = CitizenControllerScript.new()
+	root.add_child(cit)
+	cit.init_citizen("cit_16", "Woodcutter", "idle", Vector2i(32, 32), nav, jm)
+	cit.world_data = wd
+	cit.set_custom_resource_manager(rm)
+
+	# Tree at (35, 32)
+	wd.props.append({"type": "tree", "cell": Vector2i(35, 32)})
+	for x in range(32, 36):
+		wd.occupancy[x][32] = false
+		wd.terrain[x][32] = WorldGenerator.TerrainType.GRASS
+	wd.occupancy[35][32] = true
+
+	var res := cit.issue_manual_command("chop", Vector2i(35, 32))
+	_assert(res.get("success", false) == true, "TC-MAN.16.1: Chop command accepted")
+
+	# Move adjacent and complete harvest
+	cit.current_cell = Vector2i(34, 32)
+	cit.position = IsoMath.map_to_local(cit.current_cell)
+	cit._arrive_at_manual_destination()
+	cit._process_manual_working(5.0)
+
+	_assert(cit.carrying_amount == 10, "TC-MAN.16.2: Citizen holds 10 wood cargo")
+	_assert(cit.current_state == CitizenController.State.HAULING, "TC-MAN.16.3: State is HAULING toward storage")
+	_assert(cit._is_tree_at_cell(Vector2i(35, 32)) == false, "TC-MAN.16.4: Tree removed from world props upon harvest")
+
+	# Citizen steps 1 tile toward storehouse
+	cit.current_cell = Vector2i(33, 32)
+	cit.position = IsoMath.map_to_local(cit.current_cell)
+
+	var init_wood: int = rm.get_total_stock("wood")
+
+	# Hunger emergency triggers interruption
+	cit.hunger = 88.0
+	cit._process(0.1)
+
+	_assert(cit.has_manual_command() == true, "TC-MAN.16.5: Manual command retained during pause")
+	_assert(cit.manual_command.is_paused == true, "TC-MAN.16.6: Manual command paused")
+	_assert(cit.current_state == CitizenController.State.SEEKING_FOOD, "TC-MAN.16.7: Seeking food")
+
+	# Citizen feeds
+	cit._eat_food()
+
+	_assert(cit.has_manual_command() == true, "TC-MAN.16.8: Manual command remains active after feeding (not cancelled by missing tree)")
+	_assert(cit.manual_command.is_paused == false, "TC-MAN.16.9: Manual command unpaused")
+	_assert(cit.current_state == CitizenController.State.HAULING, "TC-MAN.16.10: Citizen resumed HAULING state toward storehouse")
+	_assert(cit.carrying_amount == 10, "TC-MAN.16.11: Cargo intact in citizen hands")
+	_assert(rm.get_total_stock("wood") == init_wood, "TC-MAN.16.12: Zero teleportation (warehouse not credited prematurely from (33, 32))")
+
+	# Step until arrival at storehouse (32, 32)
+	for _i in range(20):
+		cit._process(0.1)
+		if not cit.has_manual_command():
+			break
+
+	_assert(cit.current_cell == Vector2i(32, 32), "TC-MAN.16.13: Citizen physically reached storehouse cell (32, 32)")
+	_assert(cit.carrying_amount == 0, "TC-MAN.16.14: Cargo deposited completely")
+	_assert(rm.get_total_stock("wood") == init_wood + 10, "TC-MAN.16.15: Warehouse correctly credited +10 wood at storehouse")
+	_assert(cit.has_manual_command() == false, "TC-MAN.16.16: Manual command completed cleanly")
+
+	cit.queue_free()
+	rm.queue_free()
+
+## TC-MAN.17: Full Central Storage Handling & Stationing at Storehouse
+func _run_tc_man_17_full_storage_arrival_and_stationing() -> void:
+	print("--- TC-MAN.17: Full Storage Arrival & Stationing ---")
+	var wd = _create_test_world()
+	var nav = GridNavigationScript.new(wd)
+	var jm = JobManagerScript.new()
+	var rm = ResourceManagerScript.new()
+	root.add_child(rm)
+	rm.reset_economy()
+
+	var cit = CitizenControllerScript.new()
+	root.add_child(cit)
+	cit.init_citizen("cit_17", "Miner", "idle", Vector2i(32, 32), nav, jm)
+	cit.world_data = wd
+	cit.set_custom_resource_manager(rm)
+
+	# Rock at (34, 32)
+	wd.props.append({"type": "rock", "cell": Vector2i(34, 32)})
+	for x in range(32, 35):
+		wd.occupancy[x][32] = false
+		wd.terrain[x][32] = WorldGenerator.TerrainType.GRASS
+	wd.occupancy[34][32] = true
+
+	cit.issue_manual_command("mine", Vector2i(34, 32))
+	cit.current_cell = Vector2i(33, 32)
+	cit.position = IsoMath.map_to_local(cit.current_cell)
+	cit._arrive_at_manual_destination()
+	cit._process_manual_working(5.0)
+
+	_assert(cit.carrying_amount == 10, "TC-MAN.17.1: Citizen mined 10 stone")
+	_assert(cit.current_state == CitizenController.State.HAULING, "TC-MAN.17.2: State is HAULING toward storehouse")
+
+	# Fill stone capacity completely (capacity = total_stock)
+	rm._current_stock["stone"] = rm.get_storage_capacity("stone")
+
+	# Arrive at storehouse (32, 32) with 0 capacity space
+	cit.current_cell = Vector2i(32, 32)
+	cit.position = IsoMath.map_to_local(cit.current_cell)
+	cit._deposit_hauler_cargo()
+
+	_assert(cit.carrying_amount == 10, "TC-MAN.17.3: Full cargo preserved when storehouse full")
+	_assert(cit.has_manual_command() == true, "TC-MAN.17.4: Manual command remains active while awaiting storehouse space")
+	_assert(cit.current_state == CitizenController.State.IDLE, "TC-MAN.17.5: Citizen transitions to IDLE awaiting storage")
+
+	# Run simulation frame: citizen must NOT path back to rock cell (34, 32)!
+	cit._process(0.1)
+
+	_assert(cit.current_cell == Vector2i(32, 32), "TC-MAN.17.6: Citizen remains stationed at storehouse (32, 32)")
+	_assert(cit.current_path.is_empty(), "TC-MAN.17.7: Citizen does not path back to harvested rock site")
+
+	# Free 10 stone capacity in storehouse
+	rm._current_stock["stone"] = rm.get_storage_capacity("stone") - 10
+	cit._process(0.1)
+
+	_assert(cit.carrying_amount == 0, "TC-MAN.17.8: Cargo deposited once space became available")
+	_assert(cit.has_manual_command() == false, "TC-MAN.17.9: Manual command completed once cargo deposited")
+
+	cit.queue_free()
+	rm.queue_free()
+
+## TC-MAN.18: Work Command Rejection While Carrying Existing Cargo
+func _run_tc_man_18_work_command_rejection_while_carrying_cargo() -> void:
+	print("--- TC-MAN.18: Work Command Rejection While Carrying Existing Cargo ---")
+	var wd = _create_test_world()
+	var nav = GridNavigationScript.new(wd)
+	var jm = JobManagerScript.new()
+	var rm = ResourceManagerScript.new()
+	root.add_child(rm)
+	rm.reset_economy()
+
+	var cit = CitizenControllerScript.new()
+	root.add_child(cit)
+	cit.init_citizen("cit_18", "Loaded Porter", "idle", Vector2i(32, 32), nav, jm)
+	cit.world_data = wd
+	cit.set_custom_resource_manager(rm)
+
+	# Give citizen existing cargo
+	cit.carrying_resource = "stone"
+	cit.carrying_amount = 10
+
+	wd.props.append({"type": "tree", "cell": Vector2i(33, 32)})
+	wd.props.append({"type": "rock", "cell": Vector2i(31, 32)})
+
+	var res_chop := cit.issue_manual_command("chop", Vector2i(33, 32))
+	_assert(res_chop.get("success", true) == false, "TC-MAN.18.1: Chop rejected while loaded with cargo")
+
+	var res_mine := cit.issue_manual_command("mine", Vector2i(31, 32))
+	_assert(res_mine.get("success", true) == false, "TC-MAN.18.2: Mine rejected while loaded with cargo")
+
+	var res_build := cit.issue_manual_command("build", Vector2i(33, 32))
+	_assert(res_build.get("success", true) == false, "TC-MAN.18.3: Build rejected while loaded with cargo")
+
+	var res_haul := cit.issue_manual_command("haul", Vector2i(33, 32))
+	_assert(res_haul.get("success", true) == false, "TC-MAN.18.4: Haul rejected while loaded with cargo")
+
+	_assert(cit.carrying_amount == 10, "TC-MAN.18.5: Carried cargo preserved without loss")
+	_assert(cit.carrying_resource == "stone", "TC-MAN.18.6: Carried resource identity preserved")
+
+	cit.queue_free()
+	rm.queue_free()
+
+## TC-MAN.19: Save/Load During Cargo Hauling Restores Hauling State
+func _run_tc_man_19_save_load_during_cargo_hauling() -> void:
+	print("--- TC-MAN.19: Save/Load During Cargo Hauling Restores Hauling State ---")
+	var wd = _create_test_world()
+	var nav = GridNavigationScript.new(wd)
+	var jm = JobManagerScript.new()
+
+	var cit = CitizenControllerScript.new()
+	root.add_child(cit)
+	cit.init_citizen("cit_19", "En Route", "woodcutter", Vector2i(33, 32), nav, jm)
+	cit.world_data = wd
+
+	# Set up manual command where tree has already been chopped and removed from world
+	cit.manual_command = {
+		"type": "chop",
+		"target_cell": Vector2i(35, 32),
+		"target_id": "",
+		"work_hours_required": 5.0,
+		"work_hours_done": 5.0,
+		"is_active": true,
+		"is_paused": false,
+		"pause_reason": ""
+	}
+	cit.carrying_resource = "wood"
+	cit.carrying_amount = 10
+	cit.current_state = CitizenController.State.HAULING
+
+	# Tree (35, 32) is NOT in wd.props!
+	var serialized := cit.serialize_manual_command()
+
+	var cit_restored = CitizenControllerScript.new()
+	root.add_child(cit_restored)
+	cit_restored.init_citizen("cit_19", "En Route", "woodcutter", Vector2i(33, 32), nav, jm)
+	cit_restored.world_data = wd
+	cit_restored.carrying_resource = "wood"
+	cit_restored.carrying_amount = 10
+
+	cit_restored.restore_manual_command(serialized)
+
+	_assert(cit_restored.has_manual_command() == true, "TC-MAN.19.1: Manual command restored during hauling phase")
+	_assert(cit_restored.manual_command.type == "chop", "TC-MAN.19.2: Command type is 'chop'")
+	_assert(cit_restored.current_state == CitizenController.State.HAULING, "TC-MAN.19.3: State is HAULING toward storehouse")
+	_assert(cit_restored.carrying_amount == 10, "TC-MAN.19.4: Carried cargo restored exactly")
+
+	cit.queue_free()
+	cit_restored.queue_free()

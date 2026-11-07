@@ -60,6 +60,11 @@ func _get_poi_manager() -> RefCounted:
 			return wv.get_meta("poi_mgr")
 	return null
 
+func _get_storage_dropoff_cell() -> Vector2i:
+	if workplace_mgr != null and workplace_mgr.has_method("get_nearest_dropoff_cell"):
+		return workplace_mgr.get_nearest_dropoff_cell(current_cell)
+	return Vector2i(32, 32)
+
 # Needs (0..100)
 var hunger: float = 10.0
 var fatigue: float = 10.0
@@ -505,6 +510,7 @@ func _deposit_hauler_cargo() -> void:
 	carrying_amount -= added
 
 	if carrying_amount <= 0:
+		current_path.clear()
 		carrying_amount = 0
 		carrying_resource = ""
 		carrying_source_workplace_id = ""
@@ -524,6 +530,7 @@ func _deposit_hauler_cargo() -> void:
 		# Partial deposit: central storage space was insufficient to receive full batch.
 		# Remaining cargo is safely preserved in hauler inventory (no loss, no duplication).
 		# carrying_source_workplace_id is preserved so demolition checks and future delivery can trace it!
+		current_path.clear()
 		if active_job != null:
 			if job_mgr != null:
 				job_mgr.release_job(active_job)
@@ -1034,21 +1041,22 @@ func restore_manual_command(cmd_data: Dictionary) -> void:
 		target_cell = cmd_data["target_cell"]
 	var target_id: String = String(cmd_data.get("target_id", ""))
 
-	var is_valid := _check_manual_target_validity(c_type, target_cell, target_id)
-	if not is_valid:
-		manual_command = {
-			"type": "",
-			"target_cell": Vector2i(-1, -1),
-			"target_id": "",
-			"work_hours_required": 0.0,
-			"work_hours_done": 0.0,
-			"is_active": false,
-			"is_paused": false,
-			"pause_reason": ""
-		}
-		current_state = State.IDLE
-		status_reason = "Lệnh thủ công từ bản lưu trước không còn mục tiêu hợp lệ"
-		return
+	if carrying_amount <= 0:
+		var is_valid := _check_manual_target_validity(c_type, target_cell, target_id)
+		if not is_valid:
+			manual_command = {
+				"type": "",
+				"target_cell": Vector2i(-1, -1),
+				"target_id": "",
+				"work_hours_required": 0.0,
+				"work_hours_done": 0.0,
+				"is_active": false,
+				"is_paused": false,
+				"pause_reason": ""
+			}
+			current_state = State.IDLE
+			status_reason = "Lệnh thủ công từ bản lưu trước không còn mục tiêu hợp lệ"
+			return
 
 	manual_command = {
 		"type": c_type,
@@ -1062,7 +1070,16 @@ func restore_manual_command(cmd_data: Dictionary) -> void:
 	}
 
 	if not manual_command["is_paused"]:
-		if current_cell == target_cell or (c_type in ["chop", "mine"] and IsoMath.grid_distance(current_cell, target_cell) <= 1):
+		if carrying_amount > 0:
+			var drop_cell := _get_storage_dropoff_cell()
+			if current_cell == drop_cell:
+				_deposit_hauler_cargo()
+			else:
+				if nav != null:
+					current_path = nav.find_path(current_cell, drop_cell)
+				current_state = State.HAULING
+				_update_reason()
+		elif current_cell == target_cell or (c_type in ["chop", "mine"] and IsoMath.grid_distance(current_cell, target_cell) <= 1):
 			_arrive_at_manual_destination()
 		else:
 			if nav != null:
@@ -1125,6 +1142,9 @@ func issue_manual_command(cmd_type: String, target_cell: Vector2i, target_id: St
 
 	if not IsoMath.is_in_bounds(target_cell):
 		return {"success": false, "reason": "Tọa độ mục tiêu (%d, %d) nằm ngoài bản đồ" % [target_cell.x, target_cell.y]}
+
+	if cmd_type in ["chop", "mine", "haul", "build"] and carrying_amount > 0:
+		return {"success": false, "reason": "Dân làng đang mang hàng khác trên người (%d %s), hãy dỡ hàng trước" % [carrying_amount, carrying_resource]}
 
 	# Specific command validation
 	match cmd_type:
@@ -1295,12 +1315,28 @@ func _check_manual_target_validity(cmd_type: String, target_cell: Vector2i, targ
 func _resume_paused_manual_command() -> void:
 	if not has_manual_command():
 		return
+	manual_command["is_paused"] = false
+	manual_command["pause_reason"] = ""
+
+	if carrying_amount > 0:
+		var drop_cell := _get_storage_dropoff_cell()
+		if current_cell == drop_cell:
+			_deposit_hauler_cargo()
+		else:
+			if nav != null:
+				current_path = nav.find_path(current_cell, drop_cell)
+				if current_path.is_empty():
+					cancel_manual_command("Không thể tìm đường vận chuyển hàng về kho")
+					return
+			current_state = State.HAULING
+			status_reason = "Đang vận chuyển %d %s về kho theo lệnh" % [carrying_amount, carrying_resource]
+		return
+
 	var is_valid := _check_manual_target_validity(manual_command.type, manual_command.target_cell, manual_command.target_id)
 	if not is_valid:
 		cancel_manual_command("Mục tiêu lệnh không còn hợp lệ sau khi hồi phục thể lực")
 		return
-	manual_command["is_paused"] = false
-	manual_command["pause_reason"] = ""
+
 	if current_cell == manual_command.target_cell or (manual_command.type in ["chop", "mine"] and IsoMath.grid_distance(current_cell, manual_command.target_cell) <= 1):
 		_arrive_at_manual_destination()
 	else:
@@ -1313,6 +1349,20 @@ func _resume_paused_manual_command() -> void:
 		_update_reason()
 
 func _execute_active_manual_command() -> void:
+	if carrying_amount > 0:
+		var drop_cell := _get_storage_dropoff_cell()
+		if current_cell == drop_cell:
+			_deposit_hauler_cargo()
+		else:
+			if nav != null and current_path.is_empty():
+				current_path = nav.find_path(current_cell, drop_cell)
+			if not current_path.is_empty():
+				current_state = State.HAULING
+				status_reason = "Đang vận chuyển %d %s về kho theo lệnh" % [carrying_amount, carrying_resource]
+			else:
+				cancel_manual_command("Không tìm thấy đường vận chuyển hàng về kho")
+		return
+
 	if current_path.is_empty():
 		if current_cell == manual_command.target_cell or (manual_command.type in ["chop", "mine"] and IsoMath.grid_distance(current_cell, manual_command.target_cell) <= 1):
 			_arrive_at_manual_destination()
@@ -1334,37 +1384,31 @@ func _arrive_at_manual_destination() -> void:
 			status_reason = "Đã đến điểm chỉ định"
 			manual_command_completed.emit(citizen_id, "move")
 		"chop", "mine":
-			if carrying_amount > 0:
-				_deposit_hauler_cargo()
-			else:
-				current_state = State.WORKING
-				_update_reason()
+			current_state = State.WORKING
+			_update_reason()
 		"build":
 			current_state = State.WORKING
 			_update_reason()
 		"haul":
-			if carrying_amount > 0:
-				_deposit_hauler_cargo()
+			var wp_id: String = String(manual_command.get("target_id", ""))
+			var picked_up := 0
+			if workplace_mgr != null and workplace_mgr.has_method("pickup_from_buffer"):
+				picked_up = workplace_mgr.pickup_from_buffer(wp_id, carry_capacity)
+			if picked_up > 0:
+				var wp = workplace_mgr.get_workplace(wp_id) if workplace_mgr.has_method("get_workplace") else null
+				carrying_resource = wp.output_resource if wp != null else "wood"
+				carrying_amount = picked_up
+				carrying_source_workplace_id = wp_id
+				var drop_cell := _get_storage_dropoff_cell()
+				if nav != null:
+					current_path = nav.find_path(current_cell, drop_cell)
+				current_state = State.HAULING
+				status_reason = "Đang vận chuyển %d %s về kho theo lệnh" % [carrying_amount, carrying_resource]
 			else:
-				var wp_id: String = String(manual_command.get("target_id", ""))
-				var picked_up := 0
-				if workplace_mgr != null and workplace_mgr.has_method("pickup_from_buffer"):
-					picked_up = workplace_mgr.pickup_from_buffer(wp_id, carry_capacity)
-				if picked_up > 0:
-					var wp = workplace_mgr.get_workplace(wp_id) if workplace_mgr.has_method("get_workplace") else null
-					carrying_resource = wp.output_resource if wp != null else "wood"
-					carrying_amount = picked_up
-					carrying_source_workplace_id = wp_id
-					var drop_cell := Vector2i(32, 32)
-					if nav != null:
-						current_path = nav.find_path(current_cell, drop_cell)
-					current_state = State.HAULING
-					status_reason = "Đang vận chuyển %d %s về kho theo lệnh" % [carrying_amount, carrying_resource]
-				else:
-					manual_command["is_active"] = false
-					current_state = State.IDLE
-					status_reason = "Kho đệm đã hết hàng"
-					manual_command_completed.emit(citizen_id, "haul")
+				manual_command["is_active"] = false
+				current_state = State.IDLE
+				status_reason = "Kho đệm đã hết hàng"
+				manual_command_completed.emit(citizen_id, "haul")
 		"explore":
 			var poi_id: String = String(manual_command.get("target_id", ""))
 			var p_mgr := _get_poi_manager()
@@ -1404,17 +1448,17 @@ func _process_manual_working(delta: float) -> void:
 			if float(manual_command["work_hours_done"]) >= req_h:
 				award_work_xp("woodcutting", 10.0)
 				carrying_resource = "wood"
-				carrying_amount = 10
+				carrying_amount = mini(10, carry_capacity)
 				var t_cell: Vector2i = manual_command.get("target_cell", Vector2i(-1, -1))
 				_remove_harvested_prop_at_cell(t_cell)
-				var drop_cell := Vector2i(32, 32)
+				var drop_cell := _get_storage_dropoff_cell()
 				if current_cell == drop_cell:
 					_deposit_hauler_cargo()
 				else:
 					if nav != null:
 						current_path = nav.find_path(current_cell, drop_cell)
 					current_state = State.HAULING
-					status_reason = "Đang vận chuyển 10 gỗ về kho theo lệnh"
+					status_reason = "Đang vận chuyển %d gỗ về kho theo lệnh" % carrying_amount
 			else:
 				status_reason = "Đang chặt cây theo lệnh (%.1f / %.1f giờ)" % [
 					float(manual_command["work_hours_done"]),
@@ -1428,17 +1472,17 @@ func _process_manual_working(delta: float) -> void:
 			if float(manual_command["work_hours_done"]) >= req_h:
 				award_work_xp("mining", 10.0)
 				carrying_resource = "stone"
-				carrying_amount = 10
+				carrying_amount = mini(10, carry_capacity)
 				var t_cell: Vector2i = manual_command.get("target_cell", Vector2i(-1, -1))
 				_remove_harvested_prop_at_cell(t_cell)
-				var drop_cell := Vector2i(32, 32)
+				var drop_cell := _get_storage_dropoff_cell()
 				if current_cell == drop_cell:
 					_deposit_hauler_cargo()
 				else:
 					if nav != null:
 						current_path = nav.find_path(current_cell, drop_cell)
 					current_state = State.HAULING
-					status_reason = "Đang vận chuyển 10 đá về kho theo lệnh"
+					status_reason = "Đang vận chuyển %d đá về kho theo lệnh" % carrying_amount
 			else:
 				status_reason = "Đang khai thác đá theo lệnh (%.1f / %.1f giờ)" % [
 					float(manual_command["work_hours_done"]),
