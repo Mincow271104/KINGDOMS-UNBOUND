@@ -43,7 +43,9 @@
 |:---|:---:|:---|:---|
 | **GAP-001** | Medium | Attack-order failure branch in `world_view.gd` lacked tracked test | **CLOSED (RESOLVED in Commit `4a99322`)** via `scripts/test/test_world_view_siege_input.gd` (30/30 checks PASS, Exit Code 0). |
 | **GAP-002** | Medium | No tracked regression runner; scratch runners count regex words | **CLOSED (RESOLVED in Batch 2)** via `scripts/test/run_regression.ps1` with raw exit codes, baseline detection, and JSON summary. |
-| **GAP-003** | Medium | Missing unit tests for confirmed/probable bugs | **CLOSED (RESOLVED in Batch 2)** via `test_hauler_death_cargo_conservation.gd` (BUG-001), `test_job_lifecycle_pruning.gd` (BUG-002), and `test_save_slot_isolation.gd` (BUG-003). |
+| **GAP-003a** | Medium | Missing unit test for hauler cargo conservation (`BUG-001`) | **CLOSED (RESOLVED in Batch 2)** via `scripts/test/test_hauler_death_cargo_conservation.gd` (12/12 PASS, Exit Code 0). |
+| **GAP-003b** | Medium | Missing unit test for job lifecycle pruning bounds (`BUG-002`) | **CLOSED (RESOLVED in Batch 2)** via `scripts/test/test_job_lifecycle_pruning.gd` (10/10 PASS, Exit Code 0). |
+| **GAP-003c** | Medium | Missing unit test for autosave slot isolation (`BUG-003`) | **CLOSED (RESOLVED in Batch 2)** via `scripts/test/test_save_slot_isolation.gd` (10/10 PASS, Exit Code 0). |
 | **GAP-004** | Low | Heavy reliance on private internals in test suites | **OPEN** — $>480$ direct accesses to `._x` fields reduce refactoring resistance. |
 | **GAP-005** | Medium | Gameplay acceptance evidence lives in untracked artifacts | **OPEN / PARTIALLY ADDRESSED** — Distinguished in WORKLOG, but lacks structured tracked checklists. |
 | **GAP-006** | Low | Absence of a tracked all-scripts compile/parse check | **CLOSED (RESOLVED in Batch 2)** via `scripts/test/test_all_scripts_load.gd` (124/124 scripts compiled cleanly, PASS). |

@@ -46,12 +46,20 @@ A critical discovery of this audit concerns existing untracked regression script
   - Outputs structured terminal logs and saves machine-readable `regression_summary.json`.
   - Includes `-SelfTest` fixture validation (4/4 fixtures PASS, Exit Code 0).
 
-### GAP-003 — Missing tests for confirmed and probable bugs
+### GAP-003a — Missing unit test for hauler cargo conservation (`BUG-001`)
 - **Status:** **CLOSED (RESOLVED in Batch 2)**
-- **Implemented Suites:**
-  1. Resource conservation test for hauler death with carried cargo (`BUG-001`): `scripts/test/test_hauler_death_cargo_conservation.gd` (12/12 PASS, Exit Code 0).
-  2. Job array size boundedness test across repeated hauling cycles (`BUG-002`): `scripts/test/test_job_lifecycle_pruning.gd` (10/10 PASS, Exit Code 0).
-  3. Autosave vs manual save slot isolation test (`BUG-003`): `scripts/test/test_save_slot_isolation.gd` (10/10 PASS, Exit Code 0).
+- **Committed Suite:** `scripts/test/test_hauler_death_cargo_conservation.gd` (12/12 checks PASS, Exit Code 0).
+- **Verification Scope:** Verifies hauler cargo recovery upon citizen death, idempotency of death signal, storage capacity bounding, and durable pending death cargo recovery across day rollover when central storage is fully saturated.
+
+### GAP-003b — Missing unit test for job lifecycle pruning bounds (`BUG-002`)
+- **Status:** **CLOSED (RESOLVED in Batch 2)**
+- **Committed Suite:** `scripts/test/test_job_lifecycle_pruning.gd` (10/10 checks PASS, Exit Code 0).
+- **Verification Scope:** Proves terminal non-recurring jobs (`COMPLETED`, `CANCELLED`) are pruned from active `_jobs`, recurring jobs loop back to `AVAILABLE`, bounded terminal history ring buffer (50), iterator safety, and 1,000-cycle stress test confirming bounded array size.
+
+### GAP-003c — Missing unit test for autosave vs manual save slot isolation (`BUG-003`)
+- **Status:** **CLOSED (RESOLVED in Batch 2)**
+- **Committed Suite:** `scripts/test/test_save_slot_isolation.gd` (10/10 checks PASS, Exit Code 0).
+- **Verification Scope:** Verifies manual save writes strictly to manual slot (`world_save.json`), daily autosave writes strictly to dedicated autosave slot (`autosave.json`), independent `.bak` backup rotation, and UI restore actions.
 
 ### GAP-004 — High coupling to private internals in test suites
 - **Status:** **OPEN**
