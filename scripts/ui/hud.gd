@@ -130,6 +130,17 @@ var formation_scatter_btn: Button = null
 @onready var manual_command_container: Control = get_node_or_null("CitizenInspectPanel/MarginContainer/VBoxContainer/ManualCommandContainer")
 @onready var manual_command_label: Label = get_node_or_null("CitizenInspectPanel/MarginContainer/VBoxContainer/ManualCommandContainer/ManualCommandLabel")
 @onready var cancel_manual_order_btn: Button = get_node_or_null("CitizenInspectPanel/MarginContainer/VBoxContainer/ManualCommandContainer/CancelManualOrderBtn")
+@onready var open_roster_from_inspect_btn: Button = get_node_or_null("CitizenInspectPanel/MarginContainer/VBoxContainer/OpenRosterFromInspectBtn")
+
+# Settlement Citizen Roster Panel (Package 2L — GDD §14.4)
+@onready var citizen_roster_panel: Control = get_node_or_null("CitizenRosterPanel")
+@onready var roster_hud_btn: Button = get_node_or_null("RosterHudBtn")
+@onready var close_roster_btn: Button = get_node_or_null("CitizenRosterPanel/MarginContainer/VBoxContainer/HeaderHBox/CloseRosterBtn")
+@onready var refresh_roster_btn: Button = get_node_or_null("CitizenRosterPanel/MarginContainer/VBoxContainer/FooterHBox/RefreshRosterBtn")
+@onready var roster_filter_option_btn: OptionButton = get_node_or_null("CitizenRosterPanel/MarginContainer/VBoxContainer/HeaderHBox/FilterOptionBtn")
+@onready var roster_summary_label: Label = get_node_or_null("CitizenRosterPanel/MarginContainer/VBoxContainer/SummaryHBox/RosterSummaryLabel")
+@onready var roster_vbox: VBoxContainer = get_node_or_null("CitizenRosterPanel/MarginContainer/VBoxContainer/ScrollContainer/RosterVBox")
+@onready var roster_scroll: ScrollContainer = get_node_or_null("CitizenRosterPanel/MarginContainer/VBoxContainer/ScrollContainer")
 
 # Building Inspection Panel (Package 2F)
 @onready var building_inspect_panel: Control = get_node_or_null("BuildingInspectPanel")
@@ -203,6 +214,10 @@ var faction_mgr: Object = null
 var world_view_ref: Node = null
 var total_housing_cap: int = 24
 var barracks_checker: Callable = Callable()
+var _custom_citizen_list: Array = []
+var _roster_filter: String = "all"
+var _roster_refresh_timer: float = 0.0
+var _roster_rows: Dictionary = {}
 
 func set_barracks_checker(checker: Callable) -> void:
 	barracks_checker = checker
@@ -314,6 +329,23 @@ func _ready() -> void:
 	role_option_btn.item_selected.connect(_on_role_option_selected)
 	if cancel_manual_order_btn:
 		cancel_manual_order_btn.pressed.connect(_on_cancel_manual_order_pressed)
+	if open_roster_from_inspect_btn:
+		open_roster_from_inspect_btn.pressed.connect(open_citizen_roster)
+
+	# Citizen Roster Panel controls (Package 2L — GDD §14.4)
+	if citizen_roster_panel:
+		citizen_roster_panel.visible = false
+	if roster_hud_btn:
+		roster_hud_btn.pressed.connect(toggle_citizen_roster)
+	if close_roster_btn:
+		close_roster_btn.pressed.connect(close_citizen_roster)
+	if refresh_roster_btn:
+		refresh_roster_btn.pressed.connect(refresh_citizen_roster)
+	if roster_filter_option_btn:
+		_setup_roster_filter_options()
+		roster_filter_option_btn.item_selected.connect(_on_roster_filter_selected)
+	if pop_label:
+		pop_label.gui_input.connect(_on_pop_label_gui_input)
 
 	# Building inspector controls (Package 2F)
 	if building_inspect_panel:
@@ -426,15 +458,16 @@ func _setup_role_options() -> void:
 	_refresh_role_options()
 
 func _refresh_role_options() -> void:
-	if role_option_btn == null or role_option_btn.item_count <= 7:
-		return
-	var active: bool = is_barracks_active()
-	if active:
-		role_option_btn.set_item_text(7, "Vệ Binh (Guard)")
-		role_option_btn.set_item_disabled(7, false)
-	else:
-		role_option_btn.set_item_text(7, "Vệ Binh (Cần Doanh Trại)")
-		role_option_btn.set_item_disabled(7, true)
+	if role_option_btn != null and role_option_btn.item_count > 7:
+		var active: bool = is_barracks_active()
+		if active:
+			role_option_btn.set_item_text(7, "Vệ Binh (Guard)")
+			role_option_btn.set_item_disabled(7, false)
+		else:
+			role_option_btn.set_item_text(7, "Vệ Binh (Cần Doanh Trại)")
+			role_option_btn.set_item_disabled(7, true)
+	if citizen_roster_panel != null and citizen_roster_panel.visible:
+		refresh_citizen_roster()
 
 func set_research_manager(mgr: Object) -> void:
 	if research_mgr == mgr and mgr != null:
@@ -1828,6 +1861,10 @@ func _unhandled_input(event: InputEvent) -> void:
 				cancel_build_confirm_overlay.visible = false
 				get_viewport().set_input_as_handled()
 				return
+			elif citizen_roster_panel and citizen_roster_panel.visible:
+				close_citizen_roster()
+				get_viewport().set_input_as_handled()
+				return
 			elif building_inspect_panel and building_inspect_panel.visible:
 				close_building_inspector()
 				get_viewport().set_input_as_handled()
@@ -1862,6 +1899,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			_toggle_automation_editor()
 		elif k.keycode == KEY_H or k.keycode == KEY_F1:
 			_toggle_field_guide()
+		elif k.keycode == KEY_C:
+			toggle_citizen_roster()
 		elif k.keycode == KEY_F11:
 			var cur_mode := DisplayServer.window_get_mode()
 			var is_fs := (cur_mode == DisplayServer.WINDOW_MODE_FULLSCREEN or cur_mode == DisplayServer.WINDOW_MODE_EXCLUSIVE_FULLSCREEN)
@@ -1879,6 +1918,11 @@ func _unhandled_input(event: InputEvent) -> void:
 func _process(delta: float) -> void:
 	if citizen_panel.visible and inspected_citizen != null:
 		_refresh_inspected_citizen()
+	if citizen_roster_panel != null and citizen_roster_panel.visible:
+		_roster_refresh_timer += delta
+		if _roster_refresh_timer >= 0.25:
+			_roster_refresh_timer = 0.0
+			_update_roster_live_data()
 	if building_inspect_panel != null and building_inspect_panel.visible and inspected_building_id != "":
 		_building_refresh_timer += delta
 		if _building_refresh_timer >= 0.1:
@@ -1937,6 +1981,11 @@ func _reselect_current_citizen_role() -> void:
 func _refresh_inspected_citizen() -> void:
 	if inspected_citizen == null:
 		return
+	if citizen_name_label != null:
+		var c_name: String = String(inspected_citizen.get("citizen_name")) if inspected_citizen.get("citizen_name") != null else ""
+		var c_id: String = String(inspected_citizen.get("citizen_id")) if inspected_citizen.get("citizen_id") != null else ""
+		var d_name := c_name if c_name != "" else "Dân làng"
+		citizen_name_label.text = "%s (%s)" % [d_name, c_id]
 	var role_text := "Nghề nghiệp: %s | Vị trí: %s" % [inspected_citizen.get("role"), inspected_citizen.get("current_cell")]
 	var carry_amt: int = inspected_citizen.get("carrying_amount")
 	if carry_amt > 0:
@@ -2049,6 +2098,567 @@ func _on_role_option_selected(idx: int) -> void:
 
 	citizen_role_changed.emit(inspected_citizen.get("citizen_id"), new_role)
 	_refresh_inspected_citizen()
+	if citizen_roster_panel != null and citizen_roster_panel.visible:
+		refresh_citizen_roster()
+
+# ==============================================================================
+# SETTLEMENT CITIZEN ROSTER PANEL (PACKAGE 2L — GDD §14.4)
+# ==============================================================================
+
+func open_citizen_roster() -> void:
+	if citizen_roster_panel == null:
+		return
+	citizen_roster_panel.visible = true
+	_setup_roster_filter_options()
+	refresh_citizen_roster()
+
+func close_citizen_roster() -> void:
+	if citizen_roster_panel != null:
+		citizen_roster_panel.visible = false
+
+func toggle_citizen_roster() -> void:
+	if citizen_roster_panel == null:
+		return
+	if citizen_roster_panel.visible:
+		close_citizen_roster()
+	else:
+		open_citizen_roster()
+
+func set_citizen_list_for_test(list: Array) -> void:
+	_custom_citizen_list = list
+	if citizen_roster_panel != null and citizen_roster_panel.visible:
+		refresh_citizen_roster()
+
+func get_all_citizens() -> Array:
+	if not _custom_citizen_list.is_empty():
+		var valid_custom: Array = []
+		for c in _custom_citizen_list:
+			if c != null and is_instance_valid(c) and not c.is_queued_for_deletion():
+				valid_custom.append(c)
+		return valid_custom
+
+	if world_view_ref != null and is_instance_valid(world_view_ref):
+		var raw_list = world_view_ref.get("citizen_list")
+		if raw_list is Array:
+			var valid_world: Array = []
+			for c in raw_list:
+				if c != null and is_instance_valid(c) and not c.is_queued_for_deletion():
+					valid_world.append(c)
+			return valid_world
+
+	var tree = get_tree()
+	if tree != null:
+		var in_group = tree.get_nodes_in_group("citizens")
+		if not in_group.is_empty():
+			var valid_group: Array = []
+			for c in in_group:
+				if c != null and is_instance_valid(c) and not c.is_queued_for_deletion():
+					valid_group.append(c)
+			return valid_group
+
+	return []
+
+func refresh_citizen_roster() -> void:
+	if citizen_roster_panel == null or roster_vbox == null:
+		return
+
+	var all_cits: Array = get_all_citizens()
+	var total_count: int = all_cits.size()
+	var working_count: int = 0
+	var idle_count: int = 0
+	var guard_count: int = 0
+
+	var role_counts := {
+		"farmer": 0, "woodcutter": 0, "builder": 0, "hauler": 0,
+		"miner": 0, "smith": 0, "guard": 0, "idle": 0
+	}
+
+	for cit in all_cits:
+		if not is_instance_valid(cit) or cit.is_queued_for_deletion():
+			continue
+		var r: String = String(cit.get("role")) if cit.get("role") != null else "idle"
+		if role_counts.has(r):
+			role_counts[r] += 1
+		else:
+			role_counts["idle"] += 1
+
+		var st = cit.get("current_state")
+		if st == 6 or r == "guard":
+			guard_count += 1
+		elif st == 2 or st == 5 or st == 1:
+			working_count += 1
+		else:
+			idle_count += 1
+
+	if roster_summary_label:
+		roster_summary_label.text = "👥 Dân số: %d/%d | 💼 Đang làm: %d | 🛌 Tự do: %d | 🛡️ Vệ binh: %d | 🌾 Nông: %d | 🪓 Tiều: %d | ⛏️ Mỏ: %d | 🔨 Xây: %d | 📦 Vận: %d | ⚒️ Rèn: %d" % [
+			total_count, total_housing_cap, working_count, idle_count, guard_count,
+			role_counts["farmer"], role_counts["woodcutter"], role_counts["miner"],
+			role_counts["builder"], role_counts["hauler"], role_counts["smith"]
+		]
+
+	var displayed_cits: Array = []
+	for cit in all_cits:
+		if not is_instance_valid(cit) or cit.is_queued_for_deletion():
+			continue
+		var r: String = String(cit.get("role")) if cit.get("role") != null else "idle"
+		if _roster_filter == "all" or _roster_filter == r:
+			displayed_cits.append(cit)
+
+	var current_displayed_ids := {}
+	for cit in displayed_cits:
+		var cid: String = String(cit.get("citizen_id"))
+		if cid == "":
+			cid = str(cit.get_instance_id())
+		current_displayed_ids[cid] = cit
+
+	var to_erase: Array = []
+	for cid in _roster_rows:
+		if not current_displayed_ids.has(cid):
+			var row_dict: Dictionary = _roster_rows[cid]
+			var root_node = row_dict.get("root")
+			if root_node != null and is_instance_valid(root_node):
+				if root_node.get_parent() == roster_vbox:
+					roster_vbox.remove_child(root_node)
+				root_node.queue_free()
+			to_erase.append(cid)
+	for cid in to_erase:
+		_roster_rows.erase(cid)
+
+	for child in roster_vbox.get_children():
+		var found := false
+		for cid in _roster_rows:
+			if _roster_rows[cid].get("root") == child:
+				found = true
+				break
+		if not found:
+			roster_vbox.remove_child(child)
+			child.queue_free()
+
+	for cit in displayed_cits:
+		var cid: String = String(cit.get("citizen_id"))
+		if cid == "":
+			cid = str(cit.get_instance_id())
+
+		var row_dict: Dictionary
+		if _roster_rows.has(cid) and is_instance_valid(_roster_rows[cid].get("root")):
+			row_dict = _roster_rows[cid]
+		else:
+			row_dict = _create_roster_row_controls(cit)
+			_roster_rows[cid] = row_dict
+			roster_vbox.add_child(row_dict["root"])
+
+		_update_row_display(row_dict, cit)
+
+func _update_roster_live_data() -> void:
+	if citizen_roster_panel == null or not citizen_roster_panel.visible:
+		return
+
+	var all_cits: Array = get_all_citizens()
+	var valid_count := 0
+	for c in all_cits:
+		if is_instance_valid(c) and not c.is_queued_for_deletion():
+			valid_count += 1
+	if valid_count != _roster_rows.size() and _roster_filter == "all":
+		refresh_citizen_roster()
+		return
+
+	for cid in _roster_rows:
+		var row_dict: Dictionary = _roster_rows[cid]
+		var cit: Node = row_dict.get("cit_ref")
+		if cit != null and is_instance_valid(cit) and not cit.is_queued_for_deletion():
+			_update_row_display(row_dict, cit)
+		else:
+			refresh_citizen_roster()
+			return
+
+func _create_roster_row_controls(cit: Node) -> Dictionary:
+	var row_panel := PanelContainer.new()
+	row_panel.custom_minimum_size = Vector2(0, 30)
+	row_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+
+	var hbox := HBoxContainer.new()
+	hbox.mouse_filter = Control.MOUSE_FILTER_PASS
+	hbox.add_theme_constant_override("separation", 6)
+	row_panel.add_child(hbox)
+
+	var name_btn := Button.new()
+	name_btn.custom_minimum_size = Vector2(110, 26)
+	name_btn.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	name_btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
+	name_btn.pressed.connect(func(): _on_roster_citizen_clicked(cit))
+	hbox.add_child(name_btn)
+
+	var role_lbl := Label.new()
+	role_lbl.custom_minimum_size = Vector2(85, 24)
+	role_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	role_lbl.add_theme_color_override("font_color", Color(0.4, 0.8, 1, 1))
+	hbox.add_child(role_lbl)
+
+	var hp_lbl := Label.new()
+	hp_lbl.custom_minimum_size = Vector2(48, 24)
+	hp_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hp_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	hbox.add_child(hp_lbl)
+
+	var hunger_lbl := Label.new()
+	hunger_lbl.custom_minimum_size = Vector2(48, 24)
+	hunger_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	hunger_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	hbox.add_child(hunger_lbl)
+
+	var fatigue_lbl := Label.new()
+	fatigue_lbl.custom_minimum_size = Vector2(48, 24)
+	fatigue_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	fatigue_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	hbox.add_child(fatigue_lbl)
+
+	var morale_lbl := Label.new()
+	morale_lbl.custom_minimum_size = Vector2(48, 24)
+	morale_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	morale_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	hbox.add_child(morale_lbl)
+
+	var skill_lbl := Label.new()
+	skill_lbl.custom_minimum_size = Vector2(110, 24)
+	skill_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	skill_lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	skill_lbl.add_theme_color_override("font_color", Color(0.9, 0.8, 0.3, 1))
+	hbox.add_child(skill_lbl)
+
+	var act_lbl := Label.new()
+	act_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	act_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	act_lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	hbox.add_child(act_lbl)
+
+	var reason_lbl := Label.new()
+	reason_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	reason_lbl.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	reason_lbl.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	hbox.add_child(reason_lbl)
+
+	var assign_btn := OptionButton.new()
+	assign_btn.custom_minimum_size = Vector2(110, 26)
+	assign_btn.add_item("Nông Dân", 0)
+	assign_btn.add_item("Tiều Phu", 1)
+	assign_btn.add_item("Thợ Xây", 2)
+	assign_btn.add_item("Khuân Vác", 3)
+	assign_btn.add_item("Thợ Mỏ", 4)
+	assign_btn.add_item("Dân Tự Do", 5)
+	assign_btn.add_item("Thợ Xưởng", 6)
+	assign_btn.add_item("Vệ Binh", 7)
+	assign_btn.item_selected.connect(func(idx: int): _on_roster_row_role_selected(cit, idx))
+	hbox.add_child(assign_btn)
+
+	return {
+		"root": row_panel,
+		"name_btn": name_btn,
+		"role_lbl": role_lbl,
+		"hp_lbl": hp_lbl,
+		"hunger_lbl": hunger_lbl,
+		"fatigue_lbl": fatigue_lbl,
+		"morale_lbl": morale_lbl,
+		"skill_lbl": skill_lbl,
+		"act_lbl": act_lbl,
+		"reason_lbl": reason_lbl,
+		"assign_btn": assign_btn,
+		"cit_ref": cit
+	}
+
+func _update_row_display(row_dict: Dictionary, cit: Node) -> void:
+	if not is_instance_valid(cit) or cit.is_queued_for_deletion():
+		return
+
+	var c_name: String = String(cit.get("citizen_name")) if cit.get("citizen_name") != null else ""
+	var c_id: String = String(cit.get("citizen_id")) if cit.get("citizen_id") != null else ""
+	var display_name := c_name if c_name != "" else c_id
+	row_dict["name_btn"].text = "👤 %s" % display_name
+	row_dict["name_btn"].tooltip_text = "Nhấp để chọn & định vị: %s (%s)" % [c_name, c_id]
+
+	var cur_role: String = String(cit.get("role")) if cit.get("role") != null else "idle"
+	row_dict["role_lbl"].text = _get_role_vietnamese(cur_role)
+
+	var hp: float = float(cit.get("health")) if cit.get("health") != null else 100.0
+	row_dict["hp_lbl"].text = "%.0f%%" % hp
+	row_dict["hp_lbl"].add_theme_color_override("font_color", Color(0.3, 1.0, 0.4, 1) if hp >= 70.0 else (Color(1.0, 0.8, 0.2, 1) if hp >= 40.0 else Color(1.0, 0.3, 0.3, 1)))
+
+	var hunger: float = float(cit.get("hunger")) if cit.get("hunger") != null else 0.0
+	row_dict["hunger_lbl"].text = "%.0f%%" % hunger
+	row_dict["hunger_lbl"].add_theme_color_override("font_color", Color(0.3, 1.0, 0.4, 1) if hunger < 50.0 else (Color(1.0, 0.8, 0.2, 1) if hunger < 85.0 else Color(1.0, 0.3, 0.3, 1)))
+
+	var fatigue: float = float(cit.get("fatigue")) if cit.get("fatigue") != null else 0.0
+	row_dict["fatigue_lbl"].text = "%.0f%%" % fatigue
+	row_dict["fatigue_lbl"].add_theme_color_override("font_color", Color(0.3, 1.0, 0.4, 1) if fatigue < 60.0 else (Color(1.0, 0.8, 0.2, 1) if fatigue < 90.0 else Color(1.0, 0.3, 0.3, 1)))
+
+	var morale: float = float(cit.get("morale")) if cit.get("morale") != null else 70.0
+	row_dict["morale_lbl"].text = "%.0f%%" % morale
+	row_dict["morale_lbl"].add_theme_color_override("font_color", Color(0.3, 1.0, 0.4, 1) if morale >= 60.0 else (Color(1.0, 0.8, 0.2, 1) if morale >= 40.0 else Color(1.0, 0.3, 0.3, 1)))
+
+	var sk := get_citizen_skill_summary(cit)
+	row_dict["skill_lbl"].text = sk.get("display_text", "Tập sự")
+	row_dict["skill_lbl"].tooltip_text = "%s — Cấp %d (XP: %.0f) | Thưởng hiệu suất: +%d%%" % [sk.get("name"), sk.get("level"), sk.get("xp"), sk.get("bonus")]
+
+	row_dict["act_lbl"].text = get_citizen_activity_display(cit)
+	row_dict["reason_lbl"].text = get_citizen_idle_reason(cit)
+
+	var assign_btn: OptionButton = row_dict["assign_btn"]
+	var barracks_ok: bool = is_barracks_active()
+	if barracks_ok:
+		assign_btn.set_item_text(7, "Vệ Binh")
+		assign_btn.set_item_disabled(7, false)
+	else:
+		assign_btn.set_item_text(7, "Vệ Binh (Cần Doanh Trại)")
+		assign_btn.set_item_disabled(7, true)
+
+	match cur_role:
+		"farmer": assign_btn.select(0)
+		"woodcutter": assign_btn.select(1)
+		"builder": assign_btn.select(2)
+		"hauler": assign_btn.select(3)
+		"miner": assign_btn.select(4)
+		"idle": assign_btn.select(5)
+		"smith": assign_btn.select(6)
+		"guard": assign_btn.select(7)
+		_: assign_btn.select(5)
+
+func _on_roster_citizen_clicked(cit: Node) -> void:
+	if not is_instance_valid(cit) or cit.is_queued_for_deletion():
+		return
+	show_citizen_inspector(cit)
+	if world_view_ref != null and is_instance_valid(world_view_ref):
+		if world_view_ref.has_method("select_citizen"):
+			world_view_ref.call("select_citizen", cit)
+		elif "camera" in world_view_ref and world_view_ref.camera != null and is_instance_valid(world_view_ref.camera):
+			var c_cell = cit.get("current_cell")
+			if c_cell is Vector2i:
+				var iso_math = preload("res://scripts/utils/iso_math.gd")
+				world_view_ref.camera.position = iso_math.map_to_local(c_cell)
+
+func _on_roster_row_role_selected(cit: Node, idx: int) -> void:
+	if not is_instance_valid(cit) or cit.is_queued_for_deletion():
+		return
+	var new_role := "idle"
+	match idx:
+		0: new_role = "farmer"
+		1: new_role = "woodcutter"
+		2: new_role = "builder"
+		3: new_role = "hauler"
+		4: new_role = "miner"
+		5: new_role = "idle"
+		6: new_role = "smith"
+		7: new_role = "guard"
+
+	if new_role == "guard" and not is_barracks_active():
+		var am = get_node_or_null("/root/AudioManager") if is_inside_tree() else null
+		if am:
+			am.play_error()
+		refresh_citizen_roster()
+		return
+
+	var success = cit.call("set_role", new_role)
+	if success is bool and not success:
+		var am = get_node_or_null("/root/AudioManager") if is_inside_tree() else null
+		if am:
+			am.play_error()
+		refresh_citizen_roster()
+		return
+
+	var am = get_node_or_null("/root/AudioManager") if is_inside_tree() else null
+	if am:
+		am.play_click()
+	citizen_role_changed.emit(cit.get("citizen_id"), new_role)
+	if inspected_citizen == cit:
+		_refresh_inspected_citizen()
+		_reselect_current_citizen_role()
+	refresh_citizen_roster()
+
+func _setup_roster_filter_options() -> void:
+	if roster_filter_option_btn == null or roster_filter_option_btn.item_count > 0:
+		return
+	roster_filter_option_btn.clear()
+	roster_filter_option_btn.add_item("Tất cả", 0)
+	roster_filter_option_btn.add_item("Dân Tự Do", 1)
+	roster_filter_option_btn.add_item("Nông Dân", 2)
+	roster_filter_option_btn.add_item("Tiều Phu", 3)
+	roster_filter_option_btn.add_item("Thợ Xây", 4)
+	roster_filter_option_btn.add_item("Khuân Vác", 5)
+	roster_filter_option_btn.add_item("Thợ Mỏ", 6)
+	roster_filter_option_btn.add_item("Thợ Rèn", 7)
+	roster_filter_option_btn.add_item("Vệ Binh", 8)
+	roster_filter_option_btn.select(0)
+
+func _on_roster_filter_selected(idx: int) -> void:
+	match idx:
+		0: _roster_filter = "all"
+		1: _roster_filter = "idle"
+		2: _roster_filter = "farmer"
+		3: _roster_filter = "woodcutter"
+		4: _roster_filter = "builder"
+		5: _roster_filter = "hauler"
+		6: _roster_filter = "miner"
+		7: _roster_filter = "smith"
+		8: _roster_filter = "guard"
+		_: _roster_filter = "all"
+	refresh_citizen_roster()
+
+func _on_pop_label_gui_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
+		toggle_citizen_roster()
+
+func get_citizen_activity_display(cit: Node) -> String:
+	if not is_instance_valid(cit) or cit.is_queued_for_deletion():
+		return "Đã mất"
+
+	if cit.has_method("has_manual_command") and bool(cit.call("has_manual_command")):
+		var cmd: Dictionary = cit.call("get_manual_command")
+		var type_str: String = String(cmd.get("type", ""))
+		var action_name: String = ""
+		match type_str:
+			"move": action_name = "Di chuyển"
+			"chop": action_name = "Chặt cây"
+			"mine": action_name = "Khai thác đá/quặng"
+			"build": action_name = "Xây dựng"
+			"haul": action_name = "Vận chuyển"
+			"explore": action_name = "Khám phá"
+			_: action_name = type_str.capitalize()
+		var is_p: bool = bool(cmd.get("is_paused", false)) or bool(cmd.get("paused", false))
+		if is_p:
+			return "Tạm hoãn: %s" % action_name
+		return "Lệnh: %s" % action_name
+
+	var c_state = cit.get("current_state")
+	var carry_amt: int = int(cit.get("carrying_amount")) if cit.get("carrying_amount") != null else 0
+	var carry_res: String = String(cit.get("carrying_resource")) if cit.get("carrying_resource") != null else ""
+
+	match c_state:
+		6: # State.GUARDING
+			return "Canh gác & Tuần tra"
+		3: # State.SEEKING_FOOD
+			return "Tìm thức ăn tại kho"
+		4: # State.RESTING
+			return "Nghỉ ngơi hồi phục"
+		5: # State.HAULING
+			if carry_amt > 0:
+				return "Vận chuyển %d %s về kho" % [carry_amt, carry_res]
+			return "Vận chuyển về kho"
+		1: # State.MOVING_TO_JOB
+			return "Di chuyển đến nơi làm"
+		2: # State.WORKING
+			var job = cit.get("active_job")
+			if job != null and "description" in job and String(job.description) != "":
+				return "Đang làm: %s" % String(job.description)
+			var cur_role: String = String(cit.get("role"))
+			return "Đang làm: %s" % _get_role_vietnamese(cur_role)
+		0: # State.IDLE
+			if carry_amt > 0:
+				return "Giữ %d %s (Chờ kho)" % [carry_amt, carry_res]
+			return "Chờ việc / Nghỉ ngơi"
+		_:
+			if carry_amt > 0:
+				return "Mang %d %s" % [carry_amt, carry_res]
+			return "Hoạt động tự do"
+
+func get_citizen_idle_reason(cit: Node) -> String:
+	if not is_instance_valid(cit) or cit.is_queued_for_deletion():
+		return "Không còn hoạt động"
+
+	if cit.has_method("has_manual_command") and bool(cit.call("has_manual_command")):
+		var cmd: Dictionary = cit.call("get_manual_command")
+		var is_p: bool = bool(cmd.get("is_paused", false)) or bool(cmd.get("paused", false))
+		if is_p:
+			return "Tạm hoãn do nhu cầu khẩn cấp"
+		return "Đang thi hành lệnh thủ công"
+
+	if bool(cit.get("is_stranded_with_cargo")):
+		return "Đang giữ hàng, chưa tìm được đường về kho"
+	if bool(cit.get("is_waiting_at_dropoff")):
+		return "Kho đã đầy, đang chờ chỗ trống"
+
+	var h: float = float(cit.get("hunger")) if cit.get("hunger") != null else 0.0
+	var f: float = float(cit.get("fatigue")) if cit.get("fatigue") != null else 0.0
+	if h >= 85.0:
+		return "Đói khẩn cấp (cần ăn uống)"
+	if f >= 90.0:
+		return "Kiệt sức khẩn cấp (cần ngủ nghỉ)"
+
+	var c_state = cit.get("current_state")
+	if c_state == 3: # State.SEEKING_FOOD
+		return "Đang giải quyết cơn đói"
+	if c_state == 4: # State.RESTING
+		return "Đang nghỉ ngơi hồi phục thể lực"
+
+	var cur_role: String = String(cit.get("role")) if cit.get("role") != null else "idle"
+	if cur_role == "idle":
+		return "Chưa được phân công việc"
+	if cur_role == "guard":
+		return "Được phân công trực gác doanh trại"
+
+	if c_state == 2: # State.WORKING
+		return "Đang hoạt động bình thường"
+	if c_state == 5 and not bool(cit.get("is_stranded_with_cargo")) and not bool(cit.get("is_waiting_at_dropoff")):
+		return "Đang vận chuyển bình thường"
+	if c_state == 1:
+		return "Đang trên đường đến công việc"
+
+	var reason_str: String = String(cit.get("status_reason")) if cit.get("status_reason") != null else ""
+	if reason_str != "":
+		return reason_str
+	return "Không có công việc khả dụng"
+
+func get_citizen_skill_summary(cit: Node) -> Dictionary:
+	var res := {
+		"vocation": "",
+		"name": "Chưa có",
+		"level": 1,
+		"bonus": 0,
+		"xp": 0.0,
+		"display_text": "Tập sự (C.1)"
+	}
+	if not is_instance_valid(cit) or cit.is_queued_for_deletion():
+		return res
+
+	var s_data: CitizenSkillData = cit.call("get_skill_data") if cit.has_method("get_skill_data") else null
+	if s_data == null:
+		return res
+
+	var cur_role: String = String(cit.get("role")) if cit.get("role") != null else "idle"
+	var target_voc: String = CitizenSkillData.get_vocation_for_job(cur_role)
+
+	if target_voc == "":
+		var best_voc := ""
+		var best_xp := -1.0
+		for voc in CitizenSkillData.VOCATIONS:
+			var xp = s_data.get_xp(voc)
+			if xp > best_xp:
+				best_xp = xp
+				best_voc = voc
+		target_voc = best_voc if best_xp > 0.0 else "farming"
+
+	var lvl: int = s_data.get_level(target_voc)
+	var bonus: int = s_data.get_efficiency_bonus_percent(target_voc)
+	var voc_name: String = CitizenSkillData.get_vocation_display_name(target_voc)
+	var xp_val: float = s_data.get_xp(target_voc)
+
+	res["vocation"] = target_voc
+	res["name"] = voc_name
+	res["level"] = lvl
+	res["bonus"] = bonus
+	res["xp"] = xp_val
+	res["display_text"] = "%s C.%d (+%d%%)" % [voc_name, lvl, bonus]
+	return res
+
+func _get_role_vietnamese(role_str: String) -> String:
+	match role_str:
+		"farmer": return "Nông Dân"
+		"woodcutter": return "Tiều Phu"
+		"builder": return "Thợ Xây"
+		"hauler": return "Khuân Vác"
+		"miner": return "Thợ Mỏ"
+		"smith": return "Thợ Rèn"
+		"guard": return "Vệ Binh"
+		"idle": return "Dân Tự Do"
+		_: return role_str.capitalize()
 
 func _toggle_build_menu() -> void:
 	build_menu_panel.visible = not build_menu_panel.visible
@@ -2204,6 +2814,8 @@ func _refresh_all_resources() -> void:
 func update_population_display(current_pop: int, max_pop: int) -> void:
 	total_housing_cap = max_pop
 	pop_label.text = "👥 Dân số: %d/%d" % [current_pop, total_housing_cap]
+	if citizen_roster_panel != null and citizen_roster_panel.visible:
+		refresh_citizen_roster()
 
 func show_crisis_warning(data: Dictionary) -> void:
 	if not crisis_banner:

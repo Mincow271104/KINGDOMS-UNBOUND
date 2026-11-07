@@ -1,156 +1,110 @@
-# PACKAGE 2K — MANUAL CITIZEN COMMANDS & DIRECT LABOR DISPATCH
+# PACKAGE 2M — CIVIC BUILDING DAMAGE & MAINTENANCE REPAIR
 **Authoritative Scope & Technical Implementation Specification**  
-**Game Design Document Reference:** `docs/GDD.md` §8.2, §8.3 (Direct Commands & Priority Hierarchy)  
+**Game Design Document Reference:** `docs/GDD.md` §7.2 (Building Operational Lifecycle, Durability, Damage & Maintenance)  
 **Scope Decisions Reference:** `docs/SCOPE_DECISIONS.md` §1.7, §1.8  
-**Target Branch:** `feature/package-2k-manual-citizen-commands`  
-**Base Commit:** `ad5c9e5` (`feature/core-systems-hardening`)  
+**Target Branch:** `feature/package-2m-building-damage-repair`  
+**Base Commit:** (Head of `feature/package-2l-citizen-roster`)  
+**Known Baseline Failure Addressed:** `TC-ARMY.32` in `scripts/test/test_player_army.gd`
 
 ---
 
 ## 1. OBJECTIVE & PLAYER EXPERIENCE GAP
 
 ### The Problem in Current Gameplay:
-In the current game, citizens are 100% autonomous; they pick up jobs exclusively from `JobManager` according to their assigned vocational role. While this provides a functioning background simulation, the player has **zero direct agency** over individual citizens:
-- If a player places a new Farm and needs trees cleared immediately from an adjacent patch, they cannot command a citizen to clear those trees.
-- If a player urgently needs a construction site finished before nightfall, they cannot order an idle worker to build it immediately.
-- If a player wants to scout an unexplored Point of Interest (POI) near the settlement, they cannot order a citizen to explore that coordinate.
-- Selecting a citizen in the inspector and right-clicking anywhere on the world map does absolutely nothing.
+In KINGDOMS UNBOUND, civic buildings are currently indestructible structures that remain permanently active once constructed:
+1. **No Operational Damage State:** When enemy raids attack or disasters strike, buildings cannot enter a degraded or "damaged" state that halts their utility without outright deleting the building.
+2. **Missing Maintenance & Repair Loop:** GDD §7.2 specifies that buildings suffer operational wear and tactical damage, requiring builders to consume materials (Wood, Stone) to restore durability. Currently, no repair jobs exist in `JobManager`.
+3. **Known Regression Baseline Failure (`TC-ARMY.32`):** `scripts/test/test_player_army.gd` tests live Barracks operational state transitions:
+   - Barracks entering `damaged` state must immediately drop provided military capacity to `0` and disable recruitment in the HUD, while preserving existing soldiers.
+   - Restoring Barracks to `active` must restore military capacity and re-enable recruitment.
+   Because `WorldView.set_building_state()` does not fully cascade damage deactivation to dependent subsystems (military capacity, workplace operations, housing capacity), `TC-ARMY.32` fails with exit code 1.
 
-This violates `docs/GDD.md` §8.2:
-> *"Người chơi có thể chọn dân và ra lệnh: Di chuyển đến vị trí, Chặt cây, Khai thác đá, Khai thác quặng, Vận chuyển, Xây dựng, Canh gác, Khám phá. Lệnh kết thúc khi hoàn thành, bị hủy, không còn mục tiêu hoặc không thể thực hiện. Nếu lệnh thất bại, giao diện phải hiển thị nguyên nhân."*
-
-### The Package 2K Goal:
-Implement full **Manual Citizen Command & Direct Labor Dispatch** conforming directly to GDD §8.2 and §8.3, allowing the player to select any citizen and right-click on world tiles, resources, construction sites, and POIs to issue immediate, high-priority manual orders with localized feedback.
+### The Package 2M Goal:
+Implement the complete **Civic Building Damage & Maintenance Repair** lifecycle conforming strictly to GDD §7.2:
+- Introduce explicit building durability (`durability`, `max_durability`), operational status (`active`, `damaged`, `repairing`, `paused`, `under_construction`).
+- Cascade damaged state deactivation across all systems: Barracks (capacity = 0, recruit disabled), Workplaces (production halted, workers unassigned), Houses (living capacity suspended), and Storage (dropoff disabled).
+- Provide manual and automated Builder repair dispatch with material costs (proportional wood/stone).
+- Resolve `TC-ARMY.32` cleanly without altering test assertions, turning the regression runner 63/63 green.
 
 ---
 
 ## 2. DETAILED EXECUTABLE SCOPE
 
-### 2.1. Citizen Command State Machine (`scripts/entities/citizen_controller.gd`)
-- **Data Model:**
-  Add authoritative manual command tracking dictionary to `CitizenController`:
+### 2.1. Building Data Model & State Machine (`scripts/world/world_view.gd`, `scripts/economy/building_system.gd`)
+- **Durability Fields in Building Dictionary:**
   ```gdscript
-  var manual_command: Dictionary = {
-      "type": "",               # "move", "chop", "mine", "build", "haul", "guard", "explore"
-      "target_cell": Vector2i(-1, -1),
-      "target_id": "",          # building_id, poi_id, or resource key
-      "work_hours_required": 0.0,
-      "work_hours_done": 0.0,
-      "is_active": false
+  {
+      "id": "barracks_1",
+      "type": "barracks",
+      "cell": Vector2i(20, 20),
+      "level": 1,
+      "state": "active",          # "active", "damaged", "repairing", "paused", "under_construction"
+      "durability": 100.0,
+      "max_durability": 100.0,
+      "repair_progress": 0.0,
+      "repair_cost": {"wood": 5, "stone": 2}
   }
   ```
-- **Priority Gating (GDD §8.3 Hierarchy):**
-  1. Priority 1 (Emergency Safety): Combat threat / hostile unit adjacent -> flee or defend.
-  2. Priority 2 (Vital Survival): Extreme hunger ($\ge 85.0$) or exhaustion ($\ge 90.0$) pauses manual labor to seek food or sleep. Manual order resumes once emergency hunger is relieved.
-  3. Priority 3 (Manual Command): Active manual order overrides standard autonomous job seeking.
-  4. Priority 4–6: Primary vocation, secondary jobs, idle wandering.
-- **Job Release Hygiene:**
-  When a manual order is accepted while the citizen has an active autonomous job (`active_job != null`), the citizen immediately releases the job via `job_mgr.release_job(active_job)` so other colony workers can claim it without deadlocks.
-- **Command Completion & Cancellation:**
-  - Upon reaching target, completing harvest, or finishing construction: clears `manual_command`, emits `manual_command_completed(citizen_id, type)`, awards vocational XP (Package 2B), and transitions cleanly to `State.IDLE`.
-  - Public API: `issue_manual_command(type, cell, target_id) -> Dictionary`.
-  - Public API: `cancel_manual_command(reason) -> void`.
-  - Public API: `has_manual_command() -> bool`.
+- **State Transitions:**
+  - `damage_building(building_id, amount)`: Decreases durability. If durability reaches `<= 0.0` or threshold `<= 25%`, state transitions to `"damaged"`.
+  - `set_building_state(building_id, new_state)`: Updates state and emits `building_state_changed(building_id, new_state)`.
+  - On `"damaged"`:
+    - If `type == "barracks"`: Signals `PlayerArmyManager.notify_capacity_changed()`. Army capacity excludes damaged barracks.
+    - If workplace: Notifies `WorkplaceManager` to pause production.
+    - If house: Evicts or marks living capacity temporarily unavailable.
+  - On `"active"`: Restores full operational capacity.
 
-### 2.2. Interactive World Input Dispatch (`scripts/world/world_view.gd`)
-- **Right-Click Targeting Resolution:**
-  In `WorldView._unhandled_input()`, when a civilian citizen is selected in the inspector (`inspected_citizen != null`):
-  - **Right-click on Walkable Ground:** Issues `move` manual command to `cell`.
-  - **Right-click on Forest Tile (`TERRAIN_FOREST`):** Issues `chop` manual command. Citizen moves to adjacent cell, chops tree, and yields Wood directly to settlement inventory.
-  - **Right-click on Mountain Tile (`TERRAIN_MOUNTAIN`):** Issues `mine` manual command. Citizen moves to perimeter and mines Stone / Ore.
-  - **Right-click on Construction Site (`under_construction`):** Issues `build` manual command, immediately assigning citizen as an active builder on that site.
-  - **Right-click on Workplace with Buffer Cargo:** Issues `haul` manual command, ordering citizen to collect buffer goods and transport to Storehouse.
-  - **Right-click on Point of Interest (POI):** Issues `explore` manual command, moving citizen to POI perimeter to discover and claim rewards.
-- **Fail-Closed Validation & UI Feedback:**
-  - If target is out of bounds, unreachable by A* pathfinding, or blocked by water: command rejects with red HUD error banner (`"Lệnh Thất Bại"`, reason).
-  - If valid: plays affirmative UI audio tone (`AudioManager.play_click()`) and draws a temporary green diamond target marker at the destination.
+### 2.2. Builder Repair Dispatch & Material Flow
+- **Repair Job Type (`job_type = "repair"`):**
+  - When a building is damaged, a repair request is registered with `JobManager`.
+  - Builders claim the repair job, haul required repair materials from storehouse/townhall, and perform repair labor.
+  - Upon completion: `durability` restored to `max_durability`, state restored to `"active"`, and building resumed.
+- **Manual Repair Command:**
+  - In `CitizenInspectPanel` or `WorldView`, clicking a damaged building allows direct manual builder dispatch ("Sửa chữa công trình").
 
-### 2.3. HUD Inspector Reflection (`scripts/ui/hud.gd`)
-- **Citizen Inspector Badge:**
-  In `CitizenInspectPanel`:
-  - When `citizen.has_manual_command() == true`:
-    - Shows Vietnamese status badge: `"Đang thực hiện lệnh: [Tên Lệnh] (cell: X, Y)"`.
-    - Displays progress bar if work hours are required (Chop, Mine, Build).
-    - Displays `"Hủy Lệnh"` button (`CancelManualOrderBtn`).
-  - Clicking `"Hủy Lệnh"` calls `citizen.cancel_manual_command("Người chơi hủy")` and returns worker to standard routine.
+### 2.3. HUD & UI Integration (`scripts/ui/hud.gd`)
+- **Building Inspect Panel:**
+  - Shows durability bar (`DurabilityBar`), current health percentage, and repair button if damaged.
+- **Army & Recruitment Reflection:**
+  - Recruit button disabled when effective capacity is reached or when barracks is damaged.
+  - Army count label displays accurate capacity (e.g. `3 / 0 (Doanh trại hỏng)`).
+- **Citizen Roster Reflection:**
+  - Citizens whose workplace is damaged report appropriate diagnostic in `get_citizen_idle_reason()` ("Nơi làm việc bị hư hại").
 
 ### 2.4. Save/Load Persistence (`scripts/persistence/save_manager.gd`)
-- **Schema Compatibility:**
-  - Under `citizens` array in save JSON, serialize optional `manual_command` dictionary.
-  - `SaveManager.validate_save_data()` validates string types, integer coordinate bounds, and float progress.
-  - Legacy saves lacking `manual_command` load cleanly with `manual_command = {"is_active": false}`.
-  - Preserves 100% backward compatibility under `SAVE_SCHEMA_VERSION = 1`.
+- Building durability, state, and active repair progress serialize and deserialize cleanly in `world_data.buildings`.
+- Backward compatibility: Legacy saves without `durability` default to `100.0` and `"active"`.
 
 ---
 
-## 3. AFFECTED SUBSYSTEMS & FILES
+## 3. IMPLEMENTATION WORKFLOW
 
-| Subsystem | File Path | Scope of Modification |
-|:---|:---|:---|
-| **Citizen Entity** | `scripts/entities/citizen_controller.gd` | Manual command dictionary, command state machine, pathing to manual target, harvest/build action ticks, cancel API. |
-| **World Interaction** | `scripts/world/world_view.gd` | Unhandled right-click targeting when citizen is inspected, target cell validation, contextual command dispatch, feedback banners. |
-| **User Interface** | `scripts/ui/hud.gd` | `CitizenInspectPanel` command badge, progress bar, cancel command button. |
-| **Scene UI** | `scenes/ui/hud.tscn` | Inspector layout adjustments for manual command controls. |
-| **Persistence** | `scripts/persistence/save_manager.gd` | Serialization, deserialization, and schema validation of `manual_command`. |
-| **Test Suite** | `scripts/test/test_manual_citizen_commands.gd` | New comprehensive automated test suite (11+ scenarios). |
-| **Test Manifest** | `scripts/test/run_regression.ps1` | Register new test suite in regression manifest (preserving pure ASCII). |
-
----
-
-## 4. REGRESSION COVERAGE SPECIFICATION
-
-Authored test suite: `scripts/test/test_manual_citizen_commands.gd`
-
-| Scenario ID | Test Name | Invariant Tested |
-|:---|:---|:---|
-| **TC-MAN.1** | Manual Move Command | Citizen immediately abandons idle/routine and walks to clicked cell. |
-| **TC-MAN.2** | Prior Routine Job Clean Release | Dispatching manual command to a working citizen releases `active_job` via `JobManager` without orphaned locks. |
-| **TC-MAN.3** | Manual Tree Chopping | Right-clicking forest tile moves citizen to perimeter, chops tree, and credits Wood. |
-| **TC-MAN.4** | Manual Rock Mining | Right-clicking mountain tile moves citizen to perimeter, mines stone, and credits Stone. |
-| **TC-MAN.5** | Manual Construction Priority | Right-clicking construction site assigns citizen to advance building progress. |
-| **TC-MAN.6** | Manual Buffer Hauling | Right-clicking saturated workplace orders citizen to pick up buffer cargo and deliver to Storehouse. |
-| **TC-MAN.7** | Manual POI Exploration | Right-clicking POI moves citizen to site, reveals Fog of War, and triggers discovery. |
-| **TC-MAN.8** | Survival Need Interruption | Extreme hunger ($\ge 85$) or fatigue ($\ge 90$) safely interrupts manual order to satisfy urgent need, then resumes. |
-| **TC-MAN.9** | Manual Order Cancellation | Calling `cancel_manual_command()` halts movement, clears command dictionary, and returns worker to idle. |
-| **TC-MAN.10** | Fail-Closed Invalid Target | Right-clicking unreachable water tile or out-of-bounds cell rejects with explicit reason without mutating state. |
-| **TC-MAN.11** | Save/Load Roundtrip | Citizen actively executing manual command roundtrips through save/load with identical target cell and progress. |
-| **TC-MAN.12** | Manual Wood Chopping Physical Hauling Cycle | Citizen moves to tree, chops wood, carries cargo, delivers to storehouse, and credits wood. |
-| **TC-MAN.13** | Manual Stone Mining Physical Hauling Cycle | Citizen moves to mountain perimeter, mines rock, carries cargo, delivers to storehouse, and credits stone. |
-| **TC-MAN.14** | Cargo Conservation on Manual Interruption | Citizen carrying harvested goods refuses invalid drop and finishes hauling safely. |
-| **TC-MAN.15** | Multi-Tile Workplace Direct Haul Dispatch | Haul command resolves access point for multi-tile workshops and safely collects buffer cargo. |
-| **TC-MAN.16** | Survival Interruption Mid-Haul | Survival need pause while hauling skips prop check and routes to storehouse dropoff on resume. |
-| **TC-MAN.17** | Full Storage Arrival & Persistent Stationing | Citizen arriving at full storage dropoff stations safely with cargo without pathing back to harvest site. |
-| **TC-MAN.18** | Cargo Rejection Guard | Work, Move, Explore, and Cancel commands while loaded are rejected (zero cargo loss, zero overwrite). |
-| **TC-MAN.19** | Save/Load Mid-Haul Restoration | Citizen saved while actively hauling harvested cargo restores into State.HAULING toward dropoff. |
-| **TC-MAN.20** | Semantic Cancellation & BUG-001 Death Cargo Lifecycle | CancelSource enum prevents localized string fragility; citizen death under full storage persists in pending_death_cargo and flushes exactly once. |
-| **TC-MAN.21** | Path Failure Cargo Retention & Dropoff Proximity Guard | Stranded citizen with cargo transitions to State.IDLE without remote crediting, retains cargo across ticks, rejects cancellation, and deposits only upon reaching dropoff when path restored. |
-| **TC-MAN.22** | Automatic Hauler Path Failure & Universal Proximity Guard | Automatic hauler stranded by blocked path transitions to State.IDLE, sets is_stranded_with_cargo = true, retains buffer cargo on node without remote credit, rejects off-site deposit, and upon route restoration navigates physically to deposit exactly once. |
-| **TC-MAN.23** | Active Job Hauler Proximity Bypass Elimination | Automatic hauler en route with active job is physically away from storage dropoffs; direct deposit fails closed, preserving cargo on entity and 0 remote credit to central stock; physical traversal to dropoff delivers exactly once. |
+1. **Preflight & Branch Setup:**
+   - Create and checkout branch `feature/package-2m-building-damage-repair`.
+   - Baseline regression check: 62/63 suites pass, 1 baseline fail (`TC-ARMY.32`).
+2. **Core Production Implementation:**
+   - Implement durability & state cascade in `scripts/world/world_view.gd`.
+   - Update `PlayerArmyManager.get_army_capacity()` to filter out damaged barracks (`b.get("state", "active") == "active"`).
+   - Ensure `notify_capacity_changed()` updates HUD recruitment button and army labels immediately.
+   - Implement repair job lifecycle in `JobManager` and `CitizenController`.
+3. **Verification of Baseline Fix:**
+   - Run `test_player_army.gd` -> Verify `TC-ARMY.32` passes cleanly with exit code 0.
+4. **Authored Dedicated Test Suite (`test_building_damage_repair.gd`):**
+   - Author comprehensive unit & integration tests covering damage, deactivation cascade, repair labor, material consumption, and persistence.
+5. **Full Regression Run:**
+   - Run `run_regression.ps1` -> Verify 63/63 suites pass (100% green, 0 baseline failures, 0 regressions).
 
 ---
 
-## 5. MANUAL GAMEPLAY ACCEPTANCE CRITERIA
+## 4. DEFINITION OF DONE & ACCEPTANCE CRITERIA
 
-1. **Selection & Command:**
-   - Left-click any citizen on map -> `CitizenInspectPanel` opens.
-   - Right-click an empty grass tile -> Citizen turns and walks to the tile. Inspector displays `"Đang thực hiện lệnh: Di chuyển (X, Y)"`.
-2. **Resource Gathering:**
-   - Select an idle citizen -> Right-click an adjacent forest tile -> Citizen walks to the tree, plays work animation, chops wood, and central Wood inventory increases.
-3. **Priority Construction:**
-   - Place a building construction site -> Select an idle citizen -> Right-click the site -> Citizen immediately walks to the site and begins building.
-4. **UI Cancellation:**
-   - While citizen is moving to manual destination, click `"Hủy Lệnh"` in inspector -> Citizen immediately halts, clears order, and returns to standard colony routine.
-5. **No Teleportation & Obstruction Safety:**
-   - Citizens navigate strictly via A* pathfinding; blocked paths show a red error banner without crashing or teleporting.
-
----
-
-## 6. DEFINITION OF DONE (DoD)
-
-- [x] All 23 automated test scenarios in `test_manual_citizen_commands.gd` pass with Exit Code 0 (239/239 assertions).
-- [x] Full regression suite (`run_regression.ps1`) runs 62 suites with 61 PASS, 1 expected baseline failure (`TC-ARMY.32`), and 0 unexpected regressions.
-- [x] Save/load persistence roundtrip verified with zero data corruption and full backward compatibility.
-- [x] In-Game Player Field Guide (`player_field_guide.gd`) Chương B updated to mention manual right-click commands.
-- [x] `docs/quality/BUG_AND_RISK_REGISTER.md` and `docs/WORKLOG.md` synchronized.
-- [x] `git diff --cached --check` exits cleanly with 0 whitespace warnings.
-- [x] Work committed locally on `feature/package-2k-manual-citizen-commands` without pushing to remote or merging.
+- [ ] `world_instance.call("set_building_state", b_id, "damaged")` cascades capacity drop to 0 in `PlayerArmyManager`.
+- [ ] Existing soldiers are strictly preserved when barracks is damaged.
+- [ ] Recruit button in HUD is disabled when barracks is damaged.
+- [ ] Reactivating barracks restores capacity to full and re-enables recruitment.
+- [ ] Demolishing barracks drops capacity to 0 and preserves soldiers.
+- [ ] `test_player_army.gd` (TC-ARMY.32) passes with Exit Code 0 (0 failures).
+- [ ] Dedicated suite `test_building_damage_repair.gd` passes with Exit Code 0.
+- [ ] Full regression suite runs 63 suites with 63 PASS, 0 failures, Exit Code 0.
+- [ ] No regression in existing citizen, military, trade, economy, or persistence systems.
+- [ ] Working tree clean, changes documented in `docs/WORKLOG.md` and `docs/planning/GAME_COMPLETION_ROADMAP.md`.

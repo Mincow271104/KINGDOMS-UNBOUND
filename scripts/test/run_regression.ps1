@@ -120,6 +120,7 @@ $manifest = @(
     "scripts/test/test_campaign_result_feedback.gd",
     "scripts/test/test_citizens.gd",
     "scripts/test/test_citizen_skills.gd",
+    "scripts/test/test_citizen_roster.gd",
     "scripts/test/test_construction.gd",
     "scripts/test/test_coordinates.gd",
     "scripts/test/test_dynamic_workplaces.gd",

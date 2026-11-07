@@ -122,6 +122,8 @@ text = "🪙 Vàng: 200"
 
 [node name="PopLabel" type="Label" parent="TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources"]
 layout_mode = 2
+mouse_filter = 0
+mouse_default_cursor_shape = 2
 text = "👥 Dân số: 24/24"
 
 [node name="BottomBar" type="Control" parent="."]
@@ -428,6 +430,11 @@ custom_minimum_size = Vector2(0, 24)
 layout_mode = 2
 theme_override_colors/font_color = Color(1, 0.4, 0.4, 1)
 text = "Hủy Lệnh"
+
+[node name="OpenRosterFromInspectBtn" type="Button" parent="CitizenInspectPanel/MarginContainer/VBoxContainer"]
+custom_minimum_size = Vector2(0, 26)
+layout_mode = 2
+text = "📋 Sổ Dân Sự (C)"
 
 [node name="CloseCitizenBtn" type="Button" parent="CitizenInspectPanel/MarginContainer/VBoxContainer"]
 custom_minimum_size = Vector2(0, 26)
@@ -1335,5 +1342,193 @@ offset_bottom = 104.0
 grow_horizontal = 0
 text = "📖 Cẩm Nang (H)"
 
+[node name="RosterHudBtn" type="Button" parent="."]
+custom_minimum_size = Vector2(118, 30)
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -260.0
+offset_top = 74.0
+offset_right = -142.0
+offset_bottom = 104.0
+grow_horizontal = 0
+text = "👥 Dân Sự (C)"
+
 [node name="PlayerFieldGuide" parent="." instance=ExtResource("3_guide")]
 visible = false
+
+[node name="CitizenRosterPanel" type="PanelContainer" parent="."]
+visible = false
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -460.0
+offset_top = -215.0
+offset_right = 460.0
+offset_bottom = 215.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 0
+
+[node name="MarginContainer" type="MarginContainer" parent="CitizenRosterPanel"]
+layout_mode = 2
+mouse_filter = 0
+theme_override_constants/margin_left = 12
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 12
+theme_override_constants/margin_bottom = 10
+
+[node name="VBoxContainer" type="VBoxContainer" parent="CitizenRosterPanel/MarginContainer"]
+layout_mode = 2
+mouse_filter = 0
+theme_override_constants/separation = 6
+
+[node name="HeaderHBox" type="HBoxContainer" parent="CitizenRosterPanel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+mouse_filter = 0
+theme_override_constants/separation = 8
+
+[node name="RosterTitleLabel" type="Label" parent="CitizenRosterPanel/MarginContainer/VBoxContainer/HeaderHBox"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(1, 0.85, 0.3, 1)
+theme_override_font_sizes/font_size = 15
+text = "📋 SỔ DÂN SỰ & QUẢN LÝ DÂN LÀNG"
+
+[node name="FilterLabel" type="Label" parent="CitizenRosterPanel/MarginContainer/VBoxContainer/HeaderHBox"]
+layout_mode = 2
+text = "Lọc:"
+
+[node name="FilterOptionBtn" type="OptionButton" parent="CitizenRosterPanel/MarginContainer/VBoxContainer/HeaderHBox"]
+custom_minimum_size = Vector2(140, 28)
+layout_mode = 2
+
+[node name="CloseRosterBtn" type="Button" parent="CitizenRosterPanel/MarginContainer/VBoxContainer/HeaderHBox"]
+custom_minimum_size = Vector2(90, 28)
+layout_mode = 2
+text = "Đóng (ESC)"
+
+[node name="SummaryHBox" type="HBoxContainer" parent="CitizenRosterPanel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+mouse_filter = 0
+theme_override_constants/separation = 12
+
+[node name="RosterSummaryLabel" type="Label" parent="CitizenRosterPanel/MarginContainer/VBoxContainer/SummaryHBox"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.85, 0.9, 1, 1)
+theme_override_font_sizes/font_size = 12
+text = "👥 Dân số: 24/24 | 💼 Làm việc: 18 | 🛌 Tự do: 6 | 🛡️ Vệ binh: 0"
+
+[node name="TableHeaderPanel" type="PanelContainer" parent="CitizenRosterPanel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+mouse_filter = 0
+
+[node name="TableHeaderHBox" type="HBoxContainer" parent="CitizenRosterPanel/MarginContainer/VBoxContainer/TableHeaderPanel"]
+layout_mode = 2
+mouse_filter = 0
+theme_override_constants/separation = 6
+
+[node name="ColName" type="Label" parent="CitizenRosterPanel/MarginContainer/VBoxContainer/TableHeaderPanel/TableHeaderHBox"]
+custom_minimum_size = Vector2(110, 22)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.9, 0.8, 0.4, 1)
+theme_override_font_sizes/font_size = 12
+text = "Họ Tên / Mã"
+
+[node name="ColRole" type="Label" parent="CitizenRosterPanel/MarginContainer/VBoxContainer/TableHeaderPanel/TableHeaderHBox"]
+custom_minimum_size = Vector2(85, 22)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.9, 0.8, 0.4, 1)
+theme_override_font_sizes/font_size = 12
+text = "Nghề Nghiệp"
+
+[node name="ColHP" type="Label" parent="CitizenRosterPanel/MarginContainer/VBoxContainer/TableHeaderPanel/TableHeaderHBox"]
+custom_minimum_size = Vector2(48, 22)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.9, 0.8, 0.4, 1)
+theme_override_font_sizes/font_size = 12
+text = "Máu"
+horizontal_alignment = 1
+
+[node name="ColHunger" type="Label" parent="CitizenRosterPanel/MarginContainer/VBoxContainer/TableHeaderPanel/TableHeaderHBox"]
+custom_minimum_size = Vector2(48, 22)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.9, 0.8, 0.4, 1)
+theme_override_font_sizes/font_size = 12
+text = "Đói"
+horizontal_alignment = 1
+
+[node name="ColFatigue" type="Label" parent="CitizenRosterPanel/MarginContainer/VBoxContainer/TableHeaderPanel/TableHeaderHBox"]
+custom_minimum_size = Vector2(48, 22)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.9, 0.8, 0.4, 1)
+theme_override_font_sizes/font_size = 12
+text = "Mệt"
+horizontal_alignment = 1
+
+[node name="ColMorale" type="Label" parent="CitizenRosterPanel/MarginContainer/VBoxContainer/TableHeaderPanel/TableHeaderHBox"]
+custom_minimum_size = Vector2(48, 22)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.9, 0.8, 0.4, 1)
+theme_override_font_sizes/font_size = 12
+text = "Khí"
+horizontal_alignment = 1
+
+[node name="ColSkill" type="Label" parent="CitizenRosterPanel/MarginContainer/VBoxContainer/TableHeaderPanel/TableHeaderHBox"]
+custom_minimum_size = Vector2(110, 22)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.9, 0.8, 0.4, 1)
+theme_override_font_sizes/font_size = 12
+text = "Kỹ Năng Chính"
+
+[node name="ColActivity" type="Label" parent="CitizenRosterPanel/MarginContainer/VBoxContainer/TableHeaderPanel/TableHeaderHBox"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.9, 0.8, 0.4, 1)
+theme_override_font_sizes/font_size = 12
+text = "Hoạt Động Hiện Tại"
+
+[node name="ColReason" type="Label" parent="CitizenRosterPanel/MarginContainer/VBoxContainer/TableHeaderPanel/TableHeaderHBox"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.9, 0.8, 0.4, 1)
+theme_override_font_sizes/font_size = 12
+text = "Trạng Thái / Lý Do"
+
+[node name="ColAssign" type="Label" parent="CitizenRosterPanel/MarginContainer/VBoxContainer/TableHeaderPanel/TableHeaderHBox"]
+custom_minimum_size = Vector2(110, 22)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.9, 0.8, 0.4, 1)
+theme_override_font_sizes/font_size = 12
+text = "Giao Việc"
+horizontal_alignment = 1
+
+[node name="ScrollContainer" type="ScrollContainer" parent="CitizenRosterPanel/MarginContainer/VBoxContainer"]
+custom_minimum_size = Vector2(0, 240)
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="RosterVBox" type="VBoxContainer" parent="CitizenRosterPanel/MarginContainer/VBoxContainer/ScrollContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 4
+
+[node name="FooterHBox" type="HBoxContainer" parent="CitizenRosterPanel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+mouse_filter = 0
+
+[node name="HelpLabel" type="Label" parent="CitizenRosterPanel/MarginContainer/VBoxContainer/FooterHBox"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.65, 0.65, 0.65, 1)
+theme_override_font_sizes/font_size = 11
+text = "💡 Nhấp vào tên dân để chọn & xem chi tiết. Phím [C] mở/đóng sổ dân sự. [ESC] để đóng."
+
+[node name="RefreshRosterBtn" type="Button" parent="CitizenRosterPanel/MarginContainer/VBoxContainer/FooterHBox"]
+custom_minimum_size = Vector2(100, 26)
+layout_mode = 2
+text = "🔄 Làm Mới"
