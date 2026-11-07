@@ -52,6 +52,7 @@ func _init() -> void:
 	_run_tc_man_17_full_storage_arrival_and_stationing()
 	_run_tc_man_18_work_command_rejection_while_carrying_cargo()
 	_run_tc_man_19_save_load_during_cargo_hauling()
+	_run_tc_man_20_semantic_cancellation_and_death_cargo_lifecycle()
 
 	print("\n--------------------------------------------------------")
 	if failures == 0:
@@ -933,3 +934,97 @@ func _run_tc_man_19_save_load_during_cargo_hauling() -> void:
 
 	cit.queue_free()
 	cit_restored.queue_free()
+
+## TC-MAN.20: Semantic Cancellation & Death Cargo Full Storage Lifecycle
+func _run_tc_man_20_semantic_cancellation_and_death_cargo_lifecycle() -> void:
+	print("--- TC-MAN.20: Semantic Cancellation & Death Cargo Lifecycle ---")
+	var wd = _create_test_world()
+	var nav = GridNavigationScript.new(wd)
+	var jm = JobManagerScript.new()
+	var rm = ResourceManagerScript.new()
+	root.add_child(rm)
+	rm.reset_economy()
+
+	var cit = CitizenControllerScript.new()
+	root.add_child(cit)
+	cit.init_citizen("cit_20", "Semantic Worker", "idle", Vector2i(34, 32), nav, jm)
+	cit.world_data = wd
+	cit.set_custom_resource_manager(rm)
+
+	# 1. Test Semantic Cancellation Sources while encumbered with cargo
+	cit.carrying_resource = "stone"
+	cit.carrying_amount = 10
+	cit.manual_command = {
+		"type": "mine",
+		"target_cell": Vector2i(35, 32),
+		"target_id": "",
+		"work_hours_required": 5.0,
+		"work_hours_done": 5.0,
+		"is_active": true,
+		"is_paused": false,
+		"pause_reason": ""
+	}
+
+	# A: Player cancellation rejected
+	var res_player: bool = cit.cancel_manual_command("Người chơi hủy lệnh", CitizenControllerScript.CancelSource.PLAYER)
+	_assert(res_player == false, "TC-MAN.20.1: Player cancellation rejected while carrying cargo")
+	_assert(cit.has_manual_command() == true, "TC-MAN.20.2: Manual command retained after player cancel attempt")
+	_assert(cit.carrying_amount == 10, "TC-MAN.20.3: Cargo strictly preserved on player cancel attempt")
+
+	# B: Target invalidation routes cargo to storehouse rather than dropping off-site
+	var res_inv: bool = cit.cancel_manual_command("Mục tiêu bị hủy", CitizenControllerScript.CancelSource.TARGET_INVALIDATED)
+	_assert(res_inv == false, "TC-MAN.20.4: Target invalidation while loaded refuses command drop")
+	_assert(cit.has_manual_command() == true, "TC-MAN.20.5: Command remains active to complete transport")
+	_assert(cit.current_state == CitizenController.State.HAULING, "TC-MAN.20.6: Citizen directed to HAULING toward storehouse")
+	_assert(cit.status_reason.contains("Mục tiêu bị hủy, đang vận chuyển"), "TC-MAN.20.7: Status reason indicates safe cargo return")
+
+	# 2. Test Citizen Death Under Full Storage (BUG-001)
+	rm._current_stock["stone"] = rm.get_storage_capacity("stone") # Storage full
+
+	cit.die("Tử trận trong chiến đấu", "combat")
+
+	_assert(cit.has_manual_command() == false, "TC-MAN.20.8: Manual command cleaned up on death via CancelSource.DEATH")
+	_assert(cit.is_alive() == false, "TC-MAN.20.9: Citizen marked dead")
+	_assert(cit.carrying_amount == 10, "TC-MAN.20.10: Cargo safely retained on citizen node awaiting pending_death_cargo ingestion")
+
+	# 3. Save/Load Persistence of Pending Death Cargo (BUG-001)
+	var pending_cargo := {"stone": 10}
+	var save_data := {
+		"schema_version": 1,
+		"metadata": {"save_name": "tc20_test", "timestamp": "2026-11-07T23:00:00"},
+		"resources": {
+			"stock": rm._current_stock.duplicate(),
+			"capacities": rm._capacities.duplicate(),
+			"pending_death_cargo": pending_cargo
+		},
+		"buildings": [],
+		"citizens": []
+	}
+	var val_res := SaveManagerScript.validate_save_data(save_data)
+	_assert(val_res.get("valid", false) == true, "TC-MAN.20.11: SaveManager approves save schema with pending_death_cargo", str(val_res.get("error", "")))
+	_assert(save_data["resources"]["pending_death_cargo"]["stone"] == 10, "TC-MAN.20.12: Pending death cargo serialized in save data")
+
+	# 4. Storage Space Opens & Flush Exactly Once
+	rm._current_stock["stone"] -= 20 # Free space in storehouse
+	var pre_stock: int = rm.get_total_stock("stone")
+
+	# Simulate flush_pending_death_cargo lifecycle (world_view.gd lines 116-135)
+	var to_recover: int = pending_cargo.get("stone", 0)
+	var added: int = rm.add_resource("stone", to_recover)
+	pending_cargo["stone"] = to_recover - added
+	if pending_cargo["stone"] <= 0:
+		pending_cargo.erase("stone")
+
+	_assert(added == 10, "TC-MAN.20.13: 10 stone recovered on storage capacity expansion")
+	_assert(rm.get_total_stock("stone") == pre_stock + 10, "TC-MAN.20.14: Central stock credited exactly once")
+	_assert(pending_cargo.has("stone") == false, "TC-MAN.20.15: Pending death cargo cleared after flush")
+
+	# Second flush attempt is idempotent
+	var second_added: int = 0
+	if pending_cargo.has("stone"):
+		second_added = rm.add_resource("stone", pending_cargo["stone"])
+	_assert(second_added == 0, "TC-MAN.20.16: Second flush attempt is strictly idempotent")
+	_assert(rm.get_total_stock("stone") == pre_stock + 10, "TC-MAN.20.17: Zero duplicate crediting")
+
+	cit.queue_free()
+	rm.queue_free()

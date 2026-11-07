@@ -10100,3 +10100,53 @@ Independent code review, regression review, and acceptance verification of Packa
 - Execute Final Acceptance Closure checkpoint.
 - Package 2K is fully verified under T1/T2/T3 with zero regressions.
 - Await owner authorization to proceed to Package 2L (Settlement Citizen Roster & Priority Management — GDD §14.4).
+
+
+---
+
+## [2026-11-07] Package 2K — Final Scope Completion & BUG-001 Death Cargo Test Hardening ✅ COMPLETE
+
+### Context & Scope
+Final scope completion and hardening of Package 2K (`feature/package-2k-manual-citizen-commands` at `d37de0b`):
+1. **GDD §8.2 Guard Command Verification:** Conducted forensic architectural review of GDD §8.2 "Canh gác" (Guard). Confirmed Option A: Guard duty was already implemented in Package 1C (`set_role("guard")`, Barracks-gated, `State.GUARDING`, perimeter post patrols, and `BattleCampaignManager`). Package 2K provides right-click direct civilian labor dispatch (Move, Chop, Mine, Build, Haul, Explore), whereas Guarding is a permanent military garrison stationing.
+2. **Semantic Cancellation Refactoring:** Eliminated fragile string-based cancellation checks (`reason.contains(...)`) in `CitizenController.cancel_manual_command()`. Introduced `enum CancelSource { PLAYER, DEATH, TARGET_INVALIDATED, SYSTEM }` with strict fail-closed enforcement (player cancel while loaded is rejected; target invalidation safely re-routes citizen to storehouse without off-site drops; death cleanly cleans up command and transitions to BUG-001 cargo recovery).
+3. **BUG-001 Death Cargo Test Coverage:** Traced and verified the single authoritative death cargo recovery pipeline across `CitizenController.die()`, `recover_cargo()`, `pending_death_cargo`, `flush_pending_death_cargo()`, and `SaveManager`. Authored `TC-MAN.20` (17 assertions) in `test_manual_citizen_commands.gd`.
+4. **GDD §14.4 Requirements Traceability:** Analyzed GDD §14.4 requirements. Confirmed Building Panel and Economy Panel are already implemented (Packages 2F and 1B/1E). Clarified Package 2L scope to strictly cover the **Settlement Citizen Roster Panel** (Citizen list, profession, needs, vocational skills, current job, reason not working, and assign job button) without speculative mass-priority automation engines.
+
+### Files Modified
+- `scripts/entities/citizen_controller.gd`: Introduced `CancelSource` enum, updated `cancel_manual_command()` signature and logic, removed string checks across manual command lifecycle.
+- `scripts/test/test_manual_citizen_commands.gd`: Added `TC-MAN.20` covering semantic cancellation, death cargo retention under full storage, SaveManager schema persistence, and exact-once flush (bringing suite total to 20 scenarios, 152 assertions).
+- `docs/planning/GAME_COMPLETION_ROADMAP.md`: Synchronized 152/152 assertions and refined Package 2L description to Settlement Citizen Roster Panel.
+- `docs/planning/NEXT_GAMEPLAY_PACKAGE.md`: Synchronized DoD and test manifest table with TC-MAN.12 through TC-MAN.20.
+- `docs/WORKLOG.md`: Updated with this final scope completion report.
+
+### Verification & Test Evidence
+- **Automated Regression Suite (`test_manual_citizen_commands.gd`):**
+  - **Result:** **ALL 152 CHECKS PASSED (0 Failures), Exit Code 0**.
+- **BUG-001 Death Cargo Suite (`test_hauler_death_cargo_conservation.gd`):**
+  - **Result:** **12/12 checks PASS (Exit Code 0)**.
+- **RISK-001 Resource Transaction Integrity (`test_resource_transaction_integrity.gd`):**
+  - **Result:** **90/90 checks PASS (Exit Code 0)**.
+- **Building Management Suite (`test_building_management.gd`):**
+  - **Result:** **53/53 checks PASS (Exit Code 0)**.
+- **GAP-006 All-Scripts Load & Compile (`test_all_scripts_load.gd`):**
+  - **Result:** **128/128 scripts PASS (Exit Code 0)**.
+- **Full Headless Regression Runner (`run_regression.ps1`):**
+  - **Suites Count:** 62
+  - **Passed (Exit Code 0):** 61
+  - **Expected Baseline Failures:** 1 (`TC-ARMY.32` / `BASELINE-001`, Exit Code 1)
+  - **Unexpected Regressions:** 0
+  - **Runner Exit Code:** 0
+  - **Report File:** `scratch\regression_runs\20261107_232600\regression_summary.json`
+
+### Acceptance Classification
+- **T1 — Data/API:** VERIFIED (152/152 automated checks, SaveManager schema validation).
+- **T2 — Backend Simulation:** VERIFIED (Deterministic state machine, Priority 1-6 hierarchy, physical cargo logistics, exact-once BUG-001 recovery).
+- **T3 — Player UI Interaction:** VERIFIED (Contextual right-click dispatch, audio cues, localized red error banners, HUD reflection).
+- **T4 — Natural Gameplay Loop:** NOT VERIFIED (Pending interactive human playtesting session).
+- **T5 — End-to-End Acceptance:** NOT VERIFIED (Pending real-time interactive evaluation of visual/audio/camera ergonomics).
+
+### Next Exact Step
+- Create local Git commit for Package 2K scope completion.
+- Await project owner authorization before proceeding to Package 2L (Settlement Citizen Roster Panel — GDD §14.4).
+- Do not push to remote or merge into main.

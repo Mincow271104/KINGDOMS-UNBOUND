@@ -18,6 +18,13 @@ enum State {
 	GUARDING = 6
 }
 
+enum CancelSource {
+	PLAYER = 0,
+	DEATH = 1,
+	TARGET_INVALIDATED = 2,
+	SYSTEM = 3
+}
+
 @export var citizen_id: String = ""
 @export var citizen_name: String = ""
 @export var role: String = "idle" # "farmer", "woodcutter", "builder", "hauler", "miner", "smith", "guard", "idle"
@@ -890,7 +897,7 @@ func die(reason: String = "Đã qua đời vì suy kiệt", cause: String = "") 
 	status_reason = reason
 	current_state = State.IDLE
 	if has_manual_command():
-		cancel_manual_command("Dân làng tử vong")
+		cancel_manual_command("Dân làng tử vong", CancelSource.DEATH)
 	if current_path != null:
 		current_path.clear()
 	if active_job != null:
@@ -1263,12 +1270,27 @@ func issue_manual_command(cmd_type: String, target_cell: Vector2i, target_id: St
 
 	return {"success": true, "command": manual_command.duplicate()}
 
-func cancel_manual_command(reason: String = "Người chơi hủy lệnh") -> void:
+func cancel_manual_command(reason: String = "Người chơi hủy lệnh", source: int = CancelSource.PLAYER) -> bool:
 	if not has_manual_command():
-		return
-	if carrying_amount > 0 and not reason.contains("tử vong") and not reason.contains("không còn hợp lệ"):
+		return false
+
+	# Player cancellation rejected while carrying cargo to prevent cargo loss or off-site deposits
+	if source == CancelSource.PLAYER and carrying_amount > 0:
 		status_reason = "Không thể hủy khi đang mang hàng (%d %s), hãy chờ dỡ hàng về kho" % [carrying_amount, carrying_resource]
-		return
+		return false
+
+	# Target invalidation while carrying cargo: cargo must be conserved by routing to storehouse, never cancelled off-site
+	if source == CancelSource.TARGET_INVALIDATED and carrying_amount > 0:
+		var drop_cell := _get_storage_dropoff_cell()
+		if nav != null and current_cell != drop_cell:
+			current_path = nav.find_path(current_cell, drop_cell)
+		if current_cell == drop_cell:
+			_deposit_hauler_cargo()
+		else:
+			current_state = State.HAULING
+			status_reason = "Mục tiêu bị hủy, đang vận chuyển %d %s về kho an toàn" % [carrying_amount, carrying_resource]
+		return false
+
 	manual_command = {
 		"type": "",
 		"target_cell": Vector2i(-1, -1),
@@ -1283,6 +1305,7 @@ func cancel_manual_command(reason: String = "Người chơi hủy lệnh") -> vo
 	current_state = State.IDLE
 	status_reason = "Đã hủy lệnh: %s" % reason
 	manual_command_cancelled.emit(citizen_id, reason)
+	return true
 
 func _check_manual_target_validity(cmd_type: String, target_cell: Vector2i, target_id: String) -> bool:
 	match cmd_type:
@@ -1329,7 +1352,8 @@ func _resume_paused_manual_command() -> void:
 			if nav != null:
 				current_path = nav.find_path(current_cell, drop_cell)
 				if current_path.is_empty():
-					cancel_manual_command("Không thể tìm đường vận chuyển hàng về kho")
+					current_state = State.IDLE
+					status_reason = "Đang giữ %d %s, chưa tìm được đường về kho" % [carrying_amount, carrying_resource]
 					return
 			current_state = State.HAULING
 			status_reason = "Đang vận chuyển %d %s về kho theo lệnh" % [carrying_amount, carrying_resource]
@@ -1337,7 +1361,7 @@ func _resume_paused_manual_command() -> void:
 
 	var is_valid := _check_manual_target_validity(manual_command.type, manual_command.target_cell, manual_command.target_id)
 	if not is_valid:
-		cancel_manual_command("Mục tiêu lệnh không còn hợp lệ sau khi hồi phục thể lực")
+		cancel_manual_command("Mục tiêu lệnh không còn hợp lệ sau khi hồi phục thể lực", CancelSource.TARGET_INVALIDATED)
 		return
 
 	if current_cell == manual_command.target_cell or (manual_command.type in ["chop", "mine"] and IsoMath.grid_distance(current_cell, manual_command.target_cell) <= 1):
@@ -1346,7 +1370,7 @@ func _resume_paused_manual_command() -> void:
 		if nav != null:
 			current_path = nav.find_path(current_cell, manual_command.target_cell)
 			if current_path.is_empty():
-				cancel_manual_command("Không thể tìm đường trở lại mục tiêu lệnh")
+				cancel_manual_command("Không thể tìm đường trở lại mục tiêu lệnh", CancelSource.TARGET_INVALIDATED)
 				return
 		current_state = State.MOVING_TO_JOB
 		_update_reason()
@@ -1363,7 +1387,8 @@ func _execute_active_manual_command() -> void:
 				current_state = State.HAULING
 				status_reason = "Đang vận chuyển %d %s về kho theo lệnh" % [carrying_amount, carrying_resource]
 			else:
-				cancel_manual_command("Không tìm thấy đường vận chuyển hàng về kho")
+				current_state = State.IDLE
+				status_reason = "Đang giữ %d %s, chưa tìm được đường về kho" % [carrying_amount, carrying_resource]
 		return
 
 	if current_path.is_empty():
@@ -1376,7 +1401,7 @@ func _execute_active_manual_command() -> void:
 				current_state = State.MOVING_TO_JOB
 				_update_reason()
 			else:
-				cancel_manual_command("Không tìm thấy đường đi tới mục tiêu")
+				cancel_manual_command("Không tìm thấy đường đi tới mục tiêu", CancelSource.TARGET_INVALIDATED)
 
 func _arrive_at_manual_destination() -> void:
 	var cmd_type: String = String(manual_command.get("type", ""))
@@ -1526,7 +1551,7 @@ func _process_manual_working(delta: float) -> void:
 							BuildingSystem.complete_building(b_id, world_data, rm_node)
 
 			if not res.get("success", false):
-				cancel_manual_command("Công trình xây dựng đã hoàn thành hoặc bị hủy")
+				cancel_manual_command("Công trình xây dựng đã hoàn thành hoặc bị hủy", CancelSource.TARGET_INVALIDATED)
 				return
 
 			award_work_xp("building", effective_delta_hours * 5.0)

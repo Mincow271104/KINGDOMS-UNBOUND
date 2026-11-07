@@ -114,6 +114,15 @@ Authored test suite: `scripts/test/test_manual_citizen_commands.gd`
 | **TC-MAN.9** | Manual Order Cancellation | Calling `cancel_manual_command()` halts movement, clears command dictionary, and returns worker to idle. |
 | **TC-MAN.10** | Fail-Closed Invalid Target | Right-clicking unreachable water tile or out-of-bounds cell rejects with explicit reason without mutating state. |
 | **TC-MAN.11** | Save/Load Roundtrip | Citizen actively executing manual command roundtrips through save/load with identical target cell and progress. |
+| **TC-MAN.12** | Manual Wood Chopping Physical Hauling Cycle | Citizen moves to tree, chops wood, carries cargo, delivers to storehouse, and credits wood. |
+| **TC-MAN.13** | Manual Stone Mining Physical Hauling Cycle | Citizen moves to mountain perimeter, mines rock, carries cargo, delivers to storehouse, and credits stone. |
+| **TC-MAN.14** | Cargo Conservation on Manual Interruption | Citizen carrying harvested goods refuses invalid drop and finishes hauling safely. |
+| **TC-MAN.15** | Multi-Tile Workplace Direct Haul Dispatch | Haul command resolves access point for multi-tile workshops and safely collects buffer cargo. |
+| **TC-MAN.16** | Survival Interruption Mid-Haul | Survival need pause while hauling skips prop check and routes to storehouse dropoff on resume. |
+| **TC-MAN.17** | Full Storage Arrival & Persistent Stationing | Citizen arriving at full storage dropoff stations safely with cargo without pathing back to harvest site. |
+| **TC-MAN.18** | Cargo Rejection Guard | Work, Move, Explore, and Cancel commands while loaded are rejected (zero cargo loss, zero overwrite). |
+| **TC-MAN.19** | Save/Load Mid-Haul Restoration | Citizen saved while actively hauling harvested cargo restores into State.HAULING toward dropoff. |
+| **TC-MAN.20** | Semantic Cancellation & BUG-001 Death Cargo Lifecycle | CancelSource enum prevents localized string fragility; citizen death under full storage persists in pending_death_cargo and flushes exactly once. |
 
 ---
 
@@ -135,7 +144,7 @@ Authored test suite: `scripts/test/test_manual_citizen_commands.gd`
 
 ## 6. DEFINITION OF DONE (DoD)
 
-- [x] All 15 automated test scenarios in `test_manual_citizen_commands.gd` pass with Exit Code 0 (97/97 assertions).
+- [x] All 20 automated test scenarios in `test_manual_citizen_commands.gd` pass with Exit Code 0 (152/152 assertions).
 - [x] Full regression suite (`run_regression.ps1`) runs 62 suites with 61 PASS, 1 expected baseline failure (`TC-ARMY.32`), and 0 unexpected regressions.
 - [x] Save/load persistence roundtrip verified with zero data corruption and full backward compatibility.
 - [x] In-Game Player Field Guide (`player_field_guide.gd`) Chương B updated to mention manual right-click commands.

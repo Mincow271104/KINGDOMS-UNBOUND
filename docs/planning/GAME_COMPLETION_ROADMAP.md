@@ -89,8 +89,8 @@ Legend:
 | Deterministic Immigration Gating (Housing/Food/Stab) | §6.7 | `scripts/world/immigration_manager.gd` | `test_save_load.gd` (GATE-B) | IMPLEMENTED | T1–T5 | Buildings | M | No |
 | Starvation Escalation (Stages 1–3) & Combat Death | §5.3 | `scripts/entities/citizen_controller.gd` | `test_citizens.gd`, `test_live_battle_loop.gd` | IMPLEMENTED | T1–T5 | ResMgr | M | No |
 | Individual Citizen Inspector & Role Reassignment | §14.4 | `scripts/ui/hud.gd` (`CitizenInspectPanel`) | `test_building_management.gd` (TC-BM.11) | IMPLEMENTED | T1–T5 | HUD | M | No |
-| **Manual Citizen Commands (Move/Chop/Mine/Build/Haul/Explore)** | **§8.2, §8.3** | `scripts/entities/citizen_controller.gd`, `scripts/world/world_view.gd` | `test_manual_citizen_commands.gd` (135/135 PASS) | IMPLEMENTED | T1–T3 (T4–T5 Pending Live GUI) | Citizen, Nav | M | No |
-| Settlement-Wide Citizen Roster Table (Macro View) | §14.4 | `scripts/ui/hud.gd` | Only individual inspect exists | PARTIAL | T2–T3 | HUD | M | No |
+| **Manual Citizen Commands (Move/Chop/Mine/Build/Haul/Explore)** | **§8.2, §8.3** | `scripts/entities/citizen_controller.gd`, `scripts/world/world_view.gd` | `test_manual_citizen_commands.gd` (152/152 PASS) | IMPLEMENTED | T1–T3 (T4–T5 Pending Live GUI) | Citizen, Nav | M | No |
+| Settlement-Wide Citizen Roster Table (Macro View) | §14.4 | `scripts/ui/hud.gd` | Only individual inspect exists; full roster panel planned | PARTIAL | T2–T3 | HUD | M | No |
 | Complex Family Trees & Genetic Breeding | §2.2 | N/A | Excluded in `SCOPE_DECISIONS.md §1.4` | DEFERRED | N/A | None | XL | No |
 
 ### Domain D: Construction & Settlement Development
@@ -241,9 +241,9 @@ flowchart LR
 - **Required Packages:**
   1. **Package 2K (Manual Citizen Commands & Direct Labor Dispatch — GDD §8.2 & §8.3) ✅ COMPLETE:**
      - Select any citizen -> right-click map tile to dispatch manual orders: Move, Chop Tree, Mine Rock, Construct Building, Haul Buffer Cargo, Scout POI.
-     - Fully verified across 15 automated scenarios (97 assertions) in `test_manual_citizen_commands.gd`.
-  2. **Package 2L (Settlement Citizen Roster & Priority Management — GDD §14.4) (NEXT):**
-     - Macro HUD panel listing all 24–50 citizens, their health/hunger/morale, vocational level, and quick role reassignment dropdown.
+     - Fully verified across 20 automated scenarios (152 assertions) in `test_manual_citizen_commands.gd`.
+  2. **Package 2L (Settlement Citizen Roster Panel — GDD §14.4) (NEXT):**
+     - Full-screen / modal HUD roster table showing all settlement citizens (Danh sách dân), profession (Nghề), needs (Nhu cầu: đói, mệt, sức khỏe, tinh thần), vocational skills (Kỹ năng), current job (Công việc hiện tại), reason not working (Lý do không làm việc), and assign work button (Nút giao việc). Note: Focuses strictly on GDD §14.4 citizen management without inventing unneeded mass-priority automation sliders.
   3. **Package 2M (Civic Building Damage & Maintenance Repair — GDD §7.2, resolving `TC-ARMY.32`):**
      - Allow buildings to enter `damaged` state, deduct durability during raids/disasters, and add builder repair tasks to restore function.
 
