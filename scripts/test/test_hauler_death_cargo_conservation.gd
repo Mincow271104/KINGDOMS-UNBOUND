@@ -1,11 +1,12 @@
 extends SceneTree
 ## Automated Test Suite for KINGDOMS UNBOUND — BUG-001: Hauler Cargo Conservation on Citizen Death
-## Authoritative Coverage: TC-CARGO.1 through TC-CARGO.11 with Fail-Closed Assertions
+## Authoritative Coverage: TC-CARGO.1 through TC-CARGO.12 with Fail-Closed Assertions
 
 const CitizenControllerScript = preload("res://scripts/entities/citizen_controller.gd")
 const EconomyConfigScript = preload("res://scripts/economy/economy_config.gd")
 const BuildingSystemScript = preload("res://scripts/economy/building_system.gd")
 const JobManagerScript = preload("res://scripts/jobs/job_manager.gd")
+const SaveManagerScript = preload("res://scripts/persistence/save_manager.gd")
 
 class MockCappedResourceManager extends Node:
 	var stock: Dictionary = {}
@@ -82,6 +83,7 @@ func _run_all_tests() -> void:
 	_test_tc_cargo_9_state_cleanup_consistency(rm)
 	_test_tc_cargo_10_demolition_conservation_unaffected(rm)
 	_test_tc_cargo_11_pending_cargo_full_lifecycle_recovery(rm)
+	_test_tc_cargo_12_save_manager_disk_roundtrip(rm)
 
 	print("\n--------------------------------------------------------")
 	var passed_count: int = 0
@@ -411,3 +413,76 @@ func _test_tc_cargo_11_pending_cargo_full_lifecycle_recovery(rm: Object) -> void
 	)
 
 	_record("TC-CARGO.11", ok, "Full lifecycle pending death cargo: durably held when full, recovered exact once when space opens, zero duplication")
+
+# -----------------------------------------------------------------------------
+# TC-CARGO.12: SaveManager Real Disk Save/Load Roundtrip of Pending Death Cargo
+# -----------------------------------------------------------------------------
+func _test_tc_cargo_12_save_manager_disk_roundtrip(rm: Object) -> void:
+	# 1. Setup: Fill stone stock to capacity
+	var cap: int = int(rm.call("get_storage_capacity", EconomyConfigScript.RES_STONE))
+	var initial_stone: int = int(rm.call("get_available_stock", EconomyConfigScript.RES_STONE))
+	rm.call("add_resource", EconomyConfigScript.RES_STONE, cap - initial_stone)
+
+	# 2. Citizen carrying 10 stone dies while storage is completely full
+	var cid := "test_cit_save_roundtrip_12"
+	var cit = _setup_test_citizen(cid, "Hauler Save Roundtrip", "hauler", rm)
+	cit.carrying_resource = EconomyConfigScript.RES_STONE
+	cit.carrying_amount = 10
+
+	cit.call("die", "Tử nạn khi kho đầy trước khi lưu game", "combat")
+
+	# Pending death cargo now contains 10 stone in world_instance
+	var pending_before_save: int = int(world_instance.call("get_pending_death_cargo", EconomyConfigScript.RES_STONE))
+
+	# 3. Save to disk via real SaveManager.save_to_file
+	var test_save_path := "user://test_death_cargo_roundtrip.json"
+	var save_res: Dictionary = SaveManagerScript.save_to_file(world_instance, test_save_path)
+	var save_ok: bool = bool(save_res.get("success", false))
+
+	# 4. Clear/mutate pending_death_cargo in world_instance to prove restoration
+	world_instance.set("pending_death_cargo", {})
+	var pending_cleared: int = int(world_instance.call("get_pending_death_cargo", EconomyConfigScript.RES_STONE))
+
+	# 5. Load from disk via real SaveManager.load_from_file and apply to world
+	var load_res: Dictionary = SaveManagerScript.load_from_file(test_save_path)
+	var load_ok: bool = bool(load_res.get("success", false))
+	var apply_ok: bool = false
+	if load_ok:
+		var apply_res: Dictionary = SaveManagerScript.apply_loaded_state_to_world(world_instance, load_res.get("data", {}))
+		apply_ok = bool(apply_res.get("success", false))
+
+	var pending_restored: int = int(world_instance.call("get_pending_death_cargo", EconomyConfigScript.RES_STONE))
+
+	# 6. Free capacity: consume 20 stone
+	rm.call("consume_resource", EconomyConfigScript.RES_STONE, 20)
+	var stone_after_consume: int = int(rm.call("get_available_stock", EconomyConfigScript.RES_STONE))
+
+	# 7. Flush pending death cargo: recovers the 10 stone into available space
+	var flush_res: Dictionary = world_instance.call("flush_pending_death_cargo")
+	var stone_after_flush: int = int(rm.call("get_available_stock", EconomyConfigScript.RES_STONE))
+	var pending_after_flush: int = int(world_instance.call("get_pending_death_cargo", EconomyConfigScript.RES_STONE))
+
+	# 8. Subsequent flush does nothing (idempotent, exact-once)
+	var second_flush_res: Dictionary = world_instance.call("flush_pending_death_cargo")
+	var stone_after_second_flush: int = int(rm.call("get_available_stock", EconomyConfigScript.RES_STONE))
+
+	# 9. Clean up temporary save file
+	if FileAccess.file_exists(test_save_path):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(test_save_path))
+
+	var ok: bool = (
+		pending_before_save == 10
+		and save_ok
+		and pending_cleared == 0
+		and load_ok
+		and apply_ok
+		and pending_restored == 10
+		and stone_after_consume == cap - 20
+		and flush_res.get("recovered", {}).get(EconomyConfigScript.RES_STONE, 0) == 10
+		and stone_after_flush == cap - 10
+		and pending_after_flush == 0
+		and second_flush_res.get("recovered", {}).is_empty()
+		and stone_after_second_flush == stone_after_flush
+	)
+
+	_record("TC-CARGO.12", ok, "SaveManager disk roundtrip of pending death cargo: persisted to disk, restored faithfully, flushed exact-once when space opens, zero duplicate credit")

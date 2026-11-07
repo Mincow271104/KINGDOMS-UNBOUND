@@ -10148,5 +10148,66 @@ Final scope completion and hardening of Package 2K (`feature/package-2k-manual-c
 
 ### Next Exact Step
 - Create local Git commit for Package 2K scope completion.
+- Proceed to Final Cargo Invariant & Scope Verification.
+
+---
+
+## [2026-11-07] Package 2K — Final Cargo Invariant & Scope Verification ✅ COMPLETE
+
+### Context & Scope
+Forensic verification and hardening of physical cargo logistics and boundary invariants in Package 2K (`feature/package-2k-manual-citizen-commands`):
+1. **Critical Check — Path Failure While Carrying Cargo (Invariant A & B):**
+   - Investigated potential conflict between `_process_idle()` and path failure handling.
+   - Identified and resolved vulnerability where a stranded citizen with an empty path could trigger destination arrival in `_process_movement()` or remote deposit via `_process_idle()`.
+   - Introduced `_is_at_storage_dropoff() -> bool` in `CitizenController` and fail-closed guards in `_deposit_hauler_cargo()`.
+   - Ensured stranded citizens transition to `State.IDLE` with `"Đang giữ %d %s, chưa tìm được đường về kho"`, holding cargo safely without leaking to central stock.
+   - Guarded `_process_idle()` to only retry finding a valid path without remote deposit.
+   - Authored `TC-MAN.21` (22 assertions) in `test_manual_citizen_commands.gd` proving cargo retention across successive idle ticks, cancellation rejection, target invalidation safety, and exact-once delivery upon route restoration.
+2. **Death Cargo Real Disk Save/Load Roundtrip:**
+   - Authored `TC-CARGO.12` in `test_hauler_death_cargo_conservation.gd` executing a real disk roundtrip via `SaveManager.save_to_file()` and `SaveManager.load_from_file()`.
+   - Verified exact stone quantity restoration, capacity freeing, flush, and second flush idempotency.
+3. **GDD §8.2 Guard Command Final Scope Confirmation:**
+   - Confirmed Guard duty is an established civic-military profession (`set_role("guard")`, Barracks prerequisite per `SCOPE_DECISIONS.md §1.1`, `State.GUARDING`, perimeter post patrols, and `BattleCampaignManager`), fully verified in `test_barracks.gd` (`TC-BR.1` to `TC-BR.7`).
+   - Package 2K civilian right-click dispatch is strictly for ad-hoc manual labor (Move, Chop, Mine, Build, Haul, Explore).
+4. **Package 2L Scope Confirmation:**
+   - Verified GDD §14.4 specifications: Building Panel and Economy Panel are already implemented (Packages 2F and 1B/1E).
+   - Confirmed Package 2L is strictly the **Settlement Citizen Roster Panel** (Citizen list, profession, needs, vocational skills, current job, reason not working, and assign job button).
+
+### Files Modified
+- `scripts/entities/citizen_controller.gd`: Added `_is_at_storage_dropoff()`, guarded `_deposit_hauler_cargo()` against stranded state and off-site manual commands, updated manual work completion path failure handling to idle stationing, and updated `_process_idle()` retry logic.
+- `scripts/test/test_manual_citizen_commands.gd`: Added `TC-MAN.21` (22 assertions, total suite: 21 scenarios, 186 assertions).
+- `scripts/test/test_hauler_death_cargo_conservation.gd`: Added `TC-CARGO.12` (real `SaveManager` disk roundtrip, total suite: 13 scenarios).
+- `docs/planning/GAME_COMPLETION_ROADMAP.md`: Synchronized 186/186 assertions and test matrix.
+- `docs/planning/NEXT_GAMEPLAY_PACKAGE.md`: Added `TC-MAN.21` to test manifest table and updated DoD.
+- `docs/WORKLOG.md`: Updated with this final verification milestone.
+
+### Verification & Test Evidence
+- **Manual Citizen Commands Suite (`test_manual_citizen_commands.gd`):**
+  - **Result:** **ALL 186 CHECKS PASSED (0 Failures), Exit Code 0**.
+- **Hauler Death Cargo Suite (`test_hauler_death_cargo_conservation.gd`):**
+  - **Result:** **13/13 tests PASSED (Exit Code 0)**.
+- **Resource Transaction Integrity (`test_resource_transaction_integrity.gd`):**
+  - **Result:** **90/90 checks PASSED (Exit Code 0)**.
+- **Building Management Suite (`test_building_management.gd`):**
+  - **Result:** **53/53 checks PASSED (Exit Code 0)**.
+- **All-Scripts Load & Compile (`test_all_scripts_load.gd`):**
+  - **Result:** **128/128 scripts PASSED (Exit Code 0)**.
+- **Full Headless Regression Runner (`run_regression.ps1`):**
+  - **Suites Count:** 62
+  - **Passed (Exit Code 0):** 61
+  - **Expected Baseline Failures:** 1 (`TC-ARMY.32` / `BASELINE-001`, Exit Code 1)
+  - **Unexpected Regressions:** 0
+  - **Runner Exit Code:** 0
+  - **Report File:** `scratch\regression_runs\20261107_234947\regression_summary.json`
+
+### Acceptance Classification
+- **T1 — Data/API:** VERIFIED (186/186 automated checks, SaveManager schema & disk roundtrip validated).
+- **T2 — Backend Simulation:** VERIFIED (Deterministic state machine, physical cargo logistics, dropoff proximity invariant, exact-once delivery).
+- **T3 — Player UI Interaction:** VERIFIED (Right-click targeting, audio cues, localized Vietnamese error banners, HUD reflection).
+- **T4 — Natural Gameplay Loop:** NOT VERIFIED (Pending live interactive human playtesting session).
+- **T5 — End-to-End Acceptance:** NOT VERIFIED (Pending real-time interactive evaluation of visual/audio/camera ergonomics).
+
+### Next Exact Step
+- Package 2K implementation and acceptance verification are 100% complete.
 - Await project owner authorization before proceeding to Package 2L (Settlement Citizen Roster Panel — GDD §14.4).
 - Do not push to remote or merge into main.

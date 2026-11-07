@@ -241,7 +241,7 @@ flowchart LR
 - **Required Packages:**
   1. **Package 2K (Manual Citizen Commands & Direct Labor Dispatch — GDD §8.2 & §8.3) ✅ COMPLETE:**
      - Select any citizen -> right-click map tile to dispatch manual orders: Move, Chop Tree, Mine Rock, Construct Building, Haul Buffer Cargo, Scout POI.
-     - Fully verified across 20 automated scenarios (152 assertions) in `test_manual_citizen_commands.gd`.
+     - Fully verified across 21 automated scenarios (186 assertions) in `test_manual_citizen_commands.gd` and 13 scenarios in `test_hauler_death_cargo_conservation.gd`.
   2. **Package 2L (Settlement Citizen Roster Panel — GDD §14.4) (NEXT):**
      - Full-screen / modal HUD roster table showing all settlement citizens (Danh sách dân), profession (Nghề), needs (Nhu cầu: đói, mệt, sức khỏe, tinh thần), vocational skills (Kỹ năng), current job (Công việc hiện tại), reason not working (Lý do không làm việc), and assign work button (Nút giao việc). Note: Focuses strictly on GDD §14.4 citizen management without inventing unneeded mass-priority automation sliders.
   3. **Package 2M (Civic Building Damage & Maintenance Repair — GDD §7.2, resolving `TC-ARMY.32`):**

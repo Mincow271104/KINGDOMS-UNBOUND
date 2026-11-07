@@ -53,6 +53,7 @@ func _init() -> void:
 	_run_tc_man_18_work_command_rejection_while_carrying_cargo()
 	_run_tc_man_19_save_load_during_cargo_hauling()
 	_run_tc_man_20_semantic_cancellation_and_death_cargo_lifecycle()
+	_run_tc_man_21_path_failure_with_cargo_invariant()
 
 	print("\n--------------------------------------------------------")
 	if failures == 0:
@@ -1025,6 +1026,104 @@ func _run_tc_man_20_semantic_cancellation_and_death_cargo_lifecycle() -> void:
 		second_added = rm.add_resource("stone", pending_cargo["stone"])
 	_assert(second_added == 0, "TC-MAN.20.16: Second flush attempt is strictly idempotent")
 	_assert(rm.get_total_stock("stone") == pre_stock + 10, "TC-MAN.20.17: Zero duplicate crediting")
+
+	cit.queue_free()
+	rm.queue_free()
+
+## TC-MAN.21: Path Failure While Carrying Cargo & Physical Proximity Invariant
+func _run_tc_man_21_path_failure_with_cargo_invariant() -> void:
+	print("--- TC-MAN.21: Path Failure While Carrying Cargo & Proximity Invariant ---")
+	var wd = _create_test_world()
+	var nav = GridNavigationScript.new(wd)
+	var jm = JobManagerScript.new()
+	var rm = ResourceManagerScript.new()
+	root.add_child(rm)
+	rm.reset_economy()
+
+	var cit = CitizenControllerScript.new()
+	root.add_child(cit)
+	cit.init_citizen("cit_21", "Unreachable Hauler", "woodcutter", Vector2i(35, 32), nav, jm)
+	cit.world_data = wd
+	cit.set_custom_resource_manager(rm)
+
+	# 1. Citizen finishes chopping wood at (35, 32)
+	var pre_wood: int = rm.get_total_stock("wood")
+	cit.carrying_resource = "wood"
+	cit.carrying_amount = 10
+	cit.manual_command = {
+		"type": "chop",
+		"target_cell": Vector2i(36, 32),
+		"target_id": "",
+		"work_hours_required": 5.0,
+		"work_hours_done": 5.0,
+		"is_active": true,
+		"is_paused": false,
+		"pause_reason": ""
+	}
+
+	# 2. Make storage dropoff (32, 32) completely unreachable in navigation
+	for x in range(30, 35):
+		for y in range(30, 35):
+			wd.terrain[x][y] = WorldGeneratorScript.TerrainType.WATER
+
+	# 3. Simulate arrival at harvest completion / path failure attempt
+	cit._execute_active_manual_command()
+
+	_assert(cit.current_state == CitizenController.State.IDLE, "TC-MAN.21.1: Citizen transitions to IDLE when storehouse is unreachable")
+	_assert(cit.status_reason.contains("chưa tìm được đường về kho"), "TC-MAN.21.2: Status reason indicates blocked route to storage", cit.status_reason)
+	_assert(cit.carrying_amount == 10, "TC-MAN.21.3: Cargo remains safely on citizen node")
+	_assert(cit.carrying_resource == "wood", "TC-MAN.21.4: Cargo resource identity preserved")
+	_assert(rm.get_total_stock("wood") == pre_wood, "TC-MAN.21.5: Zero off-site remote deposit to ResourceManager")
+
+	# 4. Process multiple idle/process simulation ticks while storage remains unreachable
+	for tick in range(5):
+		cit._process_idle()
+		_assert(cit.carrying_amount == 10, "TC-MAN.21.6: Cargo preserved across idle tick %d" % tick)
+		_assert(rm.get_total_stock("wood") == pre_wood, "TC-MAN.21.7: Zero remote deposit on idle tick %d" % tick)
+		_assert(cit.active_job == null, "TC-MAN.21.8: Citizen does not accept routine jobs while loaded")
+
+	# 5. Cancellation attempts while route blocked still preserve cargo
+	var cancel_res := cit.cancel_manual_command("Người chơi hủy", CitizenControllerScript.CancelSource.PLAYER)
+	_assert(cancel_res == false, "TC-MAN.21.9: Player cancellation rejected while carrying cargo even if path blocked")
+	_assert(cit.carrying_amount == 10, "TC-MAN.21.10: Cargo intact after rejected cancel attempt")
+
+	var inv_res := cit.cancel_manual_command("Mục tiêu bị hủy", CitizenControllerScript.CancelSource.TARGET_INVALIDATED)
+	_assert(inv_res == false, "TC-MAN.21.11: Target invalidation refuses drop while carrying cargo")
+	_assert(cit.carrying_amount == 10, "TC-MAN.21.12: Cargo intact after target invalidation")
+	_assert(rm.get_total_stock("wood") == pre_wood, "TC-MAN.21.13: Central stock unchanged after invalidation")
+
+	# 6. Direct _deposit_hauler_cargo invocation while physically away fails closed
+	cit._deposit_hauler_cargo()
+	_assert(cit.carrying_amount == 10, "TC-MAN.21.14: _deposit_hauler_cargo fails closed off-site (proximity guard)")
+	_assert(rm.get_total_stock("wood") == pre_wood, "TC-MAN.21.15: ResourceManager stock completely protected")
+
+	# 7. Restore walkability / route to storage dropoff (32, 32)
+	for x in range(30, 35):
+		for y in range(30, 35):
+			wd.terrain[x][y] = WorldGeneratorScript.TerrainType.GRASS
+			wd.occupancy[x][y] = false
+
+	# 8. Process idle tick with valid route
+	cit._process_idle()
+	_assert(cit.current_state == CitizenController.State.HAULING, "TC-MAN.21.16: Citizen transitions to HAULING once path opens")
+	_assert(not cit.current_path.is_empty(), "TC-MAN.21.17: Pathfinding successfully finds route to storehouse")
+
+	# 9. Walk path to destination
+	while not cit.current_path.is_empty():
+		cit.current_cell = cit.current_path[0]
+		cit.current_path.remove_at(0)
+
+	_assert(cit._is_at_storage_dropoff(), "TC-MAN.21.18: Citizen reached storage dropoff location")
+
+	# 10. Arrive at destination and deposit
+	cit._arrive_at_destination()
+	_assert(cit.carrying_amount == 0, "TC-MAN.21.19: Cargo successfully deposited upon arrival at storehouse")
+	_assert(rm.get_total_stock("wood") == pre_wood + 10, "TC-MAN.21.20: Central stock credited with exactly 10 wood")
+	_assert(cit.current_state == CitizenController.State.IDLE, "TC-MAN.21.21: Citizen returned to IDLE after deposit")
+
+	# 11. Subsequent tick causes no duplicate crediting
+	cit._process_idle()
+	_assert(rm.get_total_stock("wood") == pre_wood + 10, "TC-MAN.21.22: Subsequent idle tick is strictly idempotent (zero duplicate crediting)")
 
 	cit.queue_free()
 	rm.queue_free()
