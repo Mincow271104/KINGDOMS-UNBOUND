@@ -9739,5 +9739,46 @@ Resolve BUG-002 where completed and cancelled non-recurring jobs (such as haulin
   - `test_save_slot_isolation.gd`: **PASS (Exit Code 0)**.
 
 ### Next Exact Step
-- Stage and commit BUG-002 changes: `fix(jobs): prune terminal non-recurring jobs`.
-- Proceed to GAP-002 / GAP-006 / GAP-007: Implement tracked headless regression runner.
+- Stage and commit BUG-002 changes: `fix(jobs): prune terminal non-recurring jobs` (Completed).
+- Implement GAP-002 / GAP-006 / GAP-007: Tracked Headless Regression Runner & Quality Infrastructure (Completed).
+- Stage and commit: `test: add reliable headless regression runner`.
+- Complete full 58-suite regression audit across the repository.
+
+
+---
+
+## [2026-11-07] Active Development Batch 2 — GAP-002 / GAP-006 / GAP-007: Tracked Headless Regression Infrastructure ✅ COMPLETE
+
+### Context & Scope
+Implement reliable, tracked regression infrastructure to replace fragile untracked scratch runners that relied on heuristic regex word counting (`PASS`/`FAIL`), which falsely reported passing tests with security keywords (e.g. `fail-closed`) as failures. Ensure headless compilation validation for all 124 GDScript files and document isolation recipes for baseline simulation runs.
+
+### Completed Work
+1. **Tracked Headless Regression Runner (`scripts/test/run_regression.ps1`):**
+   - Configurable Godot executable resolution (`-GodotBin`, `$env:GODOT_BIN`, PATH, or default installation path).
+   - Authoritative manifest of 58 tracked test suites (including all core gameplay systems, Package 2J suites, BUG-001, BUG-002, BUG-003, and GAP-006 validator; excluding GUI screenshot runners, untracked visual tests, and frozen AI prototype scripts).
+   - Executes each suite in an isolated child process via `& $GodotBin --headless -s "res://$scriptPath" > $logPath 2>&1`.
+   - Captures process duration, start/end timestamps, stdout/stderr logs, and raw process exit codes (`$LASTEXITCODE`).
+   - Strict baseline classification: Recognizes `test_player_army.gd` Exit Code 1 with `TC-ARMY.32` failure signature as `EXPECTED_BASELINE_FAILURE` (`BASELINE-001` / `ISSUE-006`), and any other failure as `UNEXPECTED_FAILURE`.
+   - Generates machine-readable `regression_summary.json` containing complete execution telemetry.
+   - Built-in runner self-test fixtures (`-SelfTest`) verifying exit-code classification, baseline filtering, and JSON integrity (4/4 fixtures PASS, Exit Code 0).
+2. **Headless All-Scripts Compilation Validator (`scripts/test/test_all_scripts_load.gd`):**
+   - Recursively traverses `res://scripts/` and loads all 124 `.gd` files into memory to verify syntax compilation, symbol resolution, and absence of `const` ClassDB shadowing.
+   - Verified 124/124 scripts compiled cleanly without errors (Exit Code 0).
+3. **Simulation Baseline Runner Isolation Recipe (GAP-007):**
+   - Documented the authoritative APPDATA directory isolation requirement and execution recipe in `docs/quality/TEST_COVERAGE_GAP_ANALYSIS.md` to prevent fail-closed aborts on `test_simulation_baseline_runner.gd`.
+4. **Documentation Alignment:**
+   - Updated `docs/quality/TEST_COVERAGE_GAP_ANALYSIS.md` (GAP-002, GAP-003, GAP-006, GAP-007 marked CLOSED/DOCUMENTED).
+   - Updated `docs/quality/BUG_AND_RISK_REGISTER.md` (GAP-002, GAP-003, GAP-006, GAP-007 updated).
+   - Updated `.agents/skills/godot-project-workflow/SKILL.md` (Section 8 updated with runner commands).
+
+### Verification & Test Evidence
+- **Runner Self-Test:** `powershell.exe -ExecutionPolicy Bypass -File scripts/test/run_regression.ps1 -SelfTest`
+  - **Result:** **4/4 Fixtures PASS (Exit Code 0)**.
+- **Script Compilation Check:** `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless -s res://scripts/test/test_all_scripts_load.gd`
+  - **Result:** **124/124 Scripts Compiled Cleanly (Exit Code 0)**.
+- **Full Matrix Execution:** 58 tracked test suites executed via `scripts/test/run_regression.ps1`.
+  - **Result:** **57 PASSED, 1 EXPECTED BASELINE FAILURE (TC-ARMY.32), 0 UNEXPECTED FAILURES (Exit Code 0)**.
+
+### Next Exact Step
+- Stage and commit GAP-002 / GAP-006 / GAP-007 changes: `test: add reliable headless regression runner`.
+- Final review and task completion report to Project Owner.

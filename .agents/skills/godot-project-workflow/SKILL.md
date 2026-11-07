@@ -90,9 +90,15 @@ git diff --check
    ```powershell
    godot --headless -s res://scripts/test/<test_suite>.gd
    ```
-2. **Evaluate by Exit Code:** Check the raw process exit code (`$LASTEXITCODE` in PowerShell). Never rely on heuristic regex scripts that count `"PASS"` / `"FAIL"` words.
-3. **Run Regression Matrix:** Run all regression suites and compare against baseline.
-4. **Baseline Limitation Honesty:** If `test_player_army.gd` fails on `TC-ARMY.32`, verify that it is the exact known baseline failure (`ISSUE-006`). Never claim 24/24 suites passed if `TC-ARMY.32` failed.
+2. **Tracked Regression Runner (GAP-002):** Execute the authoritative headless regression runner across all tracked suites:
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File scripts/test/run_regression.ps1
+   # Or run a targeted suite:
+   powershell -ExecutionPolicy Bypass -File scripts/test/run_regression.ps1 -Suite <suite_name>
+   ```
+3. **Evaluate by Exit Code:** Check the raw process exit code (`$LASTEXITCODE` in PowerShell). Never rely on heuristic regex scripts that count `"PASS"` / `"FAIL"` words.
+4. **All-Scripts Compilation Check (GAP-006):** Run `scripts/test/test_all_scripts_load.gd` to verify all 124 `.gd` files compile and load headlessly without symbol shadowing.
+5. **Baseline Limitation Honesty:** If `test_player_army.gd` fails on `TC-ARMY.32`, verify that it is the exact known baseline failure (`ISSUE-006`). The runner automatically classifies this as `EXPECTED_BASELINE_FAILURE`. Never obscure or silently alter baseline tests.
 
 ---
 

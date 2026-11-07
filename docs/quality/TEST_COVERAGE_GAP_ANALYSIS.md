@@ -36,16 +36,22 @@ A critical discovery of this audit concerns existing untracked regression script
 - **Verification Scope:** Instantiates real `world_view.tscn`, injects a `TacticalMilitaryManager` double to force attack-order failure, sends synthetic right-click mouse input with `target_cell` metadata, asserts red failure banner (`Lệnh Tấn Công Thất Bại`), rejects false success feedback, preserves active siege for retry, prevents duplicate siege records, and verifies withdrawal cleanup.
 
 ### GAP-002 — Absence of a tracked, exit-code-based regression runner
-- **Status:** **OPEN**
-- **Risk:** Existing runners reside only in `scratch/` (untracked) and rely on flawed regex parsing.
-- **Remediation:** Create a tracked script (e.g., `scripts/test/run_all.gd` or `scripts/test/run_regression.ps1`) that executes the 24 regression suites sequentially in separate child processes, capturing raw exit codes and execution times.
+- **Status:** **CLOSED (RESOLVED in Batch 2)**
+- **Tracked Runner:** `scripts/test/run_regression.ps1`
+- **Features & Verification:**
+  - Sequences through 58 tracked test suites in separate child processes.
+  - Abandons regex word counting in favor of strict process exit codes (`$LASTEXITCODE`).
+  - Measures execution duration per suite and aggregates total runtime.
+  - Enforces explicit baseline classification: recognizes `test_player_army.gd` Exit Code 1 with `TC-ARMY.32` failure signature as `EXPECTED_BASELINE_FAILURE` (`BASELINE-001` / `ISSUE-006`), and any other failure as `UNEXPECTED_FAILURE`.
+  - Outputs structured terminal logs and saves machine-readable `regression_summary.json`.
+  - Includes `-SelfTest` fixture validation (4/4 fixtures PASS, Exit Code 0).
 
 ### GAP-003 — Missing tests for confirmed and probable bugs
-- **Status:** **OPEN**
-- **Missing Suites:**
-  1. Resource conservation test for hauler death with carried cargo (`BUG-001`).
-  2. Job array size boundedness test across repeated hauling cycles (`BUG-002`).
-  3. Autosave vs manual save slot isolation test (`BUG-003`).
+- **Status:** **CLOSED (RESOLVED in Batch 2)**
+- **Implemented Suites:**
+  1. Resource conservation test for hauler death with carried cargo (`BUG-001`): `scripts/test/test_hauler_death_cargo_conservation.gd` (12/12 PASS, Exit Code 0).
+  2. Job array size boundedness test across repeated hauling cycles (`BUG-002`): `scripts/test/test_job_lifecycle_pruning.gd` (10/10 PASS, Exit Code 0).
+  3. Autosave vs manual save slot isolation test (`BUG-003`): `scripts/test/test_save_slot_isolation.gd` (10/10 PASS, Exit Code 0).
 
 ### GAP-004 — High coupling to private internals in test suites
 - **Status:** **OPEN**
@@ -56,13 +62,25 @@ A critical discovery of this audit concerns existing untracked regression script
 - **Current State:** The Package 2J entry in `docs/WORKLOG.md` explicitly distinguishes automated headless PASS from PARTIAL ACCEPTANCE for natural gameplay. However, structured human-readable acceptance checklists remain untracked.
 
 ### GAP-006 — Absence of a tracked all-scripts parse check
-- **Status:** **OPEN**
-- **Risk:** Compilation errors caused by `const` names shadowing global `class_name` definitions (such as the parse errors fixed in `test_factions_and_battles.gd` and `test_faction_diplomacy_ai.gd`) are only caught when a specific suite is executed.
-- **Remediation:** Implement a tracked test that iterates `res://scripts/` and verifies that every `.gd` file loads without compile errors.
+- **Status:** **CLOSED (RESOLVED in Batch 2)**
+- **Tracked Validator:** `scripts/test/test_all_scripts_load.gd`
+- **Verification:** Headlessly iterates `res://scripts/` recursively, loading all 124 `.gd` files into memory to verify syntax validity, symbol resolution, and absence of `const` ClassDB shadowing. Confirmed 124/124 scripts compiled and loaded cleanly (Exit Code 0).
 
 ### GAP-007 — Baseline simulation runner fails without environment isolation
-- **Status:** **OPEN**
-- **Risk:** `scripts/test/test_simulation_baseline_runner.gd` aborts fail-closed (Exit Code 1, `"ISOLATION FAILURE"`) unless executed in an isolated test environment, but the exact isolation recipe is undocumented.
+- **Status:** **DOCUMENTED / ISOLATION RECIPE STANDARDIZED**
+- **Root Cause & Recipe:** `scripts/test/test_simulation_baseline_runner.gd` enforces a fail-closed preflight check requiring `$env:APPDATA` to contain `"sim_isolation"` or `"test"` to prevent overwriting player profiles.
+- **Authoritative Execution Recipe:**
+  ```powershell
+  $isoDir = "$PSScriptRoot/../../scratch/sim_isolation"
+  New-Item -ItemType Directory -Force -Path $isoDir | Out-Null
+  $oldAppData = $env:APPDATA
+  try {
+      $env:APPDATA = $isoDir
+      & "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless -s res://scripts/test/test_simulation_baseline_runner.gd -- --seed=12345 --speed=3 --target_hours=24
+  } finally {
+      $env:APPDATA = $oldAppData
+  }
+  ```
 
 ---
 

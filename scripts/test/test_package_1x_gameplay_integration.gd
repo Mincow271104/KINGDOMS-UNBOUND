@@ -170,9 +170,9 @@ func _test_siege_combat_and_plunder() -> void:
 	obj.take_damage(50.0, "player_army")
 	_assert(obj.health == hp_before - 50.0, "TC-INT.4: Objective took 50 combat damage")
 
-	# Destroy objective to achieve victory
+	# Destroy objective to achieve victory (Package 2G: transfers ownership and restores to alive under new owner)
 	obj.take_damage(obj.health, "player_army")
-	_assert(obj.is_alive == false, "TC-INT.4: Outpost destroyed")
+	_assert(obj.is_alive == true, "TC-INT.4: Outpost is_alive restored under new owner (Package 2G)")
 	_assert(obj.is_captured == true, "TC-INT.4: Outpost captured by player")
 
 	# Find siege record and evaluate
