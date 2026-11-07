@@ -43,6 +43,7 @@ func _run_all_tests() -> void:
 	_test_tc_job_8_1000_cycles_bounded_size()
 	_test_tc_job_9_bounded_terminal_history()
 	_test_tc_job_10_clear_dynamic_jobs_compatibility()
+	_test_tc_job_11_cancelled_recurring_job_lifecycle()
 
 	var total_tests := test_results.size()
 	var passed_count := 0
@@ -353,3 +354,57 @@ func _test_tc_job_10_clear_dynamic_jobs_compatibility() -> void:
 		return
 
 	_record("TC-JOB.10", true, "clear_dynamic_jobs preserves starter recurring jobs, resets runtime state, and clears terminal history")
+
+# TC-JOB.11: Cancelled recurring job resets to AVAILABLE or prunes if orphaned
+func _test_tc_job_11_cancelled_recurring_job_lifecycle() -> void:
+	var jm = JobManagerScript.new()
+
+	# 1. Recurring job with active workplace
+	var farm_job = jm.create_job("farmer", Vector2i(10, 10), "Farm crop", "farm_active", 2.0, 1, true)
+	farm_job.state = JobManagerScript.JobState.IN_PROGRESS
+	farm_job.worker_id = "cit_farmer"
+	farm_job.work_hours_done = 1.5
+
+	# Explicit cancellation of active recurring job
+	jm.cancel_job(farm_job, "Manual cancellation or priority shift")
+
+	if farm_job.state != JobManagerScript.JobState.AVAILABLE:
+		_record("TC-JOB.11", false, "Active recurring job should reset to AVAILABLE on cancel_job, got state: %d" % farm_job.state)
+		return
+	if farm_job.worker_id != "":
+		_record("TC-JOB.11", false, "Active recurring job worker_id should be cleared, got: '%s'" % farm_job.worker_id)
+		return
+	if farm_job.work_hours_done != 0.0:
+		_record("TC-JOB.11", false, "Active recurring job work_hours_done should reset to 0.0, got: %f" % farm_job.work_hours_done)
+		return
+	if not jm.get_all_jobs().has(farm_job):
+		_record("TC-JOB.11", false, "Active recurring job was inadvertently purged from active registry!")
+		return
+
+	# 2. Orphaned recurring job without any target building or workplace channel
+	var orphan_job = jm.create_job("farmer", Vector2i(0, 0), "Orphaned Farm", "", 2.0, 1, true)
+	orphan_job.state = JobManagerScript.JobState.IN_PROGRESS
+	orphan_job.worker_id = "cit_orphan"
+
+	jm.cancel_job(orphan_job, "Orphaned job cleanup")
+
+	if orphan_job.state != JobManagerScript.JobState.CANCELLED:
+		_record("TC-JOB.11", false, "Orphaned recurring job should transition to CANCELLED, got: %d" % orphan_job.state)
+		return
+	if jm.get_all_jobs().has(orphan_job):
+		_record("TC-JOB.11", false, "Orphaned recurring job was not pruned from active registry!")
+		return
+	if not (orphan_job in jm.get_recent_terminal_jobs()):
+		_record("TC-JOB.11", false, "Orphaned recurring job was not recorded into terminal history!")
+		return
+
+	# 3. Demolition of building purges recurring job
+	jm.remove_jobs_for_building("farm_active")
+	if jm.get_all_jobs().has(farm_job):
+		_record("TC-JOB.11", false, "Recurring job was not pruned when target building was demolished!")
+		return
+	if not (farm_job in jm.get_recent_terminal_jobs()):
+		_record("TC-JOB.11", false, "Demolished building recurring job was not recorded into terminal history!")
+		return
+
+	_record("TC-JOB.11", true, "Cancelled recurring jobs reset to AVAILABLE when target exists, and prune cleanly when orphaned or demolished")

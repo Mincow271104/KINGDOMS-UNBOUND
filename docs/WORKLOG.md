@@ -9941,5 +9941,49 @@ Remediate RISK-005 (SaveManager load frees citizens via `queue_free()` without `
   - `test_save_slot_isolation.gd`: **PASS (10/10 tests PASS, Exit Code 0)**.
 
 ### Next Exact Step
-- Stage and commit RISK-005 changes: `fix(persistence): ensure safe repeated world reconstruction`.
-- Proceed to Step 4: BUG-002 follow-up (cancelled recurring jobs) & product risk reviews (RISK-003, RISK-004, RISK-007).
+- Stage and commit RISK-005 changes: `fix(persistence): ensure safe repeated world reconstruction` (Completed in `0edc638`).
+- Proceed to Step 4: BUG-002 follow-up (cancelled recurring jobs) & product risk reviews (RISK-003, RISK-004, RISK-007) (Completed).
+
+---
+
+## [2026-11-07] Active Development Batch 3 — Job Lifecycle Follow-Up & Product Risk Alignment ✅ COMPLETE
+
+### Context & Scope
+Execute Step 4 of Active Development Batch 3:
+1. BUG-002 follow-up: Handle cancelled recurring jobs in `JobManager.cancel_job()`. Prevent cancelled recurring jobs from being wedged in `CANCELLED` state inside `_jobs` while ensuring orphaned recurring jobs are pruned to `_terminal_jobs_history`.
+2. RISK-003 (Tactical Faction Identity): Prevent unparented/unready `EnemyTacticalUnit` instances from defaulting to `"player"`.
+3. RISK-004 (Faction in_exile / eliminated Statuses): Product alignment regarding outpost conquest vs full faction vassalization/elimination.
+4. RISK-007 (Stock Exceeding Capacity After Demolition): Verify and document intentional non-destructive resource conservation invariant.
+
+### Completed Work
+1. **JobManager Cancelled Recurring Job Lifecycle (`scripts/jobs/job_manager.gd`):**
+   - In `cancel_job(job, reason)`:
+     - If `job.is_recurring == true`:
+       - If `job` has an associated building or workplace (`target_building_id != ""`, `source_workplace_id != ""`, or `workplace_channel_id != ""`), resets `job.state = JobState.AVAILABLE`, `job.worker_id = ""`, and `job.work_hours_done = 0.0`.
+       - If `job` is orphaned (no associated building or workplace), sets `job.state = JobState.CANCELLED` and prunes it to `_terminal_jobs_history` via `_remove_job_internal(job)`.
+     - Non-recurring jobs continue to transition to `CANCELLED` and prune via `_remove_job_internal(job)`.
+   - Updated `scripts/test/test_job_lifecycle_pruning.gd`: Added `TC-JOB.11` covering active recurring cancellation, orphaned recurring cancellation, and building demolition pruning.
+2. **Enemy Tactical Unit Faction Identity Guard (`scripts/military/enemy_tactical_unit.gd`):**
+   - Added `_init()` initializing `faction_id = "enemy"` immediately upon instance allocation.
+   - Guarantees that even prior to `_ready()` or scene-tree addition, enemy units are never identified as `"player"`, preventing friendly-fire false positives and false equipment multiplier applications.
+3. **Core Invariants & Register Updates (`docs/architecture/CORE_INVARIANTS.md`, `docs/quality/BUG_AND_RISK_REGISTER.md`):**
+   - Invariant I-05: Formalized cancelled recurring job lifecycle and pruning rules.
+   - Invariant I-07: Formalized non-destructive resource conservation on storage building demolition (RISK-007).
+   - Invariant I-09: Formalized tactical unit faction initialization and equipment isolation (RISK-003).
+   - Invariant I-12: Formalized faction existence status lifecycle (RISK-004).
+   - Updated `docs/quality/BUG_AND_RISK_REGISTER.md`:
+     - `RISK-003`: CLOSED (Hardened in Batch 3).
+     - `RISK-004`: RESOLVED (Design Alignment).
+     - `RISK-007`: RESOLVED (Design Intent).
+
+### Verification & Test Evidence
+- `test_job_lifecycle_pruning.gd`: **11/11 tests PASS (Exit Code 0)**.
+- `test_citizens.gd`: **PASS (Exit Code 0)**.
+- `test_dynamic_workplaces.gd`: **PASS (Exit Code 0)**.
+- `test_building_management.gd`: **53/53 tests PASS (Exit Code 0)**.
+- `test_enemy_military_ai.gd`: **54/54 assertions PASS (Exit Code 0)**.
+- `test_tactical_combat.gd`: **58/58 assertions PASS (Exit Code 0)**.
+
+### Next Exact Step
+- Stage and commit Step 4 changes: `fix(jobs): handle cancelled recurring job lifecycle and unit faction guards`.
+- Proceed to Step 5: Execute full matrix regression (`scripts/test/run_regression.ps1`) and produce final completion report.

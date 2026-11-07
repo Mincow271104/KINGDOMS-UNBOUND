@@ -357,9 +357,17 @@ func release_job(job: JobData) -> void:
 func cancel_job(job: JobData, _reason: String = "") -> void:
 	if job == null:
 		return
-	job.state = JobState.CANCELLED
 	job.worker_id = ""
-	if not job.is_recurring:
+	if job.is_recurring:
+		var has_target: bool = (job.target_building_id != "" or job.source_workplace_id != "" or job.workplace_channel_id != "")
+		if has_target:
+			job.state = JobState.AVAILABLE
+			job.work_hours_done = 0.0
+		else:
+			job.state = JobState.CANCELLED
+			_remove_job_internal(job)
+	else:
+		job.state = JobState.CANCELLED
 		_remove_job_internal(job)
 
 func get_active_jobs_count() -> int:

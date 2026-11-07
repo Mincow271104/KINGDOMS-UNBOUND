@@ -29,6 +29,9 @@ const CRIMSON_MODULATE := Color(0.95, 0.3, 0.3, 1.0)
 signal ai_state_changed(enemy_id: String, old_state: int, new_state: int)
 signal enemy_retreated(enemy_id: String)
 
+func _init() -> void:
+	faction_id = "enemy"
+
 func _ready() -> void:
 	super._ready()
 	faction_id = owning_faction_id if not owning_faction_id.is_empty() else "enemy"

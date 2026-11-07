@@ -41,8 +41,9 @@
 
 ### I-05: Job state machine lifecycle — **VERIFIED**
 - **Rule:** Jobs transition strictly: `AVAILABLE` $\rightarrow$ `RESERVED` (upon `request_job`) $\rightarrow$ `IN_PROGRESS` $\rightarrow$ `COMPLETED` (or back to `AVAILABLE` for recurring jobs). Blocked paths, worker death, and role changes must call `release_job()`. Starter recurring jobs (`farm_starter`, `woodcutter_starter`) survive save loads.
-- **Pruning & Bounded Lifecycle (BUG-002):** Terminal dynamic non-recurring jobs (`is_recurring = false`) that transition to `COMPLETED` or `CANCELLED` are pruned immediately from the active `_jobs` registry, while recurring jobs loop cleanly back to `AVAILABLE`. A bounded ring buffer (`_terminal_jobs_history`, size $\le 50$) retains recent history for diagnostics without memory bloat. Verified across 10 scenarios in `scripts/test/test_job_lifecycle_pruning.gd` (including 1,000-cycle stress test).
-- **Source Files & Functions:** `scripts/jobs/job_manager.gd` L275–365; `scripts/entities/citizen_controller.gd`.
+- **Pruning & Bounded Lifecycle (BUG-002):** Terminal dynamic non-recurring jobs (`is_recurring = false`) that transition to `COMPLETED` or `CANCELLED` are pruned immediately from the active `_jobs` registry, while recurring jobs loop cleanly back to `AVAILABLE`. A bounded ring buffer (`_terminal_jobs_history`, size $\le 50$) retains recent history for diagnostics without memory bloat. Verified across 11 scenarios in `scripts/test/test_job_lifecycle_pruning.gd` (including 1,000-cycle stress test).
+- **Cancelled Recurring Jobs (BUG-002 Follow-up):** If `cancel_job(job)` is called on a recurring job with an active workplace (`target_building_id != ""` or workplace channel), the job resets to `JobState.AVAILABLE` with `worker_id = ""` and `work_hours_done = 0.0`. If orphaned (no workplace), it is marked `CANCELLED` and pruned to `_terminal_jobs_history`. When a building is demolished, `remove_jobs_for_building()` purges all associated recurring and non-recurring jobs into `_terminal_jobs_history`.
+- **Source Files & Functions:** `scripts/jobs/job_manager.gd` L275–375; `scripts/entities/citizen_controller.gd`.
 - **Related IDs:** `BUG-002` (CLOSED), `GAP-003`.
 
 ---
@@ -56,7 +57,8 @@
 
 ### I-07: Building state machine & operational transitions — VERIFIED
 - **Rule:** Buildings progress: `under_construction` $\rightarrow$ `active`; `paused` is permitted only for pausable operational types (farm, woodcutter, quarry, mine, workshop). Demolition is strictly forbidden while under construction, upgrading, or destroyed. Demolition refunds are credited via `add_resources_atomic()`. Unsupported states (such as `"damaged"`) are rejected fail-closed.
-- **Source Files & Functions:** `scripts/economy/building_system.gd` L420–475; `scripts/world/world_view.gd` L1897–1906.
+- **Storage Demolition & Non-Destructive Conservation (RISK-007):** When a storage building is demolished, `ResourceManager.remove_storage_capacity()` decrements capacity without deleting existing stock (`_current_stock`). Stock may temporarily exceed storage capacity; in this state, resource conservation is preserved (zero stock deletion), while further resource additions are strictly blocked by capacity checks until stock is consumed below capacity.
+- **Source Files & Functions:** `scripts/economy/building_system.gd` L420–475; `scripts/economy/resource_manager.gd` L453–462; `scripts/world/world_view.gd` L1897–1906.
 - **Related IDs:** `BASELINE-001` (`TC-ARMY.32`), `RISK-007`.
 
 ---
@@ -69,8 +71,8 @@
 ---
 
 ### I-09: NPC military units are independent of player equipment — VERIFIED
-- **Rule:** Tactical unit equipment damage multipliers apply only when `faction_id == "player"`. `EnemyTacticalUnit._ready()` explicitly sets `owning_faction_id` (or `"enemy"`), ensuring enemy units always evaluate to fixed multiplier 1.0. Abstract NPC battle tiers are constants (`rival_military = 2`, others = 1).
-- **Source Files & Functions:** `scripts/military/tactical_unit.gd` L102–111; `scripts/military/enemy_tactical_unit.gd` L31–35; `scripts/combat/battle_campaign_manager.gd` L265, L738.
+- **Rule:** Tactical unit equipment damage multipliers apply only when `faction_id == "player"`. `EnemyTacticalUnit._init()` explicitly initializes `faction_id = "enemy"` upon instantiation, preventing unparented or unready enemy units from ever defaulting to `"player"`. `EnemyTacticalUnit._ready()` and `deserialize()` update `faction_id` to `owning_faction_id`. Abstract NPC battle tiers are constants (`rival_military = 2`, others = 1).
+- **Source Files & Functions:** `scripts/military/tactical_unit.gd` L102–111; `scripts/military/enemy_tactical_unit.gd` L31–38; `scripts/combat/battle_campaign_manager.gd` L265, L738.
 - **Related IDs:** `RISK-003`.
 
 ---
@@ -95,7 +97,8 @@
 
 ### I-12: AI diplomacy actions must route through public signalling APIs — VERIFIED
 - **Rule:** AI diplomacy changes (war/peace) must invoke `FactionManager.declare_war()` or `propose_treaty("peace")` so that global signals (`war_declared`, `peace_signed`) fire. These signals drive defensive garrison spawns, raid cancellations in `BattleCampaignManager`, and siege withdrawals in `FieldSiegeManager`.
-- **Source Files & Functions:** `scripts/factions/faction_manager.gd` L855, L890; `scripts/combat/battle_campaign_manager.gd`; `scripts/world/world_view.gd`.
+- **Faction Existence Status Lifecycle (RISK-004):** `FactionData` specifies `STATUS_ACTIVE`, `STATUS_IN_EXILE`, and `STATUS_ELIMINATED`. The diplomacy and strategy engines (`FactionStrategyPlanner`, `FactionDiplomacyPlanner`) fail closed for non-active factions (no active intents, no diplomacy, treaties rejected). In accordance with the GDD, full territorial conquest / elimination is designed for endgame campaign packages, while outpost conquest is implemented via Field Siege in Package 1X/2J.
+- **Source Files & Functions:** `scripts/factions/faction_manager.gd` L855, L890; `scripts/factions/faction_strategy_planner.gd` L92–115; `scripts/combat/battle_campaign_manager.gd`; `scripts/world/world_view.gd`.
 - **Related IDs:** `RISK-004`.
 
 ---
