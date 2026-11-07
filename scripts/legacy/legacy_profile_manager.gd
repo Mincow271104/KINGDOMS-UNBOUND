@@ -1052,7 +1052,7 @@ func convert_surplus_treasury(
 
 	# Rule 2.1: Conversion Formula
 	var surplus_gold: int = maxi(0, t_gold - PROTECTED_GOLD_RESERVE)
-	var legacy_awarded: int = surplus_gold / GOLD_PER_LEGACY_POINT
+	var legacy_awarded: int = floori(float(surplus_gold) / float(GOLD_PER_LEGACY_POINT))
 	var gold_deducted: int = legacy_awarded * GOLD_PER_LEGACY_POINT
 
 	# Zero Surplus Case (Treasury <= 1000 Gold or surplus < 100 Gold)

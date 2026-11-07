@@ -444,7 +444,6 @@ func evaluate_siege_status(siege_id: String) -> Dictionary:
 
 	var obj_id: String = record.get("objective_id", "")
 	var obj = get_objective(obj_id)
-	var faction_id: String = record.get("faction_id", "")
 	var army = get_player_army_manager()
 
 	# Victory Check: Outpost destroyed or captured

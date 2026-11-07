@@ -150,7 +150,7 @@ func _on_faction_pair_war_declared(initiator_id: String, target_id: String, _pai
 			casus = rec.casus_belli
 	schedule_inter_faction_campaign(initiator_id, target_id, sched_day, 1, casus)
 
-func _on_faction_pair_peace_signed(faction_a: String, faction_b: String, pair_key: String) -> void:
+func _on_faction_pair_peace_signed(_faction_a: String, _faction_b: String, pair_key: String) -> void:
 	cancel_inter_faction_campaigns_for_pair(pair_key, "Ký kết hòa ước đình chiến")
 
 func get_current_day() -> int:
@@ -999,8 +999,8 @@ func resolve_inter_faction_campaign(campaign_id: String, current_day: int = -1) 
 	def_fac.military_power = maxf(0.0, def_fac.military_power - float(def_lost) * MILITARY_POWER_PER_TROOP)
 
 	# Population casualties
-	atk_fac.population = maxi(10, atk_fac.population - clampi(int(atk_lost / 2), 0, atk_fac.population - 10))
-	def_fac.population = maxi(10, def_fac.population - clampi(int(def_lost / 2), 0, def_fac.population - 10))
+	atk_fac.population = maxi(10, atk_fac.population - clampi(floori(float(atk_lost) / 2.0), 0, atk_fac.population - 10))
+	def_fac.population = maxi(10, def_fac.population - clampi(floori(float(def_lost) / 2.0), 0, def_fac.population - 10))
 
 	# 6. Apply Plunder / Spoils Transactionally
 	var plundered_applied: Dictionary = {}

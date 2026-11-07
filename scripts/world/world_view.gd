@@ -1097,7 +1097,9 @@ func _unhandled_input(event: InputEvent) -> void:
 									var launch_res: Dictionary = field_siege_mgr.launch_field_siege(obj_target.owning_faction_id, obj_target.objective_id)
 									if bool(launch_res.get("success", false)):
 										var atk_res: Dictionary = tactical_military_mgr.call("issue_attack_order", obj_target, nav)
-										if hud != null:
+										if not atk_res.get("success", false) and hud != null:
+											hud.show_event_banner("Lệnh Tấn Công Thất Bại", atk_res.get("reason", "Không thể tấn công mục tiêu công thành"), false, 3.0)
+										elif hud != null:
 											hud.show_event_banner("Phát Động Công Thành!", "Đã phát động chiến dịch công thành đối với %s!" % obj_target.objective_name, true, 4.0)
 									else:
 										if hud != null:
@@ -1435,16 +1437,16 @@ func advance_construction_work(b_id: String, delta_hours: float, p_resource_mgr:
 	var rm: Object = p_resource_mgr if p_resource_mgr != null else _get_resource_mgr()
 
 	if bool(b_data.get("is_upgrading", false)):
-		var res := BuildingSystem.advance_upgrade(b_data, delta_hours, world_data)
-		if not res.get("success", false):
-			return res
-		if res.get("completed", false):
+		var upgrade_result := BuildingSystem.advance_upgrade(b_data, delta_hours, world_data)
+		if not upgrade_result.get("success", false):
+			return upgrade_result
+		if upgrade_result.get("completed", false):
 			var completed_ok: bool = complete_upgrade(b_id, rm)
 			if not completed_ok:
-				res["completed"] = false
-				res["completion_blocked"] = true
-				res["reason"] = "Nâng cấp hoàn thành thời gian thi công nhưng chưa thể hoàn tất (chờ ResourceManager sẵn sàng)"
-		return res
+				upgrade_result["completed"] = false
+				upgrade_result["completion_blocked"] = true
+				upgrade_result["reason"] = "Nâng cấp hoàn thành thời gian thi công nhưng chưa thể hoàn tất (chờ ResourceManager sẵn sàng)"
+		return upgrade_result
 
 	var res := BuildingSystem.advance_construction(b_id, delta_hours, world_data)
 	if not res.get("success", false):
@@ -2063,9 +2065,9 @@ func register_dynamic_workplace(b_data: Dictionary) -> WorkplaceManager.Workplac
 		return null
 
 	if b_type == "workshop":
-		var bp: Dictionary = EconomyConfig.BLUEPRINTS.get("workshop", {})
-		var recipes: Dictionary = bp.get("recipes", {})
-		var job_type: String = bp.get("job_type", "smith")
+		var workshop_blueprint: Dictionary = EconomyConfig.BLUEPRINTS.get("workshop", {})
+		var recipes: Dictionary = workshop_blueprint.get("recipes", {})
+		var workshop_job_type: String = workshop_blueprint.get("job_type", "smith")
 
 		var primary_wp: WorkplaceManager.WorkplaceData = null
 
@@ -2102,8 +2104,8 @@ func register_dynamic_workplace(b_data: Dictionary) -> WorkplaceManager.Workplac
 				primary_wp = wp_ch
 
 		# Create recurring smith jobs from configured recipes if not already present
-		var existing_jobs := job_mgr.get_jobs_for_building(b_id)
-		if existing_jobs.is_empty():
+		var existing_workshop_jobs := job_mgr.get_jobs_for_building(b_id)
+		if existing_workshop_jobs.is_empty():
 			for r_key in recipes:
 				var r_data: Dictionary = recipes[r_key]
 				var r_id: String = r_data.get("id", r_key)
@@ -2114,7 +2116,7 @@ func register_dynamic_workplace(b_data: Dictionary) -> WorkplaceManager.Workplac
 				var ch_id := b_id + ch_suffix
 				var desc: String = "Luyện kim loại từ quặng thô" if r_id == "smelt_metal" else ("Rèn công cụ từ kim loại và gỗ" if r_id == "craft_tools" else ("Chế tác: " + r_name))
 				for i in range(r_quota):
-					var r_job = job_mgr.create_job(job_type, access_cell, desc, b_id, r_duration, 1, true, r_id, ch_id)
+					var r_job = job_mgr.create_job(workshop_job_type, access_cell, desc, b_id, r_duration, 1, true, r_id, ch_id)
 					if r_job != null:
 						r_job.id = "%s_job_%d" % [ch_id, i]
 

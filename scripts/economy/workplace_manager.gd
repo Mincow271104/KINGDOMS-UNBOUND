@@ -188,8 +188,8 @@ func produce_to_buffer(workplace_id: String, season_modifier: float = 1.0, resou
 			return 0
 
 		# Check buffer space
-		var available_space: int = maxi(0, wp.buffer_capacity - wp.buffer_amount)
-		if available_space < wp.output_amount:
+		var available_output_space: int = maxi(0, wp.buffer_capacity - wp.buffer_amount)
+		if available_output_space < wp.output_amount:
 			return 0
 
 		# Check inputs in ResourceManager

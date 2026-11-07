@@ -61,28 +61,18 @@ static func validate_program(prog: Variant) -> Dictionary:
 		return {"valid": false, "errors": ["Chương trình không tồn tại (null)"], "warnings": warnings}
 
 	var p_id: String = ""
-	var p_name: String = ""
-	var p_enabled: bool = false
-	var p_prio: int = 5
 	var raw_nodes: Variant = null
 	var raw_edges: Variant = null
 
 	if prog is AutomationProgram:
 		p_id = prog.id
-		p_name = prog.name
-		p_enabled = prog.enabled
-		p_prio = prog.priority
 		raw_nodes = prog.nodes
 		raw_edges = prog.edges
 	elif prog is Dictionary:
 		p_id = str(prog.get("id", ""))
-		p_name = str(prog.get("name", ""))
-		p_enabled = bool(prog.get("enabled", false))
 		var raw_prio = prog.get("priority", 5)
 		if not (raw_prio is int or (raw_prio is float and not is_nan(raw_prio) and not is_inf(raw_prio) and floor(raw_prio) == raw_prio)):
 			errors.push_back("priority của chương trình phải là số nguyên hợp lệ")
-		else:
-			p_prio = int(raw_prio)
 		raw_nodes = prog.get("nodes", null)
 		raw_edges = prog.get("edges", null)
 	else:

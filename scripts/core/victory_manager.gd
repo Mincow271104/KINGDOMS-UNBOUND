@@ -323,7 +323,7 @@ static func calculate_treasury_conversion(treasury_gold: int, stability: float) 
 		}
 
 	var surplus_gold: int = maxi(0, treasury_gold - PROTECTED_GOLD_RESERVE)
-	var legacy_awarded: int = surplus_gold / GOLD_PER_LEGACY_POINT
+	var legacy_awarded: int = floori(float(surplus_gold) / float(GOLD_PER_LEGACY_POINT))
 	var gold_deducted: int = legacy_awarded * GOLD_PER_LEGACY_POINT
 	var remaining_gold: int = treasury_gold - gold_deducted
 

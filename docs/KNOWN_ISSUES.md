@@ -6,7 +6,7 @@
 - **Severity:** Low / Baseline Test Limitation
 - **Symptom:** `scripts/test/test_player_army.gd` test case `TC-ARMY.32` fails with assertion error when testing building damage state.
 - **Root Cause:** Package 2F (commit `a55021c`) restricted `WorldView.set_building_state()` to valid operational transitions (`"paused"` and `"active"`). `TC-ARMY.32` was written prior to Package 2F and calls `set_building_state(b_id, "damaged")`, which is rejected by `WorldView`.
-- **Architectural Scope Isolation:** In accordance with Stage F of the Package 2J audit, Package 2J is strictly scoped to Army Equipment Progression and must not absorb unrelated fixes for building state management. `scripts/world/world_view.gd` remains strictly identical to the baseline RC2 commit (`5b489407fdd011ec102f0e46d104e7f0241f99d7`).
+- **Architectural Scope Isolation:** In accordance with Stage F of the Package 2J audit, Package 2J is strictly scoped to Army Equipment Progression and does not absorb unrelated fixes for building state management (preserving `TC-ARMY.32` as an intentional baseline failure). For Package 2J integration hygiene, `scripts/world/world_view.gd` was modified to correctly display a red error banner when `issue_attack_order()` fails after a field siege launch (Package 2J Field Siege failure path) and to resolve shadowed GDScript variable warnings in upgrade and workshop construction routines.
 - **Status:** Documented baseline issue to be addressed in subsequent building maintenance tasks.
 
 ---

@@ -492,12 +492,12 @@ func compute_formation_slots(target_cell: Vector2i, count: int, formation_name: 
 		FORMATION_LINE:
 			# Lateral line across X axis
 			for i in range(count):
-				var ox: int = i - int(count / 2)
+				var ox: int = i - floori(float(count) / 2.0)
 				raw_offsets.append(Vector2i(ox, 0))
 		FORMATION_COLUMN:
 			# Longitudinal column along Y axis
 			for i in range(count):
-				var oy: int = i - int(count / 2)
+				var oy: int = i - floori(float(count) / 2.0)
 				raw_offsets.append(Vector2i(0, oy))
 		FORMATION_SCATTER, _:
 			# Concentric diamond rings / spiral

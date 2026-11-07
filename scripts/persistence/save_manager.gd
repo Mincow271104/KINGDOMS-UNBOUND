@@ -90,10 +90,10 @@ static func serialize_world_state(world_view: Node) -> Dictionary:
 			wid_str = "world_%d_%d_%d" % [s_val, int(Time.get_unix_time_from_system()) if Time else 0, randi() & 0xFFFF]
 		world_view.set("world_id", wid_str)
 		world_view.set("is_world_id_persisted", false)
-		var vic_mgr = world_view.get("victory_mgr")
-		if vic_mgr != null:
-			vic_mgr.set("world_id", wid_str)
-			vic_mgr.set("is_world_id_persisted", false)
+		var initial_victory_manager = world_view.get("victory_mgr")
+		if initial_victory_manager != null:
+			initial_victory_manager.set("world_id", wid_str)
+			initial_victory_manager.set("is_world_id_persisted", false)
 
 	data["metadata"] = {
 		"world_seed": world_view.get("world_seed"),
@@ -1769,10 +1769,10 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 	if not restored_world_id.is_empty():
 		world_view.set("world_id", restored_world_id)
 		world_view.set("is_world_id_persisted", is_persisted)
-		var vic_mgr = world_view.get("victory_mgr")
-		if vic_mgr != null:
-			vic_mgr.set("world_id", restored_world_id)
-			vic_mgr.set("is_world_id_persisted", is_persisted)
+		var restored_victory_manager = world_view.get("victory_mgr")
+		if restored_victory_manager != null:
+			restored_victory_manager.set("world_id", restored_world_id)
+			restored_victory_manager.set("is_world_id_persisted", is_persisted)
 
 	# 1. Restore Game Clock
 	var clock_data: Dictionary = loaded_data.get("game_clock", {})

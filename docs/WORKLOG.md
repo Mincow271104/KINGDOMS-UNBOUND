@@ -9492,3 +9492,41 @@ Generated with Godot 4.7-stable on NVIDIA GeForce RTX 3050 Ti Laptop GPU (D3D12 
 - Stage Package 2J files and commit.
 - Push `feature/package-2j-army-equipment-progression` to `origin`.
 - Provide Final Remediation & Acceptance Report in Vietnamese.
+
+
+---
+
+## [2026-11-07] Package 2J Closure Gates, Warning Cleanup & Field Siege Verification ✅ COMPLETE
+
+### Context & Scope
+Final closure verification, GDScript warning cleanup, test parse error resolution, and field-siege failure-path handling for Package 2J — Army Equipment Progression & Combat Integration.
+
+### Completed Work
+1. **GDScript Warning Cleanup (14 Production Files):**
+   - Cleaned engine warnings across production scripts (`battle_campaign_manager.gd`, `field_siege_manager.gd`, `victory_manager.gd`, `automation_graph_validator.gd`, `automation_manager.gd`, `building_system.gd`, `workplace_manager.gd`, `legacy_profile_manager.gd`, `enemy_military_manager.gd`, `enemy_tactical_unit.gd`, `player_army_manager.gd`, `tactical_military_manager.gd`, `save_manager.gd`, and `world_view.gd`).
+   - Prefixed unused parameters (`_faction_a`, `_cell`, `_channel_id`, `_delta`), replaced integer division with safe `floori()` operations in casualty and formation offset calculations, removed unreachable code, and resolved variable shadowing (`all_units`, `vic_mgr`, `res`, `bp`, `job_type`, `existing_jobs`).
+2. **Critical Test Parse Error Fixes (2 Test Files):**
+   - Fixed `scripts/test/test_faction_diplomacy_ai.gd`: Replaced compile-time `preload("res://scenes/world/world_view.tscn")` with runtime `load()` to prevent circular class-loading parse errors; added instance queue_free teardown.
+   - Fixed `scripts/test/test_factions_and_battles.gd`: Renamed preloaded constant scripts (`WorldGeneratorScript`, `TimeManagerScript`, `BuildingSystemScript`, etc.) to prevent shadowing global `class_name` definitions in ClassDB; aligned `MockArmyManager.process_daily_upkeep(day: int)` signature with production.
+3. **WorldView Field Siege Attack-Order Failure Handling:**
+   - Modified `scripts/world/world_view.gd` (L1097–1103): When `field_siege_mgr.launch_field_siege()` succeeds but `tactical_military_mgr.call("issue_attack_order", ...)` fails, HUD displays a red failure banner (`"Lệnh Tấn Công Thất Bại"`) with the exact failure reason instead of false success feedback.
+4. **New Tracked Failure-Path Regression Test Suite:**
+   - Created `scripts/test/test_world_view_siege_input.gd` (193 lines, 30 checks).
+   - Verifies valid launch, tactical attack failure injection via controlled `TacticalManagerDouble`, right-click input handling, red failure banner, rejection of false success feedback, active siege retention, retry without duplicate siege records, and withdrawal cleanup.
+
+### Verification & Regression Evidence
+- **Automated Input Integration Verification (`test_world_view_siege_input.gd`):** **PASS** (30/30 checks passed, Exit Code 0).
+- **Fixed Test Suites:**
+  - `test_factions_and_battles.gd`: **PASS** (48/48 assertions, Exit Code 0).
+  - `test_faction_diplomacy_ai.gd`: **PASS** (437/437 checks, Exit Code 0).
+- **Full Package 2J Regression Matrix (24 Suites Executed):**
+  - **23 Suites Exit Code 0:** All standard suites passed cleanly.
+  - **1 Known Baseline Failure:** `test_player_army.gd` failed on `TC-ARMY.32` (`Damaged barracks still provides capacity: 5`, Exit Code 1), an intentional baseline limitation inherited from Package 2F (documented in `KNOWN_ISSUES.md` ISSUE-006).
+  - **0 Newly Introduced Regressions.**
+- **Evidence Standard & Scope Classification:**
+  - Automated unit and headless integration verification: **PASS**.
+  - Natural/manual unassisted gameplay acceptance: **PARTIAL ACCEPTANCE** (distinguished from automated test harnesses per project governance).
+
+### Next Exact Step
+- Commit Package 2J approved changes to `feature/package-2j-army-equipment-progression`.
+- Preserve unstaged AI M2-B prototype work for the future dedicated AI workstream.

@@ -389,8 +389,6 @@ func _find_distinct_walkable_cells(
 						return slots
 	return slots
 
-	return slots
-
 func _get_container() -> Node:
 	if enemy_units_container != null and is_instance_valid(enemy_units_container):
 		return enemy_units_container

@@ -148,7 +148,7 @@ func _ai_tick_attack() -> void:
 	if IsoMath.grid_distance(current_cell, tgt_c) > attack_range:
 		set_ai_state(AIState.PURSUE)
 
-func _ai_tick_retreat(delta: float, speed_mult: float, nav: GridNavigation) -> void:
+func _ai_tick_retreat(_delta: float, _speed_mult: float, nav: GridNavigation) -> void:
 	if retreat_destination == Vector2i(0, 0):
 		# Default retreat towards map border
 		retreat_destination = Vector2i(0, current_cell.y)

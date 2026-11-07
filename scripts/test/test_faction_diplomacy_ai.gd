@@ -26,7 +26,6 @@ const FactionManagerScript = preload("res://scripts/factions/faction_manager.gd"
 const BattleCampaignManagerScript = preload("res://scripts/combat/battle_campaign_manager.gd")
 const EconomyConfigScript = preload("res://scripts/economy/economy_config.gd")
 const SaveManagerScript = preload("res://scripts/persistence/save_manager.gd")
-const WorldViewScene: PackedScene = preload("res://scenes/world/world_view.tscn")
 
 var frame_count: int = 0
 var world_instance: Node = null
@@ -37,7 +36,8 @@ func _init() -> void:
 	print("\n========================================================")
 	print("  STARTING PACKAGE 1T AUTONOMOUS FACTION DIPLOMACY TESTS")
 	print("========================================================\n")
-	world_instance = WorldViewScene.instantiate()
+	var world_scene: PackedScene = load("res://scenes/world/world_view.tscn")
+	world_instance = world_scene.instantiate()
 	root.add_child(world_instance)
 
 func _process(_delta: float) -> bool:
@@ -46,6 +46,8 @@ func _process(_delta: float) -> bool:
 		_run_all_tests()
 		print("\n--------------------------------------------------------")
 		print("  Checks Passed: %d | Failures: %d" % [passed_checks, failures])
+		if is_instance_valid(world_instance):
+			world_instance.queue_free()
 		if failures == 0:
 			print("  ALL PACKAGE 1T AUTONOMOUS FACTION DIPLOMACY TESTS PASSED! (Exit Code 0)")
 			print("--------------------------------------------------------\n")

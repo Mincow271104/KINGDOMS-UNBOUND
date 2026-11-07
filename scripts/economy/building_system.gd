@@ -513,7 +513,6 @@ static func demolish_building(b_data_or_id, world_data: WorldGenerator.WorldData
 	var level: int = clampi(int(b_data.get("upgrade_level", 1)), 1, EconomyConfig.MAX_BUILDING_LEVEL)
 	var origin: Vector2i = b_data.get("cell", Vector2i(-1, -1))
 	var size: Vector2i = b_data.get("size", Vector2i(1, 1))
-	var bp: Dictionary = EconomyConfig.BLUEPRINTS.get(type, {})
 	var planned_refund: Dictionary = check.get("refund", {})
 	var storage_bonus: Dictionary = EconomyConfig.get_building_storage_bonus(type, level)
 

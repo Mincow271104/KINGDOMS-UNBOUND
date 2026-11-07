@@ -3,12 +3,12 @@ extends SceneTree
 ## Validates diplomatic state transitions, atomic trade transactions, finite caravan stock,
 ## and deterministic multi-factor battle resolutions.
 
-const FactionManager = preload("res://scripts/factions/faction_manager.gd")
-const FactionData = preload("res://scripts/factions/faction_data.gd")
-const TradeCaravan = preload("res://scripts/trade/trade_caravan.gd")
-const BattleResolver = preload("res://scripts/combat/battle_resolver.gd")
-const BattleCampaignManager = preload("res://scripts/combat/battle_campaign_manager.gd")
-const EconomyConfig = preload("res://scripts/economy/economy_config.gd")
+const FactionManagerScript = preload("res://scripts/factions/faction_manager.gd")
+const FactionDataScript = preload("res://scripts/factions/faction_data.gd")
+const TradeCaravanScript = preload("res://scripts/trade/trade_caravan.gd")
+const BattleResolverScript = preload("res://scripts/combat/battle_resolver.gd")
+const BattleCampaignManagerScript = preload("res://scripts/combat/battle_campaign_manager.gd")
+const EconomyConfigScript = preload("res://scripts/economy/economy_config.gd")
 
 var failures: int = 0
 var assertions: int = 0
@@ -45,7 +45,7 @@ class MockArmyManager:
 	func is_defense_eligible() -> bool:
 		return true
 
-	func remove_casualties(count: int) -> void:
+	func remove_casualties(count: int, _is_offensive: bool = false) -> void:
 		casualties_taken += count
 		soldier_count = maxi(0, soldier_count - count)
 
@@ -55,14 +55,14 @@ class MockResourceManager:
 	
 	func _init() -> void:
 		inventory = {
-			EconomyConfig.RES_FOOD: 100,
-			EconomyConfig.RES_WOOD: 80,
-			EconomyConfig.RES_STONE: 50,
-			EconomyConfig.RES_METAL: 20,
-			EconomyConfig.RES_TOOLS: 10,
-			EconomyConfig.RES_GOLD: 300,
-			EconomyConfig.RES_HERBS: 15,
-			EconomyConfig.RES_CRYSTAL: 5
+			EconomyConfigScript.RES_FOOD: 100,
+			EconomyConfigScript.RES_WOOD: 80,
+			EconomyConfigScript.RES_STONE: 50,
+			EconomyConfigScript.RES_METAL: 20,
+			EconomyConfigScript.RES_TOOLS: 10,
+			EconomyConfigScript.RES_GOLD: 300,
+			EconomyConfigScript.RES_HERBS: 15,
+			EconomyConfigScript.RES_CRYSTAL: 5
 		}
 		for res in inventory:
 			capacities[res] = 500
@@ -105,7 +105,7 @@ func _init() -> void:
 		quit(1)
 
 func test_factions_and_diplomacy() -> void:
-	var fm := FactionManager.new()
+	var fm := FactionManagerScript.new()
 	var rival_mil := fm.get_faction("rival_military")
 	var neutral_tribe := fm.get_faction("neutral_tribe")
 	
@@ -135,8 +135,8 @@ func test_factions_and_diplomacy() -> void:
 		
 	# Test gift sending
 	var mock_rm := MockResourceManager.new()
-	var gift_res: Dictionary = fm.send_gift("rival_military", EconomyConfig.RES_GOLD, 50, mock_rm)
-	if not gift_res["success"] or mock_rm.inventory[EconomyConfig.RES_GOLD] != 250:
+	var gift_res: Dictionary = fm.send_gift("rival_military", EconomyConfigScript.RES_GOLD, 50, mock_rm)
+	if not gift_res["success"] or mock_rm.inventory[EconomyConfigScript.RES_GOLD] != 250:
 		printerr("FAIL: Gift failed or gold was not deducted")
 		failures += 1
 	else:
@@ -160,28 +160,28 @@ func test_factions_and_diplomacy() -> void:
 
 func test_trade_caravan_transactions() -> void:
 	var mock_rm := MockResourceManager.new()
-	var caravan := TradeCaravan.generate_caravan(12345, 5, "rival_merchant")
+	var caravan := TradeCaravanScript.generate_caravan(12345, 5, "rival_merchant")
 	
-	var initial_player_gold: int = mock_rm.get_total_stock(EconomyConfig.RES_GOLD)
-	var initial_player_food: int = mock_rm.get_total_stock(EconomyConfig.RES_FOOD)
-	var initial_caravan_food: int = caravan.inventory.get(EconomyConfig.RES_FOOD, 0)
+	var initial_player_gold: int = mock_rm.get_total_stock(EconomyConfigScript.RES_GOLD)
+	var initial_player_food: int = mock_rm.get_total_stock(EconomyConfigScript.RES_FOOD)
+	var initial_caravan_food: int = caravan.inventory.get(EconomyConfigScript.RES_FOOD, 0)
 	var initial_caravan_gold: int = caravan.gold
 	
 	# Buy 10 Food from caravan
-	var buy_res: Dictionary = caravan.buy_from_caravan(EconomyConfig.RES_FOOD, 10, mock_rm, 0.0)
+	var buy_res: Dictionary = caravan.buy_from_caravan(EconomyConfigScript.RES_FOOD, 10, mock_rm, 0.0)
 	if not buy_res["success"]:
 		printerr("FAIL: Buy transaction failed: %s" % buy_res.get("reason", ""))
 		failures += 1
 		return
 		
-	var expected_cost: int = 10 * caravan.sell_prices[EconomyConfig.RES_FOOD]
-	if mock_rm.get_total_stock(EconomyConfig.RES_GOLD) != initial_player_gold - expected_cost:
+	var expected_cost: int = 10 * caravan.sell_prices[EconomyConfigScript.RES_FOOD]
+	if mock_rm.get_total_stock(EconomyConfigScript.RES_GOLD) != initial_player_gold - expected_cost:
 		printerr("FAIL: Player gold not properly deducted")
 		failures += 1
-	elif mock_rm.get_total_stock(EconomyConfig.RES_FOOD) != initial_player_food + 10:
+	elif mock_rm.get_total_stock(EconomyConfigScript.RES_FOOD) != initial_player_food + 10:
 		printerr("FAIL: Player food not credited")
 		failures += 1
-	elif caravan.inventory[EconomyConfig.RES_FOOD] != initial_caravan_food - 10:
+	elif caravan.inventory[EconomyConfigScript.RES_FOOD] != initial_caravan_food - 10:
 		printerr("FAIL: Caravan stock not reduced")
 		failures += 1
 	elif caravan.gold != initial_caravan_gold + expected_cost:
@@ -191,7 +191,7 @@ func test_trade_caravan_transactions() -> void:
 		print("PASS: Atomic buy transaction verified: exact gold deducted, food credited, caravan inventory decremented")
 		
 	# Attempt to buy more than caravan has in stock
-	var overflow_buy: Dictionary = caravan.buy_from_caravan(EconomyConfig.RES_FOOD, 9999, mock_rm, 0.0)
+	var overflow_buy: Dictionary = caravan.buy_from_caravan(EconomyConfigScript.RES_FOOD, 9999, mock_rm, 0.0)
 	if overflow_buy["success"]:
 		printerr("FAIL: Caravan allowed buying beyond available stock")
 		failures += 1
@@ -199,8 +199,8 @@ func test_trade_caravan_transactions() -> void:
 		print("PASS: Over-purchasing rejected; stock limits strictly enforced")
 		
 	# Attempt to buy when player cannot afford
-	mock_rm.inventory[EconomyConfig.RES_GOLD] = 0
-	var broke_buy: Dictionary = caravan.buy_from_caravan(EconomyConfig.RES_FOOD, 5, mock_rm, 0.0)
+	mock_rm.inventory[EconomyConfigScript.RES_GOLD] = 0
+	var broke_buy: Dictionary = caravan.buy_from_caravan(EconomyConfigScript.RES_FOOD, 5, mock_rm, 0.0)
 	if broke_buy["success"]:
 		printerr("FAIL: Player bought goods with 0 gold")
 		failures += 1
@@ -208,9 +208,9 @@ func test_trade_caravan_transactions() -> void:
 		print("PASS: Insufficient funds rejected cleanly without inventory side-effects")
 		
 	# Test selling goods to caravan
-	mock_rm.inventory[EconomyConfig.RES_GOLD] = 100
-	mock_rm.inventory[EconomyConfig.RES_WOOD] = 50
-	var sell_res: Dictionary = caravan.sell_to_caravan(EconomyConfig.RES_WOOD, 15, mock_rm, 0.0)
+	mock_rm.inventory[EconomyConfigScript.RES_GOLD] = 100
+	mock_rm.inventory[EconomyConfigScript.RES_WOOD] = 50
+	var sell_res: Dictionary = caravan.sell_to_caravan(EconomyConfigScript.RES_WOOD, 15, mock_rm, 0.0)
 	if not sell_res["success"]:
 		printerr("FAIL: Selling wood failed: %s" % sell_res.get("reason", ""))
 		failures += 1
@@ -229,12 +229,12 @@ func test_battle_resolver_deterministic() -> void:
 		"morale": 60.0,
 		"fortification_level": 0,
 		"terrain_multiplier": 1.0,
-		"resources": {EconomyConfig.RES_GOLD: 100, EconomyConfig.RES_FOOD: 80}
+		"resources": {EconomyConfigScript.RES_GOLD: 100, EconomyConfigScript.RES_FOOD: 80}
 	}
 	
 	# Run resolution twice with same seed
-	var rep1 = BattleResolver.resolve_battle(atk_force, def_force, 42)
-	var rep2 = BattleResolver.resolve_battle(atk_force, def_force, 42)
+	var rep1 = BattleResolverScript.resolve_battle(atk_force, def_force, 42)
+	var rep2 = BattleResolverScript.resolve_battle(atk_force, def_force, 42)
 	
 	if rep1.victor != rep2.victor or rep1.attacker_casualties != rep2.attacker_casualties or rep1.defender_casualties != rep2.defender_casualties:
 		printerr("FAIL: Battle resolution non-deterministic across identical seeds")
@@ -271,7 +271,7 @@ func test_fortification_impact_overcoming_numbers() -> void:
 		"resources": {}
 	}
 	
-	var rep = BattleResolver.resolve_battle(atk_force, def_force, 999)
+	var rep = BattleResolverScript.resolve_battle(atk_force, def_force, 999)
 	if rep.victor != "defender":
 		printerr("FAIL: Fortified defenders should defeat larger raw attacker numbers; victor was %s" % rep.victor)
 		failures += 1
@@ -281,7 +281,7 @@ func test_fortification_impact_overcoming_numbers() -> void:
 
 func test_faction_existence_status_action_guards() -> void:
 	print("\n--- Testing MISS-01: Faction Existence Status Guards (Diplomacy, Gifts, War, Raids, Offensive) ---")
-	var fm := FactionManager.new()
+	var fm := FactionManagerScript.new()
 	var mock_rm := MockResourceManager.new()
 
 	var signal_counts := {
@@ -300,21 +300,21 @@ func test_faction_existence_status_action_guards() -> void:
 	var tribe: FactionData = fm.get_faction("neutral_tribe")
 
 	# 1. send_gift for STATUS_ELIMINATED: fails, does NOT deduct resources, does NOT mutate opinion or emit signal
-	merch.existence_status = FactionData.STATUS_ELIMINATED
+	merch.existence_status = FactionDataScript.STATUS_ELIMINATED
 	merch.opinion = 20.0
-	var gold_before: int = mock_rm.get_available_stock(EconomyConfig.RES_GOLD)
+	var gold_before: int = mock_rm.get_available_stock(EconomyConfigScript.RES_GOLD)
 	var rel_sig_before: int = signal_counts["relation_changed"]
-	var gift_elim: Dictionary = fm.send_gift("rival_merchant", EconomyConfig.RES_GOLD, 50, mock_rm)
+	var gift_elim: Dictionary = fm.send_gift("rival_merchant", EconomyConfigScript.RES_GOLD, 50, mock_rm)
 	_assert(not gift_elim.get("success", true), "send_gift to eliminated faction must fail")
-	_assert(mock_rm.get_available_stock(EconomyConfig.RES_GOLD) == gold_before, "send_gift to eliminated faction must NOT deduct resources")
+	_assert(mock_rm.get_available_stock(EconomyConfigScript.RES_GOLD) == gold_before, "send_gift to eliminated faction must NOT deduct resources")
 	_assert(is_equal_approx(merch.opinion, 20.0), "send_gift to eliminated faction must NOT change opinion")
 	_assert(signal_counts["relation_changed"] == rel_sig_before, "send_gift to eliminated faction must NOT emit relation_changed")
 
 	# 2. send_gift for STATUS_IN_EXILE: fails without deducting resources, mutating opinion, or emitting signal
-	merch.existence_status = FactionData.STATUS_IN_EXILE
-	var gift_exile: Dictionary = fm.send_gift("rival_merchant", EconomyConfig.RES_GOLD, 50, mock_rm)
+	merch.existence_status = FactionDataScript.STATUS_IN_EXILE
+	var gift_exile: Dictionary = fm.send_gift("rival_merchant", EconomyConfigScript.RES_GOLD, 50, mock_rm)
 	_assert(not gift_exile.get("success", true), "send_gift to in_exile faction must fail")
-	_assert(mock_rm.get_available_stock(EconomyConfig.RES_GOLD) == gold_before, "send_gift to in_exile faction must NOT deduct resources")
+	_assert(mock_rm.get_available_stock(EconomyConfigScript.RES_GOLD) == gold_before, "send_gift to in_exile faction must NOT deduct resources")
 	_assert(is_equal_approx(merch.opinion, 20.0), "send_gift to in_exile faction must NOT change opinion")
 	_assert(signal_counts["relation_changed"] == rel_sig_before, "send_gift to in_exile faction must NOT emit relation_changed")
 
@@ -323,7 +323,7 @@ func test_faction_existence_status_action_guards() -> void:
 	merch.has_nap = false
 	merch.has_alliance = false
 	merch.is_at_war = false
-	for status in [FactionData.STATUS_ELIMINATED, FactionData.STATUS_IN_EXILE]:
+	for status in [FactionDataScript.STATUS_ELIMINATED, FactionDataScript.STATUS_IN_EXILE]:
 		merch.existence_status = status
 		var t_sig_before: int = signal_counts["treaty_signed"]
 		var r_sig_before: int = signal_counts["relation_changed"]
@@ -336,7 +336,7 @@ func test_faction_existence_status_action_guards() -> void:
 	# 4. declare_war for STATUS_ELIMINATED and STATUS_IN_EXILE
 	tribe.is_at_war = false
 	tribe.opinion = 30.0
-	for status in [FactionData.STATUS_ELIMINATED, FactionData.STATUS_IN_EXILE]:
+	for status in [FactionDataScript.STATUS_ELIMINATED, FactionDataScript.STATUS_IN_EXILE]:
 		tribe.existence_status = status
 		var w_sig_before: int = signal_counts["war_declared"]
 		var r_sig_before: int = signal_counts["relation_changed"]
@@ -347,18 +347,18 @@ func test_faction_existence_status_action_guards() -> void:
 
 	# 5. Peace treaty for STATUS_IN_EXILE at war MUST succeed (no perpetual war lock!), while STATUS_ELIMINATED is rejected
 	mil.is_at_war = true
-	mil.existence_status = FactionData.STATUS_ELIMINATED
+	mil.existence_status = FactionDataScript.STATUS_ELIMINATED
 	var peace_elim: Dictionary = fm.propose_treaty("rival_military", "peace")
 	_assert(not peace_elim.get("success", true) and mil.is_at_war, "propose_treaty('peace') must be rejected for eliminated faction")
 
-	mil.existence_status = FactionData.STATUS_IN_EXILE
+	mil.existence_status = FactionDataScript.STATUS_IN_EXILE
 	var p_sig_before: int = signal_counts["peace_signed"]
 	var peace_exile: Dictionary = fm.propose_treaty("rival_military", "peace")
 	_assert(peace_exile.get("success", false) and not mil.is_at_war, "propose_treaty('peace') must succeed for in_exile faction at war so war is not locked forever")
 	_assert(signal_counts["peace_signed"] == p_sig_before + 1, "Successful peace treaty with in_exile faction must emit peace_signed")
 
 	# 6, 7, 8, 9. Raid eligibility, schedule_raid, and resolve_and_apply_raid for non-active factions
-	var bcm := BattleCampaignManager.new(null, fm, 12345)
+	var bcm := BattleCampaignManagerScript.new(null, fm, 12345)
 	bcm.set_custom_resource_manager(mock_rm)
 	var mock_army := MockArmyManager.new()
 	bcm.set_custom_army_manager(mock_army)
@@ -370,31 +370,31 @@ func test_faction_existence_status_action_guards() -> void:
 	bcm.offensive_campaign_resolved.connect(func(_rep, _ctx): bcm_signals["offensive"] += 1)
 
 	# Start active war so raid is scheduled on day 4
-	mil.existence_status = FactionData.STATUS_ACTIVE
+	mil.existence_status = FactionDataScript.STATUS_ACTIVE
 	mil.military_power = 60.0
 	mil.is_at_war = false
 	var war_ok: Dictionary = fm.declare_war("rival_military")
 	_assert(war_ok.get("success", false) and bcm.has_pending_raid("rival_military"), "Active faction war declaration schedules initial raid")
 
 	# Transition to STATUS_IN_EXILE while raid is pending -> eligibility false, schedule_raid false, resolve cancels without battle
-	mil.existence_status = FactionData.STATUS_IN_EXILE
+	mil.existence_status = FactionDataScript.STATUS_IN_EXILE
 	_assert(not bcm.is_faction_eligible_to_raid("rival_military"), "is_faction_eligible_to_raid must be false for in_exile faction")
 	var sched_before: int = bcm_signals["raid_scheduled"]
 	_assert(not bcm.schedule_raid("rival_military", 10, 2, false), "schedule_raid must fail for in_exile faction")
 	_assert(bcm_signals["raid_scheduled"] == sched_before, "Failed schedule_raid must not emit raid_scheduled")
 
-	var food_before_raid: int = mock_rm.get_available_stock(EconomyConfig.RES_FOOD)
+	var food_before_raid: int = mock_rm.get_available_stock(EconomyConfigScript.RES_FOOD)
 	var resolve_exile: Dictionary = bcm.resolve_and_apply_raid("rival_military", 5)
 	_assert(not resolve_exile.get("success", true), "resolve_and_apply_raid must fail for in_exile faction")
 	_assert(not bcm.has_pending_raid("rival_military"), "Pending raid must be cancelled when faction becomes in_exile")
 	_assert(mock_army.casualties_taken == 0 and is_equal_approx(mil.military_power, 60.0), "Cancelled raid must not inflict casualties or military_power loss")
-	_assert(mock_rm.get_available_stock(EconomyConfig.RES_FOOD) == food_before_raid, "Cancelled raid must not plunder resources")
+	_assert(mock_rm.get_available_stock(EconomyConfigScript.RES_FOOD) == food_before_raid, "Cancelled raid must not plunder resources")
 	_assert(bcm_signals["battle_resolved"] == 0, "Cancelled raid must not emit battle_resolved")
 
 	# Same check for STATUS_ELIMINATED with a pending raid
-	mil.existence_status = FactionData.STATUS_ACTIVE
+	mil.existence_status = FactionDataScript.STATUS_ACTIVE
 	_assert(bcm.schedule_raid("rival_military", 8, 1, true), "Active faction at war can schedule raid")
-	mil.existence_status = FactionData.STATUS_ELIMINATED
+	mil.existence_status = FactionDataScript.STATUS_ELIMINATED
 	_assert(not bcm.is_faction_eligible_to_raid("rival_military"), "is_faction_eligible_to_raid must be false for eliminated faction")
 	_assert(not bcm.schedule_raid("rival_military", 12, 2, false), "schedule_raid must fail for eliminated faction")
 	var resolve_elim: Dictionary = bcm.resolve_and_apply_raid("rival_military", 8)
@@ -402,7 +402,7 @@ func test_faction_existence_status_action_guards() -> void:
 	_assert(bcm_signals["battle_resolved"] == 0, "Eliminated faction raid cancellation must not emit battle_resolved")
 
 	# 10. can_launch_offensive_campaign and launch_offensive_campaign for non-active factions
-	for status in [FactionData.STATUS_IN_EXILE, FactionData.STATUS_ELIMINATED]:
+	for status in [FactionDataScript.STATUS_IN_EXILE, FactionDataScript.STATUS_ELIMINATED]:
 		mil.existence_status = status
 		mil.is_at_war = true
 		mil.military_power = 60.0
@@ -414,16 +414,16 @@ func test_faction_existence_status_action_guards() -> void:
 		_assert(bcm_signals["offensive"] == 0, "Rejected offensive campaign must not emit offensive_campaign_resolved")
 
 	# 11. Regression check: STATUS_ACTIVE faction still works normally for gift, NAP, war, raid, and offensive campaign
-	merch.existence_status = FactionData.STATUS_ACTIVE
+	merch.existence_status = FactionDataScript.STATUS_ACTIVE
 	merch.is_at_war = false
 	merch.has_nap = false
 	merch.opinion = 10.0
-	var active_gift: Dictionary = fm.send_gift("rival_merchant", EconomyConfig.RES_GOLD, 50, mock_rm)
-	_assert(active_gift.get("success", false) and mock_rm.get_available_stock(EconomyConfig.RES_GOLD) == gold_before - 50, "Active faction send_gift works normally")
+	var active_gift: Dictionary = fm.send_gift("rival_merchant", EconomyConfigScript.RES_GOLD, 50, mock_rm)
+	_assert(active_gift.get("success", false) and mock_rm.get_available_stock(EconomyConfigScript.RES_GOLD) == gold_before - 50, "Active faction send_gift works normally")
 	var active_nap: Dictionary = fm.propose_treaty("rival_merchant", "nap")
 	_assert(active_nap.get("success", false) and merch.has_nap, "Active faction propose_treaty('nap') works normally")
 
-	mil.existence_status = FactionData.STATUS_ACTIVE
+	mil.existence_status = FactionDataScript.STATUS_ACTIVE
 	mil.is_at_war = true
 	mil.military_power = 60.0
 	var active_can_atk: Dictionary = bcm.can_launch_offensive_campaign("rival_military")

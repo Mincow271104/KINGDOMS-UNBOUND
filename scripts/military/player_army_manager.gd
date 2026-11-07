@@ -666,8 +666,8 @@ func are_all_tactical_units_settled_at_base() -> bool:
 	if soldier_count <= 0:
 		if tactical_military_mgr == null:
 			return true
-		var all_units: Array = tactical_military_mgr.call("get_all_units")
-		return all_units.is_empty()
+		var units_when_soldier_count_is_zero: Array = tactical_military_mgr.call("get_all_units")
+		return units_when_soldier_count_is_zero.is_empty()
 
 	if tactical_military_mgr == null:
 		return false

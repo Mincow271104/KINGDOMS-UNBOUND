@@ -567,7 +567,7 @@ func schedule_continuation(
 
 	var cur_total: int = (current_day - 1) * 24 + current_hour
 	var due_total: int = cur_total + duration_hours
-	var due_day: int = 1 + int(due_total / 24)
+	var due_day: int = 1 + floori(float(due_total) / 24.0)
 	var due_hour: int = due_total % 24
 	var cont_id: String = "cont_%d" % _next_continuation_counter
 	_next_continuation_counter += 1
@@ -1062,7 +1062,7 @@ func _execute_repeat_node(
 					var duration: int = clampi(int(d_val), 1, 720)
 					var cur_total_h: int = (cur_day - 1) * 24 + cur_hour
 					var due_total_h: int = cur_total_h + duration
-					var due_d: int = 1 + int(due_total_h / 24)
+					var due_d: int = 1 + floori(float(due_total_h) / 24.0)
 					var due_h: int = due_total_h % 24
 
 					var d_out_nodes: Array[String] = []
@@ -1297,7 +1297,7 @@ func run_program(prog_id: String, context: Dictionary, options: Dictionary = {})
 				var cur_hour_val: int = cur_hour
 				var cur_total_h: int = (cur_day_val - 1) * 24 + cur_hour_val
 				var due_total_h: int = cur_total_h + duration
-				var due_d: int = 1 + int(due_total_h / 24)
+				var due_d: int = 1 + floori(float(due_total_h) / 24.0)
 				var due_h: int = due_total_h % 24
 
 				var out_nodes: Array[String] = []
