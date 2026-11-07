@@ -113,10 +113,10 @@
 
 ---
 
-### I-15: Player-facing UI feedback must truthfully reflect simulation outcomes — **PARTIAL**
+### I-15: Player-facing UI feedback must truthfully reflect simulation outcomes — **VERIFIED**
 - **Rule:** UI banners and feedback labels must show success only when the underlying simulation manager succeeded. Failures must display error banners with the failure reason.
 - **Current State:**
   - *Package 2J Field Siege Attack Order:* **VERIFIED.** Displays a red error banner (`Lệnh Tấn Công Thất Bại`) when `issue_attack_order()` fails.
-  - *Offensive Campaign Feedback:* **VIOLATED (RISK-008).** `HUD.attack_faction()` reports successful completion and plays a positive click sound even when the player's force was defeated, because it checks only `res["success"]` (execution success) while ignoring `report.victor`.
-- **Source Files & Functions:** `scripts/world/world_view.gd` L1097–1103; `HEAD:scripts/ui/hud.gd` L1167–1186; `HEAD:scripts/combat/battle_campaign_manager.gd` L805–809.
-- **Related IDs:** `RISK-008`, `FIXED-001`, `GAP-001`.
+  - *Offensive Campaign Feedback:* **VERIFIED (RISK-008 RESOLVED).** `HUD.attack_faction()` inspects `report.victor` and branches cleanly into Victory (`Chiến Thắng!`, green), Defeat (`Thất Bại Chiến Dịch!`, red error), Stalemate (`Bất Phân Thắng Bại`), and Launch Failure (`Không Thể Tấn Công`), verified across 8 scenarios in `scripts/test/test_campaign_result_feedback.gd`.
+- **Source Files & Functions:** `scripts/world/world_view.gd` L1097–1103; `scripts/ui/hud.gd` L1167–1205; `scripts/combat/battle_campaign_manager.gd` L805–809.
+- **Related IDs:** `RISK-008` (CLOSED), `FIXED-001`, `GAP-001`.

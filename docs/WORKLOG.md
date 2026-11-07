@@ -9573,3 +9573,44 @@ Following Project Owner authorization and Knowledge Base V2 adoption, active imp
 ### Next Exact Step
 - Stage and commit BUG-001 changes (`fix(economy): conserve hauler cargo on citizen death`).
 - Proceed to Phase E: Implement RISK-008 (Truthful offensive campaign battle outcome feedback in HUD).
+
+
+---
+
+## [2026-11-07] Post-Package 2J Correctness Fix — RISK-008: Truthful Offensive Campaign Outcome Feedback ✅ COMPLETE
+
+### Context & Scope
+Implementation of RISK-008 resolving misleading HUD feedback in offensive campaigns. Previously, `HUD.attack_faction()` evaluated only the campaign initiation dictionary's `"success"` key and displayed positive completion feedback even if the player's force was defeated.
+
+### Completed Work
+1. **Truthful Outcome Branching in HUD (`scripts/ui/hud.gd`):**
+   - Modified `attack_faction(faction_id: String)` around L1175–1205 to extract `report.victor` supporting both Dictionary and Object representations.
+   - Evaluates victor status:
+     - `"attacker"`: Triggers green victory banner (`Chiến Thắng!`) and positive click SFX.
+     - `"defender"`: Triggers red defeat banner (`Thất Bại Chiến Dịch!`) and error SFX with red error feedback.
+     - `"draw"` / `"stalemate"`: Triggers neutral stalemate banner (`Bất Phân Thắng Bại`).
+     - Launch failure: Preserves informative red error banner (`Không Thể Tấn Công`).
+     - Unknown / Corrupted: Fails closed to neutral feedback without falsely claiming victory.
+2. **Automated Tracked Regression Suite (`scripts/test/test_campaign_result_feedback.gd`):**
+   - Authored authoritative 8-test suite covering:
+     - `TC-FEEDBACK.1`: Attacker victory banner and positive feedback.
+     - `TC-FEEDBACK.2`: Defender victory / player defeat red banner and error feedback.
+     - `TC-FEEDBACK.3`: Stalemate neutral banner and feedback.
+     - `TC-FEEDBACK.4`: Launch failure rejection and error display.
+     - `TC-FEEDBACK.5`: Unknown/missing victor fail-closed neutrality.
+     - `TC-FEEDBACK.6`: Null campaign manager unready rejection.
+     - `TC-FEEDBACK.7`: Duck-typing support for Object-based `BattleReport` instances.
+     - `TC-FEEDBACK.8`: Event banner visibility verification.
+3. **Documentation Alignment:**
+   - Updated `docs/KNOWN_ISSUES.md` (added `ISSUE-008`).
+   - Updated `docs/quality/BUG_AND_RISK_REGISTER.md` (`RISK-008` marked CLOSED).
+   - Updated `docs/architecture/CORE_INVARIANTS.md` (`I-15` promoted to VERIFIED).
+
+### Verification & Test Evidence
+- **Automated Verification:** `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless -s res://scripts/test/test_campaign_result_feedback.gd`
+- **Result:** **8/8 PASS (Exit Code 0)**.
+- **Non-Regression:** `test_offensive_campaign.gd` passed cleanly (Exit Code 0).
+
+### Next Exact Step
+- Stage and commit RISK-008 changes (`fix(ui): report offensive campaign battle outcomes`).
+- Execute full regression suite (24 test suites) to ensure 100% integrity across the repository.

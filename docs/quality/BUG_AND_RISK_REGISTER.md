@@ -33,7 +33,7 @@
 | **RISK-005** | Low | SaveManager load frees citizens via `queue_free()` without `remove_child()` | `scripts/persistence/save_manager.gd` L1901–1913. Same-name collision for 1 frame. | **OPEN** (Unverified) |
 | **RISK-006** | Medium | Documentation drift from working-tree changes | `docs/KNOWN_ISSUES.md` (ISSUE-006) and `docs/WORKLOG.md` synchronized in commit `4a99322`. | **CLOSED** (Resolved in `4a99322`) |
 | **RISK-007** | Low | Stock may exceed storage capacity after demolition | `scripts/economy/resource_manager.gd` L284–290; `scripts/economy/building_system.gd` L458–473. | **OPEN** (Design Intent) |
-| **RISK-008** | Low/Med | HUD offensive campaign banner reports completion regardless of battle outcome | `HEAD:scripts/ui/hud.gd` L1167–1186; `HEAD:scripts/combat/battle_campaign_manager.gd` L805–809. Checks `res["success"]`, ignores `report.victor`. | **OPEN** (Confirmed Static) |
+| **RISK-008** | Low/Med | HUD offensive campaign banner reports completion regardless of battle outcome | `scripts/ui/hud.gd` L1167–1205. Resolved by evaluating `report.victor` into truthful victory/defeat/stalemate branches. Verified in `test_campaign_result_feedback.gd`. | **CLOSED** (Resolved in Post-2J Fixes) |
 
 ---
 

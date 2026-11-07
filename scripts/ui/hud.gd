@@ -1179,9 +1179,30 @@ func attack_faction(faction_id: String) -> Dictionary:
 		show_event_banner("Không Thể Tấn Công", res.get("reason", "Chiến dịch thất bại."), false, 4.0)
 		_show_diplomacy_feedback("❌ %s" % res.get("reason", "Không thể tấn công."), true)
 	else:
+		var report = res.get("report")
+		var victor: String = ""
+		if report != null:
+			if report is Dictionary and "victor" in report:
+				victor = String(report.get("victor"))
+			elif typeof(report) == TYPE_OBJECT and "victor" in report:
+				victor = String(report.get("victor"))
 		var am = get_node_or_null("/root/AudioManager") if is_inside_tree() else null
-		if am and am.has_method("play_click"): am.play_click()
-		_show_diplomacy_feedback("⚔️ Đã hoàn thành chiến dịch tấn công!", false)
+		if victor == "attacker":
+			if am and am.has_method("play_click"): am.play_click()
+			show_event_banner("Chiến Thắng!", "Chiến dịch tấn công thắng lợi rực rỡ!", true, 5.0)
+			_show_diplomacy_feedback("⚔️ Thắng trận: Đã hoàn thành chiến dịch tấn công!", false)
+		elif victor == "defender":
+			if am and am.has_method("play_error"): am.play_error()
+			show_event_banner("Thất Bại Chiến Dịch!", "Lực lượng viễn chinh đã bị tiêu diệt hoặc đẩy lui.", false, 5.0)
+			_show_diplomacy_feedback("❌ Bại trận: Quân đội viễn chinh đã bị đẩy lui!", true)
+		elif victor == "draw" or victor == "stalemate":
+			if am and am.has_method("play_click"): am.play_click()
+			show_event_banner("Bất Phân Thắng Bại", "Hai bên đình chiến mà không phân thắng bại.", false, 4.0)
+			_show_diplomacy_feedback("⚔️ Hòa: Chiến dịch tấn công bất phân thắng bại.", false)
+		else:
+			# Missing or unknown victor: fail-closed neutral feedback, never claim victory
+			if am and am.has_method("play_click"): am.play_click()
+			_show_diplomacy_feedback("⚔️ Đã hoàn thành chiến dịch tấn công (kết quả chưa xác định).", false)
 	_refresh_diplomacy_ui()
 	_refresh_army_panel()
 	return res

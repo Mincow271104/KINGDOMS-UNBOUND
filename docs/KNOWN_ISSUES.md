@@ -13,6 +13,20 @@
 
 ## Resolved Issues
 
+### ISSUE-008: HUD Offensive Campaign Outcome Feedback False Success (Resolved in Post-2J Correctness Fixes / RISK-008)
+- **Severity:** Low / Presentation Truthfulness
+- **Symptom:** `HUD.attack_faction()` evaluated only `res.get("success", false)` (whether the campaign battle executed) and displayed positive feedback (`⚔️ Đã hoàn thành chiến dịch tấn công!`) with a click SFX even when the player's expeditionary force was completely routed (`report.victor == "defender"`).
+- **Resolution:**
+  - Updated `HUD.attack_faction()` in `scripts/ui/hud.gd` to inspect `report.victor` (supporting both Dictionary and Object-based `BattleReport` representations).
+  - Explicitly branched into:
+    - `"attacker"`: Green victory banner (`Chiến Thắng!`) and positive click audio.
+    - `"defender"`: Red defeat banner (`Thất Bại Chiến Dịch!`) with error audio and error feedback flag.
+    - `"draw"` / `"stalemate"`: Neutral stalemate banner (`Bất Phân Thắng Bại`).
+    - Failure / Unready: Red failure banner with reason and error audio.
+    - Unknown / Corrupted: Fail-closed neutral message, never falsely claiming victory.
+  - Created automated test suite `scripts/test/test_campaign_result_feedback.gd` covering 8 scenarios (`TC-FEEDBACK.1` through `TC-FEEDBACK.8`).
+- **Verification:** 8/8 automated tests passed (Exit Code 0). Invariant `I-15` promoted to VERIFIED.
+
 ### ISSUE-007: Hauler Cargo Destroyed on Citizen Death (Resolved in Post-2J Correctness Fixes / BUG-001)
 - **Severity:** Medium
 - **Symptom:** When a hauler citizen carrying resources died, `CitizenController.die()` released the job without clearing or depositing `carrying_amount` / `carrying_resource`. Subsequently, `WorldView._on_citizen_died()` called `cit.queue_free()`, destroying the carried goods ($\le 10$ units) with the freed node and violating conservation invariant `I-03`.
