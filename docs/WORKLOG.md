@@ -9900,5 +9900,46 @@ Remediate RISK-002 (Resolved field siege records accumulate in `active_sieges` a
   - `test_world_view_siege_input.gd`: **PASS (30/30 checks PASS, Exit Code 0)**.
 
 ### Next Exact Step
-- Stage and commit RISK-002 changes: `fix(combat): bound resolved siege lifecycle records`.
-- Proceed to Step 3: Investigate RISK-005 (Save/Load Scene-Tree Cleanup).
+- Stage and commit RISK-002 changes: `fix(combat): bound resolved siege lifecycle records` (Completed).
+- Proceed to Step 3: Implement RISK-005 (Save/Load Scene-Tree Cleanup) (Completed).
+
+---
+
+## [2026-11-07] Active Development Batch 3 — RISK-005: Save/Load Scene-Tree Cleanup ✅ COMPLETE
+
+### Context & Scope
+Remediate RISK-005 (SaveManager load frees citizens via `queue_free()` without `remove_child()`). Investigate node lifecycle during `SaveManager.apply_loaded_state_to_world()`. Autopsy citizen replacement vs building replacement. When replacing nodes with identical names (`cit.name = cid`) within the same frame during world reload, deferred destruction via `queue_free()` without `remove_child()` caused Godot to detect name collisions and rename newly instantiated citizens to anonymous identifiers (`@Node2D@xxxx`), breaking direct scene tree lookups.
+
+### Completed Work
+1. **SaveManager Scene-Tree Detachment (`scripts/persistence/save_manager.gd`):**
+   - In `SaveManager.apply_loaded_state_to_world()` line 1955: Added `citizens_container.remove_child(child)` before `child.queue_free()`, mirroring the established pattern for `buildings_container`.
+   - Guaranteed immediate removal from container child list and scene-tree name registry, preventing duplicate name collisions on immediate reconstruction.
+2. **Automated Test Suite (`scripts/test/test_repeated_save_load_scene_cleanup.gd`):**
+   - Authored comprehensive 10-scenario regression suite covering 38 individual assertions:
+     - Scenario 1: Initial citizen node names match `citizen_id` exactly.
+     - Scenario 2: Immediate repeated world load without frame delay produces 0 node name collisions.
+     - Scenario 3: Child count in `citizens_container` equals active citizens count exactly (24/24).
+     - Scenario 4: Citizen signals (`citizen_died`) cleanly and uniquely wired (exactly 1 connection per citizen).
+     - Scenario 5: Direct node lookup `citizens_container.get_node_or_null(cid)` strictly returns active citizen instance.
+     - Scenario 6: 5 consecutive rapid reloads succeed with 0 name collisions or stale nodes.
+     - Scenario 7: Manual save load into existing world succeeds cleanly.
+     - Scenario 8: Autosave load into existing world succeeds cleanly.
+     - Scenario 9: Manager references (`job_mgr`, `workplace_mgr`, `nav`) on newly created citizens are valid.
+     - Scenario 10: Legacy save compatibility without modern optional sections applies cleanly.
+3. **Regression Manifest Update (`scripts/test/run_regression.ps1`):**
+   - Added `scripts/test/test_repeated_save_load_scene_cleanup.gd` to test manifest.
+   - Preserved pure 7-bit ASCII encoding.
+4. **Documentation & Register Updates:**
+   - Updated `docs/quality/BUG_AND_RISK_REGISTER.md`: Promoted `RISK-005` to CLOSED.
+   - Updated `docs/KNOWN_ISSUES.md`: Added `ISSUE-013`.
+
+### Verification & Test Evidence
+- **Automated Verification:** `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless -s res://scripts/test/test_repeated_save_load_scene_cleanup.gd`
+  - **Result:** **38/38 checks PASS (Exit Code 0)**.
+- **Persistence Non-Regression:**
+  - `test_save_load.gd`: **PASS (182/182 assertions PASS, Exit Code 0)**.
+  - `test_save_slot_isolation.gd`: **PASS (10/10 tests PASS, Exit Code 0)**.
+
+### Next Exact Step
+- Stage and commit RISK-005 changes: `fix(persistence): ensure safe repeated world reconstruction`.
+- Proceed to Step 4: BUG-002 follow-up (cancelled recurring jobs) & product risk reviews (RISK-003, RISK-004, RISK-007).

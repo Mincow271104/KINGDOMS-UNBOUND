@@ -1952,6 +1952,7 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 		for child in citizens_container.get_children():
 			if child.name == "ArmyMarker":
 				continue
+			citizens_container.remove_child(child)
 			child.queue_free()
 	if world_view.get("citizens_by_id") != null:
 		world_view.get("citizens_by_id").clear()

@@ -13,6 +13,14 @@
 
 ## Resolved Issues
 
+### ISSUE-013: Immediate Save Reload Caused Citizen Node Name Collisions via queue_free() Deferral (Resolved in Batch 3 / RISK-005)
+- **Severity:** Low / Scene Tree Architecture
+- **Symptom:** In `SaveManager.apply_loaded_state_to_world()`, existing citizens were freed by invoking `child.queue_free()` without first invoking `citizens_container.remove_child(child)`. Because `queue_free()` defers destruction until end-of-frame, the old nodes remained registered in `citizens_container` when newly reconstructed citizens were added (`citizens_container.add_child(cit)` with `cit.name = cid`). Godot detected duplicate child names in the container and automatically renamed new citizens to anonymous IDs (e.g. `@Node2D@4438`), breaking direct node path resolution (`citizens_container.get_node_or_null(cid)`).
+- **Resolution:**
+  - In `scripts/persistence/save_manager.gd` (line 1955), explicitly invoked `citizens_container.remove_child(child)` before `child.queue_free()`, mirroring the established pattern for `buildings_container`.
+  - Authored automated regression suite `scripts/test/test_repeated_save_load_scene_cleanup.gd` verifying 10 scenarios: initial node naming, immediate reload with zero collisions, exact child counts, clean signal wiring, direct node lookups, 5 consecutive rapid reloads, manual vs autosave reloads, valid manager references, and legacy save compatibility.
+- **Verification:** 38/38 automated assertions passed (Exit Code 0).
+
 ### ISSUE-012: Resolved Field Siege Records Accumulated in active_sieges (Resolved in Batch 3 / RISK-002)
 - **Severity:** Low / Memory & Simulation Scalability
 - **Symptom:** When a field siege concluded (`VICTORY`, `DEFEAT`, `WITHDRAWAL`), `FieldSiegeManager._resolve_siege_outcome()` marked the siege record as `"resolved"`, but never removed it from `active_sieges`. In `WorldView._process()`, the engine iterated all keys in `active_sieges` each frame, performing redundant status evaluations on historical sieges. Furthermore, `serialize()` wrote all historical sieges into `active_sieges` in save files.
