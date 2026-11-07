@@ -13,6 +13,21 @@
 
 ## Resolved Issues
 
+### ISSUE-009: Daily Autosave Overwriting Manual Save Slot (Resolved in Batch 2 / BUG-003)
+- **Severity:** Medium / Data Integrity & Player Control
+- **Symptom:** In `WorldView._on_simulation_day_passed()`, daily autosave invoked `SaveManager.save_to_file("user://saves/world_save.json")`, directly overwriting the player's manual save slot and preventing players from retaining manual checkpoints.
+- **Resolution:**
+  - Designated `user://saves/autosave.json` (`AUTOSAVE_PATH`) as the dedicated autosave file path in `SaveManager`.
+  - Implemented dynamic test redirect `set_test_autosave_path()` and `get_autosave_path()`.
+  - Added dedicated API methods `SaveManager.has_autosave()`, `SaveManager.save_autosave()`, and `SaveManager.load_autosave()`.
+  - Leveraged `SaveManager.save_dict_to_file()` dynamic path handling to provide independent backup rotation (`.bak`, `.tmp`, `.bak.old`) for autosaves without altering manual save backups.
+  - Updated `WorldView._on_simulation_day_passed()` to target `SaveManager.get_autosave_path()`.
+  - Added player recovery UI:
+    - Pause Menu in HUD (`scripts/ui/hud.gd`): `RestoreAutosaveBtn` (`🔄 Nạp Bản Tự Động Lưu`) allowing the player to reload the latest daily autosave during gameplay.
+    - Main Menu (`scripts/ui/main_menu.gd`): `btn_load_autosave` (`🔄 Tải Bản Tự Động Lưu`) dynamically displayed when an autosave exists.
+  - Authored automated test suite `scripts/test/test_save_slot_isolation.gd` covering 10 scenarios (`TC-SAVE-ISO.1` through `TC-SAVE-ISO.10`).
+- **Verification:** 10/10 automated tests passed (Exit Code 0). Invariant `I-11` promoted to VERIFIED.
+
 ### ISSUE-008: HUD Offensive Campaign Outcome Feedback False Success (Resolved in Post-2J Correctness Fixes / RISK-008)
 - **Severity:** Low / Presentation Truthfulness
 - **Symptom:** `HUD.attack_faction()` evaluated only `res.get("success", false)` (whether the campaign battle executed) and displayed positive feedback (`⚔️ Đã hoàn thành chiến dịch tấn công!`) with a click SFX even when the player's expeditionary force was completely routed (`report.victor == "defender"`).

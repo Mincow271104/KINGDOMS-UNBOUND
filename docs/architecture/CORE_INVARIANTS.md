@@ -101,8 +101,9 @@
 
 ### I-13: Save schema backward-compatibility & fail-closed restoration — VERIFIED
 - **Rule:** Save schema modifications must maintain backward-compatible migration. `SaveManager.validate_save_data()` must reject invalid types fail-closed before any world modifications occur. Deserialization must snapshot state (`pre_load_snapshot`) and execute recursive rollback if tactical/enemy/siege deserialization fails. Combat targets are resolved only after all entities exist.
-- **Source Files & Functions:** `scripts/persistence/save_manager.gd` L638–1580, L1733–2268.
-- **Related IDs:** `BUG-003`, `RISK-005`.
+- **Autosave Slot Isolation (BUG-003):** Autosaves write strictly to `user://saves/autosave.json` (`AUTOSAVE_PATH`), maintaining independent backup rotation without overwriting the player's manual save slot (`world_save.json`). Both slots feature independent crash-safe recovery (`.bak`, `.tmp`, `.bak.old`) and player-facing restore triggers in HUD and Main Menu. Verified across 10 scenarios in `scripts/test/test_save_slot_isolation.gd`.
+- **Source Files & Functions:** `scripts/persistence/save_manager.gd`; `scripts/world/world_view.gd` L2541; `scripts/ui/hud.gd`; `scripts/ui/main_menu.gd`.
+- **Related IDs:** `BUG-003` (CLOSED), `RISK-005`.
 
 ---
 

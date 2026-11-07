@@ -9,6 +9,10 @@ const DEFAULT_SAVE_PATH: String = "user://saves/world_save.json"
 const BACKUP_SAVE_PATH: String = "user://saves/world_save.json.bak"
 const TEMP_SAVE_PATH: String = "user://saves/world_save.json.tmp"
 
+const AUTOSAVE_PATH: String = "user://saves/autosave.json"
+const AUTOSAVE_BACKUP_PATH: String = "user://saves/autosave.json.bak"
+const AUTOSAVE_TEMP_PATH: String = "user://saves/autosave.json.tmp"
+
 const FLOAT_INT64_EXCLUSIVE_UPPER: float = 9223372036854775808.0
 const FLOAT_INT64_INCLUSIVE_LOWER: float = -9223372036854775808.0
 
@@ -23,13 +27,35 @@ static var _test_inject_fail_target_remove: bool = false
 static var _test_inject_fail_target_rename: bool = false
 static var _test_inject_fail_backup_restore: bool = false
 static var _test_override_default_save_path: String = ""
+static var _test_override_autosave_path: String = ""
 
 static func set_test_default_save_path(path: String) -> void:
 	_test_override_default_save_path = path
 
+static func set_test_autosave_path(path: String) -> void:
+	_test_override_autosave_path = path
+
+static func get_autosave_path() -> String:
+	if not _test_override_autosave_path.is_empty():
+		return _test_override_autosave_path
+	return AUTOSAVE_PATH
+
+static func has_autosave() -> bool:
+	var path := get_autosave_path()
+	var resolved := _resolve_filepath(path)
+	return FileAccess.file_exists(resolved) or FileAccess.file_exists(resolved + ".bak")
+
+static func save_autosave(world_view: Node) -> Dictionary:
+	return save_to_file(world_view, get_autosave_path())
+
+static func load_autosave() -> Dictionary:
+	return load_from_file(get_autosave_path())
+
 static func _resolve_filepath(filepath: String) -> String:
 	if filepath == DEFAULT_SAVE_PATH and not _test_override_default_save_path.is_empty():
 		return _test_override_default_save_path
+	if filepath == AUTOSAVE_PATH and not _test_override_autosave_path.is_empty():
+		return _test_override_autosave_path
 	return filepath
 
 static func reset_test_injection() -> void:

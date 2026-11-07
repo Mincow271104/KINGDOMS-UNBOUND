@@ -18,7 +18,7 @@
 | ID | Sev | Title | Core Evidence & Files | Status |
 |:---|:---:|:---|:---|:---:|
 | **BUG-002** | Medium | Dynamic non-recurring jobs never pruned from `JobManager._jobs` | `scripts/jobs/job_manager.gd` L208–230, L306–316. `remove_job()` has no production caller. Array grows monotonically over session. | **OPEN** (Probable / Growth Certain) |
-| **BUG-003** | Medium | Daily autosave overwrites manual save slot `world_save.json` | `scripts/world/world_view.gd` L59–60, L2474–2478; `scripts/persistence/save_manager.gd` L8. Manual save overwritten on day rollover. | **OPEN** (Probable / Product Intent) |
+| **BUG-003** | Medium | Daily autosave overwrites manual save slot `world_save.json` | `scripts/world/world_view.gd` L59–60, L2541; `scripts/persistence/save_manager.gd` L10–38. Dedicated autosave slot `user://saves/autosave.json` with independent `.bak` rotation and UI recovery actions. | **CLOSED** (Resolved in Batch 2) |
 
 ---
 

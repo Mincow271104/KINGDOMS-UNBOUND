@@ -243,6 +243,18 @@ func _ready() -> void:
 		save_game_btn.pressed.connect(_on_save_game_pressed)
 	if load_game_btn:
 		load_game_btn.pressed.connect(_on_load_game_pressed)
+	var restore_autosave_btn = $PauseMenuOverlay/CenterContainer/PanelContainer/MarginContainer/VBoxContainer.get_node_or_null("RestoreAutosaveBtn")
+	if restore_autosave_btn == null:
+		var pause_vbox = $PauseMenuOverlay/CenterContainer/PanelContainer/MarginContainer/VBoxContainer
+		if pause_vbox != null:
+			restore_autosave_btn = Button.new()
+			restore_autosave_btn.name = "RestoreAutosaveBtn"
+			restore_autosave_btn.text = "🔄 Nạp Bản Tự Động Lưu"
+			pause_vbox.add_child(restore_autosave_btn)
+			var target_idx: int = load_game_btn.get_index() + 1 if load_game_btn != null else 4
+			pause_vbox.move_child(restore_autosave_btn, target_idx)
+	if restore_autosave_btn != null:
+		restore_autosave_btn.pressed.connect(_on_restore_autosave_pressed)
 	if menu_btn:
 		menu_btn.pressed.connect(func(): return_to_menu_requested.emit())
 	if pause_guide_btn:
@@ -2059,6 +2071,37 @@ func _on_load_game_pressed() -> void:
 		if am: am.play_error()
 		if save_status_label:
 			save_status_label.text = "❌ Lỗi áp dụng bản lưu: " + apply_res.get("error", "")
+			save_status_label.modulate = Color(1.0, 0.4, 0.4)
+
+func _on_restore_autosave_pressed() -> void:
+	if world_view_ref == null and get_parent() != null:
+		world_view_ref = get_parent()
+	if world_view_ref == null:
+		return
+
+	var autosave_path: String = SaveManager.get_autosave_path()
+	var load_res: Dictionary = SaveManager.load_from_file(autosave_path)
+	if not load_res.get("success", false):
+		var am = get_node_or_null("/root/AudioManager") if is_inside_tree() else null
+		if am: am.play_error()
+		if save_status_label:
+			save_status_label.text = "❌ Lỗi đọc bản tự động lưu: " + load_res.get("error", "Chưa có bản tự động lưu")
+			save_status_label.modulate = Color(1.0, 0.4, 0.4)
+		return
+
+	var apply_res: Dictionary = SaveManager.apply_loaded_state_to_world(world_view_ref, load_res["data"])
+	if apply_res.get("success", false):
+		var am = get_node_or_null("/root/AudioManager") if is_inside_tree() else null
+		if am: am.play_coin()
+		if save_status_label:
+			save_status_label.text = "✅ Đã nạp bản tự động lưu thành công!"
+			save_status_label.modulate = Color(0.5, 1.0, 0.5)
+		_close_pause_menu()
+	else:
+		var am = get_node_or_null("/root/AudioManager") if is_inside_tree() else null
+		if am: am.play_error()
+		if save_status_label:
+			save_status_label.text = "❌ Lỗi áp dụng bản tự động lưu: " + apply_res.get("error", "")
 			save_status_label.modulate = Color(1.0, 0.4, 0.4)
 
 func _on_speed_changed(new_speed: int) -> void:

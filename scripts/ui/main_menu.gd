@@ -46,6 +46,19 @@ func _ready() -> void:
 		btn_load_world.tooltip_text = "Chưa có bản lưu nào"
 	btn_load_world.pressed.connect(_on_load_world)
 
+	# Check if autosave exists to provide explicit Autosave restore
+	if SaveManager.has_autosave():
+		var btn_load_autosave: Button = main_buttons.get_node_or_null("LoadAutosaveBtn")
+		if btn_load_autosave == null:
+			btn_load_autosave = Button.new()
+			btn_load_autosave.name = "LoadAutosaveBtn"
+			btn_load_autosave.custom_minimum_size = Vector2(0, 42)
+			btn_load_autosave.text = "🔄 Tải Bản Tự Động Lưu"
+			btn_load_autosave.tooltip_text = "Tải thế giới từ bản tự động lưu gần nhất"
+			main_buttons.add_child(btn_load_autosave)
+			main_buttons.move_child(btn_load_autosave, btn_load_world.get_index() + 1)
+			btn_load_autosave.pressed.connect(_on_load_autosave)
+
 	btn_settings.pressed.connect(_on_open_settings)
 	btn_quit.pressed.connect(_on_quit)
 	
@@ -150,18 +163,24 @@ func _on_start_game() -> void:
 	queue_free()
 
 func _on_load_world() -> void:
+	_load_save_data_into_world(SaveManager.DEFAULT_SAVE_PATH)
+
+func _on_load_autosave() -> void:
+	_load_save_data_into_world(SaveManager.get_autosave_path())
+
+func _load_save_data_into_world(save_filepath: String) -> void:
 	_play_click()
 	var am = get_node_or_null("/root/AudioManager")
-	var load_res: Dictionary = SaveManager.load_from_file()
+	var load_res: Dictionary = SaveManager.load_from_file(save_filepath)
 	if not load_res.get("success", false):
-		print("[MainMenu] Failed to load save file: %s" % load_res.get("error", ""))
+		print("[MainMenu] Failed to load save file (%s): %s" % [save_filepath, load_res.get("error", "")])
 		if am: am.play_error()
 		return
 
 	var save_data: Dictionary = load_res.get("data", {})
 	var val_res: Dictionary = SaveManager.validate_save_data(save_data)
 	if not val_res.get("valid", false):
-		print("[MainMenu] Save data failed preflight validation: %s" % val_res.get("error", ""))
+		print("[MainMenu] Save data (%s) failed preflight validation: %s" % [save_filepath, val_res.get("error", "")])
 		if am: am.play_error()
 		return
 
@@ -185,7 +204,7 @@ func _on_load_world() -> void:
 	# Apply loaded state to world and verify restoration succeeded before switching scenes
 	var apply_res: Dictionary = SaveManager.apply_loaded_state_to_world(world_scene, save_data)
 	if not apply_res.get("success", false):
-		print("[MainMenu] Failed to apply loaded state to world: %s" % apply_res.get("error", ""))
+		print("[MainMenu] Failed to apply loaded state to world (%s): %s" % [save_filepath, apply_res.get("error", "")])
 		if is_instance_valid(world_scene):
 			if world_scene.get_parent() == root:
 				root.remove_child(world_scene)

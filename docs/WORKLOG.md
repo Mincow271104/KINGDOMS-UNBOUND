@@ -9647,3 +9647,47 @@ Follow-up investigation on BUG-001 cargo limits and full storage capacity lifecy
 ### Next Exact Step
 - Stage and commit: `fix(economy): complete pending death cargo recovery`.
 - Proceed to BUG-003: Isolate autosave from manual save.
+
+
+---
+
+## [2026-11-07] Active Development Batch 2 — BUG-003: Autosave Slot Isolation ✅ COMPLETE
+
+### Context & Scope
+Resolve BUG-003 where daily simulation autosaves in `WorldView._on_simulation_day_passed()` directly targeted `user://saves/world_save.json`, inadvertently overwriting the player's manual save file and corrupting manual progression milestones.
+
+### Completed Work
+1. **Dedicated Autosave Paths & Dynamic Redirection (`scripts/persistence/save_manager.gd`):**
+   - Defined `AUTOSAVE_PATH = "user://saves/autosave.json"`, `AUTOSAVE_BACKUP_PATH = "user://saves/autosave.json.bak"`, and `AUTOSAVE_TEMP_PATH = "user://saves/autosave.json.tmp"`.
+   - Added `set_test_autosave_path(custom_path: String)` and `get_autosave_path() -> String` enabling isolated headless testing without writing to production user folders.
+   - Added public methods `has_autosave() -> bool`, `save_autosave(world_node: Node) -> bool`, and `load_autosave(world_node: Node) -> bool`.
+   - Verified that `save_dict_to_file()` dynamically rotates backups (`.bak`, `.tmp`, `.bak.old`) based on target filename, thereby providing independent backup protection for both manual and autosave slots without cross-contamination.
+2. **Simulation Day Rollover Redirection (`scripts/world/world_view.gd`):**
+   - Updated `_on_simulation_day_passed()` around line 2541 to call `SaveManager.save_to_file(SaveManager.get_autosave_path())` instead of the manual save slot.
+3. **Player Recovery UI in HUD & Main Menu:**
+   - **HUD Pause Menu (`scripts/ui/hud.gd`):** Dynamically injects `RestoreAutosaveBtn` (`🔄 Nạp Bản Tự Động Lưu`) between Resume and Settings, calling `_on_restore_autosave_pressed()` with confirmation dialog and visual error banners.
+   - **Main Menu (`scripts/ui/main_menu.gd`):** Checks `SaveManager.has_autosave()` on initialization; if present, injects `btn_load_autosave` (`🔄 Tải Bản Tự Động Lưu`) allowing the player to directly recover from the latest daily autosave.
+4. **Automated Tracked Regression Suite (`scripts/test/test_save_slot_isolation.gd`):**
+   - Authored authoritative 10-test suite covering:
+     - `TC-SAVE-ISO.1`: Manual save writes to manual slot without touching autosave slot.
+     - `TC-SAVE-ISO.2`: Autosave writes strictly to autosave slot.
+     - `TC-SAVE-ISO.3`: Autosave leaves manual save content and timestamp untouched.
+     - `TC-SAVE-ISO.4`: Both slots maintain independent `.bak` backup files.
+     - `TC-SAVE-ISO.5`: Manual load reads strictly from manual save slot.
+     - `TC-SAVE-ISO.6`: Autosave can be restored explicitly via `load_autosave()`.
+     - `TC-SAVE-ISO.7`: Absence of autosave has zero impact on manual save loading.
+     - `TC-SAVE-ISO.8`: Corrupted autosave fails closed without affecting manual save integrity.
+     - `TC-SAVE-ISO.9`: Multiple sequential daily autosaves cycle exclusively within autosave slot.
+     - `TC-SAVE-ISO.10`: Default paths preserve full backward compatibility with legacy saves.
+5. **Documentation Alignment:**
+   - Updated `docs/KNOWN_ISSUES.md` (added `ISSUE-009`).
+   - Updated `docs/quality/BUG_AND_RISK_REGISTER.md` (`BUG-003` marked CLOSED).
+   - Updated `docs/architecture/CORE_INVARIANTS.md` (`I-13` updated with Autosave Slot Isolation verification).
+
+### Verification & Test Evidence
+- **Automated Verification:** `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless -s res://scripts/test/test_save_slot_isolation.gd`
+- **Result:** **10/10 PASS (Exit Code 0)**.
+
+### Next Exact Step
+- Stage and commit BUG-003 changes: `fix(persistence): isolate autosave from manual save`.
+- Proceed to BUG-002: Prevent unbounded terminal job accumulation in `JobManager`.

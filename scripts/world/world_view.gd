@@ -2536,8 +2536,8 @@ func _on_simulation_day_passed(day: int, _season: String, _year: int) -> void:
 		active_caravan = null
 		refresh_caravan_marker()
 
-	# Daily Autosave
+	# Daily Autosave (BUG-003: Isolated to AUTOSAVE_PATH)
 	if autosave_enabled and (day % autosave_interval_days == 0):
-		var asave_res := SaveManager.save_to_file(self, SaveManager.DEFAULT_SAVE_PATH)
+		var asave_res := SaveManager.save_to_file(self, SaveManager.get_autosave_path())
 		if asave_res.get("success", false) and em != null:
 			em.trigger_event("autosave", "Tự Động Lưu", "Đã tự động lưu thế giới an toàn (Ngày %d)." % day, true, {})
