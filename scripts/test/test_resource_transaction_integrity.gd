@@ -223,13 +223,21 @@ func _run_scenario_6_rollback_restores_available_stock() -> void:
 	_assert(rm.get_reserved_stock("wood") == 0, "S6.6: Reserved wood is 0")
 	_assert(rm.get_reserved_stock("stone") == 0, "S6.7: Reserved stone is 0")
 
+	# Case D: Commit attempted after release rejected
+	var commit_after_rel: bool = rm.commit_cost(cost)
+	_assert(commit_after_rel == false, "S6.8: commit_cost after release fails closed (Case D)")
+
 	# Ticket rollback
 	var tx_id: String = rm.begin_transaction(cost)
-	_assert(tx_id != "", "S6.8: Ticket created")
+	_assert(tx_id != "", "S6.9: Ticket created")
 	var roll_ok: bool = rm.rollback_transaction(tx_id)
-	_assert(roll_ok == true, "S6.9: rollback_transaction succeeds")
-	_assert(rm.has_active_transaction(tx_id) == false, "S6.10: Ticket cleaned up")
-	_assert(rm.get_available_stock("wood") == init_wood, "S6.11: Stock restored after ticket rollback")
+	_assert(roll_ok == true, "S6.10: rollback_transaction succeeds")
+	_assert(rm.has_active_transaction(tx_id) == false, "S6.11: Ticket cleaned up")
+	_assert(rm.get_available_stock("wood") == init_wood, "S6.12: Stock restored after ticket rollback")
+
+	# Case D Ticket: Commit attempted after rollback rejected
+	var commit_after_tx_roll: bool = rm.commit_transaction(tx_id)
+	_assert(commit_after_tx_roll == false, "S6.13: commit_transaction after rollback fails closed (Case D)")
 
 	rm.queue_free()
 
