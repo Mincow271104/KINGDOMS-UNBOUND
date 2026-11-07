@@ -219,7 +219,8 @@ static func serialize_world_state(world_view: Node) -> Dictionary:
 					"carrying_resource": cit.get("carrying_resource"),
 					"carrying_amount": cit.get("carrying_amount"),
 					"carrying_source_workplace_id": cit.get("carrying_source_workplace_id") if cit.get("carrying_source_workplace_id") != null else "",
-					"skills": cit.call("serialize_skills") if cit.has_method("serialize_skills") else {}
+					"skills": cit.call("serialize_skills") if cit.has_method("serialize_skills") else {},
+					"manual_command": cit.call("serialize_manual_command") if cit.has_method("serialize_manual_command") else {}
 				})
 		data["citizens"] = c_data_list
 
@@ -857,6 +858,21 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 			return {"valid": false, "error": "Bản ghi dân cư không đúng định dạng Dictionary."}
 		if c.has("skills") and not (c.get("skills") is Dictionary):
 			return {"valid": false, "error": "Dữ liệu kỹ năng 'skills' của dân cư phải là Dictionary."}
+		if c.has("manual_command"):
+			var mc = c.get("manual_command")
+			if not (mc is Dictionary):
+				return {"valid": false, "error": "Dữ liệu lệnh thủ công 'manual_command' của dân cư phải là Dictionary."}
+			if mc.get("is_active", false) == true:
+				if not (mc.get("type", "") is String):
+					return {"valid": false, "error": "Trường 'type' trong manual_command phải là chuỗi (String)."}
+				if mc.has("target_cell_x") and not _is_valid_integer_val(mc.get("target_cell_x")):
+					return {"valid": false, "error": "target_cell_x trong manual_command phải là số nguyên hợp lệ."}
+				if mc.has("target_cell_y") and not _is_valid_integer_val(mc.get("target_cell_y")):
+					return {"valid": false, "error": "target_cell_y trong manual_command phải là số nguyên hợp lệ."}
+				if mc.has("work_hours_required") and not (mc.get("work_hours_required") is int or mc.get("work_hours_required") is float):
+					return {"valid": false, "error": "work_hours_required trong manual_command phải là số."}
+				if mc.has("work_hours_done") and not (mc.get("work_hours_done") is int or mc.get("work_hours_done") is float):
+					return {"valid": false, "error": "work_hours_done trong manual_command phải là số."}
 
 	# Validate optional game_clock section (BUG-01)
 	if json_dict.has("game_clock"):
@@ -1998,6 +2014,8 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 		cit.set("carrying_source_workplace_id", c.get("carrying_source_workplace_id", ""))
 		if cit.has_method("deserialize_skills"):
 			cit.call("deserialize_skills", c.get("skills", {}))
+		if c.has("manual_command") and c["manual_command"] is Dictionary and cit.has_method("restore_manual_command"):
+			cit.call("restore_manual_command", c["manual_command"])
 
 		citizens_container.add_child(cit)
 		world_view.get("citizens_by_id")[cid] = cit

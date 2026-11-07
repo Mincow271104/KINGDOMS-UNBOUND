@@ -126,6 +126,11 @@ var formation_scatter_btn: Button = null
 @onready var skill_bonus_label: Label = get_node_or_null("CitizenInspectPanel/MarginContainer/VBoxContainer/SkillContainer/SkillBonusLabel")
 @onready var skill_progress_bar: ProgressBar = get_node_or_null("CitizenInspectPanel/MarginContainer/VBoxContainer/SkillContainer/SkillProgressBar")
 
+# Manual Citizen Command UI Elements (Package 2K)
+@onready var manual_command_container: Control = get_node_or_null("CitizenInspectPanel/MarginContainer/VBoxContainer/ManualCommandContainer")
+@onready var manual_command_label: Label = get_node_or_null("CitizenInspectPanel/MarginContainer/VBoxContainer/ManualCommandContainer/ManualCommandLabel")
+@onready var cancel_manual_order_btn: Button = get_node_or_null("CitizenInspectPanel/MarginContainer/VBoxContainer/ManualCommandContainer/CancelManualOrderBtn")
+
 # Building Inspection Panel (Package 2F)
 @onready var building_inspect_panel: Control = get_node_or_null("BuildingInspectPanel")
 @onready var building_title_label: Label = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/HeaderHBox/TitlesVBox/BuildingTitleLabel")
@@ -307,6 +312,8 @@ func _ready() -> void:
 	close_citizen_btn.pressed.connect(func(): citizen_panel.visible = false)
 	_setup_role_options()
 	role_option_btn.item_selected.connect(_on_role_option_selected)
+	if cancel_manual_order_btn:
+		cancel_manual_order_btn.pressed.connect(_on_cancel_manual_order_pressed)
 
 	# Building inspector controls (Package 2F)
 	if building_inspect_panel:
@@ -1903,6 +1910,16 @@ func close_citizen_inspector() -> void:
 		citizen_panel.visible = false
 	inspected_citizen = null
 
+func get_inspected_citizen() -> Node:
+	if citizen_panel != null and citizen_panel.visible and inspected_citizen != null and is_instance_valid(inspected_citizen):
+		return inspected_citizen
+	return null
+
+func _on_cancel_manual_order_pressed() -> void:
+	if inspected_citizen != null and is_instance_valid(inspected_citizen) and inspected_citizen.has_method("cancel_manual_command"):
+		inspected_citizen.call("cancel_manual_command", "Người chơi hủy")
+		_refresh_inspected_citizen()
+
 func _reselect_current_citizen_role() -> void:
 	if inspected_citizen == null:
 		return
@@ -1931,6 +1948,39 @@ func _refresh_inspected_citizen() -> void:
 	fatigue_bar.value = inspected_citizen.get("fatigue")
 	health_bar.value = inspected_citizen.get("health")
 	morale_bar.value = inspected_citizen.get("morale")
+
+	# Refresh Manual Citizen Command display (Package 2K)
+	if manual_command_container != null and manual_command_label != null:
+		if inspected_citizen.has_method("has_manual_command") and bool(inspected_citizen.call("has_manual_command")):
+			var cmd: Dictionary = inspected_citizen.call("get_manual_command")
+			var cmd_type: String = String(cmd.get("type", ""))
+			var cmd_names := {
+				"move": "Di chuyển",
+				"chop": "Chặt cây",
+				"mine": "Khai thác đá",
+				"build": "Thi công xây dựng",
+				"haul": "Vận chuyển hàng",
+				"explore": "Khám phá điểm mốc"
+			}
+			var vi_name: String = cmd_names.get(cmd_type, cmd_type.capitalize())
+			if bool(cmd.get("is_paused", false)):
+				manual_command_label.text = "Lệnh tạm hoãn: %s (%s)" % [vi_name, cmd.get("pause_reason", "Đang hồi phục")]
+			elif float(cmd.get("work_hours_required", 0.0)) > 0.0:
+				manual_command_label.text = "Đang thực hiện lệnh: %s (%.1f / %.1f giờ)" % [
+					vi_name,
+					float(cmd.get("work_hours_done", 0.0)),
+					float(cmd.get("work_hours_required", 0.0))
+				]
+			else:
+				var t_cell: Vector2i = cmd.get("target_cell", Vector2i(-1, -1))
+				manual_command_label.text = "Đang thực hiện lệnh: %s (%d, %d)" % [vi_name, t_cell.x, t_cell.y]
+			manual_command_container.visible = true
+			if cancel_manual_order_btn != null:
+				cancel_manual_order_btn.visible = true
+		else:
+			manual_command_label.text = "Lệnh chỉ định: Không có"
+			if cancel_manual_order_btn != null:
+				cancel_manual_order_btn.visible = false
 
 	# Refresh vocational skill display (Package 2B)
 	if skill_container and skill_name_label and skill_bonus_label and skill_progress_bar:

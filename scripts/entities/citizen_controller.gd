@@ -5,6 +5,8 @@ extends Node2D
 
 signal citizen_selected(citizen: CitizenController)
 signal citizen_died(citizen_id: String)
+signal manual_command_completed(citizen_id: String, cmd_type: String)
+signal manual_command_cancelled(citizen_id: String, reason: String)
 
 enum State {
 	IDLE = 0,
@@ -21,6 +23,18 @@ enum State {
 @export var role: String = "idle" # "farmer", "woodcutter", "builder", "hauler", "miner", "smith", "guard", "idle"
 var workplace_id: String = ""
 
+# Manual Citizen Command State (Package 2K)
+var manual_command: Dictionary = {
+	"type": "",
+	"target_cell": Vector2i(-1, -1),
+	"target_id": "",
+	"work_hours_required": 0.0,
+	"work_hours_done": 0.0,
+	"is_active": false,
+	"is_paused": false,
+	"pause_reason": ""
+}
+
 var current_cell: Vector2i = Vector2i(32, 32)
 var current_state: int = State.IDLE
 var status_reason: String = "Đang nghỉ ngơi tại quảng trường"
@@ -30,6 +44,21 @@ var construction_handler: Callable = Callable()
 var world_view: Node = null
 var world_data: WorldGenerator.WorldData = null
 var event_system: RefCounted = null
+var poi_manager: RefCounted = null
+
+func set_poi_manager(pm: RefCounted) -> void:
+	poi_manager = pm
+
+func _get_poi_manager() -> RefCounted:
+	if poi_manager != null:
+		return poi_manager
+	var wv := _get_world_view()
+	if wv != null:
+		if wv.get("poi_mgr") != null:
+			return wv.get("poi_mgr")
+		elif wv.has_meta("poi_mgr"):
+			return wv.get_meta("poi_mgr")
+	return null
 
 # Needs (0..100)
 var hunger: float = 10.0
@@ -228,6 +257,21 @@ func _process(delta: float) -> void:
 	if tm != null and tm.is_paused():
 		return
 
+	# Priority 2: Vital survival emergency pauses manual command
+	if has_manual_command() and not bool(manual_command.get("is_paused", false)):
+		if hunger >= 85.0 and _is_central_food_available():
+			manual_command["is_paused"] = true
+			manual_command["pause_reason"] = "Đói bụng cần ăn lương thực"
+			current_path.clear()
+			_seek_food()
+			return
+		elif fatigue >= 90.0:
+			manual_command["is_paused"] = true
+			manual_command["pause_reason"] = "Kiệt sức cần nghỉ ngơi"
+			current_path.clear()
+			_seek_rest()
+			return
+
 	match current_state:
 		State.IDLE:
 			_process_idle()
@@ -243,6 +287,11 @@ func _process(delta: float) -> void:
 			_process_resting(delta)
 
 func _process_idle() -> void:
+	# Priority 3: Manual Command overrides autonomous jobs
+	if has_manual_command() and not bool(manual_command.get("is_paused", false)):
+		_execute_active_manual_command()
+		return
+
 	if job_mgr == null or nav == null:
 		return
 
@@ -353,6 +402,9 @@ func _process_movement(delta: float) -> void:
 func _arrive_at_destination() -> void:
 	match current_state:
 		State.MOVING_TO_JOB:
+			if has_manual_command():
+				_arrive_at_manual_destination()
+				return
 			if active_job != null:
 				if active_job.type == "hauler":
 					_pickup_hauler_cargo()
@@ -428,6 +480,10 @@ func _deposit_hauler_cargo() -> void:
 		if active_job != null:
 			job_mgr.complete_job(active_job)
 			active_job = null
+		if has_manual_command():
+			var cmd_type: String = String(manual_command.get("type", ""))
+			manual_command["is_active"] = false
+			manual_command_completed.emit(citizen_id, cmd_type)
 		current_state = State.IDLE
 		status_reason = "Không có hàng để dỡ"
 		return
@@ -458,6 +514,10 @@ func _deposit_hauler_cargo() -> void:
 			if job_mgr != null:
 				job_mgr.complete_job(active_job)
 			active_job = null
+		if has_manual_command():
+			var cmd_type: String = String(manual_command.get("type", ""))
+			manual_command["is_active"] = false
+			manual_command_completed.emit(citizen_id, cmd_type)
 		current_state = State.IDLE
 		status_reason = "Đã dỡ hàng vào kho an toàn"
 	else:
@@ -495,6 +555,10 @@ func recover_cargo(target_rm: Object = null) -> Dictionary:
 		return {"recovered": added, "resource": res_type, "remaining": carrying_amount, "status": "partial_capacity"}
 
 func _process_working(delta: float) -> void:
+	if has_manual_command():
+		_process_manual_working(delta)
+		return
+
 	if active_job == null or job_mgr == null:
 		current_state = State.IDLE
 		return
@@ -727,6 +791,8 @@ func _process_resting(delta: float) -> void:
 	if fatigue <= 15.0:
 		current_state = State.IDLE
 		_update_reason()
+		if has_manual_command() and bool(manual_command.get("is_paused", false)):
+			_resume_paused_manual_command()
 
 func _seek_food() -> void:
 	current_state = State.SEEKING_FOOD
@@ -743,6 +809,8 @@ func _eat_food() -> void:
 	hunger = maxf(0.0, hunger - 50.0)
 	current_state = State.IDLE
 	status_reason = "Đã ăn no, sẵn sàng làm việc"
+	if has_manual_command() and bool(manual_command.get("is_paused", false)):
+		_resume_paused_manual_command()
 
 func _seek_rest() -> void:
 	current_state = State.RESTING
@@ -814,6 +882,8 @@ func die(reason: String = "Đã qua đời vì suy kiệt", cause: String = "") 
 	health = 0.0
 	status_reason = reason
 	current_state = State.IDLE
+	if has_manual_command():
+		cancel_manual_command("Dân làng tử vong")
 	if current_path != null:
 		current_path.clear()
 	if active_job != null:
@@ -846,6 +916,53 @@ func set_role(new_role: String) -> bool:
 	return true
 
 func _update_reason() -> void:
+	if has_manual_command():
+		if bool(manual_command.get("is_paused", false)):
+			if current_state == State.SEEKING_FOOD:
+				status_reason = "Tạm hoãn lệnh: Đang đói, đi tìm lương thực tại kho"
+				return
+			elif current_state == State.RESTING:
+				status_reason = "Tạm hoãn lệnh: Quá kiệt sức, nghỉ ngơi hồi phục"
+				return
+		var cmd_type: String = String(manual_command.get("type", ""))
+		match cmd_type:
+			"move":
+				var t_cell: Vector2i = manual_command.get("target_cell", Vector2i(-1, -1))
+				status_reason = "Đang di chuyển theo lệnh đến (%d, %d)" % [t_cell.x, t_cell.y]
+			"chop":
+				if current_state == State.HAULING:
+					status_reason = "Đang vận chuyển %d %s về kho theo lệnh" % [carrying_amount, carrying_resource]
+				elif current_state == State.WORKING:
+					status_reason = "Đang chặt cây theo lệnh (%.1f / %.1f giờ)" % [
+						float(manual_command.get("work_hours_done", 0.0)),
+						float(manual_command.get("work_hours_required", 5.0))
+					]
+				else:
+					status_reason = "Đang di chuyển đến khu vực đốn gỗ theo lệnh"
+			"mine":
+				if current_state == State.HAULING:
+					status_reason = "Đang vận chuyển %d %s về kho theo lệnh" % [carrying_amount, carrying_resource]
+				elif current_state == State.WORKING:
+					status_reason = "Đang khai thác đá theo lệnh (%.1f / %.1f giờ)" % [
+						float(manual_command.get("work_hours_done", 0.0)),
+						float(manual_command.get("work_hours_required", 5.0))
+					]
+				else:
+					status_reason = "Đang di chuyển đến khu vực khai thác đá theo lệnh"
+			"build":
+				if current_state == State.WORKING:
+					status_reason = "Đang thi công xây dựng theo lệnh"
+				else:
+					status_reason = "Đang di chuyển đến công trường xây dựng theo lệnh"
+			"haul":
+				if current_state == State.HAULING:
+					status_reason = "Đang vận chuyển %d %s về kho theo lệnh" % [carrying_amount, carrying_resource]
+				else:
+					status_reason = "Đang di chuyển đến nơi bốc hàng theo lệnh"
+			"explore":
+				status_reason = "Đang di chuyển khám phá điểm mốc theo lệnh"
+		return
+
 	match current_state:
 		State.IDLE:
 			if role == "guard" and not is_barracks_active():
@@ -872,3 +989,509 @@ func _update_reason() -> void:
 			status_reason = "Đang tìm lương thực"
 		State.RESTING:
 			status_reason = "Đang nghỉ ngơi hồi sức"
+
+# ==============================================================================
+# PACKAGE 2K: MANUAL CITIZEN COMMANDS & DIRECT LABOR DISPATCH
+# ==============================================================================
+
+func has_manual_command() -> bool:
+	return bool(manual_command.get("is_active", false))
+
+func get_manual_command() -> Dictionary:
+	return manual_command.duplicate()
+
+func serialize_manual_command() -> Dictionary:
+	var t_cell: Vector2i = manual_command.get("target_cell", Vector2i(-1, -1))
+	return {
+		"type": String(manual_command.get("type", "")),
+		"target_cell_x": t_cell.x,
+		"target_cell_y": t_cell.y,
+		"target_id": String(manual_command.get("target_id", "")),
+		"work_hours_required": float(manual_command.get("work_hours_required", 0.0)),
+		"work_hours_done": float(manual_command.get("work_hours_done", 0.0)),
+		"is_active": bool(manual_command.get("is_active", false)),
+		"is_paused": bool(manual_command.get("is_paused", false)),
+		"pause_reason": String(manual_command.get("pause_reason", ""))
+	}
+
+func restore_manual_command(cmd_data: Dictionary) -> void:
+	if not (cmd_data is Dictionary) or not bool(cmd_data.get("is_active", false)):
+		manual_command = {
+			"type": "",
+			"target_cell": Vector2i(-1, -1),
+			"target_id": "",
+			"work_hours_required": 0.0,
+			"work_hours_done": 0.0,
+			"is_active": false,
+			"is_paused": false,
+			"pause_reason": ""
+		}
+		return
+
+	var c_type: String = String(cmd_data.get("type", ""))
+	var target_cell := Vector2i(int(cmd_data.get("target_cell_x", -1)), int(cmd_data.get("target_cell_y", -1)))
+	if cmd_data.has("target_cell") and cmd_data["target_cell"] is Vector2i:
+		target_cell = cmd_data["target_cell"]
+	var target_id: String = String(cmd_data.get("target_id", ""))
+
+	var is_valid := _check_manual_target_validity(c_type, target_cell, target_id)
+	if not is_valid:
+		manual_command = {
+			"type": "",
+			"target_cell": Vector2i(-1, -1),
+			"target_id": "",
+			"work_hours_required": 0.0,
+			"work_hours_done": 0.0,
+			"is_active": false,
+			"is_paused": false,
+			"pause_reason": ""
+		}
+		current_state = State.IDLE
+		status_reason = "Lệnh thủ công từ bản lưu trước không còn mục tiêu hợp lệ"
+		return
+
+	manual_command = {
+		"type": c_type,
+		"target_cell": target_cell,
+		"target_id": target_id,
+		"work_hours_required": float(cmd_data.get("work_hours_required", 0.0)),
+		"work_hours_done": float(cmd_data.get("work_hours_done", 0.0)),
+		"is_active": true,
+		"is_paused": bool(cmd_data.get("is_paused", false)),
+		"pause_reason": String(cmd_data.get("pause_reason", ""))
+	}
+
+	if not manual_command["is_paused"]:
+		if current_cell == target_cell or (c_type in ["chop", "mine"] and IsoMath.grid_distance(current_cell, target_cell) <= 1):
+			_arrive_at_manual_destination()
+		else:
+			if nav != null:
+				current_path = nav.find_path(current_cell, target_cell)
+			current_state = State.MOVING_TO_JOB
+			_update_reason()
+
+func _is_tree_at_cell(cell: Vector2i) -> bool:
+	if world_data == null:
+		return true
+	if world_data.get("props") != null:
+		for p in world_data.props:
+			if p.get("cell") == cell and p.get("type") in ["tree", "forest"]:
+				return true
+	return false
+
+func _is_rock_at_cell(cell: Vector2i) -> bool:
+	if world_data == null:
+		return true
+	if world_data.get("props") != null:
+		for p in world_data.props:
+			if p.get("cell") == cell and p.get("type") in ["rock", "mountain", "stone"]:
+				return true
+	return false
+
+func _find_building_at_cell(cell: Vector2i) -> Dictionary:
+	if world_data != null and world_data.get("buildings") != null:
+		for b in world_data.buildings:
+			var origin: Vector2i = b.get("cell", Vector2i(-1, -1))
+			var size: Vector2i = b.get("size", Vector2i(1, 1))
+			if cell.x >= origin.x and cell.x < origin.x + size.x and cell.y >= origin.y and cell.y < origin.y + size.y:
+				return b
+	var wv := _get_world_view()
+	if wv != null and wv.has_method("_get_building_at_cell"):
+		return wv.call("_get_building_at_cell", cell)
+	return {}
+
+func _remove_harvested_prop_at_cell(cell: Vector2i) -> void:
+	if world_data != null and world_data.get("props") != null:
+		for i in range(world_data.props.size() - 1, -1, -1):
+			if world_data.props[i].get("cell") == cell:
+				world_data.props.remove_at(i)
+				break
+		if world_data.get("occupancy") != null and IsoMath.is_in_bounds(cell):
+			world_data.occupancy[cell.x][cell.y] = false
+	var wv := _get_world_view()
+	if wv != null and wv.get("props_container") != null:
+		for child in wv.props_container.get_children():
+			if child.get_meta("cell", Vector2i(-1, -1)) == cell or (child is Node2D and IsoMath.local_to_map(child.position) == cell):
+				child.queue_free()
+				break
+
+func issue_manual_command(cmd_type: String, target_cell: Vector2i, target_id: String = "", extra_data: Dictionary = {}) -> Dictionary:
+	if not is_alive():
+		return {"success": false, "reason": "Dân làng đã tử vong, không thể nhận lệnh"}
+
+	const VALID_COMMANDS: Array[String] = ["move", "chop", "mine", "build", "haul", "explore"]
+	if not (cmd_type in VALID_COMMANDS):
+		return {"success": false, "reason": "Loại lệnh không hợp lệ: %s" % cmd_type}
+
+	if not IsoMath.is_in_bounds(target_cell):
+		return {"success": false, "reason": "Tọa độ mục tiêu (%d, %d) nằm ngoài bản đồ" % [target_cell.x, target_cell.y]}
+
+	# Specific command validation
+	match cmd_type:
+		"move":
+			if nav != null and not nav.is_cell_walkable(target_cell):
+				return {"success": false, "reason": "Vị trí đích không thể đi tới (bị chặn hoặc mặt nước)"}
+			if nav != null:
+				var path := nav.find_path(current_cell, target_cell)
+				if path.is_empty() and current_cell != target_cell:
+					return {"success": false, "reason": "Không thể tìm đường đi tới vị trí chỉ định"}
+		"chop":
+			if not _is_tree_at_cell(target_cell):
+				return {"success": false, "reason": "Mục tiêu không phải là cây cối hoặc rừng"}
+			if nav != null:
+				var path := nav.find_path(current_cell, target_cell)
+				if path.is_empty() and IsoMath.grid_distance(current_cell, target_cell) > 1:
+					return {"success": false, "reason": "Không thể tiếp cận khu vực đốn gỗ (bị chặn đường)"}
+		"mine":
+			if not _is_rock_at_cell(target_cell):
+				return {"success": false, "reason": "Mục tiêu không phải là mỏ đá hoặc núi đá"}
+			if nav != null:
+				var path := nav.find_path(current_cell, target_cell)
+				if path.is_empty() and IsoMath.grid_distance(current_cell, target_cell) > 1:
+					return {"success": false, "reason": "Không thể tiếp cận khu vực khai thác đá (bị chặn đường)"}
+		"build":
+			if target_id == "":
+				var b_data := _find_building_at_cell(target_cell)
+				if not b_data.is_empty():
+					target_id = b_data.get("id", "")
+			if target_id == "":
+				return {"success": false, "reason": "Không tìm thấy công trình tại vị trí chỉ định"}
+			var is_uc := is_building_under_construction(target_id)
+			var is_upg := false
+			if world_data != null:
+				var b_obj = BuildingSystem.get_building_by_id(target_id, world_data)
+				if not b_obj.is_empty() and bool(b_obj.get("is_upgrading", false)):
+					is_upg = true
+			if not is_uc and not is_upg:
+				return {"success": false, "reason": "Công trình không ở trạng thái thi công hoặc nâng cấp"}
+			if nav != null:
+				var path := nav.find_path(current_cell, target_cell)
+				if path.is_empty() and IsoMath.grid_distance(current_cell, target_cell) > 1:
+					return {"success": false, "reason": "Không thể tiếp cận công trường xây dựng"}
+		"haul":
+			if workplace_mgr != null and target_id != "":
+				var wp = workplace_mgr.get_workplace(target_id)
+				if wp == null or wp.buffer_amount <= 0:
+					return {"success": false, "reason": "Kho đệm của nơi làm việc này đang trống, không có hàng"}
+			elif workplace_mgr != null and target_id == "":
+				var b_data := _find_building_at_cell(target_cell)
+				if not b_data.is_empty():
+					target_id = b_data.get("id", "")
+					var wp = workplace_mgr.get_workplace(target_id)
+					if wp == null or wp.buffer_amount <= 0:
+						return {"success": false, "reason": "Kho đệm của nơi làm việc này đang trống, không có hàng"}
+				else:
+					return {"success": false, "reason": "Không tìm thấy nơi làm việc tại vị trí chỉ định"}
+			if carrying_amount > 0:
+				return {"success": false, "reason": "Dân làng đang mang hàng khác trên người (%d %s), hãy dỡ hàng trước" % [carrying_amount, carrying_resource]}
+			if nav != null:
+				var path := nav.find_path(current_cell, target_cell)
+				if path.is_empty() and IsoMath.grid_distance(current_cell, target_cell) > 1:
+					return {"success": false, "reason": "Không thể tiếp cận nơi làm việc"}
+		"explore":
+			var p_mgr := _get_poi_manager()
+			if p_mgr != null:
+				var poi = p_mgr.get_poi(target_id) if target_id != "" else null
+				if poi == null:
+					for p_item in p_mgr.get_all_pois():
+						if p_item.cell == target_cell:
+							poi = p_item
+							target_id = poi.id
+							break
+				if poi != null and poi.state == POIManager.POIState.CLAIMED:
+					return {"success": false, "reason": "Điểm khám phá này đã được khai phá từ trước"}
+			if nav != null:
+				var path := nav.find_path(current_cell, target_cell)
+				if path.is_empty() and IsoMath.grid_distance(current_cell, target_cell) > 2:
+					return {"success": false, "reason": "Không có đường đi tới điểm khám phá (bị chặn đường)"}
+
+	# Clean release of any autonomous routine job
+	if active_job != null:
+		if job_mgr != null:
+			job_mgr.release_job(active_job)
+		active_job = null
+
+	var req_hours: float = 5.0 if cmd_type in ["chop", "mine"] else float(extra_data.get("work_hours_required", 0.0))
+	manual_command = {
+		"type": cmd_type,
+		"target_cell": target_cell,
+		"target_id": target_id,
+		"work_hours_required": req_hours,
+		"work_hours_done": 0.0,
+		"is_active": true,
+		"is_paused": false,
+		"pause_reason": ""
+	}
+
+	# Immediate arrival check (e.g. already at target or adjacent to harvest/building/poi)
+	var is_adjacent: bool = false
+	if cmd_type in ["chop", "mine"] and IsoMath.grid_distance(current_cell, target_cell) <= 1:
+		is_adjacent = true
+	elif cmd_type == "build" and IsoMath.grid_distance(current_cell, target_cell) <= 2:
+		is_adjacent = true
+	elif cmd_type == "explore" and IsoMath.grid_distance(current_cell, target_cell) <= 2:
+		is_adjacent = true
+
+	if current_cell == target_cell or is_adjacent:
+		current_path.clear()
+		_arrive_at_manual_destination()
+	else:
+		if nav != null:
+			current_path = nav.find_path(current_cell, target_cell)
+		current_state = State.MOVING_TO_JOB
+		_update_reason()
+
+	return {"success": true, "command": manual_command.duplicate()}
+
+func cancel_manual_command(reason: String = "Người chơi hủy lệnh") -> void:
+	if not has_manual_command():
+		return
+	manual_command = {
+		"type": "",
+		"target_cell": Vector2i(-1, -1),
+		"target_id": "",
+		"work_hours_required": 0.0,
+		"work_hours_done": 0.0,
+		"is_active": false,
+		"is_paused": false,
+		"pause_reason": ""
+	}
+	current_path.clear()
+	current_state = State.IDLE
+	status_reason = "Đã hủy lệnh: %s" % reason
+	manual_command_cancelled.emit(citizen_id, reason)
+
+func _check_manual_target_validity(cmd_type: String, target_cell: Vector2i, target_id: String) -> bool:
+	match cmd_type:
+		"move":
+			return nav == null or nav.is_cell_walkable(target_cell)
+		"chop":
+			return _is_tree_at_cell(target_cell)
+		"mine":
+			return _is_rock_at_cell(target_cell)
+		"build":
+			if target_id != "":
+				var is_uc := is_building_under_construction(target_id)
+				var is_upg := false
+				if world_data != null:
+					var b_obj = BuildingSystem.get_building_by_id(target_id, world_data)
+					if not b_obj.is_empty() and bool(b_obj.get("is_upgrading", false)):
+						is_upg = true
+				return is_uc or is_upg
+			return false
+		"haul":
+			if workplace_mgr != null and workplace_mgr.has_method("get_workplace"):
+				var wp = workplace_mgr.get_workplace(target_id)
+				return wp != null and wp.buffer_amount > 0
+			return true
+		"explore":
+			var p_mgr := _get_poi_manager()
+			if p_mgr != null:
+				var poi = p_mgr.get_poi(target_id)
+				return poi != null and poi.state != POIManager.POIState.CLAIMED
+			return true
+	return true
+
+func _resume_paused_manual_command() -> void:
+	if not has_manual_command():
+		return
+	var is_valid := _check_manual_target_validity(manual_command.type, manual_command.target_cell, manual_command.target_id)
+	if not is_valid:
+		cancel_manual_command("Mục tiêu lệnh không còn hợp lệ sau khi hồi phục thể lực")
+		return
+	manual_command["is_paused"] = false
+	manual_command["pause_reason"] = ""
+	if current_cell == manual_command.target_cell or (manual_command.type in ["chop", "mine"] and IsoMath.grid_distance(current_cell, manual_command.target_cell) <= 1):
+		_arrive_at_manual_destination()
+	else:
+		if nav != null:
+			current_path = nav.find_path(current_cell, manual_command.target_cell)
+			if current_path.is_empty():
+				cancel_manual_command("Không thể tìm đường trở lại mục tiêu lệnh")
+				return
+		current_state = State.MOVING_TO_JOB
+		_update_reason()
+
+func _execute_active_manual_command() -> void:
+	if current_path.is_empty():
+		if current_cell == manual_command.target_cell or (manual_command.type in ["chop", "mine"] and IsoMath.grid_distance(current_cell, manual_command.target_cell) <= 1):
+			_arrive_at_manual_destination()
+		else:
+			if nav != null:
+				current_path = nav.find_path(current_cell, manual_command.target_cell)
+			if not current_path.is_empty():
+				current_state = State.MOVING_TO_JOB
+				_update_reason()
+			else:
+				cancel_manual_command("Không tìm thấy đường đi tới mục tiêu")
+
+func _arrive_at_manual_destination() -> void:
+	var cmd_type: String = String(manual_command.get("type", ""))
+	match cmd_type:
+		"move":
+			manual_command["is_active"] = false
+			current_state = State.IDLE
+			status_reason = "Đã đến điểm chỉ định"
+			manual_command_completed.emit(citizen_id, "move")
+		"chop", "mine":
+			if carrying_amount > 0:
+				_deposit_hauler_cargo()
+			else:
+				current_state = State.WORKING
+				_update_reason()
+		"build":
+			current_state = State.WORKING
+			_update_reason()
+		"haul":
+			if carrying_amount > 0:
+				_deposit_hauler_cargo()
+			else:
+				var wp_id: String = String(manual_command.get("target_id", ""))
+				var picked_up := 0
+				if workplace_mgr != null and workplace_mgr.has_method("pickup_from_buffer"):
+					picked_up = workplace_mgr.pickup_from_buffer(wp_id, carry_capacity)
+				if picked_up > 0:
+					var wp = workplace_mgr.get_workplace(wp_id) if workplace_mgr.has_method("get_workplace") else null
+					carrying_resource = wp.output_resource if wp != null else "wood"
+					carrying_amount = picked_up
+					carrying_source_workplace_id = wp_id
+					var drop_cell := Vector2i(32, 32)
+					if nav != null:
+						current_path = nav.find_path(current_cell, drop_cell)
+					current_state = State.HAULING
+					status_reason = "Đang vận chuyển %d %s về kho theo lệnh" % [carrying_amount, carrying_resource]
+				else:
+					manual_command["is_active"] = false
+					current_state = State.IDLE
+					status_reason = "Kho đệm đã hết hàng"
+					manual_command_completed.emit(citizen_id, "haul")
+		"explore":
+			var poi_id: String = String(manual_command.get("target_id", ""))
+			var p_mgr := _get_poi_manager()
+			var rm: Object = _get_resource_manager()
+			if p_mgr != null and rm != null and poi_id != "":
+				p_mgr.claim_poi_reward(poi_id, rm)
+			manual_command["is_active"] = false
+			current_state = State.IDLE
+			status_reason = "Đã khám phá điểm mốc thành công"
+			manual_command_completed.emit(citizen_id, "explore")
+
+func _process_manual_working(delta: float) -> void:
+	var delta_hours := delta
+	var tm := _get_time_manager()
+	if tm != null:
+		delta_hours = delta * float(tm.current_speed)
+
+	# Priority 2 survival check
+	if hunger >= 85.0 and _is_central_food_available():
+		manual_command["is_paused"] = true
+		manual_command["pause_reason"] = "Đói bụng cần ăn lương thực"
+		_seek_food()
+		return
+	if fatigue >= 90.0:
+		manual_command["is_paused"] = true
+		manual_command["pause_reason"] = "Kiệt sức cần nghỉ ngơi"
+		_seek_rest()
+		return
+
+	var cmd_type: String = String(manual_command.get("type", ""))
+	match cmd_type:
+		"chop":
+			var skill_mult := get_skill_efficiency("woodcutting")
+			var effective_work_hours := delta_hours * skill_mult
+			manual_command["work_hours_done"] = float(manual_command.get("work_hours_done", 0.0)) + effective_work_hours
+			var req_h: float = float(manual_command.get("work_hours_required", 5.0))
+			if float(manual_command["work_hours_done"]) >= req_h:
+				award_work_xp("woodcutting", 10.0)
+				carrying_resource = "wood"
+				carrying_amount = 10
+				var t_cell: Vector2i = manual_command.get("target_cell", Vector2i(-1, -1))
+				_remove_harvested_prop_at_cell(t_cell)
+				var drop_cell := Vector2i(32, 32)
+				if current_cell == drop_cell:
+					_deposit_hauler_cargo()
+				else:
+					if nav != null:
+						current_path = nav.find_path(current_cell, drop_cell)
+					current_state = State.HAULING
+					status_reason = "Đang vận chuyển 10 gỗ về kho theo lệnh"
+			else:
+				status_reason = "Đang chặt cây theo lệnh (%.1f / %.1f giờ)" % [
+					float(manual_command["work_hours_done"]),
+					req_h
+				]
+		"mine":
+			var skill_mult := get_skill_efficiency("mining")
+			var effective_work_hours := delta_hours * skill_mult
+			manual_command["work_hours_done"] = float(manual_command.get("work_hours_done", 0.0)) + effective_work_hours
+			var req_h: float = float(manual_command.get("work_hours_required", 5.0))
+			if float(manual_command["work_hours_done"]) >= req_h:
+				award_work_xp("mining", 10.0)
+				carrying_resource = "stone"
+				carrying_amount = 10
+				var t_cell: Vector2i = manual_command.get("target_cell", Vector2i(-1, -1))
+				_remove_harvested_prop_at_cell(t_cell)
+				var drop_cell := Vector2i(32, 32)
+				if current_cell == drop_cell:
+					_deposit_hauler_cargo()
+				else:
+					if nav != null:
+						current_path = nav.find_path(current_cell, drop_cell)
+					current_state = State.HAULING
+					status_reason = "Đang vận chuyển 10 đá về kho theo lệnh"
+			else:
+				status_reason = "Đang khai thác đá theo lệnh (%.1f / %.1f giờ)" % [
+					float(manual_command["work_hours_done"]),
+					req_h
+				]
+		"build":
+			var b_id: String = String(manual_command.get("target_id", ""))
+			if b_id == "":
+				cancel_manual_command("Không có mã công trình để thi công")
+				return
+			var skill_mult := get_skill_efficiency("building")
+			var effective_delta_hours := delta_hours * skill_mult
+
+			var res: Dictionary = {}
+			if construction_handler.is_valid():
+				var argc := construction_handler.get_argument_count()
+				if argc >= 2:
+					res = construction_handler.call(b_id, effective_delta_hours)
+				else:
+					res = construction_handler.call(effective_delta_hours)
+			else:
+				var wv := _get_world_view()
+				if wv != null and wv.has_method("advance_construction_work"):
+					res = wv.advance_construction_work(b_id, effective_delta_hours)
+				elif world_data != null:
+					var b_obj = BuildingSystem.get_building_by_id(b_id, world_data)
+					if not b_obj.is_empty() and bool(b_obj.get("is_upgrading", false)):
+						res = BuildingSystem.advance_upgrade(b_obj, effective_delta_hours, world_data)
+						if res.get("completed", false):
+							var rm_node: Node = get_node_or_null("/root/ResourceManager") if (is_inside_tree() and has_node("/root/ResourceManager")) else null
+							var comp_res := BuildingSystem.complete_building_upgrade(b_obj, world_data, rm_node)
+							if not comp_res.get("success", false):
+								res["completed"] = false
+					else:
+						res = BuildingSystem.advance_construction(b_id, effective_delta_hours, world_data)
+						if res.get("completed", false):
+							var rm_node: Node = get_node_or_null("/root/ResourceManager") if (is_inside_tree() and has_node("/root/ResourceManager")) else null
+							BuildingSystem.complete_building(b_id, world_data, rm_node)
+
+			if not res.get("success", false):
+				cancel_manual_command("Công trình xây dựng đã hoàn thành hoặc bị hủy")
+				return
+
+			award_work_xp("building", effective_delta_hours * 5.0)
+
+			if res.get("completed", false):
+				manual_command["is_active"] = false
+				current_state = State.IDLE
+				status_reason = "Công trình đã hoàn thành thi công theo lệnh"
+				manual_command_completed.emit(citizen_id, "build")
+				return
+
+			status_reason = "Đang thi công xây dựng theo lệnh (%.1f / %.1f giờ)" % [
+				res.get("progress", 0.0),
+				res.get("hours", 0.0)
+			]

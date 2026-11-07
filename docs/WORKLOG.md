@@ -9987,3 +9987,55 @@ Execute Step 4 of Active Development Batch 3:
 ### Next Exact Step
 - Stage and commit Step 4 changes: `fix(jobs): handle cancelled recurring job lifecycle and unit faction guards`.
 - Proceed to Step 5: Execute full matrix regression (`scripts/test/run_regression.ps1`) and produce final completion report.
+
+---
+
+## [2026-11-07] Package 2K — Manual Citizen Commands & Direct Labor Dispatch ✅ COMPLETE
+
+### Context & Scope
+Implement Package 2K (Manual Citizen Commands & Direct Labor Dispatch) under GDD §8.2, §8.3, and §14.4:
+1. Transition colony gameplay from purely autonomous "watch-and-wait" to responsive player agency by enabling direct selection and right-click contextual orders for civilian citizens.
+2. Invariant conservation: Strictly enforce physical logistics and cargo conservation (zero teleportation; harvesting resources requires physical collection and hauling to Storehouse/Town Hall).
+3. Priority hierarchy (GDD §8.3): Priority 1 (Emergency safety) > Priority 2 (Vital survival: hunger >= 85 or fatigue >= 90 pauses manual work, resuming automatically once satisfied) > Priority 3 (Manual command overrides routine jobs) > Priority 4-6 (Routine jobs).
+4. Hygiene & lifecycle: Prior routine jobs are cleanly released via `JobManager.release_job(active_job)` without orphaned locks.
+5. Fail-closed UI: Display localized red error banners (`"Lệnh Thất Bại"`) upon invalid targets (out-of-bounds, water, unreachable).
+6. Inspector & cancellation: Display active manual command badge, progress bar, and `"Hủy Lệnh"` button in `CitizenInspectPanel`.
+7. Persistence: Save/load schema serialization with 100% backward compatibility for legacy saves (`SAVE_SCHEMA_VERSION = 1`).
+
+### Completed Work
+1. **Citizen Command State Machine (`scripts/entities/citizen_controller.gd`):**
+   - Added `manual_command` state dictionary, `manual_command_completed`, and `manual_command_cancelled` signals.
+   - Implemented public APIs: `issue_manual_command()`, `cancel_manual_command()`, `has_manual_command()`, `get_manual_command()`, `serialize_manual_command()`, `restore_manual_command()`.
+   - Integrated Priority 2 hunger/fatigue pausing and automatic resumption in `_process()`, `_eat_food()`, and `_process_resting()`.
+   - Integrated Priority 3 job override in `_process_idle()`.
+   - Implemented `_process_manual_working()`, `_arrive_at_manual_destination()`, `_deposit_hauler_cargo()` manual completion hooks.
+   - Enforced physical hauling for wood chopping, stone mining, and workplace buffer pickup.
+2. **Contextual World Right-Click Dispatch (`scripts/world/world_view.gd`):**
+   - Added `_handle_citizen_right_click(cell, inspected_citizen)` in `_unhandled_input()`.
+   - Contextual dispatch: construction site -> `build`, saturated workplace -> `haul`, POI -> `explore`, tree prop -> `chop`, rock prop -> `mine`, walkable tile -> `move`, water/unreachable -> red error banner.
+3. **HUD Reflection & Controls (`scripts/ui/hud.gd`, `scenes/ui/hud.tscn`):**
+   - Added `ManualCommandContainer`, `ManualCommandLabel`, `CancelManualOrderBtn` to `CitizenInspectPanel`.
+   - Dynamic Vietnamese status readouts and one-click order cancellation.
+4. **Player Field Guide (`scripts/ui/player_field_guide.gd`):**
+   - Added Section 6 to Chương B detailing right-click civilian dispatch rules and survival priorities.
+5. **Persistence Hardening (`scripts/persistence/save_manager.gd`):**
+   - Added `manual_command` serialization in `get_world_state_data()`.
+   - Added `restore_manual_command()` in `apply_loaded_state_to_world()`.
+   - Added strict schema validation for `manual_command` in `validate_save_data()`.
+6. **Automated Testing Suite (`scripts/test/test_manual_citizen_commands.gd`):**
+   - Authored comprehensive 15-scenario test suite (`TC-MAN.1` through `TC-MAN.15`).
+   - Registered in `scripts/test/run_regression.ps1` (62 suites total).
+
+### Verification & Test Evidence
+- **Package Test Suite:** `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless -s res://scripts/test/test_manual_citizen_commands.gd`
+  - **Result:** **ALL 97 CHECKS PASSED (0 Failures), Exit Code 0**.
+- **Full Regression Suite (`run_regression.ps1`):**
+  - **Suites Count:** 62
+  - **Passed:** 61 (Exit Code 0)
+  - **Expected Baseline Failures:** 1 (`TC-ARMY.32` / `BASELINE-001`, Exit Code 1)
+  - **Unexpected Regressions:** 0
+  - **Overall Exit Code:** 0
+
+### Next Exact Step
+- Stage and commit Package 2K changes: `feat(citizens): implement manual citizen commands and direct labor dispatch`.
+- Proceed to Package 2L (Settlement Citizen Roster & Priority Management — GDD §14.4).

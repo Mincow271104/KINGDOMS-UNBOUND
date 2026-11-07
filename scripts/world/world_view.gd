@@ -1173,6 +1173,108 @@ func _unhandled_input(event: InputEvent) -> void:
 						var res: Dictionary = tactical_military_mgr.call("issue_move_order", cell, nav)
 						if not res.get("success", false) and hud != null:
 							hud.show_event_banner("Lệnh Thất Bại", res.get("reason", "Vị trí không thể đi tới"), false, 3.0)
+				elif hud != null and hud.has_method("get_inspected_citizen") and hud.get_inspected_citizen() != null:
+					_handle_citizen_right_click(cell, hud.get_inspected_citizen())
+
+func _handle_citizen_right_click(cell: Vector2i, citizen: Node) -> void:
+	if citizen == null or not is_instance_valid(citizen) or not citizen.call("is_alive"):
+		return
+
+	if not IsoMath.is_in_bounds(cell):
+		if hud != null:
+			hud.show_event_banner("Lệnh Thất Bại", "Tọa độ nằm ngoài bản đồ", false, 3.0)
+		var am = get_node_or_null("/root/AudioManager") if is_inside_tree() else null
+		if am and am.has_method("play_error"):
+			am.play_error()
+		return
+
+	var cmd_type: String = ""
+	var target_id: String = ""
+
+	# Check 1: Building at target cell
+	var b_data := _get_building_at_cell(cell)
+	if not b_data.is_empty():
+		var b_id: String = b_data.get("id", "")
+		var is_uc: bool = BuildingSystem.is_building_under_construction(world_data, b_id)
+		var is_upg: bool = bool(b_data.get("is_upgrading", false))
+		if is_uc or is_upg:
+			cmd_type = "build"
+			target_id = b_id
+		else:
+			# Check if building has buffer cargo to haul
+			if workplace_mgr != null and workplace_mgr.has_method("get_workplace"):
+				var wp = workplace_mgr.get_workplace(b_id)
+				if wp != null and wp.buffer_amount > 0:
+					cmd_type = "haul"
+					target_id = b_id
+
+	# Check 2: POI at target cell (if no building action)
+	if cmd_type == "" and poi_mgr != null:
+		for poi in poi_mgr.get_all_pois():
+			if poi.cell == cell:
+				if poi.state != POIManager.POIState.CLAIMED:
+					cmd_type = "explore"
+					target_id = poi.id
+				else:
+					if hud != null:
+						hud.show_event_banner("Lệnh Thất Bại", "Điểm khám phá này đã được khai phá từ trước", false, 3.0)
+					var am = get_node_or_null("/root/AudioManager") if is_inside_tree() else null
+					if am and am.has_method("play_error"):
+						am.play_error()
+					return
+				break
+
+	# Check 3: Terrain / Props at target cell (if no building/POI action)
+	if cmd_type == "":
+		var is_tree: bool = false
+		var is_rock: bool = false
+		if world_data != null and world_data.get("props") != null:
+			for p in world_data.props:
+				if p.get("cell") == cell:
+					if p.get("type") in ["tree", "forest"]:
+						is_tree = true
+					elif p.get("type") in ["rock", "mountain", "stone"]:
+						is_rock = true
+					break
+
+		if is_tree:
+			cmd_type = "chop"
+		elif is_rock:
+			cmd_type = "mine"
+		else:
+			var t_type: int = -1
+			if world_data != null and world_data.get("terrain") != null:
+				t_type = world_data.terrain[cell.x][cell.y]
+			if t_type == WorldGenerator.TerrainType.WATER:
+				if hud != null:
+					hud.show_event_banner("Lệnh Thất Bại", "Vị trí là mặt nước sâu, không thể tiếp cận", false, 3.0)
+				var am = get_node_or_null("/root/AudioManager") if is_inside_tree() else null
+				if am and am.has_method("play_error"):
+					am.play_error()
+				return
+			else:
+				if not b_data.is_empty():
+					if hud != null:
+						hud.show_event_banner("Lệnh Thất Bại", "Công trình đã hoàn thành và không có hàng đệm cần vận chuyển", false, 3.0)
+					var am = get_node_or_null("/root/AudioManager") if is_inside_tree() else null
+					if am and am.has_method("play_error"):
+						am.play_error()
+					return
+				cmd_type = "move"
+
+	var res: Dictionary = citizen.call("issue_manual_command", cmd_type, cell, target_id)
+	if not res.get("success", false):
+		if hud != null:
+			hud.show_event_banner("Lệnh Thất Bại", res.get("reason", "Không thể thực hiện lệnh"), false, 3.0)
+		var am = get_node_or_null("/root/AudioManager") if is_inside_tree() else null
+		if am and am.has_method("play_error"):
+			am.play_error()
+	else:
+		var am = get_node_or_null("/root/AudioManager") if is_inside_tree() else null
+		if am and am.has_method("play_click"):
+			am.play_click()
+		if hud != null and hud.has_method("_refresh_inspected_citizen"):
+			hud._refresh_inspected_citizen()
 
 func _handle_left_click(cell: Vector2i) -> void:
 	# Priority 2: Exact-cell citizen

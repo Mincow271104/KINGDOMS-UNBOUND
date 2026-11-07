@@ -13,6 +13,21 @@
 
 ## Resolved Issues
 
+### ISSUE-014: Absence of Direct Manual Dispatch for Civilian Citizens (Resolved in Package 2K)
+- **Severity:** Medium / Core Player Agency (GDD §8.2, §8.3)
+- **Symptom:** In the colony simulation, citizens were strictly autonomous and picked up tasks exclusively via `JobManager` according to vocational roles. Left-clicking a citizen opened the inspector, but right-clicking on any world tile (walkable ground, trees, rocks, construction sites, workplace buffers, POIs) did nothing, preventing the player from directly prioritizing urgent tasks or guiding citizen labor.
+- **Resolution:**
+  - Implemented manual command state machine and public API in `scripts/entities/citizen_controller.gd`: `issue_manual_command()`, `cancel_manual_command()`, `has_manual_command()`, `get_manual_command()`.
+  - Added Priority Hierarchy (GDD §8.3): Priority 1 (Emergency safety) > Priority 2 (Vital survival: hunger >= 85 or fatigue >= 90 pauses manual work, resuming automatically once satisfied) > Priority 3 (Manual command overrides routine jobs) > Priority 4-6 (Routine jobs).
+  - Cleanly released active routine jobs via `JobManager.release_job(active_job)` upon manual order acceptance, preventing orphaned locks.
+  - Implemented strict physical hauling and cargo conservation: citizens harvesting or hauling cargo carry goods physically to the Storehouse/Town Hall before depositing to central inventory (zero teleportation).
+  - Integrated right-click targeting resolution and fail-closed validation in `scripts/world/world_view.gd` for Move, Chop, Mine, Build, Haul, and Explore commands, with localized red error banners (`"Lệnh Thất Bại"`) upon invalid targets.
+  - Added manual order status, progress, and `"Hủy Lệnh"` cancellation button to `CitizenInspectPanel` in `scenes/ui/hud.tscn` / `scripts/ui/hud.gd`.
+  - Updated In-Game Field Guide (`scripts/ui/player_field_guide.gd`) Chapter B with Section 6.
+  - Added save/load serialization, deserialization, and schema validation in `scripts/persistence/save_manager.gd` with 100% backward compatibility for legacy saves.
+  - Authored automated test suite `scripts/test/test_manual_citizen_commands.gd` covering 15 scenarios (97 assertions).
+- **Verification:** 97/97 automated checks PASS (Exit Code 0).
+
 ### ISSUE-013: Immediate Save Reload Caused Citizen Node Name Collisions via queue_free() Deferral (Resolved in Batch 3 / RISK-005)
 - **Severity:** Low / Scene Tree Architecture
 - **Symptom:** In `SaveManager.apply_loaded_state_to_world()`, existing citizens were freed by invoking `child.queue_free()` without first invoking `citizens_container.remove_child(child)`. Because `queue_free()` defers destruction until end-of-frame, the old nodes remained registered in `citizens_container` when newly reconstructed citizens were added (`citizens_container.add_child(cit)` with `cit.name = cid`). Godot detected duplicate child names in the container and automatically renamed new citizens to anonymous IDs (e.g. `@Node2D@4438`), breaking direct node path resolution (`citizens_container.get_node_or_null(cid)`).

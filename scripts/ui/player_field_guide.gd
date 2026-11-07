@@ -111,7 +111,17 @@ Kỹ năng tăng lên thông qua [b]lao động thực tế[/b]: mỗi chu kỳ 
   • [color=#ffd700]Cấp 5 (Bậc thầy):[/color] 1.000 XP (Tối đa) | Hệ số: [b]1,35×[/b] ([b]+35% hiệu suất tối đa[/b])
 
 [color=#ffd700][b]5. VÌ SAO CÔNG DÂN TAY NGHỀ CAO RẤT QUÝ GIÁ?[/b][/color]
-Một công dân Bậc thầy (Cấp 5) tạo ra sản lượng nhanh hơn 35% so với người mới vào nghề. Bảo vệ tính mạng và giữ chân những thợ lành nghề lâu năm là chìa khóa để vương quốc bứt phá kinh tế.""",
+Một công dân Bậc thầy (Cấp 5) tạo ra sản lượng nhanh hơn 35% so với người mới vào nghề. Bảo vệ tính mạng và giữ chân những thợ lành nghề lâu năm là chìa khóa để vương quốc bứt phá kinh tế.
+
+[color=#ffd700][b]6. ĐIỀU PHỐI VÀ RA LỆNH TRỰC TIẾP (PACKAGE 2K MANUAL COMMANDS)[/b][/color]
+Bạn có thể trực tiếp chọn dân làng (chuột trái) và nhấp chuột phải lên bản đồ để ra lệnh khẩn cấp:
+  • [b]Di chuyển (Move):[/b] Chuột phải vào ô đất trống để dân di chuyển đến vị trí đó.
+  • [b]Chặt cây (Chop):[/b] Chuột phải vào cụm cây để đốn hạ và thu gom gỗ về kho.
+  • [b]Khai thác đá (Mine):[/b] Chuột phải vào mỏ đá để đập đá và vận chuyển đá về kho.
+  • [b]Xây dựng ưu tiên (Build):[/b] Chuột phải vào công trình đang thi công để phân công xây dựng ngay lập tức.
+  • [b]Vận chuyển kho đệm (Haul):[/b] Chuột phải vào nơi làm việc đầy hàng để gánh hàng về kho trung tâm.
+  • [b]Khám phá điểm mốc (Explore):[/b] Chuột phải vào Điểm Mốc (POI) để cử dân đến thám hiểm nhận thưởng.
+• Lệnh thủ công có quyền ưu tiên cao hơn công việc tự động thường nhật. Bạn có thể nhấn [b]Hủy Lệnh[/b] trong bảng thanh tra bất kỳ lúc nào để dân quay lại công việc tự động.""",
 
 	# Chương C
 	"""[color=#ffd700][b]1. CÁCH ĐẶT CÔNG TRÌNH VÀ QUY TẮC HỢP LỆ[/b][/color]

@@ -297,7 +297,7 @@ anchors_preset = 2
 anchor_top = 1.0
 anchor_bottom = 1.0
 offset_left = 16.0
-offset_top = -365.0
+offset_top = -415.0
 offset_right = 380.0
 offset_bottom = -56.0
 grow_vertical = 0
@@ -411,6 +411,23 @@ custom_minimum_size = Vector2(160, 16)
 layout_mode = 2
 size_flags_horizontal = 3
 value = 70.0
+
+[node name="ManualCommandContainer" type="VBoxContainer" parent="CitizenInspectPanel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="ManualCommandLabel" type="Label" parent="CitizenInspectPanel/MarginContainer/VBoxContainer/ManualCommandContainer"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.2, 0.9, 0.4, 1)
+theme_override_font_sizes/font_size = 12
+text = "Lệnh chỉ định: Không có"
+
+[node name="CancelManualOrderBtn" type="Button" parent="CitizenInspectPanel/MarginContainer/VBoxContainer/ManualCommandContainer"]
+visible = false
+custom_minimum_size = Vector2(0, 24)
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.4, 0.4, 1)
+text = "Hủy Lệnh"
 
 [node name="CloseCitizenBtn" type="Button" parent="CitizenInspectPanel/MarginContainer/VBoxContainer"]
 custom_minimum_size = Vector2(0, 26)

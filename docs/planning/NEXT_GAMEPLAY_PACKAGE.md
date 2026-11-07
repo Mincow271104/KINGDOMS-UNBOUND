@@ -135,10 +135,10 @@ Authored test suite: `scripts/test/test_manual_citizen_commands.gd`
 
 ## 6. DEFINITION OF DONE (DoD)
 
-- [ ] All 11 automated test scenarios in `test_manual_citizen_commands.gd` pass with Exit Code 0.
-- [ ] Full regression suite (`run_regression.ps1`) runs 62 suites with 61 PASS, 1 expected baseline failure (`TC-ARMY.32`), and 0 unexpected regressions.
-- [ ] Save/load persistence roundtrip verified with zero data corruption and full backward compatibility.
-- [ ] In-Game Player Field Guide (`player_field_guide.gd`) Chương B updated to mention manual right-click commands.
-- [ ] `docs/quality/BUG_AND_RISK_REGISTER.md` and `docs/WORKLOG.md` synchronized.
-- [ ] `git diff --cached --check` exits cleanly with 0 whitespace warnings.
-- [ ] Work committed locally on `feature/package-2k-manual-citizen-commands` without pushing to remote or merging.
+- [x] All 15 automated test scenarios in `test_manual_citizen_commands.gd` pass with Exit Code 0 (97/97 assertions).
+- [x] Full regression suite (`run_regression.ps1`) runs 62 suites with 61 PASS, 1 expected baseline failure (`TC-ARMY.32`), and 0 unexpected regressions.
+- [x] Save/load persistence roundtrip verified with zero data corruption and full backward compatibility.
+- [x] In-Game Player Field Guide (`player_field_guide.gd`) Chương B updated to mention manual right-click commands.
+- [x] `docs/quality/BUG_AND_RISK_REGISTER.md` and `docs/WORKLOG.md` synchronized.
+- [x] `git diff --cached --check` exits cleanly with 0 whitespace warnings.
+- [x] Work committed locally on `feature/package-2k-manual-citizen-commands` without pushing to remote or merging.

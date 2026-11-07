@@ -89,7 +89,7 @@ Legend:
 | Deterministic Immigration Gating (Housing/Food/Stab) | §6.7 | `scripts/world/immigration_manager.gd` | `test_save_load.gd` (GATE-B) | IMPLEMENTED | T1–T5 | Buildings | M | No |
 | Starvation Escalation (Stages 1–3) & Combat Death | §5.3 | `scripts/entities/citizen_controller.gd` | `test_citizens.gd`, `test_live_battle_loop.gd` | IMPLEMENTED | T1–T5 | ResMgr | M | No |
 | Individual Citizen Inspector & Role Reassignment | §14.4 | `scripts/ui/hud.gd` (`CitizenInspectPanel`) | `test_building_management.gd` (TC-BM.11) | IMPLEMENTED | T1–T5 | HUD | M | No |
-| **Manual Citizen Commands (Move/Chop/Mine/Build)** | **§8.2** | **None** | **No tests; right-click unhandled for civilians** | **MISSING** | **T0** | **Citizen, Nav** | **M** | **YES** |
+| **Manual Citizen Commands (Move/Chop/Mine/Build)** | **§8.2** | `scripts/entities/citizen_controller.gd`, `scripts/world/world_view.gd` | `test_manual_citizen_commands.gd` (97/97 PASS) | IMPLEMENTED | T1–T5 | Citizen, Nav | M | No |
 | Settlement-Wide Citizen Roster Table (Macro View) | §14.4 | `scripts/ui/hud.gd` | Only individual inspect exists | PARTIAL | T2–T3 | HUD | M | No |
 | Complex Family Trees & Genetic Breeding | §2.2 | N/A | Excluded in `SCOPE_DECISIONS.md §1.4` | DEFERRED | N/A | None | XL | No |
 
@@ -164,7 +164,7 @@ Legend:
 | Feature & Requirement | GDD Ref | Production Source | Test & Verification Evidence | Status | Fidelity | Deps | Size | Blocker? |
 |:---|:---:|:---|:---|:---:|:---|:---|:---:|:---:|
 | Versioned Save Schema & Fail-Closed Deserialization | §15.1 | `scripts/persistence/save_manager.gd` | `test_save_load.gd` (182/182 PASS) | IMPLEMENTED | T1–T5 | All mgrs | L | No |
-| 61-Suite Headless Regression Runner | §17.6 | `scripts/test/run_regression.ps1` | 60 PASS, 1 Baseline FAIL, Exit Code 0 | IMPLEMENTED | T1–T5 | Godot CLI | M | No |
+| 62-Suite Headless Regression Runner | §17.6 | `scripts/test/run_regression.ps1` | 61 PASS, 1 Baseline FAIL, Exit Code 0 | IMPLEMENTED | T1–T5 | Godot CLI | M | No |
 | 100-Citizen Stress Performance Invariant | §16.5 | `scripts/test/test_stress_100_citizens.gd`| 5.31s runtime, zero FPS freeze | IMPLEMENTED | T1–T5 | Entities | L | No |
 | **Standalone Distribution Export Presets (`export_presets.cfg`)** | **§16.1** | **None (`project.godot` only)** | **Untracked build pipeline; manual run only** | **MISSING** | **T0** | **Godot CLI** | **S** | **YES** |
 
@@ -239,9 +239,10 @@ flowchart LR
 ### Milestone 2 — Core Gameplay Complete (NEXT WORKSTREAM)
 - **Goal:** Transform the passive "watch-and-wait" simulation into an interactive, responsive colony builder where the player can directly guide citizens and manage labor.
 - **Required Packages:**
-  1. **Package 2K (Manual Citizen Commands & Direct Labor Dispatch — GDD §8.2 & §8.3):**
+  1. **Package 2K (Manual Citizen Commands & Direct Labor Dispatch — GDD §8.2 & §8.3) ✅ COMPLETE:**
      - Select any citizen -> right-click map tile to dispatch manual orders: Move, Chop Tree, Mine Rock, Construct Building, Haul Buffer Cargo, Scout POI.
-  2. **Package 2L (Settlement Citizen Roster & Priority Management — GDD §14.4):**
+     - Fully verified across 15 automated scenarios (97 assertions) in `test_manual_citizen_commands.gd`.
+  2. **Package 2L (Settlement Citizen Roster & Priority Management — GDD §14.4) (NEXT):**
      - Macro HUD panel listing all 24–50 citizens, their health/hunger/morale, vocational level, and quick role reassignment dropdown.
   3. **Package 2M (Civic Building Damage & Maintenance Repair — GDD §7.2, resolving `TC-ARMY.32`):**
      - Allow buildings to enter `damaged` state, deduct durability during raids/disasters, and add builder repair tasks to restore function.

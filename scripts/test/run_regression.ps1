@@ -139,6 +139,7 @@ $manifest = @(
     "scripts/test/test_legacy_fund.gd",
     "scripts/test/test_live_battle_loop.gd",
     "scripts/test/test_logistics.gd",
+    "scripts/test/test_manual_citizen_commands.gd",
     "scripts/test/test_market.gd",
     "scripts/test/test_mine.gd",
     "scripts/test/test_offensive_campaign.gd",
