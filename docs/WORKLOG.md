@@ -9530,3 +9530,46 @@ Final closure verification, GDScript warning cleanup, test parse error resolutio
 ### Next Exact Step
 - Commit Package 2J approved changes to `feature/package-2j-army-equipment-progression`.
 - Preserve unstaged AI M2-B prototype work for the future dedicated AI workstream.
+
+
+---
+
+## [2026-11-07] Post-Package 2J Correctness Fix — BUG-001: Hauler Cargo Conservation on Citizen Death ✅ COMPLETE
+
+### Context & Scope
+Following Project Owner authorization and Knowledge Base V2 adoption, active implementation transitioned to gameplay correctness defects. BUG-001 addressed the silent destruction of carried resources ($\le 10$ units) when a hauler citizen dies in transit.
+
+### Completed Work
+1. **Cargo Recovery in CitizenController (`scripts/entities/citizen_controller.gd`):**
+   - Implemented `recover_cargo(target_rm: Object = null) -> Dictionary` depositing remaining `carrying_amount` into central storage via `ResourceManager.add_resource()`.
+   - Handles storage capacity saturation gracefully: records partial deposits, warns in logs, and preserves remaining cargo.
+   - Updated `CitizenController.die()` to invoke `recover_cargo()` before emitting `citizen_died`.
+   - Enhanced `_get_resource_manager()` to discover injected resource managers via `world_view.call("_get_resource_mgr")`.
+2. **Defensive Storage Recovery in WorldView (`scripts/world/world_view.gd`):**
+   - Replaced direct root lookup in `_on_citizen_died()` with dependency-injected `_get_resource_mgr()`.
+   - Added fail-closed cargo conservation step before node removal and `queue_free()`, supporting both native `recover_cargo()` and duck-typed fallback access.
+3. **Automated Tracked Regression Suite (`scripts/test/test_hauler_death_cargo_conservation.gd`):**
+   - Authored authoritative 10-test suite covering:
+     - `TC-CARGO.1`: Food recovery on hauler death.
+     - `TC-CARGO.2`: Wood recovery on hauler death.
+     - `TC-CARGO.3`: Exact quantity single-deposit guarantee.
+     - `TC-CARGO.4`: Repeated death signal/callback idempotency.
+     - `TC-CARGO.5`: Zero-cargo normal death neutrality.
+     - `TC-CARGO.6`: Guard/combat death neutrality.
+     - `TC-CARGO.7`: Recovery when source workplace was demolished prior to worker death.
+     - `TC-CARGO.8`: Storage capacity capping preventing overflow.
+     - `TC-CARGO.9`: Post-recovery state cleanup consistency.
+     - `TC-CARGO.10`: BuildingSystem demolition cargo preflight unregressed.
+4. **Documentation Alignment:**
+   - Updated `docs/KNOWN_ISSUES.md` (added `ISSUE-007`).
+   - Updated `docs/quality/BUG_AND_RISK_REGISTER.md` (`BUG-001` marked CLOSED).
+   - Updated `docs/architecture/CORE_INVARIANTS.md` (`I-03` promoted to VERIFIED).
+
+### Verification & Test Evidence
+- **Automated Verification:** `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless -s res://scripts/test/test_hauler_death_cargo_conservation.gd`
+- **Result:** **10/10 PASS (Exit Code 0)**.
+- **Non-Regression:** `test_dynamic_workplaces.gd` passed cleanly (Exit Code 0).
+
+### Next Exact Step
+- Stage and commit BUG-001 changes (`fix(economy): conserve hauler cargo on citizen death`).
+- Proceed to Phase E: Implement RISK-008 (Truthful offensive campaign battle outcome feedback in HUD).

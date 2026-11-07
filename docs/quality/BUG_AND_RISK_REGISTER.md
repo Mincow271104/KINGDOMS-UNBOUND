@@ -9,7 +9,7 @@
 
 | ID | Sev | Title | Core Evidence & Files | Status |
 |:---|:---:|:---|:---|:---:|
-| **BUG-001** | Medium | Hauler cargo destroyed on citizen death | `scripts/entities/citizen_controller.gd` L770–799; `scripts/world/world_view.gd` L570–605. Goods ($\le 10$) freed with citizen node. | **OPEN** (Confirmed Static) |
+| **BUG-001** | Medium | Hauler cargo destroyed on citizen death | `scripts/entities/citizen_controller.gd` L770–799; `scripts/world/world_view.gd` L570–605. Resolved via `recover_cargo()` and `test_hauler_death_cargo_conservation.gd`. | **CLOSED** (Resolved in Post-2J Fixes) |
 
 ---
 

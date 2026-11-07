@@ -186,6 +186,10 @@ func set_custom_time_manager(tm: Object) -> void:
 func _get_resource_manager() -> Object:
 	if _custom_resource_mgr != null and is_instance_valid(_custom_resource_mgr):
 		return _custom_resource_mgr
+	if world_view != null and is_instance_valid(world_view) and world_view.has_method("_get_resource_mgr"):
+		var wv_rm = world_view.call("_get_resource_mgr")
+		if wv_rm != null and is_instance_valid(wv_rm):
+			return wv_rm
 	if is_inside_tree() and has_node("/root/ResourceManager"):
 		return get_node("/root/ResourceManager")
 	var ml = Engine.get_main_loop()
@@ -466,6 +470,29 @@ func _deposit_hauler_cargo() -> void:
 			active_job = null
 		current_state = State.IDLE
 		status_reason = "Kho trung tâm đã đầy, còn giữ %d %s" % [carrying_amount, carrying_resource]
+
+func recover_cargo(target_rm: Object = null) -> Dictionary:
+	if carrying_amount <= 0 or carrying_resource.is_empty():
+		return {"recovered": 0, "resource": "", "remaining": 0, "status": "no_cargo"}
+
+	var rm: Object = target_rm if target_rm != null else _get_resource_manager()
+	if rm == null or not rm.has_method("add_resource"):
+		push_error("[CitizenController] Cannot recover cargo for citizen %s: ResourceManager unavailable" % citizen_id)
+		return {"recovered": 0, "resource": carrying_resource, "remaining": carrying_amount, "status": "error_no_rm"}
+
+	var to_recover: int = carrying_amount
+	var res_type: String = carrying_resource
+	var added: int = int(rm.call("add_resource", res_type, to_recover))
+	carrying_amount -= added
+
+	if carrying_amount <= 0:
+		carrying_amount = 0
+		carrying_resource = ""
+		carrying_source_workplace_id = ""
+		return {"recovered": added, "resource": res_type, "remaining": 0, "status": "success"}
+	else:
+		push_warning("[CitizenController] Partial cargo recovery for citizen %s: %d %s deposited, %d %s remains (storage at capacity)" % [citizen_id, added, res_type, carrying_amount, res_type])
+		return {"recovered": added, "resource": res_type, "remaining": carrying_amount, "status": "partial_capacity"}
 
 func _process_working(delta: float) -> void:
 	if active_job == null or job_mgr == null:
@@ -796,6 +823,9 @@ func die(reason: String = "Đã qua đời vì suy kiệt", cause: String = "") 
 
 	if not _death_processed:
 		_death_processed = true
+		# Conserve carried cargo on death (BUG-001) before emitting death signal
+		if carrying_amount > 0 and not carrying_resource.is_empty():
+			recover_cargo()
 		citizen_died.emit(citizen_id)
 
 func is_alive() -> bool:

@@ -577,7 +577,7 @@ func _on_citizen_died(died_id: String) -> void:
 
 	deceased_citizen_ids[died_id] = true
 
-	var rm = get_node_or_null("/root/ResourceManager")
+	var rm = _get_resource_mgr()
 	var em = get_node_or_null("/root/EventManager")
 	var is_combat_death: bool = false
 	var explicit_cause: String = String(cit.get("death_cause")) if cit.get("death_cause") != null else ""
@@ -587,6 +587,21 @@ func _on_citizen_died(died_id: String) -> void:
 		var status_reason: String = String(cit.get("status_reason"))
 		if status_reason.contains("Tử trận"):
 			is_combat_death = true
+
+	# Conserve carried goods on citizen death (BUG-001): deposit into central storage before node is freed
+	if is_instance_valid(cit):
+		if cit.has_method("recover_cargo"):
+			cit.call("recover_cargo", rm)
+		else:
+			var carry_amt: int = int(cit.get("carrying_amount")) if cit.get("carrying_amount") != null else 0
+			var carry_res: String = String(cit.get("carrying_resource")) if cit.get("carrying_resource") != null else ""
+			if carry_amt > 0 and not carry_res.is_empty() and rm != null and rm.has_method("add_resource"):
+				var added: int = int(rm.call("add_resource", carry_res, carry_amt))
+				var rem: int = carry_amt - added
+				cit.set("carrying_amount", rem)
+				if rem <= 0:
+					cit.set("carrying_resource", "")
+					cit.set("carrying_source_workplace_id", "")
 
 	citizen_list.erase(cit)
 	citizens_by_id.erase(died_id)
