@@ -26,7 +26,7 @@
 
 | ID | Sev | Title | Core Evidence & Files | Status |
 |:---|:---:|:---|:---|:---:|
-| **RISK-001** | Low | `commit_cost()` trusts caller and silently clamps to 0 | `scripts/economy/resource_manager.gd` L131–137. | **OPEN** (Latent API Hazard) |
+| **RISK-001** | Low | `commit_cost()` trusts caller and silently clamps to 0 | `scripts/economy/resource_manager.gd` L131–230. Enforced strict reservation matching, fail-closed validation, and ticket-based transaction API. Verified in `test_resource_transaction_integrity.gd` (88/88 checks PASS). | **CLOSED** (Resolved in Batch 3) |
 | **RISK-002** | Low | Resolved siege records accumulate and evaluate every frame | `scripts/combat/field_siege_manager.gd` L399–408, L507–508; `scripts/world/world_view.gd` L833–839. | **OPEN** |
 | **RISK-003** | Low | `TacticalUnit.faction_id` defaults to `"player"` | `scripts/military/tactical_unit.gd` L34, L102–111; `scripts/military/enemy_tactical_unit.gd` L31–35. | **OPEN** (Latent Hazard) |
 | **RISK-004** | Low | Faction `in_exile` and `eliminated` statuses unreachable | `scripts/factions/faction_data.gd` L180; `scripts/factions/faction_manager.gd` L446–452. | **OPEN** (Product Question) |

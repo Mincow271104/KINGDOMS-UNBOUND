@@ -9780,5 +9780,73 @@ Implement reliable, tracked regression infrastructure to replace fragile untrack
   - **Result:** **57 PASSED, 1 EXPECTED BASELINE FAILURE (TC-ARMY.32), 0 UNEXPECTED FAILURES (Exit Code 0)**.
 
 ### Next Exact Step
-- Stage and commit GAP-002 / GAP-006 / GAP-007 changes: `test: add reliable headless regression runner`.
-- Final review and task completion report to Project Owner.
+- Stage and commit GAP-002 / GAP-006 / GAP-007 changes: `test: add reliable headless regression runner` (Completed).
+- Final review and task completion report to Project Owner (Completed).
+
+---
+
+## [2026-11-07] Active Development Batch 3 — RISK-001: ResourceManager Transaction Integrity ✅ COMPLETE
+
+### Context & Scope
+Remediate RISK-001 (ResourceManager `commit_cost()` trusts caller and silently clamps to 0). Audit all callers of `reserve_cost()` and `commit_cost()`. Prevent double commits, unreserved commits, stolen reservation releases, and free purchases. Implement a safe transaction contract in `scripts/economy/resource_manager.gd` with 100% backward compatibility for all existing production callers, and author comprehensive automated test suite `scripts/test/test_resource_transaction_integrity.gd`.
+
+### Completed Work
+1. **ResourceManager Ledger Hardening (`scripts/economy/resource_manager.gd`):**
+   - Implemented strict active reservation tracking using dual structures:
+     - `_direct_reservations`: Aggregated per-resource direct reservations.
+     - `_direct_reservation_records`: Array of active reservation cost records (`Array[Dictionary]`) enabling exact-match lookup and consumption.
+     - `_ticketed_reservations`: Isolated ledger for ticket-based transactions.
+     - `_active_transactions`: Transaction ticket registry mapping `tx_id` to cost payload.
+   - Updated `reset_economy()`: Clears `_direct_reservations`, `_direct_reservation_records`, `_ticketed_reservations`, `_active_transactions`, and resets `_next_tx_id = 1`.
+   - Hardened `reserve_cost(cost: Dictionary) -> bool`:
+     - Preflight validation rejecting empty cost, non-positive integer amounts, or insufficient available stock.
+     - All-or-nothing atomic reservation across both `_direct_reservations` and `_reserved_stock`.
+     - Appends immutable reservation record to `_direct_reservation_records`.
+     - Emits `resource_changed` for all affected resources and returns `true`.
+   - Hardened `commit_cost(cost: Dictionary) -> bool`:
+     - Preflight validation: Fails closed (`false`) without mutating ledger state if cost is empty, amounts $\le 0$, `_direct_reservations` insufficient, `_reserved_stock` insufficient, or `_current_stock` insufficient.
+     - Reservation record match: Requires an exact matching record in `_direct_reservation_records`, preventing unreserved commits or duplicate commits.
+     - Deducts from `_direct_reservations`, `_direct_reservation_records`, `_reserved_stock`, and `_current_stock`, updates daily consumption tallies, emits `resource_changed`, and returns `true`.
+   - Hardened `release_cost(cost: Dictionary) -> bool`:
+     - Preflight validation: Fails closed (`false`) if no matching record exists in `_direct_reservation_records`.
+     - Prevents double releases and prevents concurrent orders from stealing other callers' active reservations.
+   - Formal Transaction Ticket API:
+     - `begin_transaction(cost: Dictionary) -> String`: Atomically reserves cost and returns unique ticket ID (`"tx_1"`, etc.); returns `""` on failure.
+     - `commit_transaction(tx_id: String) -> bool`: Commits ticketed reservation from `_ticketed_reservations` and `_current_stock`; cleans up ticket.
+     - `rollback_transaction(tx_id: String) -> bool`: Rolls back ticketed reservation, restoring available stock cleanly; cleans up ticket.
+     - `has_active_transaction(tx_id: String) -> bool`: Verifies ticket existence.
+2. **Automated Test Suite (`scripts/test/test_resource_transaction_integrity.gd`):**
+   - Authored comprehensive 11-scenario test suite covering 88 individual assertions:
+     - Scenario 1: Valid reserve + commit (direct & ticketed).
+     - Scenario 2: Commit without reservation fails closed (returns false, 0 stock deducted).
+     - Scenario 3: Double commit fails closed (second commit returns false, stock deducted once).
+     - Scenario 4: Concurrent reservations with limited stock (first succeeds, second rejected when stock insufficient).
+     - Scenario 5: Partial reservation rejected (all-or-nothing atomicity).
+     - Scenario 6: Rollback / release_cost restores available stock (direct & ticketed).
+     - Scenario 7: Double rollback fails closed without stealing concurrent reservations.
+     - Scenario 8: Failed transaction invariance (0 side effects across ledger snapshot).
+     - Scenario 9: BuildingSystem construction integration (`place_building` house).
+     - Scenario 10: PlayerArmyManager equipment upgrade integration (`upgrade_equipment` Tier 2).
+     - Scenario 11: WorkplaceManager production integration (`produce_to_buffer` workshop tools).
+3. **Regression Manifest Update (`scripts/test/run_regression.ps1`):**
+   - Added `scripts/test/test_resource_transaction_integrity.gd` to test manifest.
+   - Re-verified runner self-test (4/4 fixtures PASS, Exit Code 0).
+4. **Documentation & Register Updates:**
+   - Updated `docs/quality/BUG_AND_RISK_REGISTER.md`: Promoted `RISK-001` to CLOSED.
+   - Updated `docs/architecture/CORE_INVARIANTS.md`: Promoted `I-02` to VERIFIED.
+   - Updated `docs/KNOWN_ISSUES.md`: Added `ISSUE-011`.
+
+### Verification & Test Evidence
+- **Automated Verification:** `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless -s res://scripts/test/test_resource_transaction_integrity.gd`
+  - **Result:** **88/88 checks PASS (Exit Code 0)**.
+- **Economy & Combat Non-Regression:**
+  - `test_economy.gd`: **PASS (Exit Code 0)**.
+  - `test_gold_transactions.gd`: **PASS (Exit Code 0)**.
+  - `test_dynamic_workplaces.gd`: **PASS (Exit Code 0)**.
+  - `test_workshop.gd`: **PASS (Exit Code 0)**.
+  - `test_construction.gd`: **PASS (Exit Code 0)**.
+  - `test_army_equipment.gd`: **PASS (103/103 assertions PASS, Exit Code 0)**.
+
+### Next Exact Step
+- Stage and commit RISK-001 changes: `fix(economy): enforce resource transaction integrity`.
+- Proceed to Step 2: Implement RISK-002 (Bound Resolved Field Siege Records).

@@ -13,6 +13,18 @@
 
 ## Resolved Issues
 
+### ISSUE-011: ResourceManager commit_cost() Lacked Reservation Validation (Resolved in Batch 3 / RISK-001)
+- **Severity:** Low / Latent API Hazard
+- **Symptom:** `ResourceManager.commit_cost()` and `release_cost()` previously trusted callers without verifying whether a matching reservation existed in the ledger. Unreserved commits silently deducted stock or clamped to 0 (`maxi(0, ...)`), double commits deducted stock twice or clamped to 0, and unreserved releases could steal reservations made by concurrent orders.
+- **Resolution:**
+  - Implemented strict active reservation tracking in `ResourceManager` using both aggregated dictionaries (`_direct_reservations`) and atomic reservation records (`_direct_reservation_records`).
+  - Updated `reserve_cost(cost)` to validate positive integer quantities, reject empty costs, verify affordability, and store an immutable reservation record.
+  - Hardened `commit_cost(cost)` to fail closed without state mutations if no matching reservation record exists or if available stock is insufficient, returning a boolean status.
+  - Hardened `release_cost(cost)` to fail closed without state mutations if no matching reservation record exists, preventing stolen reservations across concurrent orders.
+  - Implemented a formal transaction ticket API: `begin_transaction(cost) -> String`, `commit_transaction(tx_id) -> bool`, `rollback_transaction(tx_id) -> bool`, and `has_active_transaction(tx_id) -> bool` with isolated `_ticketed_reservations`.
+  - Authored automated test suite `scripts/test/test_resource_transaction_integrity.gd` covering 11 scenarios (88 checks), verifying direct and ticketed commit/rollback atomicity, fail-closed boundaries, ledger invariance, and end-to-end integration with `BuildingSystem`, `PlayerArmyManager`, and `WorkplaceManager`.
+- **Verification:** 88/88 automated assertions passed (Exit Code 0). Invariant `I-02` promoted to VERIFIED.
+
 ### ISSUE-010: Dynamic Non-Recurring Jobs Accumulated Unboundedly in JobManager._jobs (Resolved in Batch 2 / BUG-002)
 - **Severity:** Medium / Memory & Algorithmic Scalability
 - **Symptom:** In `JobManager`, completed (`COMPLETED`) and cancelled (`CANCELLED`) non-recurring jobs (such as hauling batches and temporary construction assignments) remained in the internal `_jobs` registry indefinitely. Over long gameplay sessions with thousands of hauling deliveries or construction tasks, `_jobs` grew monotonically, increasing memory footprint and degrading linear scan performance across `request_job()`, `get_all_jobs()`, and `WorkplaceManager._has_pending_hauling_job()`.

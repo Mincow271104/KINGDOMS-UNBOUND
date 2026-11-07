@@ -16,9 +16,10 @@
 
 ---
 
-### I-02: Cost transactions must be `reserve` $\rightarrow$ `commit` in one synchronous call — VERIFIED
-- **Rule:** Resource deduction must begin with an all-or-nothing `reserve_cost(cost)`, followed immediately and synchronously by `commit_cost(cost)` (or `release_cost(cost)` on abort). Because `commit_cost()` does not validate previous reservations and clamps at 0 (`RISK-001`), unreserved commits are strictly forbidden. Multi-resource credits requiring atomicity must use `add_resources_atomic()`.
-- **Source Files & Functions:** `scripts/economy/resource_manager.gd` L117–145; `scripts/military/player_army_manager.gd` L368–378; `scripts/economy/workplace_manager.gd` L201–203.
+### I-02: Cost transactions must be `reserve` $\rightarrow$ `commit` in one synchronous call — **VERIFIED**
+- **Rule:** Resource deduction must begin with an all-or-nothing `reserve_cost(cost)`, followed immediately and synchronously by `commit_cost(cost)` (or `release_cost(cost)` on abort). Multi-resource credits requiring atomicity must use `add_resources_atomic()`.
+- **Resolution (RISK-001):** `ResourceManager` enforces strict fail-closed reservation matching, preventing unreserved commits, double commits, stolen releases, and free purchases. Direct reservations track active reservation records with all-or-nothing matching, while a formal transaction ticket API (`begin_transaction`, `commit_transaction`, `rollback_transaction`, `has_active_transaction`) provides complete isolation for callers. Verified across 11 scenarios (88 checks) in `scripts/test/test_resource_transaction_integrity.gd`.
+- **Source Files & Functions:** `scripts/economy/resource_manager.gd` L131–260; `scripts/military/player_army_manager.gd` L368–378; `scripts/economy/workplace_manager.gd` L201–203.
 - **Related IDs:** `RISK-001`.
 
 ---

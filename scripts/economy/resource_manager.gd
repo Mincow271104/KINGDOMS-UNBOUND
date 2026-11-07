@@ -9,6 +9,11 @@ signal deficit_warning(id: String, message: String)
 
 var _current_stock: Dictionary = {}
 var _reserved_stock: Dictionary = {}
+var _direct_reservations: Dictionary = {}
+var _direct_reservation_records: Array[Dictionary] = []
+var _ticketed_reservations: Dictionary = {}
+var _active_transactions: Dictionary = {}
+var _next_tx_id: int = 1
 var _capacities: Dictionary = {}
 
 var _daily_production_tallies: Dictionary = {}
@@ -48,6 +53,11 @@ func _ready() -> void:
 func reset_economy() -> void:
 	_current_stock.clear()
 	_reserved_stock.clear()
+	_direct_reservations.clear()
+	_direct_reservation_records.clear()
+	_ticketed_reservations.clear()
+	_active_transactions.clear()
+	_next_tx_id = 1
 	_capacities.clear()
 	_daily_production_tallies.clear()
 	_daily_consumption_tallies.clear()
@@ -72,6 +82,8 @@ func reset_economy() -> void:
 			
 		_current_stock[res_id] = start_qty
 		_reserved_stock[res_id] = 0
+		_direct_reservations[res_id] = 0
+		_ticketed_reservations[res_id] = 0
 		_capacities[res_id] = total_cap
 		_daily_production_tallies[res_id] = 0.0
 		_daily_consumption_tallies[res_id] = 0.0
@@ -108,40 +120,199 @@ func has_resource(res_id: String, amount: int) -> bool:
 	return get_available_stock(res_id) >= amount
 
 func can_afford(cost: Dictionary) -> bool:
+	if cost.is_empty():
+		return false
 	for res_id in cost:
-		var needed: int = cost[res_id]
+		var needed: int = int(cost[res_id])
+		if needed < 0:
+			return false
 		if get_available_stock(res_id) < needed:
+			return false
+	return true
+
+func _dicts_match(a: Dictionary, b: Dictionary) -> bool:
+	if a.size() != b.size():
+		return false
+	for k in a:
+		var k_str: String = str(k)
+		var found_match: bool = false
+		for bk in b:
+			if str(bk) == k_str:
+				if int(a[k]) == int(b[bk]):
+					found_match = true
+					break
+				else:
+					return false
+		if not found_match:
 			return false
 	return true
 
 ## Atomically reserves all resources in cost dict (all-or-nothing).
 ## Prevents two systems or orders from double-spending the same available materials.
 func reserve_cost(cost: Dictionary) -> bool:
+	if cost.is_empty():
+		return false
+	for res_id in cost:
+		var needed: int = int(cost[res_id])
+		if needed <= 0:
+			return false
 	if not can_afford(cost):
 		return false
 		
 	# All-or-nothing reservation
+	var cost_copy: Dictionary = {}
 	for res_id in cost:
-		var amount: int = cost[res_id]
+		var amount: int = int(cost[res_id])
+		cost_copy[res_id] = amount
+		_direct_reservations[res_id] = _direct_reservations.get(res_id, 0) + amount
 		_reserved_stock[res_id] = _reserved_stock.get(res_id, 0) + amount
 		resource_changed.emit(res_id, get_available_stock(res_id), get_total_stock(res_id))
+	_direct_reservation_records.append(cost_copy)
 	return true
 
 ## Commits a previously reserved cost (deducts from actual inventory).
-func commit_cost(cost: Dictionary) -> void:
+## Fails closed if cost is invalid, unreserved, or exceeds current stock.
+func commit_cost(cost: Dictionary) -> bool:
+	if cost.is_empty():
+		return false
+	# Preflight validation: fail closed if any resource lacks reservation or stock
 	for res_id in cost:
-		var amount: int = cost[res_id]
-		_reserved_stock[res_id] = maxi(0, _reserved_stock.get(res_id, 0) - amount)
-		_current_stock[res_id] = maxi(0, _current_stock.get(res_id, 0) - amount)
+		var amount: int = int(cost[res_id])
+		if amount <= 0:
+			return false
+		if _direct_reservations.get(res_id, 0) < amount:
+			return false
+		if _reserved_stock.get(res_id, 0) < amount:
+			return false
+		if _current_stock.get(res_id, 0) < amount:
+			return false
+
+	# Match against active direct reservation records
+	var record_idx: int = -1
+	for i in range(_direct_reservation_records.size()):
+		if _dicts_match(_direct_reservation_records[i], cost):
+			record_idx = i
+			break
+	if record_idx == -1:
+		return false
+
+	# All-or-nothing deduction
+	_direct_reservation_records.remove_at(record_idx)
+	for res_id in cost:
+		var amount: int = int(cost[res_id])
+		_direct_reservations[res_id] = _direct_reservations.get(res_id, 0) - amount
+		_reserved_stock[res_id] = _reserved_stock.get(res_id, 0) - amount
+		_current_stock[res_id] = _current_stock.get(res_id, 0) - amount
 		_daily_consumption_tallies[res_id] = _daily_consumption_tallies.get(res_id, 0.0) + float(amount)
 		resource_changed.emit(res_id, get_available_stock(res_id), get_total_stock(res_id))
+	return true
 
 ## Releases a previously reserved cost back to available stock.
-func release_cost(cost: Dictionary) -> void:
+## Fails closed if cost is invalid or unreserved.
+func release_cost(cost: Dictionary) -> bool:
+	if cost.is_empty():
+		return false
+	# Preflight validation: fail closed if any resource lacks reservation
 	for res_id in cost:
-		var amount: int = cost[res_id]
-		_reserved_stock[res_id] = maxi(0, _reserved_stock.get(res_id, 0) - amount)
+		var amount: int = int(cost[res_id])
+		if amount <= 0:
+			return false
+		if _direct_reservations.get(res_id, 0) < amount:
+			return false
+		if _reserved_stock.get(res_id, 0) < amount:
+			return false
+
+	# Match against active direct reservation records
+	var record_idx: int = -1
+	for i in range(_direct_reservation_records.size()):
+		if _dicts_match(_direct_reservation_records[i], cost):
+			record_idx = i
+			break
+	if record_idx == -1:
+		return false
+
+	# All-or-nothing release
+	_direct_reservation_records.remove_at(record_idx)
+	for res_id in cost:
+		var amount: int = int(cost[res_id])
+		_direct_reservations[res_id] = _direct_reservations.get(res_id, 0) - amount
+		_reserved_stock[res_id] = _reserved_stock.get(res_id, 0) - amount
 		resource_changed.emit(res_id, get_available_stock(res_id), get_total_stock(res_id))
+	return true
+
+## Begins a tracked transaction by reserving the cost and returning a transaction ticket ID.
+## Returns an empty string if reservation fails.
+func begin_transaction(cost: Dictionary) -> String:
+	if cost.is_empty():
+		return ""
+	for res_id in cost:
+		var amount: int = int(cost[res_id])
+		if amount <= 0:
+			return ""
+	if not can_afford(cost):
+		return ""
+
+	var tx_id: String = "tx_%d" % _next_tx_id
+	_next_tx_id += 1
+	var cost_copy: Dictionary = {}
+	for res_id in cost:
+		var amount: int = int(cost[res_id])
+		cost_copy[res_id] = amount
+		_ticketed_reservations[res_id] = _ticketed_reservations.get(res_id, 0) + amount
+		_reserved_stock[res_id] = _reserved_stock.get(res_id, 0) + amount
+		resource_changed.emit(res_id, get_available_stock(res_id), get_total_stock(res_id))
+	_active_transactions[tx_id] = cost_copy
+	return tx_id
+
+## Commits a tracked transaction ticket, deducting reserved materials from stock.
+## Returns true on success, false if transaction does not exist or cannot be committed.
+func commit_transaction(tx_id: String) -> bool:
+	if not _active_transactions.has(tx_id):
+		return false
+	var cost: Dictionary = _active_transactions[tx_id]
+	for res_id in cost:
+		var amount: int = int(cost[res_id])
+		if _ticketed_reservations.get(res_id, 0) < amount:
+			return false
+		if _reserved_stock.get(res_id, 0) < amount:
+			return false
+		if _current_stock.get(res_id, 0) < amount:
+			return false
+
+	for res_id in cost:
+		var amount: int = int(cost[res_id])
+		_ticketed_reservations[res_id] = _ticketed_reservations.get(res_id, 0) - amount
+		_reserved_stock[res_id] = _reserved_stock.get(res_id, 0) - amount
+		_current_stock[res_id] = _current_stock.get(res_id, 0) - amount
+		_daily_consumption_tallies[res_id] = _daily_consumption_tallies.get(res_id, 0.0) + float(amount)
+		resource_changed.emit(res_id, get_available_stock(res_id), get_total_stock(res_id))
+	_active_transactions.erase(tx_id)
+	return true
+
+## Rolls back a tracked transaction ticket, releasing reserved materials back to available stock.
+## Returns true on success, false if transaction does not exist.
+func rollback_transaction(tx_id: String) -> bool:
+	if not _active_transactions.has(tx_id):
+		return false
+	var cost: Dictionary = _active_transactions[tx_id]
+	for res_id in cost:
+		var amount: int = int(cost[res_id])
+		if _ticketed_reservations.get(res_id, 0) < amount:
+			return false
+		if _reserved_stock.get(res_id, 0) < amount:
+			return false
+
+	for res_id in cost:
+		var amount: int = int(cost[res_id])
+		_ticketed_reservations[res_id] = _ticketed_reservations.get(res_id, 0) - amount
+		_reserved_stock[res_id] = _reserved_stock.get(res_id, 0) - amount
+		resource_changed.emit(res_id, get_available_stock(res_id), get_total_stock(res_id))
+	_active_transactions.erase(tx_id)
+	return true
+
+## Checks whether a transaction ticket is currently active.
+func has_active_transaction(tx_id: String) -> bool:
+	return _active_transactions.has(tx_id)
 
 ## Adds resource to central stock, bounded by storage capacity.
 ## Returns amount actually stored.
