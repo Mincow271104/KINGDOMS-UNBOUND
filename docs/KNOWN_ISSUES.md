@@ -13,6 +13,18 @@
 
 ## Resolved Issues
 
+### ISSUE-010: Dynamic Non-Recurring Jobs Accumulated Unboundedly in JobManager._jobs (Resolved in Batch 2 / BUG-002)
+- **Severity:** Medium / Memory & Algorithmic Scalability
+- **Symptom:** In `JobManager`, completed (`COMPLETED`) and cancelled (`CANCELLED`) non-recurring jobs (such as hauling batches and temporary construction assignments) remained in the internal `_jobs` registry indefinitely. Over long gameplay sessions with thousands of hauling deliveries or construction tasks, `_jobs` grew monotonically, increasing memory footprint and degrading linear scan performance across `request_job()`, `get_all_jobs()`, and `WorkplaceManager._has_pending_hauling_job()`.
+- **Resolution:**
+  - Updated `JobManager.complete_job(job)`: When `job.is_recurring` is `false`, sets `job.state = JobState.COMPLETED`, clears `worker_id`, and prunes the job from `_jobs`.
+  - Updated `JobManager.cancel_job(job, reason)`: When `job.is_recurring` is `false`, sets `job.state = JobState.CANCELLED`, clears `worker_id`, and prunes the job from `_jobs`.
+  - Preserved recurring jobs (`is_recurring = true`): On completion, recurring jobs reset strictly to `JobState.AVAILABLE` with reset work hours and worker IDs, remaining in `_jobs`.
+  - Added bounded ring-buffer terminal history: `JobManager._terminal_jobs_history` (bounded at `MAX_TERMINAL_HISTORY = 50`) accessible via `get_recent_terminal_jobs()`, allowing inspection/debugging without unbounded growth.
+  - Updated `get_all_jobs()` to return `_jobs.duplicate()`, preventing iterator invalidation when callers iterate and mutate jobs.
+  - Authored automated test suite `scripts/test/test_job_lifecycle_pruning.gd` covering 10 scenarios (`TC-JOB.1` through `TC-JOB.10`), including a 1,000-cycle stress test confirming strictly bounded array size.
+- **Verification:** 10/10 automated tests passed (Exit Code 0). Invariant `I-05` promoted from PARTIAL to VERIFIED.
+
 ### ISSUE-009: Daily Autosave Overwriting Manual Save Slot (Resolved in Batch 2 / BUG-003)
 - **Severity:** Medium / Data Integrity & Player Control
 - **Symptom:** In `WorldView._on_simulation_day_passed()`, daily autosave invoked `SaveManager.save_to_file("user://saves/world_save.json")`, directly overwriting the player's manual save slot and preventing players from retaining manual checkpoints.

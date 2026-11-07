@@ -38,11 +38,11 @@
 
 ---
 
-### I-05: Job state machine lifecycle — **PARTIAL**
+### I-05: Job state machine lifecycle — **VERIFIED**
 - **Rule:** Jobs transition strictly: `AVAILABLE` $\rightarrow$ `RESERVED` (upon `request_job`) $\rightarrow$ `IN_PROGRESS` $\rightarrow$ `COMPLETED` (or back to `AVAILABLE` for recurring jobs). Blocked paths, worker death, and role changes must call `release_job()`. Starter recurring jobs (`farm_starter`, `woodcutter_starter`) survive save loads.
-- **Architectural Gap:** Terminal dynamic non-recurring jobs (`is_recurring = false`) transition to `COMPLETED` or `CANCELLED`, but are never pruned from `JobManager._jobs`, causing unbounded array growth over long sessions.
-- **Source Files & Functions:** `scripts/jobs/job_manager.gd` L200–330; `scripts/entities/citizen_controller.gd`.
-- **Related IDs:** `BUG-002`, `GAP-003`.
+- **Pruning & Bounded Lifecycle (BUG-002):** Terminal dynamic non-recurring jobs (`is_recurring = false`) that transition to `COMPLETED` or `CANCELLED` are pruned immediately from the active `_jobs` registry, while recurring jobs loop cleanly back to `AVAILABLE`. A bounded ring buffer (`_terminal_jobs_history`, size $\le 50$) retains recent history for diagnostics without memory bloat. Verified across 10 scenarios in `scripts/test/test_job_lifecycle_pruning.gd` (including 1,000-cycle stress test).
+- **Source Files & Functions:** `scripts/jobs/job_manager.gd` L275–365; `scripts/entities/citizen_controller.gd`.
+- **Related IDs:** `BUG-002` (CLOSED), `GAP-003`.
 
 ---
 

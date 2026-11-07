@@ -9689,5 +9689,55 @@ Resolve BUG-003 where daily simulation autosaves in `WorldView._on_simulation_da
 - **Result:** **10/10 PASS (Exit Code 0)**.
 
 ### Next Exact Step
-- Stage and commit BUG-003 changes: `fix(persistence): isolate autosave from manual save`.
-- Proceed to BUG-002: Prevent unbounded terminal job accumulation in `JobManager`.
+- Stage and commit BUG-003 changes: `fix(persistence): isolate autosave from manual save` (Completed).
+- Implement BUG-002: Prevent unbounded terminal job accumulation in `JobManager` (Completed).
+- Stage and commit: `fix(jobs): prune terminal non-recurring jobs`.
+- Proceed to GAP-002 / GAP-006 / GAP-007: Implement tracked headless regression runner.
+
+
+---
+
+## [2026-11-07] Active Development Batch 2 — BUG-002: Prevent Unbounded Terminal Job Accumulation ✅ COMPLETE
+
+### Context & Scope
+Resolve BUG-002 where completed and cancelled non-recurring jobs (such as hauling batches and temporary construction assignments) accumulated infinitely in `JobManager._jobs`. This unbounded growth caused memory bloat and progressively slowed down linear iteration in job assignment loops (`request_job`, `_has_pending_hauling_job`, `get_all_jobs`).
+
+### Completed Work
+1. **Terminal Non-Recurring Job Pruning (`scripts/jobs/job_manager.gd`):**
+   - Modified `complete_job(job: JobData)`: For non-recurring jobs (`is_recurring == false`), sets `job.state = JobState.COMPLETED`, clears `worker_id`, and prunes the job from `_jobs` via `_remove_job_internal(job)`.
+   - Modified `cancel_job(job: JobData, reason)`: For non-recurring jobs (`is_recurring == false`), sets `job.state = JobState.CANCELLED`, clears `worker_id`, and prunes the job from `_jobs`.
+   - Maintained recurring job loop: When `is_recurring == true`, `complete_job()` resets state strictly to `JobState.AVAILABLE`, clears worker ID and work hours, and preserves the job in `_jobs`.
+2. **Bounded Diagnostic Terminal History:**
+   - Introduced `_terminal_jobs_history: Array[JobData] = []` clamped to `MAX_TERMINAL_HISTORY = 50`.
+   - Added public accessors `get_recent_terminal_jobs() -> Array[JobData]` and `get_terminal_jobs_count() -> int` allowing runtime inspection and debugging without memory bloat.
+   - Updated `get_all_jobs()` to return `_jobs.duplicate()` to prevent iterator invalidation when callers iterate and mutate jobs.
+3. **Automated Tracked Regression Suite (`scripts/test/test_job_lifecycle_pruning.gd`):**
+   - Authored authoritative 10-test suite covering:
+     - `TC-JOB.1`: Completed non-recurring jobs are pruned from active registry while retaining COMPLETED state.
+     - `TC-JOB.2`: Cancelled non-recurring jobs are cleanly pruned from active registry.
+     - `TC-JOB.3`: Recurring jobs reset to AVAILABLE and remain in active registry upon completion.
+     - `TC-JOB.4`: Active, reserved, and in-progress jobs are strictly preserved.
+     - `TC-JOB.5`: Citizen job completion correctly clears active_job and prunes job without dangling references.
+     - `TC-JOB.6`: WorkplaceManager._has_pending_hauling_job correctly transitions false -> true -> false on pruning.
+     - `TC-JOB.7`: 5 consecutive production/hauling cycles maintain zero duplicate pending jobs and zero bloat.
+     - `TC-JOB.8`: 1,000 completion/cancellation cycles maintain strictly bounded active registry size (exactly 4).
+     - `TC-JOB.9`: Terminal history ring buffer is strictly bounded at 50 elements.
+     - `TC-JOB.10`: `clear_dynamic_jobs` preserves starter recurring jobs, resets runtime state, and clears terminal history.
+4. **Documentation Alignment:**
+   - Updated `docs/KNOWN_ISSUES.md` (added `ISSUE-010`).
+   - Updated `docs/quality/BUG_AND_RISK_REGISTER.md` (`BUG-002` marked CLOSED).
+   - Updated `docs/architecture/CORE_INVARIANTS.md` (`I-05` promoted from PARTIAL to VERIFIED).
+
+### Verification & Test Evidence
+- **Automated Verification:** `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless -s res://scripts/test/test_job_lifecycle_pruning.gd`
+- **Result:** **10/10 PASS (Exit Code 0)**.
+- **Non-Regression Verification:**
+  - `test_logistics.gd`: **PASS (Exit Code 0)**.
+  - `test_dynamic_workplaces.gd`: **PASS (Exit Code 0)**.
+  - `test_construction.gd`: **PASS (Exit Code 0)**.
+  - `test_workshop.gd`: **PASS (Exit Code 0)**.
+  - `test_save_slot_isolation.gd`: **PASS (Exit Code 0)**.
+
+### Next Exact Step
+- Stage and commit BUG-002 changes: `fix(jobs): prune terminal non-recurring jobs`.
+- Proceed to GAP-002 / GAP-006 / GAP-007: Implement tracked headless regression runner.

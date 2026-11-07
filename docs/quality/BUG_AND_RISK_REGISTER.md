@@ -17,7 +17,7 @@
 
 | ID | Sev | Title | Core Evidence & Files | Status |
 |:---|:---:|:---|:---|:---:|
-| **BUG-002** | Medium | Dynamic non-recurring jobs never pruned from `JobManager._jobs` | `scripts/jobs/job_manager.gd` L208–230, L306–316. `remove_job()` has no production caller. Array grows monotonically over session. | **OPEN** (Probable / Growth Certain) |
+| **BUG-002** | Medium | Dynamic non-recurring jobs never pruned from `JobManager._jobs` | `scripts/jobs/job_manager.gd` L275–350. Pruned non-recurring terminal jobs (`COMPLETED`, `CANCELLED`) while preserving recurring jobs and active/in-progress jobs. Bounded terminal history (50). | **CLOSED** (Resolved in Batch 2) |
 | **BUG-003** | Medium | Daily autosave overwrites manual save slot `world_save.json` | `scripts/world/world_view.gd` L59–60, L2541; `scripts/persistence/save_manager.gd` L10–38. Dedicated autosave slot `user://saves/autosave.json` with independent `.bak` rotation and UI recovery actions. | **CLOSED** (Resolved in Batch 2) |
 
 ---

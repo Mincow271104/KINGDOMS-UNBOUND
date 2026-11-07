@@ -5,6 +5,7 @@ extends RefCounted
 
 const MIN_JOB_PRIORITY: int = 1
 const MAX_JOB_PRIORITY: int = 20
+const MAX_TERMINAL_HISTORY: int = 50
 
 enum JobState {
 	AVAILABLE = 0,
@@ -35,6 +36,7 @@ class JobData:
 	var workplace_channel_id: String = ""
 
 var _jobs: Array[JobData] = []
+var _terminal_jobs_history: Array[JobData] = []
 var _next_job_id: int = 1
 
 func create_job(
@@ -244,7 +246,7 @@ func boost_jobs_priority(job_type: String, boost_delta: int) -> int:
 	return modified
 
 func get_all_jobs() -> Array[JobData]:
-	return _jobs
+	return _jobs.duplicate()
 
 static func job_matches_building(job: JobData, building_id: String) -> bool:
 	if job == null or building_id == "":
@@ -270,14 +272,41 @@ func remove_jobs_for_building(building_id: String) -> void:
 	for job in _jobs:
 		if not job_matches_building(job, building_id):
 			remaining.append(job)
+		else:
+			_record_terminal_job(job)
 	_jobs = remaining
 
 func remove_job(job_id: String) -> bool:
 	for i in range(_jobs.size()):
 		if _jobs[i].id == job_id:
+			var job := _jobs[i]
 			_jobs.remove_at(i)
+			_record_terminal_job(job)
 			return true
 	return false
+
+func _remove_job_internal(job: JobData) -> bool:
+	if job == null:
+		return false
+	var idx := _jobs.find(job)
+	if idx >= 0:
+		_jobs.remove_at(idx)
+		_record_terminal_job(job)
+		return true
+	return false
+
+func _record_terminal_job(job: JobData) -> void:
+	if job == null:
+		return
+	_terminal_jobs_history.append(job)
+	if _terminal_jobs_history.size() > MAX_TERMINAL_HISTORY:
+		_terminal_jobs_history.remove_at(0)
+
+func get_recent_terminal_jobs() -> Array[JobData]:
+	return _terminal_jobs_history.duplicate()
+
+func get_terminal_jobs_count() -> int:
+	return _terminal_jobs_history.size()
 
 func clear_dynamic_jobs(preserve_building_ids: Array = ["farm_starter", "woodcutter_starter"]) -> void:
 	var remaining: Array[JobData] = []
@@ -291,7 +320,10 @@ func clear_dynamic_jobs(preserve_building_ids: Array = ["farm_starter", "woodcut
 		# Preserve non-building jobs if any
 		elif job.target_building_id == "" and job.source_workplace_id == "":
 			remaining.append(job)
+		else:
+			_record_terminal_job(job)
 	_jobs = remaining
+	_terminal_jobs_history.clear()
 
 func progress_job(job: JobData, delta_hours: float) -> bool:
 	if job == null or job.state != JobState.IN_PROGRESS:
@@ -313,6 +345,7 @@ func complete_job(job: JobData) -> void:
 	else:
 		job.state = JobState.COMPLETED
 		job.worker_id = ""
+		_remove_job_internal(job)
 
 func release_job(job: JobData) -> void:
 	if job == null:
@@ -326,6 +359,8 @@ func cancel_job(job: JobData, _reason: String = "") -> void:
 		return
 	job.state = JobState.CANCELLED
 	job.worker_id = ""
+	if not job.is_recurring:
+		_remove_job_internal(job)
 
 func get_active_jobs_count() -> int:
 	var count := 0
