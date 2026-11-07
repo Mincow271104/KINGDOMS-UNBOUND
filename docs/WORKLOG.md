@@ -10276,3 +10276,68 @@ Universal verification and hardening of the central cargo deposit invariant acro
 - Package 2K implementation and acceptance verification are 100% complete.
 - Await project owner authorization before proceeding to Package 2L (Settlement Citizen Roster Panel — GDD §14.4).
 - Do not push to remote or merge into main.
+
+
+---
+
+## [2026-11-08] Package 2K — Strict Cargo Deposit Guard Finalization & Harness Bypass Elimination ✅ COMPLETE
+
+### Context & Objective
+Elimination of the production test-harness bypass in `_deposit_hauler_cargo()` and establishment of a genuinely universal physical cargo deposit proximity invariant:
+- Removed exception `if not (active_job != null and current_state == State.HAULING and not is_stranded_with_cargo): return` from `_deposit_hauler_cargo()`.
+- Replaced spatial-less unit-test bypass (`nav == null and world_data == null`) and generic `active_job.dest_cell` matching with explicit dropoff destination validation `_is_dropoff_cell(cell)`.
+- Adapted isolated unit tests in `test_citizen_skills.gd` and `test_building_management.gd` to initialize citizens at legitimate logical storage dropoffs instead of weakening production control flow.
+- Authored regression test `TC-MAN.23` (20 assertions) in `test_manual_citizen_commands.gd` specifically testing the branch that previously bypassed proximity validation.
+
+### Completed Work
+1. **Production Code Hardening (`scripts/entities/citizen_controller.gd`):**
+   - Removed test-harness bypass in `_deposit_hauler_cargo()`: now strictly `if not _is_at_storage_dropoff(): return` without exceptions.
+   - Refactored dropoff validation into `_is_dropoff_cell(cell: Vector2i) -> bool` and `_is_at_storage_dropoff() -> bool`:
+     - Checks against `_get_storage_dropoff_cell()` (nearest registered storehouse/townhall).
+     - Checks default Town Hall plaza dropoff `Vector2i(32, 32)`.
+     - Checks all registered dropoffs in `workplace_mgr._dropoffs`.
+     - Removed `is_waiting_at_dropoff` spatial bypass, removed `nav == null and world_data == null` spatial-less bypass, and eliminated generic `active_job.dest_cell` acceptance.
+   - Hardened `_process_idle()` and `_arrive_at_destination()`: `active_job.dest_cell` is only used for path replanning if `active_job.type == "hauler"` and `_is_dropoff_cell(active_job.dest_cell) == true`.
+2. **Unit Test Adaptation (Legitimate Logical Storage Dropoff Initialization):**
+   - `scripts/test/test_citizen_skills.gd`: Updated `TC-SKL-10`, `TC-SKL-11`, `TC-SKL-13`, `TC-SKL-25` to initialize mock citizens at `Vector2i(32, 32)` (valid storage dropoff) rather than arbitrary `(15, 15)` or `(10, 10)`.
+   - `scripts/test/test_building_management.gd`: In Step 2, set `cit0.current_cell = hauler_job.dest_cell` prior to calling `_deposit_hauler_cargo()`, reflecting physical arrival at storehouse. In Step 6, set `cit_isolated.current_cell = Vector2i(32, 32)` before asserting fail-closed behavior on invalid ResourceManager.
+3. **Authored Focused Regression Test TC-MAN.23:**
+   - 20 assertions in `scripts/test/test_manual_citizen_commands.gd`:
+     - Citizen has `active_job != null` (automatic hauling job from farm buffer to storehouse).
+     - Citizen is in `State.HAULING`.
+     - Citizen is NOT marked stranded (`is_stranded_with_cargo == false`).
+     - Citizen is physically at `(26, 25)` (away from all authorized storage dropoffs, `_is_at_storage_dropoff() == false`).
+     - Direct invocation of `_deposit_hauler_cargo()` fails closed: all 10 food cargo retained on citizen node, zero remote crediting to ResourceManager, state remains `State.HAULING`, active job preserved.
+     - Citizen physically walks step-by-step along path to `(32, 32)`.
+     - Upon physical arrival (`_is_at_storage_dropoff() == true`), normal automatic delivery succeeds, crediting exactly 10 food to central stock and transitioning citizen to `State.IDLE`.
+     - Subsequent idle tick is strictly idempotent (zero duplicate crediting).
+
+### Files Modified
+- `scripts/entities/citizen_controller.gd`: Removed production bypass, added `_is_dropoff_cell()`, strict `_is_at_storage_dropoff()`.
+- `scripts/test/test_citizen_skills.gd`: Placed unit test citizens at logical storage dropoff `(32, 32)`.
+- `scripts/test/test_building_management.gd`: Simulated physical arrival at storehouse dropoff before deposit.
+- `scripts/test/test_manual_citizen_commands.gd`: Added `TC-MAN.23` (20 assertions, bringing suite to 23 scenarios / 239 assertions).
+- `docs/planning/GAME_COMPLETION_ROADMAP.md`: Updated Package 2K to 23 scenarios / 239 assertions.
+- `docs/planning/NEXT_GAMEPLAY_PACKAGE.md`: Added `TC-MAN.23` to scenario table and updated DoD.
+- `docs/WORKLOG.md`: Appended this milestone entry.
+
+### Verification & Test Evidence
+- `test_manual_citizen_commands.gd`: **239 / 239 checks PASS (23 scenarios, Exit Code 0)**.
+- `test_hauler_death_cargo_conservation.gd`: **13 / 13 tests PASS (Exit Code 0)**.
+- `test_building_management.gd`: **53 / 53 tests PASS (Exit Code 0)**.
+- `test_citizen_skills.gd`: **27 / 27 tests PASS (Exit Code 0)**.
+- `test_resource_transaction_integrity.gd`: **90 / 90 checks PASS (Exit Code 0)**.
+- `test_all_scripts_load.gd`: **128 / 128 scripts PASS (Exit Code 0)**.
+- Full regression runner `run_regression.ps1`: **62 suites run: 61 PASS, 1 EXPECTED_BASELINE_FAILURE (`TC-ARMY.32`), 0 unexpected regressions, Exit Code 0**.
+
+### Acceptance Classification
+- **T1 — Data/API:** VERIFIED (239/239 manual command assertions, typed state machine, SaveManager schema & disk roundtrip validated).
+- **T2 — Backend Simulation:** VERIFIED (Universal dropoff proximity invariant across manual and automatic pathways, zero test-harness bypasses, exact-once delivery).
+- **T3 — Player UI Interaction:** VERIFIED (Right-click targeting, audio cues, localized Vietnamese error banners, HUD inspector reflection, cancel button).
+- **T4 — Natural Gameplay Loop:** NOT VERIFIED (Pending live interactive human playtesting session).
+- **T5 — End-to-End Acceptance:** NOT VERIFIED (Pending real-time interactive evaluation of visual/audio/camera ergonomics).
+
+### Next Exact Step
+- Package 2K implementation and acceptance verification are 100% complete with all bypasses eliminated.
+- Await project owner authorization before proceeding to Package 2L (Settlement Citizen Roster Panel — GDD §14.4).
+- Do not push to remote or merge into main.

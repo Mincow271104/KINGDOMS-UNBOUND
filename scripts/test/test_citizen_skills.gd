@@ -311,12 +311,12 @@ func _test_tc_skl_09_multiple_builders_independent_credit() -> void:
 func _test_tc_skl_10_hauling_delivery_xp() -> void:
 	var jm := JobManagerScript.new()
 	var cit := CitizenControllerScript.new()
-	cit.init_citizen("cit_hauler_01", "Hauler One", "hauler", Vector2i(15, 15), null, jm, null)
+	cit.init_citizen("cit_hauler_01", "Hauler One", "hauler", Vector2i(32, 32), null, jm, null)
 
 	cit.carrying_resource = EconomyConfigScript.RES_WOOD
 	cit.carrying_amount = 10
 
-	var job := jm.create_job("hauler", Vector2i(15, 15), "Haul", "town_hall", 1.0, 1, false)
+	var job := jm.create_job("hauler", Vector2i(32, 32), "Haul", "town_hall", 1.0, 1, false)
 	cit.active_job = job
 	cit.current_state = CitizenControllerScript.State.HAULING
 
@@ -330,12 +330,12 @@ func _test_tc_skl_10_hauling_delivery_xp() -> void:
 func _test_tc_skl_11_failed_hauling_no_xp() -> void:
 	var jm := JobManagerScript.new()
 	var cit := CitizenControllerScript.new()
-	cit.init_citizen("cit_hauler_02", "Hauler Empty", "hauler", Vector2i(15, 15), null, jm, null)
+	cit.init_citizen("cit_hauler_02", "Hauler Empty", "hauler", Vector2i(32, 32), null, jm, null)
 
 	cit.carrying_resource = ""
 	cit.carrying_amount = 0 # Empty cargo
 
-	var job := jm.create_job("hauler", Vector2i(15, 15), "Haul", "town_hall", 1.0, 1, false)
+	var job := jm.create_job("hauler", Vector2i(32, 32), "Haul", "town_hall", 1.0, 1, false)
 	cit.active_job = job
 	cit.current_state = CitizenControllerScript.State.HAULING
 
@@ -366,11 +366,11 @@ func _test_tc_skl_12_non_work_states_zero_xp() -> void:
 func _test_tc_skl_13_repeated_callbacks_idempotency() -> void:
 	var jm := JobManagerScript.new()
 	var cit := CitizenControllerScript.new()
-	cit.init_citizen("cit_idempotent", "Idempotent Hauler", "hauler", Vector2i(10, 10), null, jm, null)
+	cit.init_citizen("cit_idempotent", "Idempotent Hauler", "hauler", Vector2i(32, 32), null, jm, null)
 
 	cit.carrying_resource = EconomyConfigScript.RES_WOOD
 	cit.carrying_amount = 10
-	var job := jm.create_job("hauler", Vector2i(10, 10), "Haul", "town_hall", 1.0, 1, false)
+	var job := jm.create_job("hauler", Vector2i(32, 32), "Haul", "town_hall", 1.0, 1, false)
 	cit.active_job = job
 
 	# First deposit
@@ -707,11 +707,11 @@ func _test_tc_skl_24_builder_completion_overrun_bounded_xp() -> void:
 func _test_tc_skl_25_hauler_partial_deposit_cargo_preservation() -> void:
 	var jm := JobManagerScript.new()
 	var cit := CitizenControllerScript.new()
-	cit.init_citizen("cit_hauler_part", "Hauler Partial", "hauler", Vector2i(15, 15), null, jm, null)
+	cit.init_citizen("cit_hauler_part", "Hauler Partial", "hauler", Vector2i(32, 32), null, jm, null)
 	cit.carrying_resource = EconomyConfigScript.RES_WOOD
 	cit.carrying_amount = 10
 
-	var job := jm.create_job("hauler", Vector2i(15, 15), "Haul", "town_hall", 1.0, 1, false)
+	var job := jm.create_job("hauler", Vector2i(32, 32), "Haul", "town_hall", 1.0, 1, false)
 	cit.active_job = job
 	cit.current_state = CitizenControllerScript.State.HAULING
 

@@ -55,6 +55,7 @@ func _init() -> void:
 	_run_tc_man_20_semantic_cancellation_and_death_cargo_lifecycle()
 	_run_tc_man_21_path_failure_with_cargo_invariant()
 	_run_tc_man_22_automatic_hauler_path_failure_invariant()
+	_run_tc_man_23_active_job_hauler_proximity_bypass_elimination()
 
 	print("\n--------------------------------------------------------")
 	if failures == 0:
@@ -1220,6 +1221,90 @@ func _run_tc_man_22_automatic_hauler_path_failure_invariant() -> void:
 	# 12. Subsequent idle tick is strictly idempotent
 	cit._process_idle()
 	_assert(rm.get_total_stock("food") == pre_food + 10, "TC-MAN.22.21: Subsequent idle tick is strictly idempotent (zero duplicate crediting)")
+
+	cit.queue_free()
+	rm.queue_free()
+
+## TC-MAN.23: Active Job Hauler Proximity Bypass Elimination & Universal Dropoff Invariant
+func _run_tc_man_23_active_job_hauler_proximity_bypass_elimination() -> void:
+	print("--- TC-MAN.23: Active Job Hauler Proximity Bypass Elimination ---")
+	var wd = _create_test_world()
+	var nav = GridNavigationScript.new(wd)
+	var jm = JobManagerScript.new()
+	var rm = ResourceManagerScript.new()
+	var wm = WorkplaceManagerScript.new()
+	root.add_child(rm)
+	rm.reset_economy()
+
+	# Ensure target area and route are walkable
+	for x in range(25, 35):
+		for y in range(24, 35):
+			wd.terrain[x][y] = WorldGeneratorScript.TerrainType.GRASS
+			wd.occupancy[x][y] = false
+
+	# 1. Register a workplace at (25, 25) with access at (26, 25)
+	wm.register_workplace("wp_farm_23", "farm", Vector2i(25, 25), Vector2i(2, 2), Vector2i(26, 25), "food", 50, 5.0, 5)
+	var wp = wm.get_workplace("wp_farm_23")
+	wp.buffer_amount = 10
+
+	# 2. Register authorized central storage dropoff at (32, 32)
+	wm.register_dropoff("storehouse_main", "storehouse", Vector2i(32, 32))
+
+	# 3. Create automatic hauler citizen at workplace access cell (26, 25)
+	var cit = CitizenControllerScript.new()
+	root.add_child(cit)
+	cit.init_citizen("cit_auto_23", "En Route Hauler", "hauler", Vector2i(26, 25), nav, jm, wm)
+	cit.world_data = wd
+	cit.set_custom_resource_manager(rm)
+
+	# 4. Create hauling job with destination at authorized dropoff (32, 32)
+	var haul_job = jm.create_hauling_job("wp_farm_23", Vector2i(26, 25), Vector2i(32, 32), "food", 10, "Haul food", 1)
+	cit.active_job = haul_job
+	cit.current_state = CitizenController.State.MOVING_TO_JOB
+	cit.current_cell = Vector2i(26, 25)
+
+	# 5. Pick up cargo: citizen now holds 10 food, active_job != null, current_state == State.HAULING, NOT stranded
+	var pre_food: int = rm.get_total_stock("food")
+	cit._pickup_hauler_cargo()
+
+	_assert(cit.active_job != null, "TC-MAN.23.1: Citizen has active_job != null")
+	_assert(cit.current_state == CitizenController.State.HAULING, "TC-MAN.23.2: Citizen is in State.HAULING")
+	_assert(cit.is_stranded_with_cargo == false, "TC-MAN.23.3: Citizen is NOT marked stranded (is_stranded_with_cargo == false)")
+	_assert(cit.carrying_amount == 10, "TC-MAN.23.4: Citizen carrying 10 units of food")
+	_assert(cit.carrying_resource == "food", "TC-MAN.23.5: Cargo resource is food")
+	_assert(cit.current_cell == Vector2i(26, 25), "TC-MAN.23.6: Citizen is at (26, 25)")
+	_assert(cit._is_at_storage_dropoff() == false, "TC-MAN.23.7: Citizen is physically away from authorized storage dropoffs")
+
+	# 6. Direct invocation of _deposit_hauler_cargo() MUST fail closed
+	# (In previous version, active_job != null && State.HAULING && !is_stranded bypassed proximity validation!)
+	cit._deposit_hauler_cargo()
+
+	_assert(cit.carrying_amount == 10, "TC-MAN.23.8: Cargo completely retained on citizen (bypass eliminated, 10 food)")
+	_assert(cit.carrying_resource == "food", "TC-MAN.23.9: Cargo resource retained as food")
+	_assert(rm.get_total_stock("food") == pre_food, "TC-MAN.23.10: Central stock completely unchanged (0 remote credit)")
+	_assert(cit.current_state == CitizenController.State.HAULING, "TC-MAN.23.11: Citizen state remains HAULING")
+	_assert(cit.active_job != null, "TC-MAN.23.12: Active hauling job preserved")
+
+	# 7. Citizen physically walks step-by-step along current_path to storage dropoff (32, 32)
+	_assert(not cit.current_path.is_empty(), "TC-MAN.23.13: Citizen has non-empty path to storage")
+	while not cit.current_path.is_empty():
+		cit.current_cell = cit.current_path[0]
+		cit.current_path.remove_at(0)
+
+	_assert(cit.current_cell == Vector2i(32, 32), "TC-MAN.23.14: Citizen physically arrived at storage cell (32, 32)")
+	_assert(cit._is_at_storage_dropoff() == true, "TC-MAN.23.15: _is_at_storage_dropoff evaluates to true upon physical arrival")
+
+	# 8. Normal automatic delivery now succeeds after actual physical arrival
+	cit._arrive_at_destination()
+
+	_assert(cit.carrying_amount == 0, "TC-MAN.23.16: Cargo emptied upon authorized arrival")
+	_assert(rm.get_total_stock("food") == pre_food + 10, "TC-MAN.23.17: Central stock credited with exactly 10 food")
+	_assert(cit.current_state == CitizenController.State.IDLE, "TC-MAN.23.18: Citizen transitions to IDLE after deposit")
+	_assert(cit.active_job == null, "TC-MAN.23.19: Hauling job completed and cleared")
+
+	# 9. Subsequent idle tick is strictly idempotent
+	cit._process_idle()
+	_assert(rm.get_total_stock("food") == pre_food + 10, "TC-MAN.23.20: Subsequent idle tick strictly idempotent (zero duplicate crediting)")
 
 	cit.queue_free()
 	rm.queue_free()

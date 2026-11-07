@@ -72,22 +72,21 @@ func _get_storage_dropoff_cell() -> Vector2i:
 		return workplace_mgr.get_nearest_dropoff_cell(current_cell)
 	return Vector2i(32, 32)
 
-func _is_at_storage_dropoff() -> bool:
-	if nav == null and world_data == null:
+func _is_dropoff_cell(cell: Vector2i) -> bool:
+	if cell == _get_storage_dropoff_cell():
 		return true
-	if is_waiting_at_dropoff:
-		return true
-	if current_cell == _get_storage_dropoff_cell():
-		return true
-	if active_job != null and active_job.dest_cell != Vector2i(-1, -1) and current_cell == active_job.dest_cell:
+	if cell == Vector2i(32, 32):
 		return true
 	if workplace_mgr != null and "_dropoffs" in workplace_mgr:
 		var drops = workplace_mgr.get("_dropoffs")
 		if drops is Dictionary:
 			for d in drops.values():
-				if d != null and "access_cell" in d and current_cell == d.access_cell:
+				if d != null and "access_cell" in d and cell == d.access_cell:
 					return true
 	return false
+
+func _is_at_storage_dropoff() -> bool:
+	return _is_dropoff_cell(current_cell)
 
 # Needs (0..100)
 var hunger: float = 10.0
@@ -340,7 +339,7 @@ func _process_idle() -> void:
 			if is_stranded_with_cargo or not _is_at_storage_dropoff():
 				# Citizen is stranded away from storage or route was blocked: retry finding path
 				var drop_cell := _get_storage_dropoff_cell()
-				if active_job != null and active_job.dest_cell != Vector2i(-1, -1):
+				if active_job != null and active_job.type == "hauler" and _is_dropoff_cell(active_job.dest_cell):
 					drop_cell = active_job.dest_cell
 				if nav != null and current_path.is_empty():
 					current_path = nav.find_path(current_cell, drop_cell)
@@ -470,7 +469,7 @@ func _arrive_at_destination() -> void:
 		State.HAULING:
 			if not _is_at_storage_dropoff():
 				var drop_cell := _get_storage_dropoff_cell()
-				if active_job != null and active_job.dest_cell != Vector2i(-1, -1):
+				if active_job != null and active_job.type == "hauler" and _is_dropoff_cell(active_job.dest_cell):
 					drop_cell = active_job.dest_cell
 				var new_path = nav.find_path(current_cell, drop_cell) if nav != null else []
 				if not new_path.is_empty():
@@ -557,10 +556,7 @@ func _deposit_hauler_cargo() -> void:
 
 	# Fail-closed guard: never deposit cargo if citizen is away from storage dropoff
 	if not _is_at_storage_dropoff():
-		# In unit-test harnesses (where active_job is present and current_state is HAULING, but no movement loop was executed),
-		# allow direct unit invocation only if citizen is not stranded. In all other states (IDLE, manual commands, stranded), fail closed!
-		if not (active_job != null and current_state == State.HAULING and not is_stranded_with_cargo):
-			return
+		return
 
 	var delivered_amount: int = carrying_amount
 	var delivered_res: String = carrying_resource

@@ -2704,6 +2704,7 @@ func _test_tc_bm_33_cargo_conservation_scenarios() -> bool:
 	var orig_cap = rm.get_capacity("food")
 	rm._capacities["food"] = pre_stock + 4 # Only 4 food space available
 
+	cit0.current_cell = hauler_job.dest_cell
 	cit0.call("_deposit_hauler_cargo")
 
 	if cit0.carrying_amount != 6:
@@ -2817,6 +2818,7 @@ func _test_tc_bm_33_cargo_conservation_scenarios() -> bool:
 
 	# STEP 6: Fail-closed deposit when ResourceManager is unavailable or invalid
 	var cit_isolated = CitizenController.new()
+	cit_isolated.current_cell = Vector2i(32, 32)
 	cit_isolated.carrying_resource = "wood"
 	cit_isolated.carrying_amount = 7
 	cit_isolated.carrying_source_workplace_id = "farm_cargo_test"
