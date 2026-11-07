@@ -9993,7 +9993,7 @@ Execute Step 4 of Active Development Batch 3:
 ## [2026-11-07] Package 2K — Manual Citizen Commands & Direct Labor Dispatch ✅ COMPLETE
 
 ### Context & Scope
-Implement Package 2K (Manual Citizen Commands & Direct Labor Dispatch) under GDD §8.2, §8.3, and §14.4:
+Implement Package 2K (Manual Citizen Commands & Direct Labor Dispatch) under GDD §8.2 and §8.3:
 1. Transition colony gameplay from purely autonomous "watch-and-wait" to responsive player agency by enabling direct selection and right-click contextual orders for civilian citizens.
 2. Invariant conservation: Strictly enforce physical logistics and cargo conservation (zero teleportation; harvesting resources requires physical collection and hauling to Storehouse/Town Hall).
 3. Priority hierarchy (GDD §8.3): Priority 1 (Emergency safety) > Priority 2 (Vital survival: hunger >= 85 or fatigue >= 90 pauses manual work, resuming automatically once satisfied) > Priority 3 (Manual command overrides routine jobs) > Priority 4-6 (Routine jobs).
@@ -10076,9 +10076,9 @@ Independent code review, regression review, and acceptance verification of Packa
 - **Automated Regression Suite:** Authored `TC-MAN.16` through `TC-MAN.19` (35 new assertions) in `scripts/test/test_manual_citizen_commands.gd`:
   - `TC-MAN.16`: Survival interruption during cargo hauling & clean resumption without cancellation or premature crediting.
   - `TC-MAN.17`: Full central storage arrival & persistent stationing at storehouse without pathing back to harvest site.
-  - `TC-MAN.18`: Work command rejection while carrying existing cargo (zero cargo loss or overwriting).
+  - `TC-MAN.18`: Work, Move, Explore, and Cancel command rejection while carrying existing cargo (zero cargo loss, zero teleportation, zero overwriting).
   - `TC-MAN.19`: Save/load during cargo hauling phase restores hauling state without prop validation failure.
-  - **Result:** **ALL 132 CHECKS PASSED (0 Failures), Exit Code 0**.
+  - **Result:** **ALL 135 CHECKS PASSED (0 Failures), Exit Code 0**.
 - **RISK-001 Resource Transaction Integrity:** `test_resource_transaction_integrity.gd`: **90/90 checks PASS (Exit Code 0)**.
 - **GAP-006 All-Scripts Load & Compile:** `test_all_scripts_load.gd`: **128/128 scripts PASS (Exit Code 0)**.
 - **Full Headless Regression Runner (`run_regression.ps1`):**
@@ -10097,6 +10097,6 @@ Independent code review, regression review, and acceptance verification of Packa
 - **T5 — End-to-End Acceptance:** NOT VERIFIED (Requires interactive human session with audio/video/camera in real time).
 
 ### Next Exact Step
-- Execute Phase checkpoint (Local fix commit `3e6220a`).
-- Package 2K is fully validated, hardened, and ready to serve as the foundation for Package 2L.
+- Execute Final Acceptance Closure checkpoint.
+- Package 2K is fully verified under T1/T2/T3 with zero regressions.
 - Await owner authorization to proceed to Package 2L (Settlement Citizen Roster & Priority Management — GDD §14.4).

@@ -1,6 +1,6 @@
 # PACKAGE 2K — MANUAL CITIZEN COMMANDS & DIRECT LABOR DISPATCH
 **Authoritative Scope & Technical Implementation Specification**  
-**Game Design Document Reference:** `docs/GDD.md` §8.2, §8.3, §14.4  
+**Game Design Document Reference:** `docs/GDD.md` §8.2, §8.3 (Direct Commands & Priority Hierarchy)  
 **Scope Decisions Reference:** `docs/SCOPE_DECISIONS.md` §1.7, §1.8  
 **Target Branch:** `feature/package-2k-manual-citizen-commands`  
 **Base Commit:** `ad5c9e5` (`feature/core-systems-hardening`)  

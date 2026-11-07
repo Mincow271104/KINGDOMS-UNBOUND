@@ -861,8 +861,28 @@ func _run_tc_man_18_work_command_rejection_while_carrying_cargo() -> void:
 	var res_haul := cit.issue_manual_command("haul", Vector2i(33, 32))
 	_assert(res_haul.get("success", true) == false, "TC-MAN.18.4: Haul rejected while loaded with cargo")
 
-	_assert(cit.carrying_amount == 10, "TC-MAN.18.5: Carried cargo preserved without loss")
-	_assert(cit.carrying_resource == "stone", "TC-MAN.18.6: Carried resource identity preserved")
+	var res_move := cit.issue_manual_command("move", Vector2i(31, 32))
+	_assert(res_move.get("success", true) == false, "TC-MAN.18.5: Move rejected while loaded with cargo (prevents cargo teleportation)")
+
+	var res_explore := cit.issue_manual_command("explore", Vector2i(31, 32))
+	_assert(res_explore.get("success", true) == false, "TC-MAN.18.6: Explore rejected while loaded with cargo")
+
+	# Attempt to cancel command while encumbered with physical cargo
+	cit.manual_command = {
+		"type": "mine",
+		"target_cell": Vector2i(31, 32),
+		"target_id": "",
+		"work_hours_required": 5.0,
+		"work_hours_done": 5.0,
+		"is_active": true,
+		"is_paused": false,
+		"pause_reason": ""
+	}
+	cit.cancel_manual_command("Người chơi hủy lệnh")
+	_assert(cit.has_manual_command() == true, "TC-MAN.18.7: Manual command retained when player attempts cancellation while loaded")
+
+	_assert(cit.carrying_amount == 10, "TC-MAN.18.8: Carried cargo preserved without loss")
+	_assert(cit.carrying_resource == "stone", "TC-MAN.18.9: Carried resource identity preserved")
 
 	cit.queue_free()
 	rm.queue_free()

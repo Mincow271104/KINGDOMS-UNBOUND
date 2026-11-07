@@ -1143,8 +1143,8 @@ func issue_manual_command(cmd_type: String, target_cell: Vector2i, target_id: St
 	if not IsoMath.is_in_bounds(target_cell):
 		return {"success": false, "reason": "Tọa độ mục tiêu (%d, %d) nằm ngoài bản đồ" % [target_cell.x, target_cell.y]}
 
-	if cmd_type in ["chop", "mine", "haul", "build"] and carrying_amount > 0:
-		return {"success": false, "reason": "Dân làng đang mang hàng khác trên người (%d %s), hãy dỡ hàng trước" % [carrying_amount, carrying_resource]}
+	if carrying_amount > 0:
+		return {"success": false, "reason": "Dân làng đang mang hàng trên người (%d %s), hãy dỡ hàng về kho trước khi nhận lệnh mới" % [carrying_amount, carrying_resource]}
 
 	# Specific command validation
 	match cmd_type:
@@ -1265,6 +1265,9 @@ func issue_manual_command(cmd_type: String, target_cell: Vector2i, target_id: St
 
 func cancel_manual_command(reason: String = "Người chơi hủy lệnh") -> void:
 	if not has_manual_command():
+		return
+	if carrying_amount > 0 and not reason.contains("tử vong") and not reason.contains("không còn hợp lệ"):
+		status_reason = "Không thể hủy khi đang mang hàng (%d %s), hãy chờ dỡ hàng về kho" % [carrying_amount, carrying_resource]
 		return
 	manual_command = {
 		"type": "",
