@@ -13,6 +13,21 @@
 
 ## Resolved Issues
 
+### ISSUE-012: Resolved Field Siege Records Accumulated in active_sieges (Resolved in Batch 3 / RISK-002)
+- **Severity:** Low / Memory & Simulation Scalability
+- **Symptom:** When a field siege concluded (`VICTORY`, `DEFEAT`, `WITHDRAWAL`), `FieldSiegeManager._resolve_siege_outcome()` marked the siege record as `"resolved"`, but never removed it from `active_sieges`. In `WorldView._process()`, the engine iterated all keys in `active_sieges` each frame, performing redundant status evaluations on historical sieges. Furthermore, `serialize()` wrote all historical sieges into `active_sieges` in save files.
+- **Resolution:**
+  - Separated active siege tracking from resolved history in `scripts/combat/field_siege_manager.gd`:
+    - `active_sieges: Dictionary`: Contains strictly sieges with `status == "active"`.
+    - `resolved_sieges_history: Array[Dictionary]`: Bounded FIFO ring buffer holding resolved siege records (`MAX_RESOLVED_HISTORY = 50`).
+  - Updated `_resolve_siege_outcome()`: Upon resolution, removes the siege record from `active_sieges` and records it into `resolved_sieges_history`.
+  - Maintained idempotent queries: `evaluate_siege_status()`, `get_siege_record()`, and `get_resolved_siege_record()` query both active and historical records seamlessly.
+  - Added public history accessors: `get_recent_resolved_sieges()`, `get_resolved_siege_count()`, `get_active_siege_count()`.
+  - Hardened `SaveManager`: Added validation for optional `resolved_sieges_history` Array in `field_siege`.
+  - Implemented migration normalization in `FieldSiegeManager.deserialize()`: Older saves containing resolved or cancelled records inside `active_sieges` automatically migrate those records to `resolved_sieges_history`, keeping `active_sieges` strictly active.
+  - Authored automated test suite `scripts/test/test_siege_record_lifecycle.gd` covering 10 scenarios (51 checks).
+- **Verification:** 51/51 automated assertions passed (Exit Code 0).
+
 ### ISSUE-011: ResourceManager commit_cost() Lacked Reservation Validation (Resolved in Batch 3 / RISK-001)
 - **Severity:** Low / Latent API Hazard
 - **Symptom:** `ResourceManager.commit_cost()` and `release_cost()` previously trusted callers without verifying whether a matching reservation existed in the ledger. Unreserved commits silently deducted stock or clamped to 0 (`maxi(0, ...)`), double commits deducted stock twice or clamped to 0, and unreserved releases could steal reservations made by concurrent orders.

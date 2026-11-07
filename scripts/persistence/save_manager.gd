@@ -1565,6 +1565,17 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 				if st != "active" and st != "resolved" and st != "cancelled":
 					return {"valid": false, "error": "Trạng thái status của chiến dịch %s không hợp lệ: %s." % [str(sid), str(st)]}
 
+		if siege_val.has("resolved_sieges_history"):
+			var hist_arr = siege_val.get("resolved_sieges_history")
+			if not (hist_arr is Array):
+				return {"valid": false, "error": "resolved_sieges_history trong field_siege phải là Array."}
+			for h in hist_arr:
+				if not (h is Dictionary):
+					return {"valid": false, "error": "Mỗi bản ghi trong resolved_sieges_history phải là Dictionary."}
+				var h_sid = h.get("siege_id")
+				if not (h_sid is String) or String(h_sid).strip_edges().is_empty():
+					return {"valid": false, "error": "siege_id trong resolved_sieges_history không hợp lệ."}
+
 	# Validate optional victory section (CANON-006)
 	if json_dict.has("victory"):
 		var vic_val = json_dict.get("victory")

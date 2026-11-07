@@ -27,7 +27,7 @@
 | ID | Sev | Title | Core Evidence & Files | Status |
 |:---|:---:|:---|:---|:---:|
 | **RISK-001** | Low | `commit_cost()` trusts caller and silently clamps to 0 | `scripts/economy/resource_manager.gd` L131–230. Enforced strict reservation matching, fail-closed validation, and ticket-based transaction API. Verified in `test_resource_transaction_integrity.gd` (88/88 checks PASS). | **CLOSED** (Resolved in Batch 3) |
-| **RISK-002** | Low | Resolved siege records accumulate and evaluate every frame | `scripts/combat/field_siege_manager.gd` L399–408, L507–508; `scripts/world/world_view.gd` L833–839. | **OPEN** |
+| **RISK-002** | Low | Resolved siege records accumulate and evaluate every frame | `scripts/combat/field_siege_manager.gd` L420–640; `scripts/persistence/save_manager.gd` L1545–1575. Separated active sieges from resolved history (bounded at 50 FIFO), erased resolved sieges from `active_sieges`, and normalized legacy saves during deserialization. Verified in `test_siege_record_lifecycle.gd` (51/51 checks PASS). | **CLOSED** (Resolved in Batch 3) |
 | **RISK-003** | Low | `TacticalUnit.faction_id` defaults to `"player"` | `scripts/military/tactical_unit.gd` L34, L102–111; `scripts/military/enemy_tactical_unit.gd` L31–35. | **OPEN** (Latent Hazard) |
 | **RISK-004** | Low | Faction `in_exile` and `eliminated` statuses unreachable | `scripts/factions/faction_data.gd` L180; `scripts/factions/faction_manager.gd` L446–452. | **OPEN** (Product Question) |
 | **RISK-005** | Low | SaveManager load frees citizens via `queue_free()` without `remove_child()` | `scripts/persistence/save_manager.gd` L1901–1913. Same-name collision for 1 frame. | **OPEN** (Unverified) |

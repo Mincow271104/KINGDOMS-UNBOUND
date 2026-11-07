@@ -21,9 +21,11 @@ var resource_mgr: Object = null
 var objectives_container: Node = null
 
 var objectives: Dictionary = {} # objective_id: String -> SiegeObjectiveActor
-var active_sieges: Dictionary = {} # siege_id: String -> Dictionary
+var active_sieges: Dictionary = {} # siege_id: String -> Dictionary (strictly status == "active")
+var resolved_sieges_history: Array[Dictionary] = [] # bounded at MAX_RESOLVED_HISTORY
 var next_siege_index: int = 1
 
+const MAX_RESOLVED_HISTORY: int = 50
 const SIEGE_RADIUS: int = 12
 const PLUNDER_REWARDS: Dictionary = {
 	"gold": 60,
@@ -39,6 +41,7 @@ func _init(wv: Node = null, fm: Object = null, army_mgr: Object = null, enemy_mg
 	enemy_military_mgr = enemy_mgr
 	objectives = {}
 	active_sieges = {}
+	resolved_sieges_history = []
 	next_siege_index = 1
 
 func set_world_view(wv: Node) -> void:
@@ -422,7 +425,10 @@ func is_siege_active_for_objective(obj_id: String) -> bool:
 	return false
 
 func cancel_active_sieges_for_faction(faction_id: String, reason: String = "WITHDRAWAL") -> void:
-	for s_id in active_sieges.keys():
+	var active_keys = active_sieges.keys()
+	for s_id in active_keys:
+		if not active_sieges.has(s_id):
+			continue
 		var s = active_sieges[s_id]
 		if s.get("faction_id") == faction_id and s.get("status") == "active":
 			var obj = get_objective(s.get("objective_id", ""))
@@ -436,11 +442,18 @@ func cancel_active_sieges_for_faction(faction_id: String, reason: String = "WITH
 
 func evaluate_siege_status(siege_id: String) -> Dictionary:
 	if not active_sieges.has(siege_id):
+		var hist_rec = get_resolved_siege_record(siege_id)
+		if not hist_rec.is_empty():
+			return {
+				"status": "resolved",
+				"outcome": hist_rec.get("outcome", "NONE"),
+				"details": hist_rec.get("details", {})
+			}
 		return {"status": "not_found", "outcome": "NONE"}
 
 	var record: Dictionary = active_sieges[siege_id]
 	if record.get("status") != "active":
-		return {"status": record.get("status"), "outcome": record.get("outcome", "NONE"), "details": record.get("details", {})}
+		return _resolve_siege_outcome(siege_id, record.get("outcome", "NONE"))
 
 	var obj_id: String = record.get("objective_id", "")
 	var obj = get_objective(obj_id)
@@ -494,10 +507,19 @@ func evaluate_siege_status(siege_id: String) -> Dictionary:
 
 func _resolve_siege_outcome(siege_id: String, outcome: String) -> Dictionary:
 	if not active_sieges.has(siege_id):
+		var hist_rec = get_resolved_siege_record(siege_id)
+		if not hist_rec.is_empty():
+			return {
+				"status": "resolved",
+				"outcome": hist_rec.get("outcome", outcome),
+				"details": hist_rec.get("details", {})
+			}
 		return {}
 
 	var record: Dictionary = active_sieges[siege_id]
 	if record.get("status") != "active":
+		active_sieges.erase(siege_id)
+		_push_resolved_history(record)
 		return {
 			"status": record.get("status", "resolved"),
 			"outcome": record.get("outcome", outcome),
@@ -541,6 +563,9 @@ func _resolve_siege_outcome(siege_id: String, outcome: String) -> Dictionary:
 		details["ownership_transfer"] = transfer_res
 
 	record["details"] = details
+	active_sieges.erase(siege_id)
+	_push_resolved_history(record)
+
 	field_siege_resolved.emit(siege_id, outcome, details)
 	return {
 		"status": "resolved",
@@ -548,8 +573,36 @@ func _resolve_siege_outcome(siege_id: String, outcome: String) -> Dictionary:
 		"details": details
 	}
 
+func _push_resolved_history(record: Dictionary) -> void:
+	resolved_sieges_history.append(record.duplicate(true))
+	if resolved_sieges_history.size() > MAX_RESOLVED_HISTORY:
+		resolved_sieges_history.pop_front()
+
+func get_recent_resolved_sieges() -> Array[Dictionary]:
+	return resolved_sieges_history.duplicate(true)
+
+func get_resolved_siege_count() -> int:
+	return resolved_sieges_history.size()
+
+func get_active_siege_count() -> int:
+	return active_sieges.size()
+
+func get_resolved_siege_record(siege_id: String) -> Dictionary:
+	for r in resolved_sieges_history:
+		if r.get("siege_id") == siege_id:
+			return r.duplicate(true)
+	return {}
+
+func get_siege_record(siege_id: String) -> Dictionary:
+	if active_sieges.has(siege_id):
+		return active_sieges[siege_id].duplicate(true)
+	return get_resolved_siege_record(siege_id)
+
 func _on_objective_destroyed(obj_id: String, _killer_id: String) -> void:
-	for s_id in active_sieges.keys():
+	var active_keys = active_sieges.keys()
+	for s_id in active_keys:
+		if not active_sieges.has(s_id):
+			continue
 		var s = active_sieges[s_id]
 		if s.get("objective_id") == obj_id and s.get("status") == "active":
 			_resolve_siege_outcome(s_id, "VICTORY")
@@ -570,6 +623,7 @@ func serialize() -> Dictionary:
 	return {
 		"objectives": obj_arr,
 		"active_sieges": active_sieges.duplicate(true),
+		"resolved_sieges_history": resolved_sieges_history.duplicate(true),
 		"next_siege_index": next_siege_index
 	}
 
@@ -577,6 +631,7 @@ func deserialize(data: Dictionary) -> bool:
 	if data.is_empty():
 		clear_all_objectives()
 		active_sieges.clear()
+		resolved_sieges_history.clear()
 		next_siege_index = 1
 		return true
 
@@ -586,6 +641,10 @@ func deserialize(data: Dictionary) -> bool:
 
 	var raw_sieges = data.get("active_sieges")
 	if raw_sieges != null and not (raw_sieges is Dictionary):
+		return false
+
+	var raw_resolved = data.get("resolved_sieges_history")
+	if raw_resolved != null and not (raw_resolved is Array):
 		return false
 
 	var staged_objs: Dictionary = {}
@@ -606,6 +665,13 @@ func deserialize(data: Dictionary) -> bool:
 			staged_objs[obj.objective_id] = obj
 
 	var staged_sieges: Dictionary = {}
+	var staged_resolved: Array[Dictionary] = []
+
+	if raw_resolved is Array:
+		for item in raw_resolved:
+			if item is Dictionary:
+				staged_resolved.append(item.duplicate(true))
+
 	if raw_sieges is Dictionary:
 		for s_id in raw_sieges.keys():
 			var s = raw_sieges[s_id]
@@ -620,11 +686,21 @@ func deserialize(data: Dictionary) -> bool:
 			if status_str != "active" and status_str != "resolved" and status_str != "cancelled":
 				_free_staged_objs(staged_objs)
 				return false
-			staged_sieges[String(s_id)] = s.duplicate(true)
+
+			if status_str == "active":
+				staged_sieges[String(s_id)] = s.duplicate(true)
+			else:
+				# Normalization: older saves containing resolved records in active_sieges
+				# are safely migrated to resolved_sieges_history!
+				staged_resolved.append(s.duplicate(true))
+
+	while staged_resolved.size() > MAX_RESOLVED_HISTORY:
+		staged_resolved.pop_front()
 
 	# Validation succeeded completely: replace live state atomically
 	clear_all_objectives()
 	active_sieges.clear()
+	resolved_sieges_history.clear()
 	next_siege_index = maxi(1, int(data.get("next_siege_index", 1)))
 
 	for obj_id in staged_objs.keys():
@@ -636,7 +712,14 @@ func deserialize(data: Dictionary) -> bool:
 		objectives[obj_id] = obj
 
 	active_sieges = staged_sieges
+	resolved_sieges_history = staged_resolved
 	return true
+
+func reset_siege_state() -> void:
+	clear_all_objectives()
+	active_sieges.clear()
+	resolved_sieges_history.clear()
+	next_siege_index = 1
 
 func _free_staged_objs(staged: Dictionary) -> void:
 	for o in staged.values():

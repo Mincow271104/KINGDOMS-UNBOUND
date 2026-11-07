@@ -582,7 +582,7 @@ func _test_peace_treaty_siege_cancellation() -> void:
 	sm.cancel_active_sieges_for_faction("highland_clans", "WITHDRAWAL")
 	_assert(sm.is_siege_active_for_objective("obj_highland") == false, "TC-SIEGE.13: Siege no longer active after peace treaty")
 	_assert(obj.is_under_active_siege == false, "TC-SIEGE.13: Objective is_under_active_siege reset to false")
-	var record = sm.active_sieges[s_id]
+	var record = sm.get_siege_record(s_id)
 	_assert(record["status"] == "resolved", "TC-SIEGE.13: Siege status resolved")
 	_assert(record["outcome"] == "WITHDRAWAL", "TC-SIEGE.13: Siege outcome recorded as WITHDRAWAL")
 

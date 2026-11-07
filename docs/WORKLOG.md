@@ -9848,5 +9848,57 @@ Remediate RISK-001 (ResourceManager `commit_cost()` trusts caller and silently c
   - `test_army_equipment.gd`: **PASS (103/103 assertions PASS, Exit Code 0)**.
 
 ### Next Exact Step
-- Stage and commit RISK-001 changes: `fix(economy): enforce resource transaction integrity`.
-- Proceed to Step 2: Implement RISK-002 (Bound Resolved Field Siege Records).
+- Stage and commit RISK-001 changes: `fix(economy): enforce resource transaction integrity` (Completed).
+- Proceed to Step 2: Implement RISK-002 (Bound Resolved Field Siege Records) (Completed).
+
+---
+
+## [2026-11-07] Active Development Batch 3 — RISK-002: Bound Resolved Field Siege Records ✅ COMPLETE
+
+### Context & Scope
+Remediate RISK-002 (Resolved field siege records accumulate in `active_sieges` and are re-evaluated every frame by `WorldView._process()`). Separate active siege state from resolved history in `scripts/combat/field_siege_manager.gd`, `scripts/persistence/save_manager.gd`, and `scripts/world/world_view.gd`. Keep `active_sieges` strictly active, bound resolved history to 50 entries, normalize legacy saves, and author tracked test suite `scripts/test/test_siege_record_lifecycle.gd`.
+
+### Completed Work
+1. **FieldSiegeManager State Separation (`scripts/combat/field_siege_manager.gd`):**
+   - Maintained `active_sieges: Dictionary` containing strictly records with `status == "active"`.
+   - Added `resolved_sieges_history: Array[Dictionary] = []` with strict FIFO bounding (`const MAX_RESOLVED_HISTORY: int = 50`).
+   - Updated `_resolve_siege_outcome()`: Moves resolved records from `active_sieges` into `resolved_sieges_history`.
+   - Updated `evaluate_siege_status()`, `_resolve_siege_outcome()`, and `get_siege_record()`: Seamlessly query both active and historical records to guarantee idempotency and backward compatibility.
+   - Added public accessors: `get_recent_resolved_sieges()`, `get_resolved_siege_count()`, `get_active_siege_count()`, `get_resolved_siege_record()`.
+   - Updated `serialize()`: Saves `active_sieges` (strictly active) and `resolved_sieges_history`.
+   - Updated `deserialize()`: Automatic normalization migrates any legacy resolved/cancelled sieges stored in `active_sieges` into `resolved_sieges_history`.
+   - Added `reset_siege_state()`: Clears objectives, active sieges, and resolved history.
+2. **SaveManager Schema Hardening (`scripts/persistence/save_manager.gd`):**
+   - Added schema validation for optional `resolved_sieges_history` Array in the `field_siege` payload.
+3. **Automated Test Suite (`scripts/test/test_siege_record_lifecycle.gd`):**
+   - Authored comprehensive 10-scenario test suite covering 51 individual assertions:
+     - Scenario 1: Active siege remains registered in `active_sieges`.
+     - Scenario 2: Successful resolution (`VICTORY`) removes record from `active_sieges` and stores in history.
+     - Scenario 3: Withdrawal resolution (`WITHDRAWAL`) removes record from `active_sieges` and stores in history.
+     - Scenario 4: Resolution on already-resolved siege is idempotent (no duplicate history, no double plunder).
+     - Scenario 5: Recent history retains resolved information and returns safe copy.
+     - Scenario 6: Strictly bounded at MAX_RESOLVED_HISTORY (50) under 100-cycle stress test.
+     - Scenario 7: Save/load does not resurrect resolved sieges into `active_sieges`.
+     - Scenario 8: Legacy save with resolved records in `active_sieges` loads safely and normalizes.
+     - Scenario 9: Active siege survives save/load in `active_sieges`.
+     - Scenario 10: WorldView simulation loop only encounters active sieges (0 iterations when no sieges active).
+4. **Regression Manifest Update (`scripts/test/run_regression.ps1`):**
+   - Added `scripts/test/test_siege_record_lifecycle.gd` to test manifest.
+   - Re-verified runner self-test (4/4 fixtures PASS, Exit Code 0).
+5. **Documentation & Register Updates:**
+   - Updated `docs/quality/BUG_AND_RISK_REGISTER.md`: Promoted `RISK-002` to CLOSED.
+   - Updated `docs/KNOWN_ISSUES.md`: Added `ISSUE-012`.
+
+### Verification & Test Evidence
+- **Automated Verification:** `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless -s res://scripts/test/test_siege_record_lifecycle.gd`
+  - **Result:** **51/51 checks PASS (Exit Code 0)**.
+- **Combat Non-Regression:**
+  - `test_field_siege.gd`: **PASS (98/98 assertions PASS, Exit Code 0)**.
+  - `test_live_battle_loop.gd`: **PASS (Exit Code 0)**.
+  - `test_outpost_territorial_control.gd`: **PASS (200/200 assertions PASS, Exit Code 0)**.
+  - `test_package_1x_gameplay_integration.gd`: **PASS (61/61 assertions PASS, Exit Code 0)**.
+  - `test_world_view_siege_input.gd`: **PASS (30/30 checks PASS, Exit Code 0)**.
+
+### Next Exact Step
+- Stage and commit RISK-002 changes: `fix(combat): bound resolved siege lifecycle records`.
+- Proceed to Step 3: Investigate RISK-005 (Save/Load Scene-Tree Cleanup).
