@@ -129,11 +129,16 @@ static func serialize_world_state(world_view: Node) -> Dictionary:
 			for res_id in rm.get("_capacities"):
 				cap_copy[res_id] = rm.get("_capacities")[res_id]
 
+			var pending_cargo_copy: Dictionary = {}
+			if world_view != null and world_view.get("pending_death_cargo") != null and (world_view.get("pending_death_cargo") is Dictionary):
+				pending_cargo_copy = world_view.get("pending_death_cargo").duplicate()
+
 			data["resources"] = {
 				"stock": stock_copy,
 				"capacities": cap_copy,
 				"active_population": rm.get("active_population"),
-				"is_starving": rm.call("is_starving") if rm.has_method("is_starving") else false
+				"is_starving": rm.call("is_starving") if rm.has_method("is_starving") else false,
+				"pending_death_cargo": pending_cargo_copy
 			}
 		
 	# 4. Buildings
@@ -1829,6 +1834,12 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 			var food_avail: int = int(rm.call("get_available_stock", EconomyConfig.RES_FOOD))
 			var act_pop: int = int(rm.get("active_population"))
 			rm.set("_is_starving", food_avail <= 0 and act_pop > 0)
+
+		# Restore pending death cargo if present, or initialize empty
+		if res_data.has("pending_death_cargo") and (res_data.get("pending_death_cargo") is Dictionary):
+			world_view.set("pending_death_cargo", res_data["pending_death_cargo"].duplicate())
+		else:
+			world_view.set("pending_death_cargo", {})
 
 	# 3. Clean and Reconstruct Buildings
 	var world_data = world_view.get("world_data")

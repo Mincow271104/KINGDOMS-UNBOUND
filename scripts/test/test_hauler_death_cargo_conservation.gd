@@ -1,6 +1,6 @@
 extends SceneTree
 ## Automated Test Suite for KINGDOMS UNBOUND — BUG-001: Hauler Cargo Conservation on Citizen Death
-## Authoritative Coverage: TC-CARGO.1 through TC-CARGO.10 with Fail-Closed Assertions
+## Authoritative Coverage: TC-CARGO.1 through TC-CARGO.11 with Fail-Closed Assertions
 
 const CitizenControllerScript = preload("res://scripts/entities/citizen_controller.gd")
 const EconomyConfigScript = preload("res://scripts/economy/economy_config.gd")
@@ -71,6 +71,7 @@ func _run_all_tests() -> void:
 		return
 
 	_test_tc_cargo_1_food_recovery(rm)
+	_test_tc_cargo_1b_normal_capacity_pickup_path(rm)
 	_test_tc_cargo_2_wood_recovery(rm)
 	_test_tc_cargo_3_exact_quantity_once(rm)
 	_test_tc_cargo_4_repeated_callbacks_idempotency(rm)
@@ -80,6 +81,7 @@ func _run_all_tests() -> void:
 	_test_tc_cargo_8_storage_capacity_capped()
 	_test_tc_cargo_9_state_cleanup_consistency(rm)
 	_test_tc_cargo_10_demolition_conservation_unaffected(rm)
+	_test_tc_cargo_11_pending_cargo_full_lifecycle_recovery(rm)
 
 	print("\n--------------------------------------------------------")
 	var passed_count: int = 0
@@ -87,8 +89,8 @@ func _run_all_tests() -> void:
 		if res.get("passed", false):
 			passed_count += 1
 	print("  BUG-001 RESULTS: %d / %d Tests Passed" % [passed_count, test_results.size()])
-	if all_passed and passed_count == 10:
-		print("  ALL 10 BUG-001 HAULER CARGO CONSERVATION TESTS PASSED! (Exit Code 0)")
+	if all_passed and passed_count == test_results.size():
+		print("  ALL %d BUG-001 HAULER CARGO CONSERVATION TESTS PASSED! (Exit Code 0)" % test_results.size())
 		print("--------------------------------------------------------\n")
 		quit(0)
 	else:
@@ -103,6 +105,7 @@ func _setup_test_citizen(cid: String, cname: String, crole: String, rm: Object) 
 	cit.role = crole
 	cit.world_view = world_instance
 	cit.set_custom_resource_manager(rm)
+	cit.citizen_died.connect(func(did: String): world_instance.call("_on_citizen_died", did))
 	world_instance.citizens_container.add_child(cit)
 	world_instance.citizen_list.append(cit)
 	world_instance.citizens_by_id[cid] = cit
@@ -110,6 +113,7 @@ func _setup_test_citizen(cid: String, cname: String, crole: String, rm: Object) 
 
 # -----------------------------------------------------------------------------
 # TC-CARGO.1: Hauler carrying Food dies -> food deposited to central stock
+# (Boundary test: 15 Food demonstrates lack of artificial lower clamping)
 # -----------------------------------------------------------------------------
 func _test_tc_cargo_1_food_recovery(rm: Object) -> void:
 	var cid := "test_cit_cargo_1"
@@ -122,10 +126,29 @@ func _test_tc_cargo_1_food_recovery(rm: Object) -> void:
 	var stock_after: int = int(rm.call("get_available_stock", EconomyConfigScript.RES_FOOD))
 
 	var ok: bool = (stock_after == stock_before + 15) and (cit.carrying_amount == 0) and cit.carrying_resource.is_empty()
-	_record("TC-CARGO.1", ok, "Hauler carrying 15 Food dies -> 15 Food deposited to central stock (%d -> %d)" % [stock_before, stock_after])
+	_record("TC-CARGO.1", ok, "Hauler carrying 15 Food (boundary fixture) dies -> 15 Food deposited to central stock (%d -> %d)" % [stock_before, stock_after])
+
+# -----------------------------------------------------------------------------
+# TC-CARGO.1B: Standard 10-unit production carrying capacity pickup and death recovery
+# -----------------------------------------------------------------------------
+func _test_tc_cargo_1b_normal_capacity_pickup_path(rm: Object) -> void:
+	var cid := "test_cit_cargo_1b"
+	var cit = _setup_test_citizen(cid, "Hauler Standard 10", "hauler", rm)
+	# Normal gameplay carry_capacity is 10 (EconomyConfig / CitizenController carry_capacity)
+	var standard_cap: int = cit.carry_capacity
+	cit.carrying_resource = EconomyConfigScript.RES_FOOD
+	cit.carrying_amount = standard_cap # exactly 10
+
+	var stock_before: int = int(rm.call("get_available_stock", EconomyConfigScript.RES_FOOD))
+	cit.call("die", "Tử nạn trên đường", "starvation_or_exhaustion")
+	var stock_after: int = int(rm.call("get_available_stock", EconomyConfigScript.RES_FOOD))
+
+	var ok: bool = (standard_cap == 10) and (stock_after == stock_before + 10) and (cit.carrying_amount == 0) and cit.carrying_resource.is_empty()
+	_record("TC-CARGO.1B", ok, "Standard hauler (carry_capacity=10) dies -> exactly 10 Food deposited to stock (%d -> %d)" % [stock_before, stock_after])
 
 # -----------------------------------------------------------------------------
 # TC-CARGO.2: Hauler carrying Wood dies -> wood deposited to central stock
+# (Boundary test: 20 Wood demonstrates lack of artificial lower clamping)
 # -----------------------------------------------------------------------------
 func _test_tc_cargo_2_wood_recovery(rm: Object) -> void:
 	var cid := "test_cit_cargo_2"
@@ -138,7 +161,7 @@ func _test_tc_cargo_2_wood_recovery(rm: Object) -> void:
 	var stock_after: int = int(rm.call("get_available_stock", EconomyConfigScript.RES_WOOD))
 
 	var ok: bool = (stock_after == stock_before + 20) and (cit.carrying_amount == 0) and cit.carrying_resource.is_empty()
-	_record("TC-CARGO.2", ok, "Hauler carrying 20 Wood dies -> 20 Wood deposited to central stock (%d -> %d)" % [stock_before, stock_after])
+	_record("TC-CARGO.2", ok, "Hauler carrying 20 Wood (boundary fixture) dies -> 20 Wood deposited to central stock (%d -> %d)" % [stock_before, stock_after])
 
 # -----------------------------------------------------------------------------
 # TC-CARGO.3: Cargo deposited exactly once (exact quantity, no inflation)
@@ -334,3 +357,57 @@ func _test_tc_cargo_10_demolition_conservation_unaffected(rm: Object) -> void:
 
 	var ok: bool = can_demolish_res.get("can_demolish", false) == true
 	_record("TC-CARGO.10", ok, "BuildingSystem demolition cargo preflight remains fully operational and unregressed")
+
+# -----------------------------------------------------------------------------
+# TC-CARGO.11: Full-capacity pending recovery lifecycle (Section 2.2)
+# -----------------------------------------------------------------------------
+func _test_tc_cargo_11_pending_cargo_full_lifecycle_recovery(rm: Object) -> void:
+	# 1. Setup: Fill stone stock to capacity (500/500)
+	var cap: int = int(rm.call("get_storage_capacity", EconomyConfigScript.RES_STONE))
+	var initial_stone: int = int(rm.call("get_available_stock", EconomyConfigScript.RES_STONE))
+	rm.call("add_resource", EconomyConfigScript.RES_STONE, cap - initial_stone)
+	var stone_full: int = int(rm.call("get_available_stock", EconomyConfigScript.RES_STONE))
+
+	# 2. Citizen carrying 10 stone dies while storage is completely full
+	var cid := "test_cit_cargo_full_11"
+	var cit = _setup_test_citizen(cid, "Hauler Full Storage", "hauler", rm)
+	cit.carrying_resource = EconomyConfigScript.RES_STONE
+	cit.carrying_amount = 10
+
+	cit.call("die", "Chết đói khi kho đá đầy", "starvation_or_exhaustion")
+
+	# Check: Storage remains capped, citizen fields cleared, remainder stored in pending_death_cargo
+	var stone_after_death: int = int(rm.call("get_available_stock", EconomyConfigScript.RES_STONE))
+	var pending_amt: int = int(world_instance.call("get_pending_death_cargo", EconomyConfigScript.RES_STONE))
+
+	# Check: Repeated death callback does not duplicate pending cargo
+	world_instance.call("_on_citizen_died", cid)
+	var pending_amt_dup: int = int(world_instance.call("get_pending_death_cargo", EconomyConfigScript.RES_STONE))
+
+	# 3. Capacity becomes available: consume 20 stone
+	rm.call("consume_resource", EconomyConfigScript.RES_STONE, 20)
+	var stone_after_consume: int = int(rm.call("get_available_stock", EconomyConfigScript.RES_STONE))
+
+	# 4. Flush pending death cargo: recovers the 10 stone into available space
+	var flush_res: Dictionary = world_instance.call("flush_pending_death_cargo")
+	var stone_after_flush: int = int(rm.call("get_available_stock", EconomyConfigScript.RES_STONE))
+	var pending_after_flush: int = int(world_instance.call("get_pending_death_cargo", EconomyConfigScript.RES_STONE))
+
+	# 5. Subsequent flush does nothing (exact once)
+	var second_flush_res: Dictionary = world_instance.call("flush_pending_death_cargo")
+	var stone_after_second_flush: int = int(rm.call("get_available_stock", EconomyConfigScript.RES_STONE))
+
+	var ok: bool = (
+		stone_full == cap
+		and stone_after_death == cap
+		and pending_amt == 10
+		and pending_amt_dup == 10
+		and stone_after_consume == cap - 20
+		and flush_res.get("recovered", {}).get(EconomyConfigScript.RES_STONE, 0) == 10
+		and stone_after_flush == cap - 10
+		and pending_after_flush == 0
+		and second_flush_res.get("recovered", {}).is_empty()
+		and stone_after_second_flush == stone_after_flush
+	)
+
+	_record("TC-CARGO.11", ok, "Full lifecycle pending death cargo: durably held when full, recovered exact once when space opens, zero duplication")

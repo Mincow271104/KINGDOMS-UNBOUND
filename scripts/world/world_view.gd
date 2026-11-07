@@ -101,6 +101,39 @@ func _get_resource_mgr() -> Object:
 		return resource_mgr
 	return get_node_or_null("/root/ResourceManager")
 
+var pending_death_cargo: Dictionary = {}
+
+func add_pending_death_cargo(res_type: String, amount: int) -> void:
+	if amount <= 0 or res_type.is_empty():
+		return
+	pending_death_cargo[res_type] = int(pending_death_cargo.get(res_type, 0)) + amount
+
+func get_pending_death_cargo(res_type: String = "") -> Variant:
+	if res_type.is_empty():
+		return pending_death_cargo.duplicate()
+	return int(pending_death_cargo.get(res_type, 0))
+
+func flush_pending_death_cargo() -> Dictionary:
+	var rm: Object = _get_resource_mgr()
+	if rm == null or not rm.has_method("add_resource"):
+		return {"recovered": {}, "remaining": pending_death_cargo.duplicate()}
+	var recovered: Dictionary = {}
+	var to_erase: Array[String] = []
+	for res_type in pending_death_cargo:
+		var amt: int = int(pending_death_cargo[res_type])
+		if amt <= 0:
+			to_erase.append(res_type)
+			continue
+		var added: int = int(rm.call("add_resource", res_type, amt))
+		if added > 0:
+			recovered[res_type] = added
+			pending_death_cargo[res_type] = amt - added
+			if int(pending_death_cargo[res_type]) <= 0:
+				to_erase.append(res_type)
+	for r in to_erase:
+		pending_death_cargo.erase(r)
+	return {"recovered": recovered, "remaining": pending_death_cargo.duplicate()}
+
 func _ready() -> void:
 	DisplayServer.window_set_min_size(Vector2i(1024, 576))
 	_load_assets()
@@ -602,6 +635,16 @@ func _on_citizen_died(died_id: String) -> void:
 				if rem <= 0:
 					cit.set("carrying_resource", "")
 					cit.set("carrying_source_workplace_id", "")
+
+		# Check if central storage was at capacity and unrecovered cargo needs durable retention in pending_death_cargo
+		var unrec_amt: int = int(cit.get("carrying_amount")) if cit.get("carrying_amount") != null else 0
+		var unrec_res: String = String(cit.get("carrying_resource")) if cit.get("carrying_resource") != null else ""
+		if unrec_amt > 0 and not unrec_res.is_empty():
+			add_pending_death_cargo(unrec_res, unrec_amt)
+			cit.set("carrying_amount", 0)
+			cit.set("carrying_resource", "")
+			cit.set("carrying_source_workplace_id", "")
+			push_warning("[WorldView] Central storage at capacity on citizen %s death: stored %d %s in pending_death_cargo" % [died_id, unrec_amt, unrec_res])
 
 	citizen_list.erase(cit)
 	citizens_by_id.erase(died_id)
@@ -2379,8 +2422,12 @@ func refresh_world_vision() -> void:
 					fog_of_war.reveal_circle(u_cell, 4)
 
 func _on_simulation_hour_passed(hour: int, day: int) -> void:
-	var rm = get_node_or_null("/root/ResourceManager")
-	
+	var rm = _get_resource_mgr()
+
+	# Attempt recovery of any pending death cargo if central storage has available space
+	if not pending_death_cargo.is_empty():
+		flush_pending_death_cargo()
+
 	# Progress active research project
 	if research_mgr != null:
 		research_mgr.progress_research(1.0, rm)
@@ -2442,9 +2489,12 @@ func _on_simulation_hour_passed(hour: int, day: int) -> void:
 		victory_mgr.tick_hourly(current_pop, food_stock, gold_stock, stability, avg_morale, techs_count, town_hall_alive, buildings_count)
 
 func _on_simulation_day_passed(day: int, _season: String, _year: int) -> void:
-	var rm = get_node_or_null("/root/ResourceManager")
+	var rm = _get_resource_mgr()
 	var em = get_node_or_null("/root/EventManager")
-	
+
+	if not pending_death_cargo.is_empty():
+		flush_pending_death_cargo()
+
 	if event_system != null:
 		event_system.update_daily_modifiers(day)
 		var ev_result: Dictionary = event_system.check_and_trigger_event(day, rm, em, citizen_list)

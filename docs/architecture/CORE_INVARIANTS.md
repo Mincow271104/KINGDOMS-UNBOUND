@@ -25,8 +25,8 @@
 
 ### I-03: No silent resource loss across buffers, carriers, and storage — **VERIFIED**
 - **Rule:** Resources must be strictly conserved across transitions: Workplace Output Buffer $\rightarrow$ Hauler Cargo (`carrying_*`) $\rightarrow$ Central Stock (`ResourceManager`). If a delivery destination is blocked, cargo must return to the source buffer; if central storage is full, the hauler must retain the remainder.
-- **Resolution (BUG-001):** When a citizen carrying resources dies, `CitizenController.die()` calls `recover_cargo(target_rm)` to deposit carried cargo into central storage via `ResourceManager.add_resource()`. In addition, `WorldView._on_citizen_died()` executes a fail-closed recovery check prior to freeing the node. Verified across 10 scenarios in `scripts/test/test_hauler_death_cargo_conservation.gd`.
-- **Source Files & Functions:** `scripts/entities/citizen_controller.gd` (`recover_cargo`, `die`); `scripts/world/world_view.gd` (`_on_citizen_died`).
+- **Resolution (BUG-001):** When a citizen carrying resources dies, `CitizenController.die()` calls `recover_cargo(target_rm)` to deposit carried cargo into central storage via `ResourceManager.add_resource()`. In addition, `WorldView._on_citizen_died()` executes a fail-closed recovery check prior to freeing the node; any cargo rejected due to storage saturation is durably retained in `WorldView.pending_death_cargo` and flushed into storage once space opens. Verified across 12 scenarios in `scripts/test/test_hauler_death_cargo_conservation.gd`.
+- **Source Files & Functions:** `scripts/entities/citizen_controller.gd` (`recover_cargo`, `die`); `scripts/world/world_view.gd` (`_on_citizen_died`, `add_pending_death_cargo`, `flush_pending_death_cargo`); `scripts/persistence/save_manager.gd`.
 - **Related IDs:** `BUG-001` (CLOSED), `GAP-003`.
 
 ---

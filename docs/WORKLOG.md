@@ -9614,3 +9614,36 @@ Implementation of RISK-008 resolving misleading HUD feedback in offensive campai
 ### Next Exact Step
 - Stage and commit RISK-008 changes (`fix(ui): report offensive campaign battle outcomes`).
 - Execute full regression suite (24 test suites) to ensure 100% integrity across the repository.
+
+
+---
+
+## [2026-11-07] Post-Package 2J Correctness Follow-Up — BUG-001 Cargo Edge Cases & Pending Death Cargo Recovery ✅ COMPLETE
+
+### Context & Scope
+Follow-up investigation on BUG-001 cargo limits and full storage capacity lifecycle:
+1. Clarified that standard gameplay hauler pickup is bounded by `carry_capacity = 10` (defined in `CitizenController` and `WorkplaceManager.update_hauling_jobs()`); verified that 15 Food and 20 Wood in existing unit tests served as boundary/stress fixtures proving the absence of artificial lower clamps.
+2. Resolved edge case where citizen dies while central storage is at capacity: previously, unaccepted cargo was destroyed when the deceased citizen node was freed.
+
+### Completed Work
+1. **Durable World Representation for Saturated Storage (`scripts/world/world_view.gd`):**
+   - Added `pending_death_cargo: Dictionary` to `WorldView`.
+   - Added `add_pending_death_cargo()`, `get_pending_death_cargo()`, and `flush_pending_death_cargo()`.
+   - Updated `_on_citizen_died()`: When `recover_cargo()` returns unaccepted goods due to storage capacity limits, remaining cargo is safely transferred to `pending_death_cargo` and cleared from citizen fields prior to `queue_free()`.
+   - Connected `flush_pending_death_cargo()` to hourly and daily simulation ticks (`_on_simulation_hour_passed`, `_on_simulation_day_passed`).
+2. **Persistence & Serialization (`scripts/persistence/save_manager.gd`):**
+   - Serialized `pending_death_cargo` under `resources` section with backward-compatible fallback for legacy saves.
+3. **Automated Tracked Regression Expansion (`scripts/test/test_hauler_death_cargo_conservation.gd`):**
+   - Added `TC-CARGO.1B`: Explicitly tests standard 10-unit `carry_capacity` path.
+   - Added `TC-CARGO.11`: Full lifecycle verification (death at 500/500 capacity, 0 initial deposit, durable storage in `pending_death_cargo`, node freed cleanly, idempotent duplicate death callbacks, flush upon capacity opening, exact-once deposit, zero duplicate goods).
+4. **Documentation Alignment:**
+   - Updated `docs/KNOWN_ISSUES.md` (ISSUE-007).
+   - Updated `docs/architecture/CORE_INVARIANTS.md` (I-03).
+
+### Verification & Test Evidence
+- **Automated Verification:** `& "E:\GODOT ENGINE\Godot_v4.7-stable_win64_console.exe" --headless -s res://scripts/test/test_hauler_death_cargo_conservation.gd`
+- **Result:** **12/12 PASS (Exit Code 0)**.
+
+### Next Exact Step
+- Stage and commit: `fix(economy): complete pending death cargo recovery`.
+- Proceed to BUG-003: Isolate autosave from manual save.

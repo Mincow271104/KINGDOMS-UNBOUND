@@ -29,13 +29,15 @@
 
 ### ISSUE-007: Hauler Cargo Destroyed on Citizen Death (Resolved in Post-2J Correctness Fixes / BUG-001)
 - **Severity:** Medium
-- **Symptom:** When a hauler citizen carrying resources died, `CitizenController.die()` released the job without clearing or depositing `carrying_amount` / `carrying_resource`. Subsequently, `WorldView._on_citizen_died()` called `cit.queue_free()`, destroying the carried goods ($\le 10$ units) with the freed node and violating conservation invariant `I-03`.
+- **Symptom:** When a hauler citizen carrying resources died, `CitizenController.die()` released the job without clearing or depositing `carrying_amount` / `carrying_resource`. Subsequently, `WorldView._on_citizen_died()` called `cit.queue_free()`, destroying the carried goods ($\le 10$ units) with the freed node and violating conservation invariant `I-03`. Furthermore, if central storage was already at capacity upon death, unaccepted cargo remained vulnerable upon citizen node freeing.
 - **Resolution:**
-  - Implemented `CitizenController.recover_cargo(target_rm)` to deposit carried cargo into central storage via `ResourceManager.add_resource()`. If central storage is capped, remaining cargo is safely tracked and logged.
-  - In `CitizenController.die()`, `recover_cargo()` is invoked before emitting `citizen_died`.
-  - In `WorldView._on_citizen_died()`, a fail-closed safety check calls `cit.recover_cargo(rm)` before node removal using injected `_get_resource_mgr()`.
-  - Created automated test suite `scripts/test/test_hauler_death_cargo_conservation.gd` covering 10 scenarios (`TC-CARGO.1` through `TC-CARGO.10`).
-- **Verification:** 10/10 automated tests passed (Exit Code 0). Invariant `I-03` promoted to VERIFIED.
+  - Implemented `CitizenController.recover_cargo(target_rm)` to deposit carried cargo into central storage via `ResourceManager.add_resource()`.
+  - In `WorldView._on_citizen_died()`, any remaining cargo that cannot fit into central storage due to capacity constraints is durably transferred into `WorldView.pending_death_cargo` before the deceased citizen node is freed.
+  - Implemented `WorldView.flush_pending_death_cargo()` which automatically flushes pending cargo into central storage whenever space becomes available (hourly simulation, daily rollover, or manual flush).
+  - Persisted `pending_death_cargo` in `SaveManager` under `resources` section with full backward compatibility.
+  - Clarified standard gameplay pickup capacity (`carry_capacity = 10`), preserving larger test fixtures as boundary/stress verifications.
+  - Created automated test suite `scripts/test/test_hauler_death_cargo_conservation.gd` covering 12 scenarios (`TC-CARGO.1` through `TC-CARGO.11`).
+- **Verification:** 12/12 automated tests passed (Exit Code 0). Invariant `I-03` promoted to VERIFIED.
 
 ### ISSUE-005: Real-Time Tactical Field Combat & Field Siege Operations (Resolved in Packages 1W & 1X)
 - **Severity:** Low / Architectural Scope Boundary
