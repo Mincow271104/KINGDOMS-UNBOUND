@@ -54,6 +54,7 @@ func _init() -> void:
 	_run_tc_man_19_save_load_during_cargo_hauling()
 	_run_tc_man_20_semantic_cancellation_and_death_cargo_lifecycle()
 	_run_tc_man_21_path_failure_with_cargo_invariant()
+	_run_tc_man_22_automatic_hauler_path_failure_invariant()
 
 	print("\n--------------------------------------------------------")
 	if failures == 0:
@@ -1124,6 +1125,101 @@ func _run_tc_man_21_path_failure_with_cargo_invariant() -> void:
 	# 11. Subsequent tick causes no duplicate crediting
 	cit._process_idle()
 	_assert(rm.get_total_stock("wood") == pre_wood + 10, "TC-MAN.21.22: Subsequent idle tick is strictly idempotent (zero duplicate crediting)")
+
+	cit.queue_free()
+	rm.queue_free()
+
+## TC-MAN.22: Automatic Hauler Path Failure While Carrying Cargo & Proximity Invariant
+func _run_tc_man_22_automatic_hauler_path_failure_invariant() -> void:
+	print("--- TC-MAN.22: Automatic Hauler Path Failure While Carrying Cargo ---")
+	var wd = _create_test_world()
+	var nav = GridNavigationScript.new(wd)
+	var jm = JobManagerScript.new()
+	var rm = ResourceManagerScript.new()
+	var wm = WorkplaceManagerScript.new()
+	root.add_child(rm)
+	rm.reset_economy()
+
+	# 1. Register a workplace buffer at (25, 25) with access at (26, 25)
+	wm.register_workplace("wp_farm_22", "farm", Vector2i(25, 25), Vector2i(2, 2), Vector2i(26, 25), "food", 50, 5.0, 5)
+	var wp = wm.get_workplace("wp_farm_22")
+	wp.buffer_amount = 10
+
+	# 2. Create automatic hauler citizen
+	var cit = CitizenControllerScript.new()
+	root.add_child(cit)
+	cit.init_citizen("cit_auto_22", "Auto Hauler", "hauler", Vector2i(26, 25), nav, jm, wm)
+	cit.world_data = wd
+	cit.set_custom_resource_manager(rm)
+
+	# 3. Create and assign automatic hauling job
+	var haul_job = jm.create_hauling_job("wp_farm_22", Vector2i(26, 25), Vector2i(32, 32), "food", 10, "Haul food", 1)
+	cit.active_job = haul_job
+	cit.current_state = CitizenController.State.MOVING_TO_JOB
+	cit.current_cell = Vector2i(26, 25)
+
+	# 4. Pickup hauler cargo
+	var pre_food: int = rm.get_total_stock("food")
+	cit._pickup_hauler_cargo()
+	_assert(cit.carrying_amount == 10, "TC-MAN.22.1: Automatic hauler picked up 10 food")
+	_assert(cit.carrying_resource == "food", "TC-MAN.22.2: Cargo resource identity is food")
+	_assert(cit.current_state == CitizenController.State.HAULING, "TC-MAN.22.3: Transitions to HAULING toward storage")
+	_assert(not cit.has_manual_command(), "TC-MAN.22.4: has_manual_command is false (pure automatic hauler)")
+
+	# 5. Storage route becomes completely unavailable
+	for x in range(30, 35):
+		for y in range(30, 35):
+			wd.terrain[x][y] = WorldGeneratorScript.TerrainType.WATER
+
+	# Citizen detects path blocked / current_path cleared en route
+	cit.current_path.clear()
+	cit._arrive_at_destination()
+
+	_assert(cit.current_state == CitizenController.State.IDLE, "TC-MAN.22.5: Automatic hauler transitions to IDLE on blocked route")
+	_assert(cit.is_stranded_with_cargo == true, "TC-MAN.22.6: Typed is_stranded_with_cargo flag set to true")
+	_assert(cit.carrying_amount == 10, "TC-MAN.22.7: Cargo physically retained on hauler node (zero loss)")
+	_assert(rm.get_total_stock("food") == pre_food, "TC-MAN.22.8: Zero off-site remote deposit to ResourceManager")
+
+	# 6. Multiple idle simulation ticks do not credit remote cargo
+	for tick in range(5):
+		cit._process_idle()
+		_assert(cit.carrying_amount == 10, "TC-MAN.22.9: Cargo preserved across auto idle tick %d" % tick)
+		_assert(rm.get_total_stock("food") == pre_food, "TC-MAN.22.10: Zero remote crediting on auto idle tick %d" % tick)
+		_assert(cit.is_stranded_with_cargo == true, "TC-MAN.22.11: Stranded flag persists while path is blocked")
+
+	# 7. Direct _deposit_hauler_cargo() fails closed off-site
+	cit._deposit_hauler_cargo()
+	_assert(cit.carrying_amount == 10, "TC-MAN.22.12: _deposit_hauler_cargo fails closed off-site for automatic hauler")
+	_assert(rm.get_total_stock("food") == pre_food, "TC-MAN.22.13: ResourceManager stock protected from remote deposit")
+
+	# 8. Route becomes available
+	for x in range(30, 35):
+		for y in range(30, 35):
+			wd.terrain[x][y] = WorldGeneratorScript.TerrainType.GRASS
+			wd.occupancy[x][y] = false
+
+	# 9. Next idle tick: route acquired, transitions back to HAULING
+	cit._process_idle()
+	_assert(cit.current_state == CitizenController.State.HAULING, "TC-MAN.22.14: Transitions to HAULING once path opens")
+	_assert(cit.is_stranded_with_cargo == false, "TC-MAN.22.15: Stranded flag cleared once route restored")
+	_assert(not cit.current_path.is_empty(), "TC-MAN.22.16: Non-empty path found to storehouse")
+
+	# 10. Physically travel along path to storage
+	while not cit.current_path.is_empty():
+		cit.current_cell = cit.current_path[0]
+		cit.current_path.remove_at(0)
+
+	_assert(cit._is_at_storage_dropoff(), "TC-MAN.22.17: Automatic hauler reached storage dropoff location")
+
+	# 11. Arrive at destination and deposit
+	cit._arrive_at_destination()
+	_assert(cit.carrying_amount == 0, "TC-MAN.22.18: 10 food successfully deposited upon arrival at storehouse")
+	_assert(rm.get_total_stock("food") == pre_food + 10, "TC-MAN.22.19: Central stock credited with exactly 10 food")
+	_assert(cit.current_state == CitizenController.State.IDLE, "TC-MAN.22.20: Citizen returned to IDLE after deposit")
+
+	# 12. Subsequent idle tick is strictly idempotent
+	cit._process_idle()
+	_assert(rm.get_total_stock("food") == pre_food + 10, "TC-MAN.22.21: Subsequent idle tick is strictly idempotent (zero duplicate crediting)")
 
 	cit.queue_free()
 	rm.queue_free()

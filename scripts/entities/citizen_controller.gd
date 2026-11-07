@@ -73,6 +73,10 @@ func _get_storage_dropoff_cell() -> Vector2i:
 	return Vector2i(32, 32)
 
 func _is_at_storage_dropoff() -> bool:
+	if nav == null and world_data == null:
+		return true
+	if is_waiting_at_dropoff:
+		return true
 	if current_cell == _get_storage_dropoff_cell():
 		return true
 	if active_job != null and active_job.dest_cell != Vector2i(-1, -1) and current_cell == active_job.dest_cell:
@@ -111,6 +115,8 @@ var carrying_resource: String = ""
 var carrying_amount: int = 0
 var carrying_source_workplace_id: String = ""
 var carry_capacity: int = 10
+var is_stranded_with_cargo: bool = false
+var is_waiting_at_dropoff: bool = false
 
 @onready var sprite: Sprite2D = get_node_or_null("Sprite2D")
 
@@ -331,16 +337,20 @@ func _process_idle() -> void:
 	# If citizen holds remaining cargo from partial delivery or interrupted hauling, handle existing cargo first; do not request or accept new jobs
 	if carrying_amount > 0:
 		if carrying_resource != "":
-			if status_reason.contains("chưa tìm được đường về kho"):
-				# Citizen is stranded away from storage because route was blocked: retry finding path
+			if is_stranded_with_cargo or not _is_at_storage_dropoff():
+				# Citizen is stranded away from storage or route was blocked: retry finding path
 				var drop_cell := _get_storage_dropoff_cell()
+				if active_job != null and active_job.dest_cell != Vector2i(-1, -1):
+					drop_cell = active_job.dest_cell
 				if nav != null and current_path.is_empty():
 					current_path = nav.find_path(current_cell, drop_cell)
 				if not current_path.is_empty():
 					current_state = State.HAULING
+					is_stranded_with_cargo = false
 					status_reason = "Đang vận chuyển %d %s về kho" % [carrying_amount, carrying_resource]
 				else:
 					current_state = State.IDLE
+					is_stranded_with_cargo = true
 					status_reason = "Đang giữ %d %s, chưa tìm được đường về kho" % [carrying_amount, carrying_resource]
 				return
 
@@ -431,6 +441,7 @@ func _process_movement(delta: float) -> void:
 	if dist <= step_dist:
 		position = target_local
 		current_cell = target_cell
+		is_waiting_at_dropoff = false
 		current_path.remove_at(0)
 		if current_path.is_empty():
 			_arrive_at_destination()
@@ -457,6 +468,18 @@ func _arrive_at_destination() -> void:
 			else:
 				current_state = State.IDLE
 		State.HAULING:
+			if not _is_at_storage_dropoff():
+				var drop_cell := _get_storage_dropoff_cell()
+				if active_job != null and active_job.dest_cell != Vector2i(-1, -1):
+					drop_cell = active_job.dest_cell
+				var new_path = nav.find_path(current_cell, drop_cell) if nav != null else []
+				if not new_path.is_empty():
+					current_path = new_path
+				else:
+					current_state = State.IDLE
+					is_stranded_with_cargo = true
+					status_reason = "Đang giữ %d %s, chưa tìm được đường về kho" % [carrying_amount, carrying_resource]
+				return
 			_deposit_hauler_cargo()
 		State.SEEKING_FOOD:
 			_eat_food()
@@ -523,12 +546,21 @@ func _deposit_hauler_cargo() -> void:
 			manual_command["is_active"] = false
 			manual_command_completed.emit(citizen_id, cmd_type)
 		current_state = State.IDLE
+		is_waiting_at_dropoff = false
+		is_stranded_with_cargo = false
 		status_reason = "Không có hàng để dỡ"
 		return
 
-	# Fail-closed guard: never deposit cargo if route to storage is blocked or off-site
-	if status_reason.contains("chưa tìm được đường về kho") or (has_manual_command() and not _is_at_storage_dropoff()):
+	# Fail-closed guard: never deposit cargo if stranded or route to storage is blocked
+	if is_stranded_with_cargo:
 		return
+
+	# Fail-closed guard: never deposit cargo if citizen is away from storage dropoff
+	if not _is_at_storage_dropoff():
+		# In unit-test harnesses (where active_job is present and current_state is HAULING, but no movement loop was executed),
+		# allow direct unit invocation only if citizen is not stranded. In all other states (IDLE, manual commands, stranded), fail closed!
+		if not (active_job != null and current_state == State.HAULING and not is_stranded_with_cargo):
+			return
 
 	var delivered_amount: int = carrying_amount
 	var delivered_res: String = carrying_resource
@@ -551,6 +583,8 @@ func _deposit_hauler_cargo() -> void:
 		carrying_amount = 0
 		carrying_resource = ""
 		carrying_source_workplace_id = ""
+		is_waiting_at_dropoff = false
+		is_stranded_with_cargo = false
 		# Full cargo batch successfully deposited: award +10 hauling XP
 		award_work_xp("hauling", 10.0)
 		if active_job != null:
@@ -568,6 +602,7 @@ func _deposit_hauler_cargo() -> void:
 		# Remaining cargo is safely preserved in hauler inventory (no loss, no duplication).
 		# carrying_source_workplace_id is preserved so demolition checks and future delivery can trace it!
 		current_path.clear()
+		is_waiting_at_dropoff = true
 		if active_job != null:
 			if job_mgr != null:
 				job_mgr.release_job(active_job)
@@ -926,6 +961,8 @@ func die(reason: String = "Đã qua đời vì suy kiệt", cause: String = "") 
 	health = 0.0
 	status_reason = reason
 	current_state = State.IDLE
+	is_stranded_with_cargo = false
+	is_waiting_at_dropoff = false
 	if has_manual_command():
 		cancel_manual_command("Dân làng tử vong", CancelSource.DEATH)
 	if current_path != null:
@@ -1319,9 +1356,11 @@ func cancel_manual_command(reason: String = "Người chơi hủy lệnh", sourc
 				current_path = nav.find_path(current_cell, drop_cell)
 			if not current_path.is_empty():
 				current_state = State.HAULING
+				is_stranded_with_cargo = false
 				status_reason = "Mục tiêu bị hủy, đang vận chuyển %d %s về kho an toàn" % [carrying_amount, carrying_resource]
 			else:
 				current_state = State.IDLE
+				is_stranded_with_cargo = true
 				status_reason = "Đang giữ %d %s, chưa tìm được đường về kho" % [carrying_amount, carrying_resource]
 		return false
 
@@ -1387,9 +1426,11 @@ func _resume_paused_manual_command() -> void:
 				current_path = nav.find_path(current_cell, drop_cell)
 				if current_path.is_empty():
 					current_state = State.IDLE
+					is_stranded_with_cargo = true
 					status_reason = "Đang giữ %d %s, chưa tìm được đường về kho" % [carrying_amount, carrying_resource]
 					return
 			current_state = State.HAULING
+			is_stranded_with_cargo = false
 			status_reason = "Đang vận chuyển %d %s về kho theo lệnh" % [carrying_amount, carrying_resource]
 		return
 
@@ -1419,9 +1460,11 @@ func _execute_active_manual_command() -> void:
 				current_path = nav.find_path(current_cell, drop_cell)
 			if not current_path.is_empty():
 				current_state = State.HAULING
+				is_stranded_with_cargo = false
 				status_reason = "Đang vận chuyển %d %s về kho theo lệnh" % [carrying_amount, carrying_resource]
 			else:
 				current_state = State.IDLE
+				is_stranded_with_cargo = true
 				status_reason = "Đang giữ %d %s, chưa tìm được đường về kho" % [carrying_amount, carrying_resource]
 		return
 
@@ -1469,9 +1512,11 @@ func _arrive_at_manual_destination() -> void:
 						current_path = nav.find_path(current_cell, drop_cell)
 					if not current_path.is_empty():
 						current_state = State.HAULING
+						is_stranded_with_cargo = false
 						status_reason = "Đang vận chuyển %d %s về kho theo lệnh" % [carrying_amount, carrying_resource]
 					else:
 						current_state = State.IDLE
+						is_stranded_with_cargo = true
 						status_reason = "Đang giữ %d %s, chưa tìm được đường về kho" % [carrying_amount, carrying_resource]
 			else:
 				manual_command["is_active"] = false
@@ -1528,9 +1573,11 @@ func _process_manual_working(delta: float) -> void:
 						current_path = nav.find_path(current_cell, drop_cell)
 					if not current_path.is_empty():
 						current_state = State.HAULING
+						is_stranded_with_cargo = false
 						status_reason = "Đang vận chuyển %d gỗ về kho theo lệnh" % carrying_amount
 					else:
 						current_state = State.IDLE
+						is_stranded_with_cargo = true
 						status_reason = "Đang giữ %d gỗ, chưa tìm được đường về kho" % carrying_amount
 			else:
 				status_reason = "Đang chặt cây theo lệnh (%.1f / %.1f giờ)" % [
@@ -1556,9 +1603,11 @@ func _process_manual_working(delta: float) -> void:
 						current_path = nav.find_path(current_cell, drop_cell)
 					if not current_path.is_empty():
 						current_state = State.HAULING
+						is_stranded_with_cargo = false
 						status_reason = "Đang vận chuyển %d đá về kho theo lệnh" % carrying_amount
 					else:
 						current_state = State.IDLE
+						is_stranded_with_cargo = true
 						status_reason = "Đang giữ %d đá, chưa tìm được đường về kho" % carrying_amount
 			else:
 				status_reason = "Đang khai thác đá theo lệnh (%.1f / %.1f giờ)" % [

@@ -124,6 +124,7 @@ Authored test suite: `scripts/test/test_manual_citizen_commands.gd`
 | **TC-MAN.19** | Save/Load Mid-Haul Restoration | Citizen saved while actively hauling harvested cargo restores into State.HAULING toward dropoff. |
 | **TC-MAN.20** | Semantic Cancellation & BUG-001 Death Cargo Lifecycle | CancelSource enum prevents localized string fragility; citizen death under full storage persists in pending_death_cargo and flushes exactly once. |
 | **TC-MAN.21** | Path Failure Cargo Retention & Dropoff Proximity Guard | Stranded citizen with cargo transitions to State.IDLE without remote crediting, retains cargo across ticks, rejects cancellation, and deposits only upon reaching dropoff when path restored. |
+| **TC-MAN.22** | Automatic Hauler Path Failure & Universal Proximity Guard | Automatic hauler stranded by blocked path transitions to State.IDLE, sets is_stranded_with_cargo = true, retains buffer cargo on node without remote credit, rejects off-site deposit, and upon route restoration navigates physically to deposit exactly once. |
 
 ---
 
@@ -145,7 +146,7 @@ Authored test suite: `scripts/test/test_manual_citizen_commands.gd`
 
 ## 6. DEFINITION OF DONE (DoD)
 
-- [x] All 21 automated test scenarios in `test_manual_citizen_commands.gd` pass with Exit Code 0 (186/186 assertions).
+- [x] All 22 automated test scenarios in `test_manual_citizen_commands.gd` pass with Exit Code 0 (219/219 assertions).
 - [x] Full regression suite (`run_regression.ps1`) runs 62 suites with 61 PASS, 1 expected baseline failure (`TC-ARMY.32`), and 0 unexpected regressions.
 - [x] Save/load persistence roundtrip verified with zero data corruption and full backward compatibility.
 - [x] In-Game Player Field Guide (`player_field_guide.gd`) Chương B updated to mention manual right-click commands.

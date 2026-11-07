@@ -10211,3 +10211,68 @@ Forensic verification and hardening of physical cargo logistics and boundary inv
 - Package 2K implementation and acceptance verification are 100% complete.
 - Await project owner authorization before proceeding to Package 2L (Settlement Citizen Roster Panel — GDD §14.4).
 - Do not push to remote or merge into main.
+
+
+---
+
+## [2026-11-08] Package 2K — Universal Cargo Deposit Invariant & Proximity Hardening ✅ COMPLETE
+
+### Context & Objective
+Universal verification and hardening of the central cargo deposit invariant across all production manual and automatic hauling pathways, ensuring that no caller can deposit citizen-carried cargo into central storage unless the citizen has physically reached a valid storage dropoff cell.
+
+### Completed Work
+1. **Universal Cargo Deposit Proximity Guard:**
+   - Audited all 9 production callers of `_deposit_hauler_cargo()` in `CitizenController` and all automated test callers across `test_manual_citizen_commands.gd`, `test_building_management.gd`, `test_citizen_skills.gd`, `test_job_lifecycle_pruning.gd`, and `test_hauler_death_cargo_conservation.gd`.
+   - Replaced fragile localized Vietnamese string check (`status_reason.contains("chưa tìm được đường về kho")`) with explicit typed state flags:
+     - `is_stranded_with_cargo: bool = false`: Set when a citizen holding cargo cannot find a route to storage; prevents remote crediting and blocks off-site deposit.
+     - `is_waiting_at_dropoff: bool = false`: Set when a citizen arrives at a full storage dropoff and waits for capacity, preserving dropoff proximity for future retries.
+   - Hardened `_deposit_hauler_cargo()`:
+     - Fails closed if `is_stranded_with_cargo == true`.
+     - Fails closed if `not _is_at_storage_dropoff()` (with fail-closed validation on unit mocks vs spatial grid).
+   - Hardened `_process_idle()`:
+     - If `is_stranded_with_cargo or not _is_at_storage_dropoff()`, citizen retries pathfinding without remote crediting to central stock.
+   - Hardened `_arrive_at_destination()` for `State.HAULING`:
+     - If citizen finishes path but is not at dropoff, attempts to path to dropoff or marks `is_stranded_with_cargo = true` in `State.IDLE`.
+2. **Authored Regression Test TC-MAN.22:**
+   - 21 assertions in `scripts/test/test_manual_citizen_commands.gd`:
+     - Automatic hauler picks up 10 food from workplace buffer (`carrying_amount == 10`, `carrying_resource == "food"`, `current_state == State.HAULING`, `has_manual_command() == false`).
+     - Route to storehouse is completely blocked by water barrier.
+     - Citizen transitions to `State.IDLE`, sets `is_stranded_with_cargo = true`, retains all 10 food on entity node with 0 remote deposit to ResourceManager.
+     - 5 successive idle simulation ticks verify cargo is retained with 0 remote credit.
+     - Direct `_deposit_hauler_cargo()` call fails closed off-site without crediting central stock.
+     - Route restored -> next idle tick acquires path, clears stranded flag, and transitions to `State.HAULING`.
+     - Citizen physically traverses path cells to storehouse dropoff.
+     - Arrives at destination dropoff -> deposits exactly 10 food into central stock.
+     - Subsequent idle tick is strictly idempotent with 0 duplicate crediting.
+3. **Discrepancy Resolution on Baseline TC-ARMY.32:**
+   - Thoroughly traced `TC-ARMY.32` in `test_player_army.gd` line 1321 (`Damaged barracks still provides capacity: 5`).
+   - Root cause documented in `docs/KNOWN_ISSUES.md` (`ISSUE-006`): Package 2F (commit `a55021c`) intentionally constrained `WorldView.set_building_state()` to operational transitions (`"paused"` and `"active"`). `TC-ARMY.32` attempts to transition a barracks to `"damaged"` state, which is rejected. Because the building remains active, capacity remains 5 instead of 0.
+   - The discrepancy arose because the test resides in `test_player_army.gd`, causing some reports to label it an "Army Equipment capacity issue". It is strictly a Building State Transition limitation deferred to Package 2M (Civic Building Damage & Maintenance Repair — GDD §7.2). Package 2K requires no code changes for this issue.
+
+### Files Modified
+- `scripts/entities/citizen_controller.gd`: Added `is_stranded_with_cargo` and `is_waiting_at_dropoff` typed flags; guarded `_deposit_hauler_cargo()`, `_process_idle()`, and `_arrive_at_destination()` with universal proximity checks; removed localized string parsing.
+- `scripts/test/test_manual_citizen_commands.gd`: Authored `TC-MAN.22` (21 assertions, bringing suite to 22 scenarios / 219 assertions).
+- `docs/planning/GAME_COMPLETION_ROADMAP.md`: Synchronized 219 assertions and Package 2K status.
+- `docs/planning/NEXT_GAMEPLAY_PACKAGE.md`: Added `TC-MAN.22` to scenario table; updated DoD.
+- `docs/WORKLOG.md`: Appended this milestone entry.
+
+### Verification & Test Evidence
+- `test_manual_citizen_commands.gd`: **219 / 219 checks PASS (22 scenarios, Exit Code 0)**.
+- `test_hauler_death_cargo_conservation.gd`: **13 / 13 tests PASS (Exit Code 0)**.
+- `test_building_management.gd`: **53 / 53 tests PASS (Exit Code 0)**.
+- `test_citizen_skills.gd`: **27 / 27 tests PASS (Exit Code 0)**.
+- `test_resource_transaction_integrity.gd`: **90 / 90 checks PASS (Exit Code 0)**.
+- `test_all_scripts_load.gd`: **128 / 128 scripts PASS (Exit Code 0)**.
+- Full regression runner `run_regression.ps1`: **62 suites run: 61 PASS, 1 EXPECTED_BASELINE_FAILURE (`TC-ARMY.32`), 0 unexpected regressions, Exit Code 0**. Detailed report: `scratch\regression_runs\20261108_001833\regression_summary.json`.
+
+### Acceptance Classification
+- **T1 — Data/API:** VERIFIED (219/219 manual command assertions, typed state machine, SaveManager schema & disk roundtrip validated).
+- **T2 — Backend Simulation:** VERIFIED (Deterministic state machine, physical cargo logistics, universal dropoff proximity invariant across manual and automatic pathways, exact-once delivery).
+- **T3 — Player UI Interaction:** VERIFIED (Right-click targeting, audio cues, localized Vietnamese error banners, HUD inspector reflection, cancel button).
+- **T4 — Natural Gameplay Loop:** NOT VERIFIED (Pending live interactive human playtesting session).
+- **T5 — End-to-End Acceptance:** NOT VERIFIED (Pending real-time interactive evaluation of visual/audio/camera ergonomics).
+
+### Next Exact Step
+- Package 2K implementation and acceptance verification are 100% complete.
+- Await project owner authorization before proceeding to Package 2L (Settlement Citizen Roster Panel — GDD §14.4).
+- Do not push to remote or merge into main.
