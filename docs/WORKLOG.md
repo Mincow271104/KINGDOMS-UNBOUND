@@ -10510,3 +10510,70 @@ Package 2M establishes the full operational state machine (`planned`, `under_con
 - Milestone 2 is officially complete.
 - Await project owner authorization before proceeding to Milestone 3 / Package 3A (Territorial Outpost Garrisoning & Reinforcement).
 - Do not push to remote or merge into main.
+
+
+---
+
+## [2026-11-08] Package 3A Implementation: Territorial Outpost Garrisoning & Reinforcement
+
+### Phase & Package Context
+- **Milestone:** Milestone 3 — Strategic Gameplay Complete
+- **Package:** PACKAGE 3A — TERRITORIAL OUTPOST GARRISONING & REINFORCEMENT
+- **GDD References:** `docs/GDD.md` §6.3, §7.2, §10.1, §10.4, §10.5, §16.3
+- **Branch:** `feature/package-3a-outpost-garrison-reinforcement`
+- **Base Commit:** `fff9011fc83ff032233cca399b0839e90f9e6cd8`
+
+### Package 2M Follow-Up Findings
+1. **Finding A (Repair Transaction Lifetime & Concurrent Reservation Safety):**
+   - Confirmed that `ResourceManager.reserve_cost()` appends copy records to `_direct_reservation_records`. Concurrent repairs with identical costs decrement/release individual records sequentially without cross-contamination.
+   - Identified that `SaveManager` resets reservations via `rm.reset_economy()`, meaning uncommitted in-progress repairs across saves require re-registration.
+2. **Finding B (Damage Thresholds & Formulas Provenance):**
+   - GDD §7.2 establishes the state machine (`Planned` -> `Under Construction` -> `Active` -> `Paused` -> `Damaged` -> `Destroyed`) and non-functional state rule.
+   - 100 max HP, $\le 50$ threshold, 25% cost, 50% hours (min 2.0h) are design implementation decisions operationalizing GDD §7.2 conservatively.
+3. **Finding C (Damage Event Callers & Combat Integration Gap):**
+   - Confirmed `SiegeObjectiveActor` and `TacticalUnit` receive natural combat damage via `take_damage()`.
+   - `BuildingSystem.apply_damage()` currently has no natural combat callers in civic settlements, identifying an integration gap for future campaign packages.
+
+### Work Completed in Package 3A
+1. **Authoritative Specification:**
+   - Created `docs/planning/PACKAGE_3A_SPECIFICATION.md` detailing the 12 required sections.
+2. **Authoritative Outpost Garrison Model (`PlayerArmyManager`):**
+   - Implemented garrison tracking: `garrisons` dictionary and `active_reinforcements` transit array.
+   - Implemented `get_total_soldier_count()`, `get_all_garrisoned_count()`, `get_in_transit_count()`.
+   - Enforced the Global Conservation Invariant: $\text{Total} = \text{Central Reserve} + \sum \text{Garrisons} + \sum \text{In-Transit}$.
+   - Implemented `station_soldier(outpost_id, count)` and `recall_soldier(outpost_id, count)` with fail-closed validation.
+   - Implemented `dispatch_reinforcements(outpost_id, count, travel_hours)` and `advance_reinforcements(delta_hours)`.
+   - Handled lost outposts while in transit: soldiers retreat safely to central reserve.
+   - Implemented `apply_outpost_casualties(outpost_id, count)` and `evict_outpost_garrison(outpost_id)`.
+3. **Outpost Capacity & Structure Support (`BuildingSystem`):**
+   - Added `get_building_garrison_capacity(b_type)`: Watchtower (2), Palisade (2).
+   - Added `is_outpost_building(b_type)`.
+4. **Field Siege & Campaign Integration (`FieldSiegeManager` & `BattleCampaignManager`):**
+   - `FieldSiegeManager.transfer_outpost_ownership()` now cleanly evicts player garrisons upon capture/loss.
+   - `BattleCampaignManager.construct_outpost_defending_force(outpost_id)` calculates localized defense power based on garrisoned soldiers.
+5. **Map Interaction & WorldView API (`WorldView`):**
+   - Added `station_outpost_garrison()`, `recall_outpost_garrison()`, `dispatch_reinforcements_to_outpost()`, `get_outpost_garrison_data()`.
+   - Wired Priority 2.5 in `_handle_left_click()`: left-clicking an outpost objective opens the outpost inspector.
+   - Advanced reinforcements hourly in `_on_simulation_hour_passed()`.
+6. **HUD Inspection UI (`scenes/ui/hud.tscn` & `scripts/ui/hud.gd`):**
+   - Added `GarrisonSection` with title, garrison count (`X / Y`), in-transit label, localized status, soldier roster, and interactive action buttons (`[+ Điều Binh]`, `[- Rút Quân]`).
+   - Wired button press handlers with error/success event banners in Vietnamese.
+7. **Save/Load Persistence (`SaveManager`):**
+   - Serialized `garrisons` and `reinforcements` under `player_army`.
+   - Added schema validation in `SaveManager`.
+   - Ensured 100% backward compatibility for legacy save files.
+8. **Automated Test Suite & Regression Runner:**
+   - Created `scripts/test/test_outpost_garrison_reinforcement.gd` covering 26 automated scenarios (107/107 assertions PASS).
+   - Registered test suite in `scripts/test/run_regression.ps1` (65 suites total).
+
+### Acceptance Classification
+- **T1 — Data/API:** VERIFIED (107/107 outpost garrison assertions pass, SaveManager schema & disk roundtrip validated).
+- **T2 — Backend Simulation:** VERIFIED (Soldier conservation invariant, reinforcement transit and arrival, daily food upkeep, defense power calculation, casualty deduction, outpost loss eviction).
+- **T3 — Player UI Interaction:** VERIFIED (Garrison inspection section, capacity labels, soldier roster, reinforce and recall actions, Vietnamese event banners).
+- **T4 — Natural Gameplay Loop:** NOT VERIFIED (Pending live interactive human playtesting session).
+- **T5 — End-to-End Acceptance:** NOT VERIFIED (Pending real-time interactive evaluation of visual/audio/camera ergonomics).
+
+### Next Exact Step
+- Package 3A implementation, verification, and regression runs are 100% complete.
+- Await project owner authorization before proceeding to Package 3B (Dynamic Trade Route Interception & Caravan Defense).
+- Do not push to remote or merge into main.

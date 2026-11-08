@@ -248,11 +248,20 @@ flowchart LR
      - Authoritative GDD §7.2 operational lifecycle (`planned`, `under_construction`, `active`, `paused`, `damaged`, `destroyed`), builder maintenance repair jobs, proportional material reservation via `ResourceManager`, and resolution of pre-existing `TC-ARMY.32` baseline limitation.
      - Fully verified across 25 automated scenarios (118 assertions) in `test_building_damage_repair.gd`, `test_player_army.gd` (TC-ARMY.32), and full regression runner (64/64 PASS, 0 baseline failures, 0 unexpected failures).
 
-### Milestone 3 — Strategic Gameplay Complete (NEXT WORKSTREAM)
+### Milestone 3 — Strategic Gameplay Complete (IN PROGRESS)
 - **Goal:** Complete strategic warfare and diplomatic influence loops.
 - **Required Packages:**
-  1. **Package 3A (Territorial Outpost Garrisoning & Reinforcement):** Station player troops at captured outposts to defend against NPC reconquest.
-  2. **Package 3B (Dynamic Trade Route Interception & Caravan Defense):** Escort allied merchant caravans or protect trade routes from forest bandits.
+  1. **Package 3A (Territorial Outpost Garrisoning & Reinforcement — GDD §6.3, §10.5) ✅ COMPLETE:**
+     - Station player troops at captured outposts (`SiegeObjectiveActor`) and civic defensive structures (`Watchtower`, `Palisade`).
+     - Strict soldier identity conservation: $\text{Total} = \text{Central Reserve} + \sum \text{Garrisons} + \sum \text{In-Transit}$. Zero duplication or unexplained loss.
+     - Reinforcement dispatch pipeline with deterministic transit times and arrival synchronization.
+     - Defensive combat integration with `BattleCampaignManager` and `FieldSiegeManager`.
+     - Daily food upkeep integration across central + garrisoned troops.
+     - Interactive HUD garrison inspection panel with localized Vietnamese actions (`+ Điều Binh`, `- Rút Quân`).
+     - SaveManager persistence with backward compatibility for legacy save files.
+     - Fully verified across 26 automated scenarios (107 assertions) in `test_outpost_garrison_reinforcement.gd` and 65/65 regression runner suites.
+  2. **Package 3B (Dynamic Trade Route Interception & Caravan Defense — GDD §11.1 & §11.2) (NEXT WORKSTREAM):**
+     - Escort allied merchant caravans or protect trade routes from forest bandits and rival raiders.
 
 ### Milestone 4 — Complete Endgame & Longevity
 - **Goal:** Full end-to-end victory, crisis, and meta-progression loop.

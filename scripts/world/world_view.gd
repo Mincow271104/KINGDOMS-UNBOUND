@@ -1289,6 +1289,27 @@ func _handle_left_click(cell: Vector2i) -> void:
 				hud.show_citizen_inspector(cit)
 			return
 
+	# Priority 2.5: Siege Objective Outpost at clicked cell
+	var obj_at_cell = _find_siege_objective_at_cell(cell)
+	if obj_at_cell != null and obj_at_cell.current_cell == cell:
+		if hud != null and hud.has_method("close_citizen_inspector"):
+			hud.close_citizen_inspector()
+		var outpost_data := {
+			"id": obj_at_cell.objective_id,
+			"type": "outpost",
+			"name": obj_at_cell.objective_name,
+			"cell": obj_at_cell.current_cell,
+			"size": Vector2i(2, 2),
+			"state": "active" if obj_at_cell.is_alive else "destroyed",
+			"health": int(obj_at_cell.health),
+			"max_health": int(obj_at_cell.max_health),
+			"owner": obj_at_cell.owning_faction_id,
+			"is_outpost": true,
+			"is_under_siege": bool(obj_at_cell.get("is_under_active_siege"))
+		}
+		select_building(outpost_data)
+		return
+
 	# Priority 3: Building footprint at clicked cell (1x1, 2x2, 3x3)
 	var b_data := _get_building_at_cell(cell)
 	if not b_data.is_empty():
@@ -2735,6 +2756,10 @@ func _on_simulation_hour_passed(hour: int, day: int) -> void:
 	# Progress active research project
 	if research_mgr != null:
 		research_mgr.progress_research(1.0, rm)
+
+	# Package 3A: Progress outpost reinforcements
+	if player_army_mgr != null and player_army_mgr.has_method("advance_reinforcements"):
+		player_army_mgr.call("advance_reinforcements", 1.0)
 		
 	# Update citizen/building/unit vision and fog of war
 	refresh_world_vision()
@@ -2845,3 +2870,28 @@ func _on_simulation_day_passed(day: int, _season: String, _year: int) -> void:
 		var asave_res := SaveManager.save_to_file(self, SaveManager.get_autosave_path())
 		if asave_res.get("success", false) and em != null:
 			em.trigger_event("autosave", "Tự Động Lưu", "Đã tự động lưu thế giới an toàn (Ngày %d)." % day, true, {})
+
+# -----------------------------------------------------------------------------
+# Package 3A: Outpost Garrisoning API
+# -----------------------------------------------------------------------------
+
+func station_outpost_garrison(outpost_id: String, count: int = 1) -> Dictionary:
+	if player_army_mgr != null and player_army_mgr.has_method("station_soldier"):
+		return player_army_mgr.call("station_soldier", outpost_id, count)
+	return {"success": false, "reason": "PlayerArmyManager không khả dụng"}
+
+func recall_outpost_garrison(outpost_id: String, count: int = 1) -> Dictionary:
+	if player_army_mgr != null and player_army_mgr.has_method("recall_soldier"):
+		return player_army_mgr.call("recall_soldier", outpost_id, count)
+	return {"success": false, "reason": "PlayerArmyManager không khả dụng"}
+
+func dispatch_reinforcements_to_outpost(outpost_id: String, count: int = 1, travel_hours: float = -1.0) -> Dictionary:
+	if player_army_mgr != null and player_army_mgr.has_method("dispatch_reinforcements"):
+		return player_army_mgr.call("dispatch_reinforcements", outpost_id, count, travel_hours)
+	return {"success": false, "reason": "PlayerArmyManager không khả dụng"}
+
+func get_outpost_garrison_data(outpost_id: String) -> Dictionary:
+	if player_army_mgr != null and player_army_mgr.has_method("get_garrison"):
+		return player_army_mgr.call("get_garrison", outpost_id)
+	return {}
+

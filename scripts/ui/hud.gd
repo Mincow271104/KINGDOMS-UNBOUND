@@ -199,6 +199,16 @@ var formation_scatter_btn: Button = null
 @onready var upgrade_max_label: Label = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/UpgradeSection/UpgradeMaxLabel")
 @onready var upgrade_not_available_label: Label = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/UpgradeSection/UpgradeNotAvailableLabel")
 
+# Garrison Section (Package 3A)
+@onready var garrison_section: Control = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/GarrisonSection")
+@onready var garrison_title_label: Label = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/GarrisonSection/GarrisonTitleLabel")
+@onready var garrison_count_label: Label = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/GarrisonSection/GarrisonCountLabel")
+@onready var garrison_transit_label: Label = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/GarrisonSection/GarrisonTransitLabel")
+@onready var garrison_status_label: Label = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/GarrisonSection/GarrisonStatusLabel")
+@onready var garrison_roster_container: VBoxContainer = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/GarrisonSection/GarrisonRosterContainer")
+@onready var reinforce_btn: Button = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/GarrisonSection/GarrisonActionsHBox/ReinforceBtn")
+@onready var recall_btn: Button = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/GarrisonSection/GarrisonActionsHBox/RecallBtn")
+
 # Building Actions
 @onready var pause_resume_btn: Button = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ActionsHBox/PauseResumeBtn")
 @onready var demolish_btn: Button = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ActionsHBox/DemolishBtn")
@@ -388,6 +398,10 @@ func _ready() -> void:
 		repair_btn.pressed.connect(_on_start_repair_pressed)
 	if cancel_repair_btn:
 		cancel_repair_btn.pressed.connect(_on_cancel_repair_pressed)
+	if reinforce_btn:
+		reinforce_btn.pressed.connect(_on_reinforce_outpost_pressed)
+	if recall_btn:
+		recall_btn.pressed.connect(_on_recall_outpost_pressed)
 	if demolish_confirm_overlay:
 		demolish_confirm_overlay.visible = false
 	if cancel_build_confirm_overlay:
@@ -3232,6 +3246,8 @@ func refresh_building_inspector() -> void:
 			repair_section.visible = false
 		if upgrade_section != null:
 			upgrade_section.visible = false
+		if garrison_section != null:
+			garrison_section.visible = false
 
 		var max_hours: float = float(b_data.get("construction_hours", bp.get("construction_hours", 12.0)))
 		var cur_prog: float = float(b_data.get("construction_progress", 0.0))
@@ -3280,6 +3296,7 @@ func refresh_building_inspector() -> void:
 
 		_refresh_repair_inspector(b_id, b_type, b_data)
 		_refresh_upgrade_inspector(b_id, b_type, b_data)
+		_refresh_garrison_inspector(b_id, b_type, b_data)
 
 func _refresh_workplace_inspector(b_id: String, b_type: String, _b_data: Dictionary) -> void:
 	if world_view_ref == null or world_view_ref.get("workplace_mgr") == null:
@@ -3802,4 +3819,119 @@ func _on_cancel_upgrade_building_pressed() -> void:
 	else:
 		show_event_banner("Hủy Nâng Cấp Thất Bại", res.get("reason", "Không thể hủy nâng cấp"), false, 4.0)
 	refresh_building_inspector()
+
+# -----------------------------------------------------------------------------
+# Package 3A: Outpost Garrison UI Controls
+# -----------------------------------------------------------------------------
+
+func _refresh_garrison_inspector(b_id: String, b_type: String, b_data: Dictionary) -> void:
+	if garrison_section == null:
+		return
+
+	var is_outpost_bld: bool = BuildingSystem.is_outpost_building(b_type)
+	var is_outpost_obj: bool = bool(b_data.get("is_outpost", false)) or b_type == "outpost"
+
+	if not is_outpost_bld and not is_outpost_obj:
+		garrison_section.visible = false
+		return
+
+	garrison_section.visible = true
+
+	var army_mgr = world_view_ref.get("player_army_mgr") if world_view_ref != null else null
+	var current_gar: int = 0
+	var capacity: int = 2
+	var in_transit: int = 0
+	var is_player_controlled: bool = true
+
+	if is_outpost_obj:
+		var owner_id: String = str(b_data.get("owner", "player"))
+		is_player_controlled = (owner_id == "player")
+
+	if army_mgr != null:
+		if army_mgr.has_method("get_garrison_count"):
+			current_gar = army_mgr.call("get_garrison_count", b_id)
+		if army_mgr.has_method("get_garrison_capacity"):
+			capacity = army_mgr.call("get_garrison_capacity", b_id)
+		if army_mgr.has_method("get_in_transit_count"):
+			in_transit = army_mgr.call("get_in_transit_count", b_id)
+
+	if capacity <= 0:
+		capacity = 2
+
+	if garrison_count_label != null:
+		garrison_count_label.text = "Quân đồn trú: %d / %d" % [current_gar, capacity]
+
+	if garrison_transit_label != null:
+		if in_transit > 0:
+			garrison_transit_label.visible = true
+			garrison_transit_label.text = "Đang tiếp viện: %d quân" % in_transit
+		else:
+			garrison_transit_label.visible = false
+
+	if garrison_status_label != null:
+		if not is_player_controlled:
+			garrison_status_label.text = "Chủ quyền: Thế Lực Đối Địch"
+			garrison_status_label.add_theme_color_override("font_color", Color(0.9, 0.4, 0.4, 1.0))
+		elif bool(b_data.get("is_under_siege", false)):
+			garrison_status_label.text = "Trạng thái: Đang bị bao vây!"
+			garrison_status_label.add_theme_color_override("font_color", Color(0.9, 0.3, 0.3, 1.0))
+		else:
+			garrison_status_label.text = "Trạng thái: An toàn"
+			garrison_status_label.add_theme_color_override("font_color", Color(0.3, 0.85, 0.3, 1.0))
+
+	# Populate soldier roster
+	if garrison_roster_container != null:
+		for ch in garrison_roster_container.get_children():
+			garrison_roster_container.remove_child(ch)
+			ch.queue_free()
+
+		if army_mgr != null and army_mgr.has_method("get_garrison"):
+			var gar_dict: Dictionary = army_mgr.call("get_garrison", b_id)
+			var s_list: Array = gar_dict.get("soldiers", [])
+			var idx: int = 1
+			for s in s_list:
+				if s is Dictionary:
+					var s_lbl := Label.new()
+					var tier_num: int = int(s.get("equipment_tier", 1))
+					var hp: float = float(s.get("health", 100.0))
+					s_lbl.text = "  • Lính #%d (Trang bị Cấp %d) — %.0f HP" % [idx, tier_num, hp]
+					s_lbl.add_theme_font_size_override("font_size", 10)
+					s_lbl.add_theme_color_override("font_color", Color(0.85, 0.85, 0.85, 1.0))
+					garrison_roster_container.add_child(s_lbl)
+					idx += 1
+
+	# Button enabled states
+	var reserve: int = int(army_mgr.call("get_army_count")) if (army_mgr != null and army_mgr.has_method("get_army_count")) else 0
+	var b_state: String = str(b_data.get("state", "active"))
+	var is_bld_active: bool = (b_state == "active")
+
+	if reinforce_btn != null:
+		reinforce_btn.disabled = not is_player_controlled or not is_bld_active or reserve <= 0 or (current_gar + in_transit >= capacity)
+	if recall_btn != null:
+		recall_btn.disabled = not is_player_controlled or current_gar <= 0
+
+func _on_reinforce_outpost_pressed() -> void:
+	if world_view_ref == null or inspected_building_id == "":
+		return
+	var army_mgr = world_view_ref.get("player_army_mgr")
+	if army_mgr != null and army_mgr.has_method("station_soldier"):
+		var res: Dictionary = army_mgr.call("station_soldier", inspected_building_id, 1)
+		if not bool(res.get("success", false)):
+			show_event_banner("Điều Binh Thất Bại", res.get("reason", "Không thể điều binh"), false, 3.0)
+		else:
+			show_event_banner("Điều Binh Thành Công", "Đã điều 1 binh sĩ đến đồn trú tại tiền đồn.", true, 2.5)
+	refresh_building_inspector()
+
+func _on_recall_outpost_pressed() -> void:
+	if world_view_ref == null or inspected_building_id == "":
+		return
+	var army_mgr = world_view_ref.get("player_army_mgr")
+	if army_mgr != null and army_mgr.has_method("recall_soldier"):
+		var res: Dictionary = army_mgr.call("recall_soldier", inspected_building_id, 1)
+		if not bool(res.get("success", false)):
+			show_event_banner("Rút Quân Thất Bại", res.get("reason", "Không thể rút quân"), false, 3.0)
+		else:
+			show_event_banner("Rút Quân Thành Công", "Đã rút 1 binh sĩ về căn cứ trung tâm.", true, 2.5)
+	refresh_building_inspector()
+
 

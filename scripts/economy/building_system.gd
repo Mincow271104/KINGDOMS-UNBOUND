@@ -1458,4 +1458,20 @@ static func apply_damage(b_data_or_id, amount: int, world_data: WorldGenerator.W
 	else:
 		return {"success": true, "destroyed": false, "damaged": false, "health": new_h}
 
+## Package 3A: Outpost Garrison Capacity
+static func get_building_garrison_capacity(b_data_or_type) -> int:
+	var b_type := ""
+	if b_data_or_type is Dictionary:
+		b_type = str(b_data_or_type.get("type", ""))
+	elif b_data_or_type is String:
+		b_type = b_data_or_type
+	if b_type == "watchtower":
+		return 2
+	elif b_type == "palisade":
+		return 2
+	return 0
+
+static func is_outpost_building(b_data_or_type) -> bool:
+	return get_building_garrison_capacity(b_data_or_type) > 0
+
 

@@ -945,6 +945,12 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 		if army_val.has("is_supplied") and not (army_val.get("is_supplied") is bool):
 			return {"valid": false, "error": "Trạng thái tiếp tế is_supplied phải là boolean."}
 
+		# Package 3A: Outpost garrisons and reinforcements validation
+		if army_val.has("garrisons") and not (army_val.get("garrisons") is Dictionary):
+			return {"valid": false, "error": "Mục 'garrisons' trong player_army phải là Dictionary."}
+		if army_val.has("reinforcements") and not (army_val.get("reinforcements") is Array):
+			return {"valid": false, "error": "Mục 'reinforcements' trong player_army phải là Array."}
+
 		# Cross-field and route continuity validation (Package 1M)
 		var has_move_state: bool = army_val.has("movement_state")
 		var has_current: bool = army_val.has("current_cell")

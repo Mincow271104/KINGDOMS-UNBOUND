@@ -146,6 +146,7 @@ $manifest = @(
     "scripts/test/test_mine.gd",
     "scripts/test/test_offensive_campaign.gd",
     "scripts/test/test_outpost_territorial_control.gd",
+    "scripts/test/test_outpost_garrison_reinforcement.gd",
     "scripts/test/test_package_1x_gameplay_integration.gd",
     "scripts/test/test_palisade.gd",
     "scripts/test/test_player_army.gd",

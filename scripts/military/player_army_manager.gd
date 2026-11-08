@@ -24,6 +24,9 @@ signal recruitment_completed(count: int, cost: Dictionary)
 signal movement_state_changed(state: int, current_cell: Vector2i, destination_cell: Vector2i)
 signal army_moved(new_cell: Vector2i)
 signal equipment_tier_changed(new_tier: int, multiplier: float)
+signal garrison_changed(outpost_id: String, current_count: int, capacity: int)
+signal reinforcement_dispatched(dispatch_id: String, outpost_id: String, count: int)
+signal reinforcement_arrived(dispatch_id: String, outpost_id: String, count: int)
 
 var world_view: Node = null
 var soldier_count: int = 0
@@ -31,6 +34,14 @@ var equipment_tier: int = 1
 var _is_upgrading_equipment: bool = false
 var is_supplied: bool = true
 var last_upkeep_day: int = -1
+
+# Package 3A: Outpost Garrisoning & Reinforcements
+var garrisons: Dictionary = {}
+var active_reinforcements: Array[Dictionary] = []
+var next_reinforce_id: int = 1
+var next_soldier_id: int = 1
+var _test_registered_outposts: Dictionary = {}
+var _custom_field_siege_mgr: Object = null
 
 const RALLY_PERIMETER_DISTANCE: int = 5
 var tactical_military_mgr: Object = null
@@ -64,6 +75,12 @@ func _init(wv: Node = null) -> void:
 	current_path = []
 	step_accumulator = 0.0
 	tactical_military_mgr = null
+	garrisons = {}
+	active_reinforcements = []
+	next_reinforce_id = 1
+	next_soldier_id = 1
+	_test_registered_outposts = {}
+	_custom_field_siege_mgr = null
 	if is_instance_valid(world_view) and world_view.get("world_data") != null:
 		rally_cell = get_default_rally_cell()
 		current_cell = rally_cell
@@ -198,7 +215,7 @@ func get_army_capacity() -> int:
 	return active_barracks_count * EconomyConfigScript.ARMY_CAPACITY_PER_BARRACKS
 
 func get_remaining_capacity() -> int:
-	return maxi(0, get_army_capacity() - soldier_count)
+	return maxi(0, get_army_capacity() - get_total_soldier_count())
 
 func notify_capacity_changed() -> void:
 	army_changed.emit(soldier_count, get_army_capacity())
@@ -411,8 +428,9 @@ func can_recruit(count: int = 1) -> Dictionary:
 	if cap <= 0:
 		return {"can_recruit": false, "reason": "Cần ít nhất một Doanh Trại đang hoạt động để chiêu mộ quân đội"}
 
-	if soldier_count + count > cap:
-		return {"can_recruit": false, "reason": "Vượt quá sức chứa Doanh Trại (Hiện có: %d/%d)" % [soldier_count, cap]}
+	var total_cur: int = get_total_soldier_count()
+	if total_cur + count > cap:
+		return {"can_recruit": false, "reason": "Vượt quá sức chứa Doanh Trại (Hiện có: %d/%d)" % [total_cur, cap]}
 
 	var cost: Dictionary = get_recruitment_cost(count)
 	var rm = get_resource_manager()
@@ -503,8 +521,9 @@ func process_daily_upkeep(day: int) -> Dictionary:
 
 	var em = get_event_manager()
 
-	# Zero-soldier army incurs zero food upkeep
-	if soldier_count <= 0:
+	# Zero-soldier army incurs zero food upkeep across central, garrisons, and transit
+	var total_soldiers: int = get_total_soldier_count()
+	if total_soldiers <= 0:
 		last_upkeep_day = day
 		is_supplied = true
 		return {
@@ -513,7 +532,7 @@ func process_daily_upkeep(day: int) -> Dictionary:
 			"supplied": true
 		}
 
-	var food_needed: int = soldier_count * EconomyConfigScript.ARMY_DAILY_FOOD_UPKEEP
+	var food_needed: int = total_soldiers * EconomyConfigScript.ARMY_DAILY_FOOD_UPKEEP
 	var rm = get_resource_manager()
 	if rm == null or not (rm.has_method("reserve_cost") and rm.has_method("commit_cost")):
 		return {
@@ -557,7 +576,7 @@ func process_daily_upkeep(day: int) -> Dictionary:
 				em.trigger_event(
 					"army_unsupplied",
 					"Quân Đội Thiếu Lương",
-					"Không đủ lương thực duy trì binh sĩ (%d lính cần %d Lương thực). Tinh thần chiến đấu suy giảm!" % [soldier_count, food_needed],
+					"Không đủ lương thực duy trì binh sĩ (%d lính cần %d Lương thực). Tinh thần chiến đấu suy giảm!" % [total_soldiers, food_needed],
 					false,
 					{"day": day, "needed": food_needed}
 				)
@@ -1091,7 +1110,7 @@ func serialize() -> Dictionary:
 	for p in current_path:
 		path_arr.append([p.x, p.y])
 
-	return {
+	var res := {
 		"soldier_count": soldier_count,
 		"equipment_tier": equipment_tier,
 		"is_supplied": is_supplied,
@@ -1102,6 +1121,10 @@ func serialize() -> Dictionary:
 		"movement_state": movement_state_to_string(movement_state),
 		"current_path": path_arr
 	}
+	var g_data := serialize_garrisons()
+	res["garrisons"] = g_data["garrisons"]
+	res["reinforcements"] = g_data["reinforcements"]
+	return res
 
 func deserialize(data: Dictionary) -> void:
 	is_deserializing = true
@@ -1110,6 +1133,8 @@ func deserialize(data: Dictionary) -> void:
 		equipment_tier = 1
 		is_supplied = true
 		last_upkeep_day = -1
+		garrisons.clear()
+		active_reinforcements.clear()
 		rally_cell = get_default_rally_cell()
 		current_cell = rally_cell
 		destination_cell = rally_cell
@@ -1125,6 +1150,7 @@ func deserialize(data: Dictionary) -> void:
 		return
 
 	soldier_count = clampi(int(data.get("soldier_count", 0)), 0, 1000)
+	deserialize_garrisons(data)
 	equipment_tier = clampi(int(data.get("equipment_tier", 1)), EconomyConfigScript.MIN_ARMY_EQUIPMENT_TIER, EconomyConfigScript.MAX_ARMY_EQUIPMENT_TIER)
 	is_supplied = bool(data.get("is_supplied", true))
 	var raw_last_upkeep: int = int(data.get("last_upkeep_day", -1))
@@ -1273,3 +1299,398 @@ static func _parse_coord(val, default_val: Vector2i) -> Vector2i:
 		if IsoMath.is_in_bounds(val):
 			return val
 	return default_val
+
+# -----------------------------------------------------------------------------
+# Package 3A: Outpost Garrisoning & Reinforcements
+# -----------------------------------------------------------------------------
+
+func set_custom_field_siege_manager(fsm: Object) -> void:
+	_custom_field_siege_mgr = fsm
+
+func get_field_siege_manager() -> Object:
+	if _custom_field_siege_mgr != null:
+		return _custom_field_siege_mgr
+	if is_instance_valid(world_view) and world_view.get("field_siege_mgr") != null:
+		return world_view.get("field_siege_mgr")
+	return null
+
+func register_outpost_for_testing(outpost_id: String, capacity: int, cell: Vector2i = Vector2i.ZERO, owner_id: String = "player") -> void:
+	_test_registered_outposts[outpost_id] = {
+		"outpost_id": outpost_id,
+		"capacity": capacity,
+		"cell": cell,
+		"owner": owner_id,
+		"is_alive": true
+	}
+
+func get_total_soldier_count() -> int:
+	return soldier_count + get_all_garrisoned_count() + get_in_transit_count()
+
+func get_all_garrisoned_count() -> int:
+	var total: int = 0
+	for o_id in garrisons:
+		total += get_garrison_count(o_id)
+	return total
+
+func get_in_transit_count(outpost_id: String = "") -> int:
+	var total: int = 0
+	for r in active_reinforcements:
+		if outpost_id.is_empty() or str(r.get("outpost_id", "")) == outpost_id:
+			total += int(r.get("soldier_count", 0))
+	return total
+
+func get_garrison(outpost_id: String) -> Dictionary:
+	return garrisons.get(outpost_id, {})
+
+func get_garrison_count(outpost_id: String) -> int:
+	if garrisons.has(outpost_id):
+		var s_list = garrisons[outpost_id].get("soldiers", [])
+		if s_list is Array:
+			return s_list.size()
+	return 0
+
+func get_garrison_capacity(outpost_id: String) -> int:
+	if garrisons.has(outpost_id) and garrisons[outpost_id].has("capacity"):
+		return int(garrisons[outpost_id]["capacity"])
+	var info := get_outpost_info(outpost_id)
+	return int(info.get("capacity", 0))
+
+func get_outpost_info(outpost_id: String) -> Dictionary:
+	if _test_registered_outposts.has(outpost_id):
+		var t_info = _test_registered_outposts[outpost_id]
+		var is_p: bool = (str(t_info.get("owner", "player")) == "player")
+		var is_a: bool = bool(t_info.get("is_alive", true))
+		return {
+			"valid": is_p and is_a,
+			"type": "outpost",
+			"owner": str(t_info.get("owner", "player")),
+			"is_alive": is_a,
+			"cell": t_info.get("cell", Vector2i.ZERO),
+			"capacity": maxi(1, int(t_info.get("capacity", 4))),
+			"name": outpost_id,
+			"reason": "" if (is_p and is_a) else "Tiền đồn không thuộc quyền kiểm soát của bạn hoặc đã bị phá hủy"
+		}
+
+	# Check FieldSiegeManager objectives
+	var fsm = get_field_siege_manager()
+	if fsm != null and fsm.has_method("get_objective"):
+		var obj = fsm.get_objective(outpost_id)
+		if obj != null and is_instance_valid(obj):
+			var owner_str: String = str(obj.get("owning_faction_id"))
+			var alive: bool = bool(obj.get("is_alive")) if obj.get("is_alive") != null else true
+			var is_player: bool = (owner_str == "player")
+			var cap: int = maxi(1, int(obj.get("garrison_count"))) if obj.get("garrison_count") != null and int(obj.get("garrison_count")) > 0 else 4
+			return {
+				"valid": is_player and alive,
+				"type": "objective",
+				"owner": owner_str,
+				"is_alive": alive,
+				"cell": obj.get("current_cell") if obj.get("current_cell") != null else Vector2i.ZERO,
+				"capacity": cap,
+				"name": str(obj.get("objective_name")),
+				"is_under_siege": bool(obj.get("is_under_active_siege")) if obj.get("is_under_active_siege") != null else false,
+				"reason": "" if (is_player and alive) else ("Tiền đồn không thuộc quyền kiểm soát của bạn" if not is_player else "Tiền đồn đã bị phá hủy")
+			}
+
+	# Check WorldData buildings
+	var wd: WorldGenerator.WorldData = get_world_data()
+	if wd != null:
+		var b_data := BuildingSystemScript.get_building_by_id(outpost_id, wd)
+		if not b_data.is_empty():
+			var b_type: String = str(b_data.get("type", ""))
+			var b_state: String = str(b_data.get("state", "active"))
+			var cap: int = BuildingSystemScript.get_building_garrison_capacity(b_type)
+			if cap <= 0:
+				return {
+					"valid": false,
+					"type": "building",
+					"capacity": 0,
+					"reason": "Công trình này không hỗ trợ đồn trú quân"
+				}
+			if b_state != "active":
+				return {
+					"valid": false,
+					"type": "building",
+					"capacity": cap,
+					"reason": "Công trình chưa hoàn thành hoặc đang hư hỏng/tạm dừng (%s)" % b_state
+				}
+			return {
+				"valid": true,
+				"type": "building",
+				"owner": "player",
+				"is_alive": (b_state != "destroyed"),
+				"cell": b_data.get("cell", Vector2i.ZERO),
+				"capacity": cap,
+				"name": b_type.capitalize(),
+				"reason": ""
+			}
+
+	# If already recorded in garrisons (e.g. from loaded save)
+	if garrisons.has(outpost_id):
+		return {
+			"valid": true,
+			"type": "outpost",
+			"owner": "player",
+			"is_alive": true,
+			"cell": rally_cell,
+			"capacity": int(garrisons[outpost_id].get("capacity", 4)),
+			"name": outpost_id,
+			"reason": ""
+		}
+
+	return {
+		"valid": false,
+		"reason": "Không tìm thấy tiền đồn hoặc công trình: %s" % outpost_id
+	}
+
+func station_soldier(outpost_id: String, count: int = 1) -> Dictionary:
+	if count <= 0:
+		return {"success": false, "reason": "Số lượng điều binh phải lớn hơn 0"}
+	if soldier_count < count:
+		return {"success": false, "reason": "Không đủ binh sĩ tại căn cứ trung tâm (Hiện có: %d lính dự bị, yêu cầu: %d)" % [soldier_count, count]}
+
+	var info := get_outpost_info(outpost_id)
+	if not bool(info.get("valid", false)):
+		return {"success": false, "reason": info.get("reason", "Tiền đồn không hợp lệ")}
+
+	var cap: int = int(info.get("capacity", 4))
+	var cur: int = get_garrison_count(outpost_id)
+	var in_transit: int = get_in_transit_count(outpost_id)
+	if cur + in_transit + count > cap:
+		return {"success": false, "reason": "Vượt quá sức chứa đồn trú của tiền đồn (Hiện có: %d/%d, đang tiếp viện: %d)" % [cur, cap, in_transit]}
+
+	soldier_count -= count
+	if not garrisons.has(outpost_id):
+		garrisons[outpost_id] = {
+			"outpost_id": outpost_id,
+			"capacity": cap,
+			"soldiers": []
+		}
+
+	for i in range(count):
+		var s_id := "soldier_gar_%d" % next_soldier_id
+		next_soldier_id += 1
+		garrisons[outpost_id]["soldiers"].append({
+			"soldier_id": s_id,
+			"equipment_tier": equipment_tier,
+			"health": 100.0,
+			"max_health": 100.0,
+			"stationed_at": outpost_id
+		})
+
+	if tactical_military_mgr != null and tactical_military_mgr.has_method("sync_with_player_army"):
+		tactical_military_mgr.sync_with_player_army()
+
+	garrison_changed.emit(outpost_id, get_garrison_count(outpost_id), cap)
+	army_changed.emit(soldier_count, get_army_capacity())
+	return {
+		"success": true,
+		"stationed": count,
+		"remaining_reserve": soldier_count,
+		"outpost_count": get_garrison_count(outpost_id),
+		"capacity": cap
+	}
+
+func recall_soldier(outpost_id: String, count: int = 1) -> Dictionary:
+	if count <= 0:
+		return {"success": false, "reason": "Số lượng rút quân phải lớn hơn 0"}
+	var cur: int = get_garrison_count(outpost_id)
+	if cur < count:
+		return {"success": false, "reason": "Không đủ quân đồn trú để rút (Hiện có: %d lính đồn trú, yêu cầu: %d)" % [cur, count]}
+
+	var s_list: Array = garrisons[outpost_id].get("soldiers", [])
+	for i in range(count):
+		s_list.pop_back()
+
+	soldier_count += count
+	if tactical_military_mgr != null and tactical_military_mgr.has_method("sync_with_player_army"):
+		tactical_military_mgr.sync_with_player_army()
+
+	var cap: int = get_garrison_capacity(outpost_id)
+	garrison_changed.emit(outpost_id, get_garrison_count(outpost_id), cap)
+	army_changed.emit(soldier_count, get_army_capacity())
+	return {
+		"success": true,
+		"recalled": count,
+		"reserve_count": soldier_count,
+		"outpost_count": get_garrison_count(outpost_id)
+	}
+
+func dispatch_reinforcements(outpost_id: String, count: int = 1, travel_hours: float = -1.0) -> Dictionary:
+	if count <= 0:
+		return {"success": false, "reason": "Số lượng điều binh phải lớn hơn 0"}
+	if soldier_count < count:
+		return {"success": false, "reason": "Không đủ binh sĩ tại căn cứ trung tâm (Hiện có: %d lính dự bị, yêu cầu: %d)" % [soldier_count, count]}
+
+	var info := get_outpost_info(outpost_id)
+	if not bool(info.get("valid", false)):
+		return {"success": false, "reason": info.get("reason", "Tiền đồn không hợp lệ")}
+
+	var cap: int = int(info.get("capacity", 4))
+	var cur: int = get_garrison_count(outpost_id)
+	var in_transit: int = get_in_transit_count(outpost_id)
+	if cur + in_transit + count > cap:
+		return {"success": false, "reason": "Vượt quá sức chứa đồn trú của tiền đồn (Hiện có: %d/%d, đang tiếp viện: %d)" % [cur, cap, in_transit]}
+
+	var dist: int = IsoMath.grid_distance(rally_cell, info.get("cell", rally_cell))
+	var calc_travel := travel_hours
+	if calc_travel < 0.0:
+		calc_travel = maxf(1.0, float(dist) * 0.1)
+
+	if calc_travel <= 0.0:
+		return station_soldier(outpost_id, count)
+
+	soldier_count -= count
+	var dispatched_soldiers: Array[Dictionary] = []
+	for i in range(count):
+		var s_id := "soldier_reinf_%d" % next_soldier_id
+		next_soldier_id += 1
+		dispatched_soldiers.append({
+			"soldier_id": s_id,
+			"equipment_tier": equipment_tier,
+			"health": 100.0,
+			"max_health": 100.0,
+			"stationed_at": outpost_id
+		})
+
+	var disp_id := "reinf_%d" % next_reinforce_id
+	next_reinforce_id += 1
+	var reinf_rec := {
+		"dispatch_id": disp_id,
+		"outpost_id": outpost_id,
+		"soldier_count": count,
+		"soldiers": dispatched_soldiers,
+		"elapsed_hours": 0.0,
+		"travel_hours": calc_travel,
+		"source_cell": rally_cell,
+		"target_cell": info.get("cell", rally_cell)
+	}
+	active_reinforcements.append(reinf_rec)
+	reinforcement_dispatched.emit(disp_id, outpost_id, count)
+	army_changed.emit(soldier_count, get_army_capacity())
+	if tactical_military_mgr != null and tactical_military_mgr.has_method("sync_with_player_army"):
+		tactical_military_mgr.sync_with_player_army()
+
+	return {
+		"success": true,
+		"dispatch_id": disp_id,
+		"travel_hours": calc_travel,
+		"soldier_count": count
+	}
+
+func advance_reinforcements(delta_hours: float) -> Array[Dictionary]:
+	if delta_hours <= 0.0 or active_reinforcements.is_empty():
+		return []
+
+	var completed: Array[Dictionary] = []
+	var remaining: Array[Dictionary] = []
+
+	for r in active_reinforcements:
+		r["elapsed_hours"] = float(r.get("elapsed_hours", 0.0)) + delta_hours
+		var travel: float = float(r.get("travel_hours", 1.0))
+		if r["elapsed_hours"] >= travel:
+			var out_id: String = str(r.get("outpost_id", ""))
+			var s_list: Array = r.get("soldiers", [])
+			var c_count: int = int(r.get("soldier_count", s_list.size()))
+
+			var info := get_outpost_info(out_id)
+			if bool(info.get("valid", false)):
+				if not garrisons.has(out_id):
+					garrisons[out_id] = {
+						"outpost_id": out_id,
+						"capacity": int(info.get("capacity", 4)),
+						"soldiers": []
+					}
+				for s in s_list:
+					garrisons[out_id]["soldiers"].append(s)
+				garrison_changed.emit(out_id, get_garrison_count(out_id), get_garrison_capacity(out_id))
+			else:
+				# Outpost lost while in transit: retreat to central reserve
+				soldier_count += c_count
+				army_changed.emit(soldier_count, get_army_capacity())
+				if tactical_military_mgr != null and tactical_military_mgr.has_method("sync_with_player_army"):
+					tactical_military_mgr.sync_with_player_army()
+
+			reinforcement_arrived.emit(str(r.get("dispatch_id", "")), out_id, c_count)
+			completed.append(r)
+		else:
+			remaining.append(r)
+
+	active_reinforcements = remaining
+	return completed
+
+func apply_outpost_casualties(outpost_id: String, count: int) -> int:
+	if count <= 0 or not garrisons.has(outpost_id):
+		return 0
+	var s_list: Array = garrisons[outpost_id].get("soldiers", [])
+	var actual_removed := mini(count, s_list.size())
+	for i in range(actual_removed):
+		s_list.pop_back()
+	garrison_changed.emit(outpost_id, get_garrison_count(outpost_id), get_garrison_capacity(outpost_id))
+	return actual_removed
+
+func evict_outpost_garrison(outpost_id: String, retreat_to_central: bool = false) -> Array:
+	if not garrisons.has(outpost_id):
+		return []
+	var s_list: Array = garrisons[outpost_id].get("soldiers", [])
+	var count := s_list.size()
+	garrisons.erase(outpost_id)
+	if retreat_to_central and count > 0:
+		soldier_count += count
+		army_changed.emit(soldier_count, get_army_capacity())
+		if tactical_military_mgr != null and tactical_military_mgr.has_method("sync_with_player_army"):
+			tactical_military_mgr.sync_with_player_army()
+	garrison_changed.emit(outpost_id, 0, 0)
+	return s_list
+
+func serialize_garrisons() -> Dictionary:
+	var result: Dictionary = {
+		"garrisons": {},
+		"reinforcements": []
+	}
+	for o_id in garrisons:
+		var g = garrisons[o_id]
+		var s_copy: Array = []
+		for s in g.get("soldiers", []):
+			if s is Dictionary:
+				s_copy.append(s.duplicate())
+		result["garrisons"][o_id] = {
+			"outpost_id": o_id,
+			"capacity": int(g.get("capacity", 4)),
+			"soldiers": s_copy
+		}
+	for r in active_reinforcements:
+		result["reinforcements"].append(r.duplicate(true))
+	return result
+
+func deserialize_garrisons(data: Dictionary) -> bool:
+	garrisons.clear()
+	active_reinforcements.clear()
+	if data.is_empty():
+		return true
+
+	var raw_gar = data.get("garrisons")
+	if raw_gar is Dictionary:
+		for o_id in raw_gar:
+			var g_rec = raw_gar[o_id]
+			if g_rec is Dictionary:
+				var s_list: Array = []
+				var raw_s = g_rec.get("soldiers")
+				if raw_s is Array:
+					for s in raw_s:
+						if s is Dictionary:
+							s_list.append(s.duplicate())
+				garrisons[str(o_id)] = {
+					"outpost_id": str(o_id),
+					"capacity": maxi(1, int(g_rec.get("capacity", 4))),
+					"soldiers": s_list
+				}
+
+	var raw_reinf = data.get("reinforcements")
+	if raw_reinf is Array:
+		for r in raw_reinf:
+			if r is Dictionary:
+				active_reinforcements.append(r.duplicate(true))
+
+	return true
+

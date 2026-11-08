@@ -345,6 +345,30 @@ func construct_defending_force() -> Dictionary:
 		"resources": def_resources
 	}
 
+func construct_outpost_defending_force(outpost_id: String) -> Dictionary:
+	var army_mgr = get_player_army_manager()
+	var army_soldiers: int = 0
+	var army_morale: float = EconomyConfigScript.ARMY_MORALE_SUPPLIED
+	var player_equip: int = 1
+
+	if army_mgr != null:
+		if army_mgr.has_method("get_garrison_count"):
+			army_soldiers = maxi(0, int(army_mgr.call("get_garrison_count", outpost_id)))
+		if army_mgr.has_method("get_combat_morale"):
+			army_morale = float(army_mgr.call("get_combat_morale"))
+		if army_mgr.has_method("get_equipment_tier"):
+			player_equip = int(army_mgr.call("get_equipment_tier"))
+
+	return {
+		"outpost_id": outpost_id,
+		"troops": army_soldiers,
+		"army_soldiers": army_soldiers,
+		"guard_count": 0,
+		"equipment_tier": player_equip,
+		"morale": army_morale,
+		"terrain_multiplier": 1.2
+	}
+
 # -----------------------------------------------------------------------------
 # B4, C1..C4. Battle Execution and Idempotent World Mutation
 # -----------------------------------------------------------------------------
