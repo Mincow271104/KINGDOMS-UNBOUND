@@ -314,6 +314,34 @@ func rollback_transaction(tx_id: String) -> bool:
 func has_active_transaction(tx_id: String) -> bool:
 	return _active_transactions.has(tx_id)
 
+## Registers a transaction ticket with a predetermined ID (e.g. for deterministic building repair or save/load rehydration).
+## Fails closed if tx_id already exists, cost is empty/invalid, or materials cannot be afforded.
+func register_transaction(tx_id: String, cost: Dictionary) -> bool:
+	if tx_id.strip_edges().is_empty() or _active_transactions.has(tx_id):
+		return false
+	if cost.is_empty():
+		return false
+	for res_id in cost:
+		var amount: int = int(cost[res_id])
+		if amount <= 0:
+			return false
+	if not can_afford(cost):
+		return false
+
+	var cost_copy: Dictionary = {}
+	for res_id in cost:
+		var amount: int = int(cost[res_id])
+		cost_copy[res_id] = amount
+		_ticketed_reservations[res_id] = _ticketed_reservations.get(res_id, 0) + amount
+		_reserved_stock[res_id] = _reserved_stock.get(res_id, 0) + amount
+		resource_changed.emit(res_id, get_available_stock(res_id), get_total_stock(res_id))
+	_active_transactions[tx_id] = cost_copy
+	return true
+
+## Returns a copy of all currently active transaction tickets and their costs.
+func get_active_transactions() -> Dictionary:
+	return _active_transactions.duplicate(true)
+
 ## Adds resource to central stock, bounded by storage capacity.
 ## Returns amount actually stored.
 func add_resource(res_id: String, amount: int) -> int:

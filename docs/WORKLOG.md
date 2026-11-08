@@ -10577,3 +10577,40 @@ Package 2M establishes the full operational state machine (`planned`, `under_con
 - Package 3A implementation, verification, and regression runs are 100% complete.
 - Await project owner authorization before proceeding to Package 3B (Dynamic Trade Route Interception & Caravan Defense).
 - Do not push to remote or merge into main.
+
+---
+
+## 2026-11-08 — Package 3A Independent Acceptance & Cross-Package Persistence Hardening
+
+### Summary of Completed Work
+1. **Critical Cross-Package Persistence Fix — Package 2M Repair Reservations After Save/Load:**
+   - Identified that `SaveManager` saved available stock (`get_available_stock`) while `reset_economy()` cleared active reservations, causing repair reservations to be wiped upon loading and resulting in lost resources on cancellation or free repairs on completion.
+   - Enhanced `ResourceManager` with `register_transaction(tx_id: String, cost: Dictionary) -> bool` and `get_active_transactions() -> Dictionary`, integrating deterministic, stable transaction tickets.
+   - Refactored `BuildingSystem.start_repair()`, `complete_repair()`, `cancel_repair()`, and `demolish_building()` to use unique stable transaction ticket IDs (`repair_<b_id>`).
+   - Demolishing a repairing building now cleanly cancels and rolls back any reserved materials prior to granting the 50% demolition refund.
+   - Updated `SaveManager.serialize_world_state()` to save total physical stock (`get_total_stock`), and `apply_loaded_state_to_world()` to rehydrate active repair transaction tickets deterministically on load with fail-closed safety on deficit.
+   - Added full regression coverage in `scripts/test/test_building_damage_repair.gd` covering Scenarios A through F (172/172 assertions PASS, Exit Code 0).
+2. **Soldier Conservation Invariant & Outpost Conquest Eviction Fix:**
+   - Clarified distinction between *Soldier Identity Conservation* ($\text{Total Living} = \text{Reserve} + \sum \text{Garrisons} + \sum \text{Transit}$) and *Recruitment Capacity Gating* ($5 \times \text{Active Barracks}$).
+   - Fixed `FieldSiegeManager.transfer_outpost_ownership()` line 233 to call `pam.evict_outpost_garrison(obj_id, true)`, safely returning surviving garrison soldiers to the central reserve upon outpost loss.
+   - Updated `scripts/test/test_outpost_garrison_reinforcement.gd` to verify outpost conquest eviction with safe return to reserve and double disk save/load roundtrips (117/117 assertions PASS, Exit Code 0).
+3. **`project.godot` Preservation & Investigation:**
+   - Traced git history and working-tree behavior across all packages (2C to 3A). Verified that the working-tree modification (`-window/size/resizable=true`) is an automatic engine stripping behavior when running headless. Checking out `project.godot` temporarily restored the committed line, which was re-stripped upon running tests. Verified 0 user configurations were lost; kept `project.godot` unstaged.
+4. **Package 3B Specification:**
+   - Authored `docs/planning/PACKAGE_3B_SPECIFICATION.md` covering Fog of War architecture, outpost vision projection, scout reconnaissance dispatch, stale intelligence lifecycle, and GDD §10.4 combat integration.
+5. **Full Regression Validation:**
+   - Executed full headless regression suite runner (`run_regression.ps1`): 65/65 suites passed with Exit Code 0, 0 unexpected failures, 0 regressions.
+
+### Acceptance Classification
+- **T1 — Data/API:** VERIFIED (117/117 outpost garrison assertions, 172/172 repair assertions, 182/182 save/load assertions, 131/131 scripts load).
+- **T2 — Backend Simulation:** VERIFIED (Deterministic reservation rehydration, exact-once commit/rollback, surviving garrison retreat, global soldier conservation).
+- **T3 — UI Wiring/Integration:** VERIFIED (HUD GarrisonSection inspection, action triggers, Vietnamese feedback banners).
+- **T4 — Natural Gameplay Loop:** NOT VERIFIED (Requires live interactive GUI playtesting).
+- **T5 — End-to-End Acceptance:** NOT VERIFIED (Requires live player session).
+
+### Git Status & Verification Checkpoint
+- **Branch:** `feature/package-3a-outpost-garrison-reinforcement`
+- **HEAD Commit:** `654bd8f` (Local changes ready for review)
+- **Files Modified:** `scripts/economy/resource_manager.gd`, `scripts/economy/building_system.gd`, `scripts/persistence/save_manager.gd`, `scripts/combat/field_siege_manager.gd`, `scripts/test/test_building_damage_repair.gd`, `scripts/test/test_outpost_garrison_reinforcement.gd`, `docs/WORKLOG.md`
+- **Files Created:** `docs/planning/PACKAGE_3B_SPECIFICATION.md`
+- **Remotes:** No push, no merge to main. Unrelated scratch and prototype assets strictly preserved.

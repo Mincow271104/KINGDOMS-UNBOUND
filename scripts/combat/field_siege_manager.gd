@@ -230,7 +230,7 @@ func transfer_outpost_ownership(obj_id: String, new_owner_id: String, tx_id: Str
 	if obj.owning_faction_id == "player":
 		var pam = get_player_army_manager()
 		if pam != null and pam.has_method("evict_outpost_garrison"):
-			pam.evict_outpost_garrison(obj_id, false)
+			pam.evict_outpost_garrison(obj_id, true)
 	release_outpost_garrison(obj_id)
 
 	if obj.get("faction_manager") == null:

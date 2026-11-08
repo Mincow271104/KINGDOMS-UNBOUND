@@ -503,12 +503,15 @@ func _test_tc_ogr_20_outpost_conquest_eviction_without_leaks() -> void:
 	pam.soldier_count = 4
 	pam.register_outpost_for_testing("outpost_conquest_test", 4, Vector2i(10, 10), "player")
 	pam.station_soldier("outpost_conquest_test", 2)
+	_assert(pam.soldier_count == 2, "TC-OGR.20.0: Reserve is 2 while 2 stationed")
 
-	# Evict garrison on outpost conquest
-	var evicted: Array = pam.evict_outpost_garrison("outpost_conquest_test", false)
+	# Evict garrison on outpost conquest with retreat_to_central = true
+	var evicted: Array = pam.evict_outpost_garrison("outpost_conquest_test", true)
 	_assert(evicted.size() == 2, "TC-OGR.20.1: 2 soldiers evicted from lost outpost")
 	_assert(pam.get_garrison_count("outpost_conquest_test") == 0, "TC-OGR.20.2: Garrison reset to 0")
 	_assert(not pam.garrisons.has("outpost_conquest_test"), "TC-OGR.20.3: Outpost key cleanly removed from garrisons")
+	_assert(pam.soldier_count == 4, "TC-OGR.20.4: Surviving evicted soldiers safely returned to central reserve")
+	_assert(pam.get_total_soldier_count() == 4, "TC-OGR.20.5: Total living soldier conservation strictly preserved")
 
 # -----------------------------------------------------------------------------
 # 21. TC-OGR.21: Multiple Simultaneous Garrisons
@@ -627,6 +630,21 @@ func _test_tc_ogr_24_save_manager_persistence_roundtrip() -> void:
 	_assert(pam.get_garrison_count("outpost_save_test") == 2, "TC-OGR.24.6: Restored outpost garrison is 2")
 	_assert(pam.get_in_transit_count("outpost_save_test") == 1, "TC-OGR.24.7: Restored in-transit reinforcement is 1")
 	_assert(pam.get_total_soldier_count() == 6, "TC-OGR.24.8: Conservation invariant holds across disk roundtrip")
+
+	# Outpost ownership loss eviction followed by second disk save/load roundtrip
+	pam.evict_outpost_garrison("outpost_save_test", true)
+	_assert(pam.soldier_count == 5, "TC-OGR.24.9: Central reserve restored to 5 on outpost eviction")
+	_assert(pam.get_garrison_count("outpost_save_test") == 0, "TC-OGR.24.10: Outpost garrison cleared to 0")
+	_assert(pam.get_total_soldier_count() == 6, "TC-OGR.24.11: Conservation invariant holds (5 reserve + 1 transit)")
+
+	var save_res_2 = SaveManagerScript.save_to_file(world_instance, test_slot_path)
+	_assert(save_res_2.get("success", false) == true, "TC-OGR.24.12: Second save succeeded")
+	pam.soldier_count = 0
+	var load_res_2 = SaveManagerScript.load_from_file(test_slot_path)
+	SaveManagerScript.apply_loaded_state_to_world(world_instance, load_res_2.get("data", {}))
+	_assert(pam.soldier_count == 5, "TC-OGR.24.13: Post-eviction reserve reloaded as 5")
+	_assert(pam.get_garrison_count("outpost_save_test") == 0, "TC-OGR.24.14: Post-eviction garrison reloaded as 0")
+	_assert(pam.get_total_soldier_count() == 6, "TC-OGR.24.15: Conservation invariant preserved after eviction reload")
 
 	# Clean up disk file
 	if FileAccess.file_exists(test_slot_path):

@@ -48,7 +48,7 @@ func _print_summary() -> void:
 	print("  Passed Assertions : %d" % passed_count)
 	print("  Failed Assertions : %d" % failures)
 	if failures == 0:
-		print("  ALL 25 SCENARIOS PASSED CLEANLY! (Exit Code 0)")
+		print("  ALL 31 SCENARIOS PASSED CLEANLY! (Exit Code 0)")
 	else:
 		print("  TEST SUITE COMPLETED WITH FAILURES! (Exit Code 1)")
 	print("--------------------------------------------------------\n")
@@ -79,6 +79,12 @@ func _run_all_tests() -> void:
 	_test_tc_bdr_23_legacy_save_compatibility_missing_fields()
 	_test_tc_bdr_24_upgrade_and_repair_mutual_exclusion()
 	_test_tc_bdr_25_building_inspect_panel_ui_reflection()
+	_test_tc_bdr_26_scenario_a_active_repair_save_load()
+	_test_tc_bdr_27_scenario_b_concurrent_identical_cost_repairs()
+	_test_tc_bdr_28_scenario_c_cancel_first_complete_second()
+	_test_tc_bdr_29_scenario_d_complete_first_cancel_second()
+	_test_tc_bdr_30_scenario_e_repair_saved_loaded_demolished()
+	_test_tc_bdr_31_scenario_f_insufficient_stock_fails_closed()
 
 # -----------------------------------------------------------------------------
 # 1. Healthy building initialization
@@ -917,3 +923,314 @@ func _test_tc_bdr_25_building_inspect_panel_ui_reflection() -> void:
 
 	hud.close_building_inspector()
 	wd.buildings.erase(b)
+
+# -----------------------------------------------------------------------------
+# 26. Scenario A: One active repair is saved and loaded
+# -----------------------------------------------------------------------------
+func _test_tc_bdr_26_scenario_a_active_repair_save_load() -> void:
+	print("--- Running Scenario 26: Scenario A - One Active Repair Saved & Loaded ---")
+	var rm = world_instance.get_node_or_null("/root/ResourceManager")
+	var wd = world_instance.world_data
+	var save_path := "user://test_scenario_a_repair.json"
+
+	# Set baseline resources
+	rm.reset_economy()
+	rm.get("_current_stock")["wood"] = 100
+	rm.get("_current_stock")["stone"] = 100
+	rm.get("_current_stock")["metal"] = 100
+
+	var b := {
+		"id": "bld_scen_a_26",
+		"type": "workshop",
+		"cell": Vector2i(50, 50),
+		"size": Vector2i(2, 2),
+		"state": "damaged",
+		"health": 0,
+		"max_health": 100
+	}
+	wd.buildings.append(b)
+
+	# Start repair (Workshop 0 HP costs 5 wood, 4 stone, 1 metal)
+	var start_res = BuildingSystemScript.start_repair(b, wd, rm)
+	_assert(start_res.get("success") == true, "TC-BDR.26.1: start_repair succeeded")
+	_assert(rm.get_total_stock("wood") == 100, "TC-BDR.26.2: Pre-save total stock is 100")
+	_assert(rm.get_available_stock("wood") == 95, "TC-BDR.26.3: Pre-save available stock is 95")
+	_assert(rm.get_reserved_stock("wood") == 5, "TC-BDR.26.4: Pre-save reserved stock is 5")
+
+	# Save world to disk
+	var save_res = SaveManagerScript.save_to_file(world_instance, save_path)
+	_assert(save_res.get("success") == true, "TC-BDR.26.5: SaveManager wrote world to disk")
+
+	# Reset and Load from disk
+	wd.buildings.erase(b)
+	var load_res = SaveManagerScript.load_from_file(save_path)
+	_assert(load_res.get("success") == true, "TC-BDR.26.6: SaveManager loaded file")
+	var apply_res = SaveManagerScript.apply_loaded_state_to_world(world_instance, load_res.get("data", {}))
+	_assert(apply_res.get("success") == true, "TC-BDR.26.7: apply_loaded_state_to_world succeeded")
+
+	# Verify post-load state
+	_assert(rm.get_total_stock("wood") == 100, "TC-BDR.26.8: Post-load total stock remains 100")
+	_assert(rm.get_available_stock("wood") == 95, "TC-BDR.26.9: Post-load available stock is exactly 95")
+	_assert(rm.get_reserved_stock("wood") == 5, "TC-BDR.26.10: Post-load reserved stock is rehydrated to 5")
+
+	var restored_b = BuildingSystemScript.get_building_by_id("bld_scen_a_26", world_instance.world_data)
+	_assert(not restored_b.is_empty(), "TC-BDR.26.11: Restored building exists")
+	_assert(bool(restored_b.get("is_repairing")) == true, "TC-BDR.26.12: Building remains is_repairing")
+	_assert(bool(restored_b.get("repair_reserved")) == true, "TC-BDR.26.13: Building has repair_reserved true")
+
+	# Complete repair
+	var comp_res = BuildingSystemScript.complete_repair(restored_b, world_instance.world_data, rm)
+	_assert(comp_res.get("success") == true, "TC-BDR.26.14: complete_repair succeeded")
+	_assert(rm.get_total_stock("wood") == 95, "TC-BDR.26.15: Total wood consumed exactly once (100 -> 95)")
+	_assert(rm.get_reserved_stock("wood") == 0, "TC-BDR.26.16: Reserved wood cleared (0)")
+	_assert(rm.get_available_stock("wood") == 95, "TC-BDR.26.17: Available wood is 95")
+	_assert(restored_b.get("health") == 100, "TC-BDR.26.18: Building health restored to 100")
+
+	world_instance.world_data.buildings.erase(restored_b)
+	DirAccess.remove_absolute(save_path)
+
+# -----------------------------------------------------------------------------
+# 27. Scenario B: Two simultaneous identical repair costs saved and loaded
+# -----------------------------------------------------------------------------
+func _test_tc_bdr_27_scenario_b_concurrent_identical_cost_repairs() -> void:
+	print("--- Running Scenario 27: Scenario B - Concurrent Identical Repairs Saved & Loaded ---")
+	var rm = world_instance.get_node_or_null("/root/ResourceManager")
+	var wd = world_instance.world_data
+	var save_path := "user://test_scenario_b_repair.json"
+
+	rm.reset_economy()
+	rm.get("_current_stock")["wood"] = 100
+	rm.get("_current_stock")["stone"] = 100
+	rm.get("_current_stock")["metal"] = 100
+
+	var b1 := {
+		"id": "bld_scen_b1",
+		"type": "workshop",
+		"cell": Vector2i(52, 52),
+		"size": Vector2i(2, 2),
+		"state": "damaged",
+		"health": 0,
+		"max_health": 100
+	}
+	var b2 := {
+		"id": "bld_scen_b2",
+		"type": "workshop",
+		"cell": Vector2i(54, 54),
+		"size": Vector2i(2, 2),
+		"state": "damaged",
+		"health": 0,
+		"max_health": 100
+	}
+	wd.buildings.append(b1)
+	wd.buildings.append(b2)
+
+	BuildingSystemScript.start_repair(b1, wd, rm)
+	BuildingSystemScript.start_repair(b2, wd, rm)
+
+	_assert(str(b1.get("repair_ticket_id")) == "repair_bld_scen_b1", "TC-BDR.27.1: b1 assigned stable ticket repair_bld_scen_b1")
+	_assert(str(b2.get("repair_ticket_id")) == "repair_bld_scen_b2", "TC-BDR.27.2: b2 assigned stable ticket repair_bld_scen_b2")
+	_assert(rm.get_reserved_stock("wood") == 10, "TC-BDR.27.3: Pre-save reserved wood is 10 (5+5)")
+	_assert(rm.get_available_stock("wood") == 90, "TC-BDR.27.4: Pre-save available wood is 90")
+
+	# Save and reload
+	var save_res = SaveManagerScript.save_to_file(world_instance, save_path)
+	_assert(save_res.get("success") == true, "TC-BDR.27.5: Save succeeded")
+
+	wd.buildings.erase(b1)
+	wd.buildings.erase(b2)
+	var load_res = SaveManagerScript.load_from_file(save_path)
+	SaveManagerScript.apply_loaded_state_to_world(world_instance, load_res.get("data", {}))
+
+	_assert(rm.get_total_stock("wood") == 100, "TC-BDR.27.6: Restored total wood is 100")
+	_assert(rm.get_reserved_stock("wood") == 10, "TC-BDR.27.7: Restored reserved wood is 10")
+	_assert(rm.get_available_stock("wood") == 90, "TC-BDR.27.8: Restored available wood is 90")
+
+	var rb1 = BuildingSystemScript.get_building_by_id("bld_scen_b1", world_instance.world_data)
+	var rb2 = BuildingSystemScript.get_building_by_id("bld_scen_b2", world_instance.world_data)
+	_assert(str(rb1.get("repair_ticket_id")) == "repair_bld_scen_b1", "TC-BDR.27.9: rb1 ticket restored")
+	_assert(str(rb2.get("repair_ticket_id")) == "repair_bld_scen_b2", "TC-BDR.27.10: rb2 ticket restored")
+
+	world_instance.world_data.buildings.erase(rb1)
+	world_instance.world_data.buildings.erase(rb2)
+	DirAccess.remove_absolute(save_path)
+
+# -----------------------------------------------------------------------------
+# 28. Scenario C: Cancel first, complete second
+# -----------------------------------------------------------------------------
+func _test_tc_bdr_28_scenario_c_cancel_first_complete_second() -> void:
+	print("--- Running Scenario 28: Scenario C - Cancel First, Complete Second ---")
+	var rm = world_instance.get_node_or_null("/root/ResourceManager")
+	var wd = world_instance.world_data
+	var save_path := "user://test_scenario_c_repair.json"
+
+	rm.reset_economy()
+	rm.get("_current_stock")["wood"] = 100
+	rm.get("_current_stock")["stone"] = 100
+	rm.get("_current_stock")["metal"] = 100
+
+	var b1 := {"id": "bld_scen_c1", "type": "workshop", "cell": Vector2i(56, 56), "size": Vector2i(2, 2), "state": "damaged", "health": 0, "max_health": 100}
+	var b2 := {"id": "bld_scen_c2", "type": "workshop", "cell": Vector2i(58, 58), "size": Vector2i(2, 2), "state": "damaged", "health": 0, "max_health": 100}
+	wd.buildings.append(b1)
+	wd.buildings.append(b2)
+
+	BuildingSystemScript.start_repair(b1, wd, rm)
+	BuildingSystemScript.start_repair(b2, wd, rm)
+	SaveManagerScript.save_to_file(world_instance, save_path)
+
+	wd.buildings.erase(b1)
+	wd.buildings.erase(b2)
+	var load_res = SaveManagerScript.load_from_file(save_path)
+	SaveManagerScript.apply_loaded_state_to_world(world_instance, load_res.get("data", {}))
+
+	var rb1 = BuildingSystemScript.get_building_by_id("bld_scen_c1", world_instance.world_data)
+	var rb2 = BuildingSystemScript.get_building_by_id("bld_scen_c2", world_instance.world_data)
+
+	# Cancel first repair (rb1) -> releases 5 wood back to available
+	var cancel_res = BuildingSystemScript.cancel_repair(rb1, world_instance.world_data, rm)
+	_assert(cancel_res.get("success") == true, "TC-BDR.28.1: cancel_repair succeeded on rb1")
+	_assert(rm.get_total_stock("wood") == 100, "TC-BDR.28.2: Total wood remains 100 after rb1 cancellation")
+	_assert(rm.get_reserved_stock("wood") == 5, "TC-BDR.28.3: Reserved wood reduced from 10 to 5")
+	_assert(rm.get_available_stock("wood") == 95, "TC-BDR.28.4: Available wood returned to 95")
+
+	# Complete second repair (rb2) -> commits 5 wood
+	var comp_res = BuildingSystemScript.complete_repair(rb2, world_instance.world_data, rm)
+	_assert(comp_res.get("success") == true, "TC-BDR.28.5: complete_repair succeeded on rb2")
+	_assert(rm.get_total_stock("wood") == 95, "TC-BDR.28.6: Total wood consumed once (100 -> 95)")
+	_assert(rm.get_reserved_stock("wood") == 0, "TC-BDR.28.7: All reserved stock cleared to 0")
+	_assert(rm.get_available_stock("wood") == 95, "TC-BDR.28.8: Available wood remains 95")
+
+	world_instance.world_data.buildings.erase(rb1)
+	world_instance.world_data.buildings.erase(rb2)
+	DirAccess.remove_absolute(save_path)
+
+# -----------------------------------------------------------------------------
+# 29. Scenario D: Complete first, cancel second
+# -----------------------------------------------------------------------------
+func _test_tc_bdr_29_scenario_d_complete_first_cancel_second() -> void:
+	print("--- Running Scenario 29: Scenario D - Complete First, Cancel Second ---")
+	var rm = world_instance.get_node_or_null("/root/ResourceManager")
+	var wd = world_instance.world_data
+	var save_path := "user://test_scenario_d_repair.json"
+
+	rm.reset_economy()
+	rm.get("_current_stock")["wood"] = 100
+	rm.get("_current_stock")["stone"] = 100
+	rm.get("_current_stock")["metal"] = 100
+
+	var b1 := {"id": "bld_scen_d1", "type": "workshop", "cell": Vector2i(60, 60), "size": Vector2i(2, 2), "state": "damaged", "health": 0, "max_health": 100}
+	var b2 := {"id": "bld_scen_d2", "type": "workshop", "cell": Vector2i(62, 62), "size": Vector2i(2, 2), "state": "damaged", "health": 0, "max_health": 100}
+	wd.buildings.append(b1)
+	wd.buildings.append(b2)
+
+	BuildingSystemScript.start_repair(b1, wd, rm)
+	BuildingSystemScript.start_repair(b2, wd, rm)
+	SaveManagerScript.save_to_file(world_instance, save_path)
+
+	wd.buildings.erase(b1)
+	wd.buildings.erase(b2)
+	var load_res = SaveManagerScript.load_from_file(save_path)
+	SaveManagerScript.apply_loaded_state_to_world(world_instance, load_res.get("data", {}))
+
+	var rb1 = BuildingSystemScript.get_building_by_id("bld_scen_d1", world_instance.world_data)
+	var rb2 = BuildingSystemScript.get_building_by_id("bld_scen_d2", world_instance.world_data)
+
+	# Complete first repair (rb1) -> commits 5 wood
+	var comp_res = BuildingSystemScript.complete_repair(rb1, world_instance.world_data, rm)
+	_assert(comp_res.get("success") == true, "TC-BDR.29.1: complete_repair succeeded on rb1")
+	_assert(rm.get_total_stock("wood") == 95, "TC-BDR.29.2: Total wood reduced from 100 to 95")
+	_assert(rm.get_reserved_stock("wood") == 5, "TC-BDR.29.3: Reserved wood reduced from 10 to 5")
+	_assert(rm.get_available_stock("wood") == 90, "TC-BDR.29.4: Available wood is 90")
+
+	# Cancel second repair (rb2) -> releases 5 wood back to available
+	var cancel_res = BuildingSystemScript.cancel_repair(rb2, world_instance.world_data, rm)
+	_assert(cancel_res.get("success") == true, "TC-BDR.29.5: cancel_repair succeeded on rb2")
+	_assert(rm.get_total_stock("wood") == 95, "TC-BDR.29.6: Total wood remains 95")
+	_assert(rm.get_reserved_stock("wood") == 0, "TC-BDR.29.7: Reserved wood cleared to 0")
+	_assert(rm.get_available_stock("wood") == 95, "TC-BDR.29.8: Available wood refunded to 95")
+
+	world_instance.world_data.buildings.erase(rb1)
+	world_instance.world_data.buildings.erase(rb2)
+	DirAccess.remove_absolute(save_path)
+
+# -----------------------------------------------------------------------------
+# 30. Scenario E: Repair saved, loaded, and later demolished
+# -----------------------------------------------------------------------------
+func _test_tc_bdr_30_scenario_e_repair_saved_loaded_demolished() -> void:
+	print("--- Running Scenario 30: Scenario E - Repair Saved, Loaded & Later Demolished ---")
+	var rm = world_instance.get_node_or_null("/root/ResourceManager")
+	var wd = world_instance.world_data
+	var save_path := "user://test_scenario_e_repair.json"
+
+	rm.reset_economy()
+	rm.get("_current_stock")["wood"] = 100
+	rm.get("_current_stock")["stone"] = 100
+	rm.get("_current_stock")["metal"] = 100
+
+	var b := {"id": "bld_scen_e", "type": "workshop", "cell": Vector2i(34, 34), "size": Vector2i(2, 2), "state": "damaged", "health": 0, "max_health": 100}
+	wd.buildings.append(b)
+
+	BuildingSystemScript.start_repair(b, wd, rm)
+	SaveManagerScript.save_to_file(world_instance, save_path)
+
+	wd.buildings.erase(b)
+	var load_res = SaveManagerScript.load_from_file(save_path)
+	SaveManagerScript.apply_loaded_state_to_world(world_instance, load_res.get("data", {}))
+
+	var rb = BuildingSystemScript.get_building_by_id("bld_scen_e", world_instance.world_data)
+	_assert(rm.get_reserved_stock("wood") == 5, "TC-BDR.30.1: Pre-demolition reserved wood is 5")
+
+	# Demolish building: must rollback repair ticket and refund 50% of workshop cost (10 wood, 7 stone, 2 metal)
+	var demo_res = BuildingSystemScript.demolish_building(rb, world_instance.world_data, rm, world_instance.job_mgr)
+	_assert(demo_res.get("success") == true, "TC-BDR.30.2: demolish_building succeeded")
+	_assert(rm.get_reserved_stock("wood") == 0, "TC-BDR.30.3: Repair reservation cleanly rolled back on demolition (0 reserved)")
+	_assert(rm.get_total_stock("wood") == 110, "TC-BDR.30.4: Total wood is 110 (100 base + 10 refund)")
+	_assert(rm.get_available_stock("wood") == 110, "TC-BDR.30.5: Available wood is 110")
+
+	DirAccess.remove_absolute(save_path)
+
+# -----------------------------------------------------------------------------
+# 31. Scenario F: Insufficient available resources after restoration fails closed
+# -----------------------------------------------------------------------------
+func _test_tc_bdr_31_scenario_f_insufficient_stock_fails_closed() -> void:
+	print("--- Running Scenario 31: Scenario F - Insufficient Stock Fails Closed ---")
+	var rm = world_instance.get_node_or_null("/root/ResourceManager")
+	var wd = world_instance.world_data
+	var save_path := "user://test_scenario_f_repair.json"
+
+	# Craft a save file with deficit (only 2 wood in stock, but repair requires 5 wood)
+	rm.reset_economy()
+	rm.get("_current_stock")["wood"] = 100
+	rm.get("_current_stock")["stone"] = 100
+	rm.get("_current_stock")["metal"] = 100
+
+	var b := {"id": "bld_scen_f", "type": "workshop", "cell": Vector2i(38, 38), "size": Vector2i(2, 2), "state": "damaged", "health": 0, "max_health": 100}
+	wd.buildings.append(b)
+
+	BuildingSystemScript.start_repair(b, wd, rm)
+	SaveManagerScript.save_to_file(world_instance, save_path)
+
+	# Read save and inject deficit stock
+	var file = FileAccess.open(save_path, FileAccess.READ)
+	var json_str = file.get_as_text()
+	file.close()
+	var save_dict: Dictionary = JSON.parse_string(json_str)
+	save_dict["resources"]["stock"]["wood"] = 2
+	save_dict["resources"]["total_stock"]["wood"] = 2
+
+	file = FileAccess.open(save_path, FileAccess.WRITE)
+	file.store_string(JSON.stringify(save_dict, "\t"))
+	file.close()
+
+	wd.buildings.erase(b)
+	var load_res = SaveManagerScript.load_from_file(save_path)
+	SaveManagerScript.apply_loaded_state_to_world(world_instance, load_res.get("data", {}))
+
+	var rb = BuildingSystemScript.get_building_by_id("bld_scen_f", world_instance.world_data)
+	_assert(not rb.is_empty(), "TC-BDR.31.1: Restored building exists")
+	_assert(bool(rb.get("is_repairing")) == false, "TC-BDR.31.2: Repair failed closed due to deficit stock (is_repairing == false)")
+	_assert(bool(rb.get("repair_reserved")) == false, "TC-BDR.31.3: repair_reserved is false")
+	_assert(rm.get_reserved_stock("wood") == 0, "TC-BDR.31.4: 0 resources reserved in ResourceManager")
+	_assert(rm.get_available_stock("wood") == 2, "TC-BDR.31.5: Available stock remains safe at 2 without negative or corrupted values")
+
+	world_instance.world_data.buildings.erase(rb)
+	DirAccess.remove_absolute(save_path)

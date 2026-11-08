@@ -149,9 +149,12 @@ static func serialize_world_state(world_view: Node) -> Dictionary:
 		var rm: Node = world_view.get_node("/root/ResourceManager") if world_view.is_inside_tree() else null
 		if rm != null:
 			var stock_copy: Dictionary = {}
+			var total_stock_copy: Dictionary = {}
 			var cap_copy: Dictionary = {}
 			for res_id in rm.get("_current_stock"):
-				stock_copy[res_id] = rm.call("get_available_stock", res_id)
+				var tot_val: int = int(rm.call("get_total_stock", res_id)) if rm.has_method("get_total_stock") else int(rm.get("_current_stock")[res_id])
+				stock_copy[res_id] = tot_val
+				total_stock_copy[res_id] = tot_val
 			for res_id in rm.get("_capacities"):
 				cap_copy[res_id] = rm.get("_capacities")[res_id]
 
@@ -161,6 +164,7 @@ static func serialize_world_state(world_view: Node) -> Dictionary:
 
 			data["resources"] = {
 				"stock": stock_copy,
+				"total_stock": total_stock_copy,
 				"capacities": cap_copy,
 				"active_population": rm.get("active_population"),
 				"is_starving": rm.call("is_starving") if rm.has_method("is_starving") else false,
@@ -205,6 +209,7 @@ static func serialize_world_state(world_view: Node) -> Dictionary:
 				b_rec["repair_hours_required"] = float(b.get("repair_hours_required", 2.0))
 				b_rec["repair_cost"] = b.get("repair_cost", {}).duplicate()
 				b_rec["repair_reserved"] = bool(b.get("repair_reserved", false))
+				b_rec["repair_ticket_id"] = str(b.get("repair_ticket_id", "repair_" + b.get("id", "")))
 				b_rec["damage_initial_health"] = int(b.get("damage_initial_health", 50))
 			b_list.append(b_rec)
 		data["buildings"] = b_list
@@ -1886,9 +1891,24 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 	if not res_data.is_empty() and (Engine.has_singleton("ResourceManager") or world_view.has_node("/root/ResourceManager")):
 		var rm: Node = world_view.get_node("/root/ResourceManager")
 		rm.call("reset_economy")
+		var is_legacy_stock: bool = not res_data.has("total_stock")
+		var legacy_repair_offsets: Dictionary = {}
+		if is_legacy_stock:
+			var saved_b_list = loaded_data.get("buildings", [])
+			if saved_b_list is Array:
+				for sb in saved_b_list:
+					if sb is Dictionary and bool(sb.get("is_repairing", false)) and bool(sb.get("repair_reserved", false)):
+						var r_cost = sb.get("repair_cost", {})
+						if r_cost is Dictionary:
+							for r_id in r_cost:
+								legacy_repair_offsets[r_id] = legacy_repair_offsets.get(r_id, 0) + int(r_cost[r_id])
+
 		var stocks: Dictionary = res_data.get("stock", {})
 		for r_id in stocks:
-			rm.get("_current_stock")[r_id] = stocks[r_id]
+			var base_stock: int = int(stocks[r_id])
+			if is_legacy_stock and legacy_repair_offsets.has(r_id):
+				base_stock += int(legacy_repair_offsets[r_id])
+			rm.get("_current_stock")[r_id] = base_stock
 		var caps: Dictionary = res_data.get("capacities", {})
 		for r_id in caps:
 			rm.get("_capacities")[r_id] = caps[r_id]
@@ -1965,9 +1985,40 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 				b_dict["is_repairing"] = true
 				b_dict["repair_progress"] = float(b.get("repair_progress", 0.0))
 				b_dict["repair_hours_required"] = float(b.get("repair_hours_required", 2.0))
-				b_dict["repair_cost"] = b.get("repair_cost", {}).duplicate()
-				b_dict["repair_reserved"] = bool(b.get("repair_reserved", false))
+				var r_cost: Dictionary = b.get("repair_cost", {}).duplicate()
+				b_dict["repair_cost"] = r_cost
 				b_dict["damage_initial_health"] = int(b.get("damage_initial_health", 50))
+				
+				var should_reserve: bool = bool(b.get("repair_reserved", false))
+				var ticket_id: String = str(b.get("repair_ticket_id", "repair_" + b_id))
+				if ticket_id.is_empty():
+					ticket_id = "repair_" + b_id
+
+				if should_reserve and not r_cost.is_empty():
+					var rm_node = world_view.get_node_or_null("/root/ResourceManager") if world_view.is_inside_tree() else null
+					if rm_node == null and world_view.get("resource_mgr") != null:
+						rm_node = world_view.get("resource_mgr")
+					if rm_node != null and rm_node.has_method("register_transaction"):
+						var reg_ok: bool = rm_node.register_transaction(ticket_id, r_cost)
+						if reg_ok:
+							b_dict["repair_ticket_id"] = ticket_id
+							b_dict["repair_reserved"] = true
+						else:
+							# Fails closed on deficit or invalid reservation!
+							b_dict["is_repairing"] = false
+							b_dict["repair_reserved"] = false
+							b_dict["repair_ticket_id"] = ""
+							b_dict["repair_progress"] = 0.0
+					elif rm_node != null and rm_node.has_method("reserve_cost"):
+						var res_ok: bool = rm_node.reserve_cost(r_cost)
+						b_dict["repair_reserved"] = res_ok
+						b_dict["repair_ticket_id"] = ticket_id
+					else:
+						b_dict["repair_reserved"] = false
+						b_dict["repair_ticket_id"] = ticket_id
+				else:
+					b_dict["repair_reserved"] = false
+					b_dict["repair_ticket_id"] = ""
 			world_data.buildings.append(b_dict)
 			
 			# Occupancy

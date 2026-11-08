@@ -531,6 +531,10 @@ static func demolish_building(b_data_or_id, world_data: WorldGenerator.WorldData
 			"refunded": {}
 		}
 
+	# If the building is actively repairing, cancel the repair to rollback any reserved repair materials cleanly
+	if bool(b_data.get("is_repairing", false)):
+		cancel_repair(b_data, world_data, resource_mgr)
+
 	var b_id: String = b_data.get("id", "")
 	var type: String = b_data.get("type", "")
 	var level: int = clampi(int(b_data.get("upgrade_level", 1)), 1, EconomyConfig.MAX_BUILDING_LEVEL)
@@ -1269,11 +1273,24 @@ static func start_repair(b_data_or_id, world_data: WorldGenerator.WorldData = nu
 
 	var cost: Dictionary = check.get("cost", {})
 	var hours: float = float(check.get("hours", 2.0))
+	var b_id: String = str(b_data.get("id", ""))
+	var ticket_id: String = "repair_" + b_id if not b_id.is_empty() else ""
 
-	# Reserve resources atomically
+	# Reserve resources atomically using unique transaction ticket when supported
 	var reserved_ok := false
 	if not cost.is_empty() and resource_mgr != null:
-		if resource_mgr.has_method("reserve_cost"):
+		if ticket_id != "" and resource_mgr.has_method("register_transaction"):
+			var res_res = resource_mgr.register_transaction(ticket_id, cost)
+			if res_res is bool and not res_res:
+				return {"success": false, "reason": "Không thể đặt trước tài nguyên sửa chữa", "cost": cost, "hours": hours}
+			reserved_ok = true
+		elif resource_mgr.has_method("begin_transaction"):
+			var assigned_tid: String = resource_mgr.begin_transaction(cost)
+			if assigned_tid.is_empty():
+				return {"success": false, "reason": "Không thể đặt trước tài nguyên sửa chữa", "cost": cost, "hours": hours}
+			ticket_id = assigned_tid
+			reserved_ok = true
+		elif resource_mgr.has_method("reserve_cost"):
 			var res_res = resource_mgr.reserve_cost(cost)
 			if res_res is bool and not res_res:
 				return {"success": false, "reason": "Không thể đặt trước tài nguyên sửa chữa", "cost": cost, "hours": hours}
@@ -1289,6 +1306,7 @@ static func start_repair(b_data_or_id, world_data: WorldGenerator.WorldData = nu
 	b_data["repair_hours_required"] = hours
 	b_data["repair_cost"] = cost.duplicate()
 	b_data["repair_reserved"] = reserved_ok
+	b_data["repair_ticket_id"] = ticket_id
 	b_data["damage_initial_health"] = int(b_data.get("health", 50))
 	if b_data.get("state", "active") != "damaged":
 		b_data["pre_damage_state"] = b_data.get("state", "active")
@@ -1337,8 +1355,11 @@ static func complete_repair(b_data_or_id, world_data: WorldGenerator.WorldData =
 
 	# Commit reserved resources exactly once
 	var cost: Dictionary = b_data.get("repair_cost", {})
+	var ticket_id: String = str(b_data.get("repair_ticket_id", ""))
 	if bool(b_data.get("repair_reserved", false)) and resource_mgr != null:
-		if resource_mgr.has_method("commit_cost"):
+		if ticket_id != "" and resource_mgr.has_method("commit_transaction") and resource_mgr.has_method("has_active_transaction") and resource_mgr.has_active_transaction(ticket_id):
+			resource_mgr.commit_transaction(ticket_id)
+		elif resource_mgr.has_method("commit_cost"):
 			resource_mgr.commit_cost(cost)
 		elif resource_mgr.has_method("commit_reservation"):
 			resource_mgr.commit_reservation(cost)
@@ -1351,6 +1372,7 @@ static func complete_repair(b_data_or_id, world_data: WorldGenerator.WorldData =
 	b_data["repair_hours_required"] = 0.0
 	b_data["repair_cost"] = {}
 	b_data["repair_reserved"] = false
+	b_data["repair_ticket_id"] = ""
 	b_data.erase("damage_initial_health")
 
 	# Restore operational state: if previously paused, return to paused; otherwise active
@@ -1375,8 +1397,11 @@ static func cancel_repair(b_data_or_id, world_data: WorldGenerator.WorldData = n
 
 	# Release reserved resources cleanly
 	var cost: Dictionary = b_data.get("repair_cost", {})
+	var ticket_id: String = str(b_data.get("repair_ticket_id", ""))
 	if bool(b_data.get("repair_reserved", false)) and resource_mgr != null:
-		if resource_mgr.has_method("release_cost"):
+		if ticket_id != "" and resource_mgr.has_method("rollback_transaction") and resource_mgr.has_method("has_active_transaction") and resource_mgr.has_active_transaction(ticket_id):
+			resource_mgr.rollback_transaction(ticket_id)
+		elif resource_mgr.has_method("release_cost"):
 			resource_mgr.release_cost(cost)
 		elif resource_mgr.has_method("release_reservation"):
 			resource_mgr.release_reservation(cost)
@@ -1386,6 +1411,7 @@ static func cancel_repair(b_data_or_id, world_data: WorldGenerator.WorldData = n
 	b_data["repair_hours_required"] = 0.0
 	b_data["repair_cost"] = {}
 	b_data["repair_reserved"] = false
+	b_data["repair_ticket_id"] = ""
 	b_data.erase("damage_initial_health")
 
 	return {"success": true}
@@ -1414,6 +1440,10 @@ static func normalize_building_data(b: Dictionary) -> Dictionary:
 		norm["repair_hours_required"] = 0.0
 	else:
 		norm["repair_hours_required"] = float(norm["repair_hours_required"])
+	if not norm.has("repair_ticket_id"):
+		norm["repair_ticket_id"] = ""
+	else:
+		norm["repair_ticket_id"] = str(norm["repair_ticket_id"])
 	if not norm.has("upgrade_level"):
 		norm["upgrade_level"] = 1
 	else:
