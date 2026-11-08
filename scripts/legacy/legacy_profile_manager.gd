@@ -6,6 +6,7 @@ extends RefCounted
 
 signal balance_changed(new_balance: int)
 signal reward_claimed(reward_id: String, amount: int, source: String, current_balance: int)
+signal perk_purchased(perk_id: String, cost: int, current_balance: int)
 signal profile_saved(filepath: String)
 signal profile_loaded(filepath: String)
 
@@ -60,12 +61,73 @@ static var ACHIEVEMENTS: Dictionary = {
 	}
 }
 
+static var STARTING_PERKS: Dictionary = {
+	"starter_grain": {
+		"id": "starter_grain",
+		"name": "Kho Lương Khởi Đầu",
+		"description": "Bắt đầu với thêm 50 Lương thực trong kho dự trữ.",
+		"cost": 50,
+		"prerequisites": [],
+		"effect_type": "resource_bonus",
+		"effect_data": {"food": 50}
+	},
+	"master_carpenter": {
+		"id": "master_carpenter",
+		"name": "Thợ Mộc Lành Nghề",
+		"description": "Bắt đầu với thêm 40 Gỗ và 10 Công cụ chế tác.",
+		"cost": 75,
+		"prerequisites": [],
+		"effect_type": "resource_bonus",
+		"effect_data": {"wood": 40, "tools": 10}
+	},
+	"hardened_outposts": {
+		"id": "hardened_outposts",
+		"name": "Tiền Đồn Kiên Cố",
+		"description": "Bắt đầu với thêm 20 Kim loại và 2 binh sĩ sẵn sàng xuất trận.",
+		"cost": 100,
+		"prerequisites": ["master_carpenter"],
+		"effect_type": "military_bonus",
+		"effect_data": {"metal": 20, "soldiers": 2}
+	},
+	"pioneer_spirit": {
+		"id": "pioneer_spirit",
+		"name": "Tinh Thần Khai Hoang",
+		"description": "Người dân khởi đầu có thêm +10 Điểm Tinh thần (Morale).",
+		"cost": 120,
+		"prerequisites": ["starter_grain"],
+		"effect_type": "citizen_bonus",
+		"effect_data": {"morale": 10.0}
+	}
+}
+
+static var WORLD_MODIFIERS: Dictionary = {
+	"arid_realm": {
+		"id": "arid_realm",
+		"name": "Vùng Đất Khô Cằn",
+		"description": "Nông nghiệp mùa hè giảm 15% sản lượng; lượng gỗ khởi đầu giảm 20.",
+		"effects": {"summer_farm_mult": 0.85, "starting_wood_delta": -20}
+	},
+	"harsh_winters": {
+		"id": "harsh_winters",
+		"name": "Mùa Đông Băng Giá",
+		"description": "Tiêu hao sưởi ấm mùa đông tăng lên 3 Gỗ/giờ; thể lực tiêu hao ngoài trời tăng thêm +25%.",
+		"effects": {"winter_heating_demand": 3, "winter_fatigue_mult": 1.25}
+	},
+	"restless_bandits": {
+		"id": "restless_bandits",
+		"name": "Thổ Phỉ Quấy Nhiễu",
+		"description": "Quy mô đe dọa thổ phỉ tăng +3 tên cướp; nguy cơ đường buôn tăng +10%.",
+		"effects": {"bandit_threat_bonus": 3, "trade_risk_bonus": 10.0}
+	}
+}
+
 var profile_id: String = "legacy_profile_default"
 var legacy_balance: int = 0
 var lifetime_legacy_earned: int = 0
 var lifetime_legacy_spent: int = 0
 var claimed_rewards: Dictionary = {} # reward_id (String) -> Dictionary
 var unlocked_achievements: Dictionary = {} # achievement_id (String) -> Dictionary
+var unlocked_perks: Dictionary = {} # perk_id (String) -> Dictionary
 var treasury_conversions: Dictionary = {} # world_id (String) -> Dictionary
 var active_filepath: String = DEFAULT_PROFILE_PATH
 var profile_status: String = STATUS_UNINITIALIZED
@@ -253,6 +315,31 @@ static func validate_profile_data(data: Variant) -> Dictionary:
 			if not tc_entry.has("status"):
 				return {"valid": false, "error": "Bản ghi chuyển đổi ngân khố '%s' thiếu trường 'status'." % wid_str}
 
+	if data.has("unlocked_perks"):
+		var p_val = data["unlocked_perks"]
+		if not (p_val is Dictionary):
+			return {"valid": false, "error": "Mục 'unlocked_perks' phải là Dictionary."}
+		var perks_spent_sum: int = 0
+		for perk_key in p_val:
+			var perk_id_str = str(perk_key).strip_edges()
+			if perk_id_str.is_empty():
+				return {"valid": false, "error": "Khóa đặc quyền trong 'unlocked_perks' không được rỗng."}
+			var p_entry = p_val[perk_key]
+			if not (p_entry is Dictionary):
+				return {"valid": false, "error": "Bản ghi đặc quyền '%s' không phải Dictionary." % perk_id_str}
+			if not p_entry.has("perk_id"):
+				return {"valid": false, "error": "Bản ghi đặc quyền '%s' thiếu trường 'perk_id'." % perk_id_str}
+			if str(p_entry["perk_id"]).strip_edges() != perk_id_str:
+				return {"valid": false, "error": "Khóa đặc quyền '%s' không khớp perk_id '%s'." % [perk_id_str, str(p_entry["perk_id"])]}
+			if not p_entry.has("cost") or not _is_valid_integer_val(p_entry["cost"]):
+				return {"valid": false, "error": "Bản ghi đặc quyền '%s' thiếu hoặc sai định dạng 'cost'." % perk_id_str}
+			var p_cost := int(p_entry["cost"])
+			if p_cost < 0:
+				return {"valid": false, "error": "Giá đặc quyền '%s' không được âm (%d)." % [perk_id_str, p_cost]}
+			perks_spent_sum += p_cost
+		if perks_spent_sum > spent:
+			return {"valid": false, "error": "Tổng chi phí đặc quyền (%d) vượt quá lifetime_legacy_spent (%d)." % [perks_spent_sum, spent]}
+
 	return {"valid": true}
 
 # -----------------------------------------------------------------------------
@@ -268,6 +355,7 @@ func serialize() -> Dictionary:
 		"lifetime_legacy_spent": lifetime_legacy_spent,
 		"claimed_rewards": claimed_rewards.duplicate(true),
 		"unlocked_achievements": unlocked_achievements.duplicate(true),
+		"unlocked_perks": unlocked_perks.duplicate(true),
 		"treasury_conversions": treasury_conversions.duplicate(true)
 	}
 
@@ -284,6 +372,7 @@ func deserialize(data: Dictionary) -> bool:
 	lifetime_legacy_spent = int(data["lifetime_legacy_spent"])
 	claimed_rewards = data["claimed_rewards"].duplicate(true)
 	unlocked_achievements = data.get("unlocked_achievements", {}).duplicate(true)
+	unlocked_perks = data.get("unlocked_perks", {}).duplicate(true)
 	treasury_conversions = data.get("treasury_conversions", {}).duplicate(true)
 
 	balance_changed.emit(legacy_balance)
@@ -624,6 +713,7 @@ func _initialize_empty_profile() -> void:
 	lifetime_legacy_spent = 0
 	claimed_rewards.clear()
 	unlocked_achievements.clear()
+	unlocked_perks.clear()
 	treasury_conversions.clear()
 
 func reset_profile(filepath: String = "") -> bool:
@@ -1168,4 +1258,136 @@ func convert_surplus_treasury(
 		"status": "completed",
 		"balance": legacy_balance,
 		"record": trans_rec
+	}
+
+# -----------------------------------------------------------------------------
+# Starting Perks & World Modifiers (Package 4B — Milestone 4 Meta-Progression)
+# -----------------------------------------------------------------------------
+
+func get_perk_definitions() -> Dictionary:
+	return STARTING_PERKS.duplicate(true)
+
+func get_world_modifier_definitions() -> Dictionary:
+	return WORLD_MODIFIERS.duplicate(true)
+
+func is_perk_unlocked(perk_id: String) -> bool:
+	return unlocked_perks.has(perk_id.strip_edges())
+
+func get_unlocked_perks() -> Array[String]:
+	var result: Array[String] = []
+	for k in unlocked_perks.keys():
+		result.append(str(k))
+	return result
+
+func can_purchase_perk(perk_id: String) -> Dictionary:
+	if not is_available():
+		return {
+			"can_purchase": false,
+			"reason": "profile_unavailable",
+			"error": initialization_error,
+			"perk_id": perk_id
+		}
+
+	var clean_pid := perk_id.strip_edges()
+	if not STARTING_PERKS.has(clean_pid):
+		return {
+			"can_purchase": false,
+			"reason": "unknown_perk",
+			"error": "Đặc quyền không tồn tại trong danh mục: %s" % clean_pid,
+			"perk_id": clean_pid
+		}
+
+	if unlocked_perks.has(clean_pid):
+		return {
+			"can_purchase": false,
+			"reason": "already_unlocked",
+			"error": "Đặc quyền '%s' đã được mở khóa trước đó." % clean_pid,
+			"perk_id": clean_pid
+		}
+
+	var p_def: Dictionary = STARTING_PERKS[clean_pid]
+	var prereqs: Array = p_def.get("prerequisites", [])
+	for req in prereqs:
+		var req_str := str(req).strip_edges()
+		if not unlocked_perks.has(req_str):
+			var req_name := str(STARTING_PERKS.get(req_str, {}).get("name", req_str))
+			return {
+				"can_purchase": false,
+				"reason": "unmet_prerequisites",
+				"error": "Chưa đáp ứng điều kiện tiên quyết: yêu cầu mở khóa '%s'." % req_name,
+				"missing_prerequisite": req_str,
+				"perk_id": clean_pid
+			}
+
+	var cost: int = int(p_def.get("cost", 0))
+	if legacy_balance < cost:
+		return {
+			"can_purchase": false,
+			"reason": "insufficient_balance",
+			"error": "Số dư Di Sản (%d) không đủ để mở khóa đặc quyền (yêu cầu: %d)." % [legacy_balance, cost],
+			"cost": cost,
+			"balance": legacy_balance,
+			"perk_id": clean_pid
+		}
+
+	return {
+		"can_purchase": true,
+		"reason": "eligible",
+		"cost": cost,
+		"balance": legacy_balance,
+		"perk_id": clean_pid
+	}
+
+func purchase_perk(perk_id: String) -> Dictionary:
+	var check := can_purchase_perk(perk_id)
+	if not check.get("can_purchase", false):
+		return {
+			"success": false,
+			"reason": check.get("reason", "ineligible"),
+			"error": check.get("error", "Không thể mua đặc quyền"),
+			"perk_id": perk_id,
+			"balance": legacy_balance
+		}
+
+	var clean_pid := perk_id.strip_edges()
+	var p_def: Dictionary = STARTING_PERKS[clean_pid]
+	var cost: int = int(p_def.get("cost", 0))
+	var now_unix: int = int(Time.get_unix_time_from_system()) if Time else 0
+
+	var p_rec := {
+		"perk_id": clean_pid,
+		"cost": cost,
+		"unlocked_at_unix": now_unix
+	}
+
+	# Stage mutations in memory
+	unlocked_perks[clean_pid] = p_rec
+	legacy_balance -= cost
+	lifetime_legacy_spent += cost
+
+	# Atomic disk save
+	var save_ok := save_profile()
+	if not save_ok:
+		# Rollback staged in-memory mutations completely
+		unlocked_perks.erase(clean_pid)
+		legacy_balance += cost
+		lifetime_legacy_spent -= cost
+		return {
+			"success": false,
+			"reason": "save_failed",
+			"error": "Ghi hồ sơ Legacy xuống đĩa thất bại; đã hoàn trả giao dịch mua đặc quyền.",
+			"perk_id": clean_pid,
+			"balance": legacy_balance
+		}
+
+	perk_purchased.emit(clean_pid, cost, legacy_balance)
+	balance_changed.emit(legacy_balance)
+
+	return {
+		"success": true,
+		"reason": "purchased",
+		"perk_id": clean_pid,
+		"cost": cost,
+		"balance": legacy_balance,
+		"record": p_rec
 	}

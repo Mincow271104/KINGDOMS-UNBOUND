@@ -67,9 +67,18 @@ var _fatigue_mult_expires_day: int = -1
 
 # Package 4A: Crisis Manager linkage
 var crisis_manager: RefCounted = null
+var world_modifiers: Array[String] = []
 
 func set_crisis_manager(cm: RefCounted) -> void:
 	crisis_manager = cm
+
+func set_world_modifiers(mods: Array) -> void:
+	world_modifiers.clear()
+	for m in mods:
+		world_modifiers.append(str(m))
+
+func get_world_modifiers() -> Array[String]:
+	return world_modifiers.duplicate()
 
 func _init(seed_val: int = 12345) -> void:
 	_initial_seed = seed_val + 9999
@@ -93,13 +102,19 @@ func serialize() -> Dictionary:
 		"farm_bonus_expires_day": _farm_bonus_expires_day,
 		"active_fatigue_multiplier": _active_fatigue_multiplier,
 		"fatigue_mult_expires_day": _fatigue_mult_expires_day,
-		"rng_state": str(rng.state)
+		"rng_state": str(rng.state),
+		"world_modifiers": world_modifiers.duplicate()
 	}
 
 func deserialize(data: Dictionary, current_day: int = -1) -> void:
 	reset_state()
+	world_modifiers.clear()
 	if data == null or data.is_empty():
 		return
+
+	if data.has("world_modifiers") and data["world_modifiers"] is Array:
+		for m in data["world_modifiers"]:
+			world_modifiers.append(str(m))
 
 	if data.has("last_event_day"):
 		var raw_last: int = int(data.get("last_event_day", -99))
@@ -158,6 +173,8 @@ func get_active_farm_modifier_bonus(current_day: int = -1) -> float:
 func get_farm_production_multiplier(base_season_modifier: float = 1.0, current_day: int = -1) -> float:
 	var bonus := get_active_farm_modifier_bonus(current_day)
 	var mult: float = maxf(0.0, base_season_modifier * (1.0 + bonus))
+	if world_modifiers.has("arid_realm") and base_season_modifier >= 1.2:
+		mult *= 0.85
 	if crisis_manager != null and crisis_manager.has_method("get_farm_production_multiplier"):
 		mult *= float(crisis_manager.call("get_farm_production_multiplier"))
 	return maxf(0.0, mult)

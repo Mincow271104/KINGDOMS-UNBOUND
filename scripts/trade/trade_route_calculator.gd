@@ -84,11 +84,14 @@ static func evaluate_route_risk(
 	fow: Object = null,
 	field_siege_mgr: Object = null,
 	world_data: Object = null,
-	is_origin_at_war: bool = false
+	is_origin_at_war: bool = false,
+	world_modifiers: Array = []
 ) -> Dictionary:
 	var total_cells := route_cells.size()
 	if total_cells == 0:
 		var war_only: float = WARTIME_WEIGHT if is_origin_at_war else 0.0
+		var mod_only: float = 0.10 if world_modifiers.has("restless_bandits") else 0.0
+		var raw_only: float = war_only + mod_only
 		return {
 			"total_cells": 0,
 			"unexplored_cells": 0,
@@ -99,8 +102,8 @@ static func evaluate_route_risk(
 			"hostile_ratio": 0.0,
 			"is_origin_at_war": is_origin_at_war,
 			"wartime_factor": war_only,
-			"raw_risk": war_only,
-			"net_risk": clampf(war_only, MAX_DISCOUNT, MAX_SURCHARGE)
+			"raw_risk": raw_only,
+			"net_risk": clampf(raw_only, MAX_DISCOUNT, MAX_SURCHARGE)
 		}
 
 	# Gather living player outposts and active enemy outposts
@@ -170,8 +173,9 @@ static func evaluate_route_risk(
 	var s_ratio := float(secured_count) / float(total_cells)
 	var h_ratio := float(hostile_count) / float(total_cells)
 	var war_val := WARTIME_WEIGHT if is_origin_at_war else 0.0
+	var mod_risk: float = 0.10 if world_modifiers.has("restless_bandits") else 0.0
 
-	var raw_risk := (UNEXPLORED_WEIGHT * u_ratio) - (SECURED_WEIGHT * s_ratio) + (HOSTILE_WEIGHT * h_ratio) + war_val
+	var raw_risk := (UNEXPLORED_WEIGHT * u_ratio) - (SECURED_WEIGHT * s_ratio) + (HOSTILE_WEIGHT * h_ratio) + war_val + mod_risk
 	var net_risk := clampf(raw_risk, MAX_DISCOUNT, MAX_SURCHARGE)
 
 	return {
@@ -194,7 +198,8 @@ static func evaluate_route_risk_between(
 	fow: Object = null,
 	field_siege_mgr: Object = null,
 	world_data: Object = null,
-	is_origin_at_war: bool = false
+	is_origin_at_war: bool = false,
+	world_modifiers: Array = []
 ) -> Dictionary:
 	var route := compute_route_cells(origin, destination)
-	return evaluate_route_risk(route, fow, field_siege_mgr, world_data, is_origin_at_war)
+	return evaluate_route_risk(route, fow, field_siege_mgr, world_data, is_origin_at_war, world_modifiers)

@@ -18,6 +18,10 @@ const CrisisManagerScript = preload("res://scripts/core/crisis_manager.gd")
 
 @export var world_seed: int = 12345
 @export var world_id: String = ""
+@export var active_perks: Array = []
+@export var world_modifiers: Array = []
+@export var difficulty: String = "normal"
+var is_perks_and_modifiers_applied: bool = false
 var is_world_id_persisted: bool = false
 static var _world_id_counter: int = 0
 
@@ -102,7 +106,9 @@ func clear_resource_mgr_for_testing() -> void:
 func _get_resource_mgr() -> Object:
 	if _resource_mgr_injected:
 		return resource_mgr
-	return get_node_or_null("/root/ResourceManager")
+	if is_inside_tree() and has_node("/root/ResourceManager"):
+		return get_node_or_null("/root/ResourceManager")
+	return null
 
 var pending_death_cargo: Dictionary = {}
 
@@ -227,7 +233,7 @@ func _setup_ghost_preview() -> void:
 	$World.add_child(ghost_building_node)
 
 func _generate_and_build_world() -> void:
-	var rm_init = get_node_or_null("/root/ResourceManager")
+	var rm_init = _get_resource_mgr()
 	if rm_init != null and rm_init.has_method("reset_economy"):
 		rm_init.reset_economy()
 	world_data = WorldGenerator.generate(world_seed)
@@ -252,7 +258,9 @@ func _generate_and_build_world() -> void:
 	poi_mgr.poi_revealed.connect(_on_poi_revealed)
 	
 	event_system = WorldEventSystem.new(world_seed)
+	event_system.set_world_modifiers(world_modifiers)
 	crisis_mgr = CrisisManagerScript.new(world_seed)
+	crisis_mgr.set_world_modifiers(world_modifiers)
 	event_system.set_crisis_manager(crisis_mgr)
 	faction_mgr = FactionManager.new()
 	immigration_mgr = ImmigrationManager.new(world_seed + 777)
@@ -351,12 +359,53 @@ func _generate_and_build_world() -> void:
 	refresh_caravan_marker()
 	_setup_default_siege_objectives()
 	refresh_world_vision()
+	_apply_starting_perks_and_modifiers()
 
 	if faction_mgr != null:
 		if faction_mgr.has_signal("war_declared") and not faction_mgr.war_declared.is_connected(_on_faction_war_declared):
 			faction_mgr.war_declared.connect(_on_faction_war_declared)
 		if faction_mgr.has_signal("peace_signed") and not faction_mgr.peace_signed.is_connected(_on_faction_peace_signed):
 			faction_mgr.peace_signed.connect(_on_faction_peace_signed)
+
+func _apply_starting_perks_and_modifiers() -> void:
+	if is_perks_and_modifiers_applied:
+		return
+	is_perks_and_modifiers_applied = true
+
+	var rm: Object = _get_resource_mgr()
+
+	# 1. Apply Active Starting Perks (One-time at campaign genesis)
+	for perk in active_perks:
+		var p_id := str(perk).strip_edges()
+		match p_id:
+			"starter_grain":
+				if rm != null and rm.has_method("add_resource"):
+					rm.add_resource("food", 50)
+			"master_carpenter":
+				if rm != null and rm.has_method("add_resource"):
+					rm.add_resource("wood", 40)
+					rm.add_resource("tools", 10)
+			"hardened_outposts":
+				if rm != null and rm.has_method("add_resource"):
+					rm.add_resource("metal", 20)
+				if player_army_mgr != null:
+					var cur_s: int = int(player_army_mgr.get("soldier_count")) if player_army_mgr.get("soldier_count") != null else 0
+					player_army_mgr.set("soldier_count", cur_s + 2)
+					if player_army_mgr.has_method("sync_state_from_tactical"):
+						player_army_mgr.sync_state_from_tactical()
+			"pioneer_spirit":
+				for cit in citizen_list:
+					if cit != null and is_instance_valid(cit):
+						var cur_m: float = float(cit.get("morale")) if cit.get("morale") != null else 70.0
+						cit.set("morale", clampf(cur_m + 10.0, 0.0, 100.0))
+
+	# 2. Apply Immediate Starting World Modifiers
+	for mod in world_modifiers:
+		var m_id := str(mod).strip_edges()
+		match m_id:
+			"arid_realm":
+				if rm != null and rm.has_method("consume_resource"):
+					rm.consume_resource("wood", 20)
 
 func _setup_workplaces() -> void:
 	# Farm at (36, 35)

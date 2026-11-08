@@ -11111,3 +11111,37 @@ Perform rigorous gameplay integrity review and hardening of Package 4A (Endgame 
 
 ### Gate Assessment for Package 4B
 - **Status: APPROVED.** All technical invariants, state machine transitions, economic disruptions, raid persistence protections, and regression suites are verified and passing. Package 4A is stable, hardened, and ready for Package 4B.
+
+
+---
+
+## [2026-11-09] Milestone: Package 4B — Legacy Meta-Unlocks & World Modifiers ✅ COMPLETE
+
+### Context & Objective
+Implement Package 4B, the final planned gameplay workstream in Milestone 4 (Complete Endgame & Longevity):
+1. Persistent Legacy Points across multiple campaigns stored in decoupled meta-progression profile (`user://legacy_profile.json`).
+2. Unlockable starting perks catalog (`starter_grain`, `master_carpenter`, `hardened_outposts`, `pioneer_spirit`) with cost scaling and prerequisite dependency tree.
+3. World modifier selection (`arid_realm`, `harsh_winters`, `restless_bandits`) with deterministic subsystem impacts.
+4. Correct integration with campaign completion, new-game creation, and save/load persistence without duplicate bonus application.
+5. Fail-closed profile balance invariant enforcement and atomic persistence.
+6. Author comprehensive dedicated test suite (`scripts/test/test_legacy_meta_progression.gd`), full 69-suite regression run, script compilation check, and live GUI acceptance.
+
+### Completed Work & Implementation Details
+1. **Core Meta-Progression Architecture (`scripts/legacy/legacy_profile_manager.gd`):**
+   - Added `STARTING_PERKS` catalog: `starter_grain` (50 LP), `master_carpenter` (75 LP), `hardened_outposts` (100 LP, prereq `master_carpenter`), `pioneer_spirit` (120 LP, prereq `starter_grain`).
+   - Added `WORLD_MODIFIERS` catalog: `arid_realm` (-20 Wood, -15% Summer Farm), `harsh_winters` (3 Wood/hr, +25% outdoor fatigue), `restless_bandits` (+3 raid threat, +10% trade route risk).
+   - Implemented `unlocked_perks` dictionary tracking, `can_purchase_perk()`, `purchase_perk()`, `is_perk_unlocked()`.
+   - Enforced atomic rollback on save failure, preventing balance loss or orphan unlock states.
+   - Preserved `legacy_balance == lifetime_legacy_earned - lifetime_legacy_spent` invariant.
+2. **Subsystem World Modifier & Perk Hooks:**
+   - `scripts/core/crisis_manager.gd`: Integrated `world_modifiers`, `set_world_modifiers()`, `get_world_modifiers()`, `harsh_winters` 3 Wood/hr heating demand and 1.75x fatigue multiplier, `restless_bandits` +3 bandit threat, and persistence in `serialize()`/`deserialize()`.
+   - `scripts/core/world_event_system.gd`: Integrated `world_modifiers`, `set_world_modifiers()`, `arid_realm` -15% summer farm multiplier (`base_season_modifier >= 1.2`), and persistence in `serialize()`/`deserialize()`.
+   - `scripts/trade/trade_route_calculator.gd`: Integrated optional `world_modifiers: Array = []` in `evaluate_route_risk()` and `evaluate_route_risk_between()`, applying +0.10 danger for `restless_bandits`.
+   - `scripts/world/world_view.gd`: Added `@export var active_perks`, `@export var world_modifiers`, `@export var difficulty`, `var is_perks_and_modifiers_applied`. Wired `world_modifiers` into `crisis_mgr` and `event_system`. Added `_apply_starting_perks_and_modifiers()` applying one-time starting bonuses on campaign genesis.
+   - `scripts/persistence/save_manager.gd`: Serialized `active_perks`, `world_modifiers`, `difficulty` into `metadata`. Restored them in `apply_loaded_state_to_world()` while setting `is_perks_and_modifiers_applied = true` so one-time starting perks never double-dip on load.
+   - `scripts/ui/main_menu.gd` & `scenes/ui/main_menu.tscn`: Expanded `NewWorldPanel` size to 500x480. Built `MetaProgressionScroll` with `PerksContainer` and `ModifiersContainer`. Connected unlock buttons to `purchase_perk()` with real-time UI refresh. Passed `active_perks`, `world_modifiers`, and `difficulty` to instantiated `world_scene` in `_on_start_game()`.
+3. **Dedicated Test Suite (`scripts/test/test_legacy_meta_progression.gd`):**
+   - 17 scenarios covering all catalog definitions, insufficient balance rejection, unmet prerequisite blocking, successful purchases, duplicate purchase prevention, atomic save failure rollback, all 4 starting perks, all 3 world modifiers, combined interaction, save/load roundtrip with zero double-dipping, cross-campaign isolation, legacy save compatibility, and main menu UI wiring.
+   - 82/82 assertions passing (Exit code 0).
+4. **Specification Documentation:**
+   - Authored `docs/planning/PACKAGE_4B_SPECIFICATION.md`.

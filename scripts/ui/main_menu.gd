@@ -27,6 +27,12 @@ const LegacyProfileManagerScript = preload("res://scripts/legacy/legacy_profile_
 @onready var fullscreen_checkbox: CheckBox = $SettingsOverlay/CenterContainer/SettingsPanel/MarginContainer/VBoxContainer/FullscreenCheck
 @onready var legacy_fund_label: Label = get_node_or_null("CenterContainer/MainPanel/MarginContainer/VBoxContainer/TitleBox/LegacyFundLabel")
 
+var perks_container: VBoxContainer = null
+var modifiers_container: VBoxContainer = null
+var perk_checkboxes: Dictionary = {} # perk_id -> CheckBox
+var perk_buttons: Dictionary = {} # perk_id -> Button
+var modifier_checkboxes: Dictionary = {} # mod_id -> CheckBox
+
 func _ready() -> void:
 	DisplayServer.window_set_min_size(Vector2i(1024, 576))
 	new_world_overlay.visible = false
@@ -77,10 +83,167 @@ func _ready() -> void:
 	_setup_difficulty_options()
 	_on_randomize_seed()
 	_refresh_legacy_display()
+	_setup_perks_and_modifiers_ui()
 
 	var profile = LegacyProfileManagerScript.get_instance()
 	if profile and not profile.balance_changed.is_connected(_on_legacy_balance_changed):
 		profile.balance_changed.connect(_on_legacy_balance_changed)
+
+func _setup_perks_and_modifiers_ui() -> void:
+	var vbox: VBoxContainer = $NewWorldOverlay/CenterContainer/NewWorldPanel/MarginContainer/VBoxContainer
+	var btn_box = vbox.get_node_or_null("ButtonBox")
+	var idx = btn_box.get_index() if btn_box else -1
+
+	var scroll = ScrollContainer.new()
+	scroll.name = "MetaProgressionScroll"
+	scroll.custom_minimum_size = Vector2(440, 160)
+	scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+
+	var content = VBoxContainer.new()
+	content.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	content.add_theme_constant_override("separation", 8)
+	scroll.add_child(content)
+
+	# 1. Perks section
+	var sep1 = HSeparator.new()
+	content.add_child(sep1)
+
+	var p_hdr = Label.new()
+	p_hdr.text = "🏛️ ĐẶC QUYỀN KHỞI ĐẦU (STARTING PERKS):"
+	p_hdr.add_theme_color_override("font_color", Color(0.95, 0.85, 0.35, 1.0))
+	content.add_child(p_hdr)
+
+	perks_container = VBoxContainer.new()
+	perks_container.name = "PerksContainer"
+	content.add_child(perks_container)
+
+	# 2. Modifiers section
+	var sep2 = HSeparator.new()
+	content.add_child(sep2)
+
+	var m_hdr = Label.new()
+	m_hdr.text = "🌍 BIẾN TỐ THẾ GIỚI (WORLD MODIFIERS):"
+	m_hdr.add_theme_color_override("font_color", Color(0.6, 0.85, 0.95, 1.0))
+	content.add_child(m_hdr)
+
+	modifiers_container = VBoxContainer.new()
+	modifiers_container.name = "ModifiersContainer"
+	content.add_child(modifiers_container)
+
+	if idx >= 0:
+		vbox.add_child(scroll)
+		vbox.move_child(scroll, idx)
+	else:
+		vbox.add_child(scroll)
+
+	_populate_perks_ui()
+	_populate_modifiers_ui()
+
+func _populate_perks_ui() -> void:
+	if perks_container == null:
+		return
+	for c in perks_container.get_children():
+		c.queue_free()
+	perk_checkboxes.clear()
+	perk_buttons.clear()
+
+	var profile = LegacyProfileManagerScript.get_instance()
+	var perks_dict: Dictionary = LegacyProfileManagerScript.STARTING_PERKS
+
+	for pid in perks_dict:
+		var p_info: Dictionary = perks_dict[pid]
+		var hbox = HBoxContainer.new()
+		hbox.name = "PerkRow_" + pid
+
+		var chk = CheckBox.new()
+		chk.name = "PerkCheck_" + pid
+		chk.text = "%s: %s" % [p_info.get("name", pid), p_info.get("description", "")]
+		chk.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+
+		var is_unlocked: bool = profile != null and profile.is_perk_unlocked(pid)
+		chk.disabled = not is_unlocked
+		chk.button_pressed = is_unlocked
+
+		var btn_unlock = Button.new()
+		btn_unlock.name = "UnlockBtn_" + pid
+		var cost: int = int(p_info.get("cost", 0))
+		btn_unlock.text = "Mở khóa (%d điểm)" % cost
+
+		if is_unlocked:
+			btn_unlock.visible = false
+		else:
+			btn_unlock.visible = true
+			var check_res: Dictionary = profile.can_purchase_perk(pid) if profile else {"can_purchase": false}
+			btn_unlock.disabled = not check_res.get("can_purchase", false)
+			if not check_res.get("can_purchase", false):
+				btn_unlock.tooltip_text = check_res.get("error", "")
+
+		var captured_pid = pid
+		btn_unlock.pressed.connect(func():
+			_on_unlock_perk_pressed(captured_pid)
+		)
+
+		hbox.add_child(chk)
+		hbox.add_child(btn_unlock)
+		perks_container.add_child(hbox)
+
+		perk_checkboxes[pid] = chk
+		perk_buttons[pid] = btn_unlock
+
+func _on_unlock_perk_pressed(perk_id: String) -> void:
+	var profile = LegacyProfileManagerScript.get_instance()
+	if profile == null:
+		return
+	var res: Dictionary = profile.purchase_perk(perk_id)
+	if res.get("success", false):
+		var am = get_node_or_null("/root/AudioManager")
+		if am: am.play_coin()
+		_populate_perks_ui()
+		_refresh_legacy_display()
+	else:
+		var am = get_node_or_null("/root/AudioManager")
+		if am: am.play_error()
+		print("[MainMenu] Failed to purchase perk (%s): %s" % [perk_id, res.get("error", "")])
+
+func _populate_modifiers_ui() -> void:
+	if modifiers_container == null:
+		return
+	for c in modifiers_container.get_children():
+		c.queue_free()
+	modifier_checkboxes.clear()
+
+	var mods_dict: Dictionary = LegacyProfileManagerScript.WORLD_MODIFIERS
+	for mid in mods_dict:
+		var m_info: Dictionary = mods_dict[mid]
+		var chk = CheckBox.new()
+		chk.name = "ModCheck_" + mid
+		chk.text = "%s: %s" % [m_info.get("name", mid), m_info.get("description", "")]
+		chk.button_pressed = false
+		modifiers_container.add_child(chk)
+		modifier_checkboxes[mid] = chk
+
+func get_selected_perks() -> Array[String]:
+	var res: Array[String] = []
+	for pid in perk_checkboxes:
+		if is_instance_valid(perk_checkboxes[pid]) and perk_checkboxes[pid].button_pressed:
+			res.append(pid)
+	return res
+
+func get_selected_modifiers() -> Array[String]:
+	var res: Array[String] = []
+	for mid in modifier_checkboxes:
+		if is_instance_valid(modifier_checkboxes[mid]) and modifier_checkboxes[mid].button_pressed:
+			res.append(mid)
+	return res
+
+func set_perk_selected(perk_id: String, selected: bool) -> void:
+	if perk_checkboxes.has(perk_id) and is_instance_valid(perk_checkboxes[perk_id]):
+		if not perk_checkboxes[perk_id].disabled or not selected:
+			perk_checkboxes[perk_id].button_pressed = selected
+
+func set_modifier_selected(mod_id: String, selected: bool) -> void:
+	if modifier_checkboxes.has(mod_id) and is_instance_valid(modifier_checkboxes[mod_id]):
+		modifier_checkboxes[mod_id].button_pressed = selected
 
 func _refresh_legacy_display() -> void:
 	if legacy_fund_label:
@@ -115,6 +278,7 @@ func _play_click() -> void:
 
 func _on_open_new_world() -> void:
 	_play_click()
+	_populate_perks_ui()
 	new_world_overlay.visible = true
 
 func _on_open_settings() -> void:
@@ -156,6 +320,16 @@ func _on_start_game() -> void:
 	if WorldViewScript != null and WorldViewScript.has_method("generate_unique_world_id"):
 		world_scene.set("world_id", WorldViewScript.generate_unique_world_id(s_val))
 	world_scene.set("is_world_id_persisted", false)
+
+	# Package 4B: Pass active perks, world modifiers, and difficulty
+	world_scene.set("active_perks", get_selected_perks())
+	world_scene.set("world_modifiers", get_selected_modifiers())
+	var diff_str := "normal"
+	if difficulty_options.selected == 0:
+		diff_str = "easy"
+	elif difficulty_options.selected == 2:
+		diff_str = "hard"
+	world_scene.set("difficulty", diff_str)
 	
 	var root := get_tree().root
 	root.add_child(world_scene)

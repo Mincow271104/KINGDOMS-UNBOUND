@@ -114,7 +114,7 @@ grow_horizontal = 2
 grow_vertical = 2
 
 [node name="NewWorldPanel" type="PanelContainer" parent="NewWorldOverlay/CenterContainer"]
-custom_minimum_size = Vector2(460, 380)
+custom_minimum_size = Vector2(500, 480)
 layout_mode = 2
 
 [node name="MarginContainer" type="MarginContainer" parent="NewWorldOverlay/CenterContainer/NewWorldPanel"]

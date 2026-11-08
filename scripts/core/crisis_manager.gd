@@ -56,6 +56,7 @@ var total_crises_survived: int = 0
 var active_crisis_data: Dictionary = {}
 var cold_hypothermia_active: bool = false
 var last_raid_result: Dictionary = {}
+var world_modifiers: Array[String] = []
 
 func _init(seed_val: int = 12345) -> void:
 	crisis_seed = seed_val + 4040
@@ -73,6 +74,14 @@ func is_in_recovery() -> bool:
 
 func is_hypothermia_active() -> bool:
 	return cold_hypothermia_active
+
+func set_world_modifiers(mods: Array) -> void:
+	world_modifiers.clear()
+	for m in mods:
+		world_modifiers.append(str(m))
+
+func get_world_modifiers() -> Array[String]:
+	return world_modifiers.duplicate()
 
 func get_crisis_display_name(c_type: String = "") -> String:
 	var target_type := c_type if not c_type.is_empty() else current_crisis_type
@@ -98,6 +107,8 @@ func get_farm_production_multiplier() -> float:
 
 func get_citizen_fatigue_multiplier() -> float:
 	if current_stage == STAGE_ACTIVE and current_crisis_type == CRISIS_BLIZZARD:
+		if world_modifiers.has("harsh_winters"):
+			return 1.75
 		return BLIZZARD_FATIGUE_MULTIPLIER
 	return 1.0
 
@@ -333,7 +344,7 @@ func tick_hourly(
 
 func _process_blizzard_hour(rm: Variant, citizen_list: Array, world_data: Variant, hour: int) -> void:
 	# 1. Wood consumption for heating
-	var wood_needed: int = BASE_WOOD_HEATING_DEMAND_PER_HOUR
+	var wood_needed: int = 3 if world_modifiers.has("harsh_winters") else BASE_WOOD_HEATING_DEMAND_PER_HOUR
 	var wood_stock: int = 0
 	if rm != null and rm.has_method("get_available_stock"):
 		wood_stock = int(rm.call("get_available_stock", "wood"))
@@ -382,6 +393,8 @@ func resolve_bandit_raid(
 	field_siege_mgr: Variant
 ) -> Dictionary:
 	var base_threat: int = rng.randi_range(8, 14)
+	if world_modifiers.has("restless_bandits"):
+		base_threat += 3
 	var threat_remaining: int = base_threat
 
 	var garrison_intercepted: int = 0
@@ -500,7 +513,8 @@ func serialize() -> Dictionary:
 		"total_crises_survived": total_crises_survived,
 		"active_crisis_data": active_crisis_data.duplicate(true),
 		"cold_hypothermia_active": cold_hypothermia_active,
-		"last_raid_result": last_raid_result.duplicate(true)
+		"last_raid_result": last_raid_result.duplicate(true),
+		"world_modifiers": world_modifiers.duplicate()
 	}
 
 ## Deserialization with safe fallback for legacy saves.
@@ -515,6 +529,7 @@ func deserialize(data: Dictionary) -> void:
 		active_crisis_data = {}
 		cold_hypothermia_active = false
 		last_raid_result = {}
+		world_modifiers = []
 		return
 
 	current_crisis_type = str(data.get("current_crisis_type", CRISIS_NONE))
@@ -529,6 +544,10 @@ func deserialize(data: Dictionary) -> void:
 	active_crisis_data = data.get("active_crisis_data", {}).duplicate(true)
 	cold_hypothermia_active = bool(data.get("cold_hypothermia_active", false))
 	last_raid_result = data.get("last_raid_result", {}).duplicate(true)
+	world_modifiers.clear()
+	if data.has("world_modifiers") and data["world_modifiers"] is Array:
+		for m in data["world_modifiers"]:
+			world_modifiers.append(str(m))
 
 	if data.has("rng_state") and not str(data.get("rng_state")).is_empty():
 		rng.state = int(str(data.get("rng_state")))

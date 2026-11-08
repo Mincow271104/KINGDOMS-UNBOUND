@@ -125,7 +125,9 @@ static func serialize_world_state(world_view: Node) -> Dictionary:
 	data["metadata"] = {
 		"world_seed": world_view.get("world_seed"),
 		"world_id": wid_str,
-		"difficulty": "normal"
+		"difficulty": world_view.get("difficulty") if world_view.get("difficulty") != null else "normal",
+		"active_perks": world_view.get("active_perks") if world_view.get("active_perks") != null else [],
+		"world_modifiers": world_view.get("world_modifiers") if world_view.get("world_modifiers") != null else []
 	}
 	
 	# 2. Game Clock
@@ -1864,6 +1866,21 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 		if restored_victory_manager != null:
 			restored_victory_manager.set("world_id", restored_world_id)
 			restored_victory_manager.set("is_world_id_persisted", is_persisted)
+
+	if meta_data.has("active_perks") and meta_data["active_perks"] is Array:
+		world_view.set("active_perks", meta_data["active_perks"].duplicate())
+	if meta_data.has("world_modifiers") and meta_data["world_modifiers"] is Array:
+		var mods = meta_data["world_modifiers"].duplicate()
+		world_view.set("world_modifiers", mods)
+		var c_mgr = world_view.get("crisis_mgr")
+		if c_mgr != null and c_mgr.has_method("set_world_modifiers"):
+			c_mgr.call("set_world_modifiers", mods)
+		var ev_sys = world_view.get("event_system")
+		if ev_sys != null and ev_sys.has_method("set_world_modifiers"):
+			ev_sys.call("set_world_modifiers", mods)
+	if meta_data.has("difficulty"):
+		world_view.set("difficulty", meta_data.get("difficulty", "normal"))
+	world_view.set("is_perks_and_modifiers_applied", true)
 
 	# 1. Restore Game Clock
 	var clock_data: Dictionary = loaded_data.get("game_clock", {})
