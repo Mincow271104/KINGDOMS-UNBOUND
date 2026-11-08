@@ -103,7 +103,7 @@ Legend:
 | Safe Demolition & 72h Town Hall Collapse Grace | §12.1 | `scripts/world/world_view.gd` | `test_building_management.gd` (TC-BM.17-22) | IMPLEMENTED | T1–T5 | VictoryMgr | M | No |
 | Building Operational Pause/Resume Lifecycle | §7.2 | `scripts/world/world_view.gd` | `test_building_management.gd` (TC-BM.23-29) | IMPLEMENTED | T1–T5 | Workplaces | M | No |
 | 3-Tier Upgrades (House, Farm, Storehouse) | §7.1 | `scripts/economy/building_system.gd` | `test_building_management.gd` (TC-BM.35-53) | IMPLEMENTED | T1–T5 | Builders | L | No |
-| **Civic Building Damage & Maintenance Repair Loop** | **§7.2** | **`scripts/world/world_view.gd`** | **`test_player_army.gd` (TC-ARMY.32 fails)** | **PARTIAL** | **T2 (rejected)** | **BuildSys** | **S** | **No** |
+| Civic Building Damage & Maintenance Repair Loop | §7.2 | `scripts/world/world_view.gd`, `scripts/economy/building_system.gd` | `test_building_damage_repair.gd` (25/25), `test_player_army.gd` (TC-ARMY.32) | IMPLEMENTED | T1–T3 (T4–T5 Pending Live GUI) | BuildSys | S | No |
 
 ### Domain E: Military & Warfare
 | Feature & Requirement | GDD Ref | Production Source | Test & Verification Evidence | Status | Fidelity | Deps | Size | Blocker? |
@@ -236,7 +236,7 @@ flowchart LR
 - **Scope:** Foundation systems operate reliably (64×64 isometric map, time calendar, 8 resources, citizen needs, construction, tactical military, AI factions, save/load).
 - **Status:** **COMPLETE** (Committed HEAD `ad5c9e5`, 60/61 regression suites PASS).
 
-### Milestone 2 — Core Gameplay Complete (NEXT WORKSTREAM)
+### Milestone 2 — Core Gameplay Complete ✅
 - **Goal:** Transform the passive "watch-and-wait" simulation into an interactive, responsive colony builder where the player can directly guide citizens and manage labor.
 - **Required Packages:**
   1. **Package 2K (Manual Citizen Commands & Direct Labor Dispatch — GDD §8.2 & §8.3) ✅ COMPLETE:**
@@ -244,10 +244,11 @@ flowchart LR
      - Fully verified across 23 automated scenarios (239 assertions) in `test_manual_citizen_commands.gd`, 13 scenarios in `test_hauler_death_cargo_conservation.gd`, and full regression runner (61/62 PASS, 0 unexpected).
   2. **Package 2L (Settlement Citizen Roster Panel — GDD §14.4) ✅ COMPLETE:**
      - Full-screen / modal HUD roster table showing all settlement citizens (Danh sách dân), profession (Nghề), needs (Nhu cầu: đói, mệt, sức khỏe, tinh thần), vocational skills (Kỹ năng), current job (Công việc hiện tại), reason not working (Lý do không làm việc), and assign work button (Nút giao việc). Note: Focuses strictly on GDD §14.4 citizen management without inventing unneeded mass-priority automation sliders. Fully verified across 22 scenarios (104 assertions) in `test_citizen_roster.gd` and full regression runner (62/63 PASS, 0 unexpected).
-  3. **Package 2M (Civic Building Damage & Maintenance Repair — GDD §7.2, resolving `TC-ARMY.32`) (NEXT):**
-     - Allow buildings to enter `damaged` state, deduct durability during raids/disasters, and add builder repair tasks to restore function.
+  3. **Package 2M (Civic Building Damage & Maintenance Repair — GDD §7.2, resolving `TC-ARMY.32`) ✅ COMPLETE:**
+     - Authoritative GDD §7.2 operational lifecycle (`planned`, `under_construction`, `active`, `paused`, `damaged`, `destroyed`), builder maintenance repair jobs, proportional material reservation via `ResourceManager`, and resolution of pre-existing `TC-ARMY.32` baseline limitation.
+     - Fully verified across 25 automated scenarios (118 assertions) in `test_building_damage_repair.gd`, `test_player_army.gd` (TC-ARMY.32), and full regression runner (64/64 PASS, 0 baseline failures, 0 unexpected failures).
 
-### Milestone 3 — Strategic Gameplay Complete
+### Milestone 3 — Strategic Gameplay Complete (NEXT WORKSTREAM)
 - **Goal:** Complete strategic warfare and diplomatic influence loops.
 - **Required Packages:**
   1. **Package 3A (Territorial Outpost Garrisoning & Reinforcement):** Station player troops at captured outposts to defend against NPC reconquest.

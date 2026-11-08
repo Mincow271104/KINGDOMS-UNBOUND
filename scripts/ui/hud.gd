@@ -170,6 +170,18 @@ var formation_scatter_btn: Button = null
 @onready var civic_desc_label: Label = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/CivicSection/CivicDescLabel")
 @onready var civic_stats_label: Label = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/CivicSection/CivicStatsLabel")
 
+# Repair Section (Package 2M)
+@onready var repair_section: Control = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/RepairSection")
+@onready var repair_title_label: Label = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/RepairSection/RepairTitleLabel")
+@onready var repair_cost_label: Label = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/RepairSection/RepairCostLabel")
+@onready var repair_btn: Button = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/RepairSection/RepairBtn")
+@onready var repair_reason_label: Label = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/RepairSection/RepairReasonLabel")
+@onready var repair_progress_box: Control = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/RepairSection/RepairProgressBox")
+@onready var repair_progress_label: Label = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/RepairSection/RepairProgressBox/RepairProgressLabel")
+@onready var repair_progress_bar: ProgressBar = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/RepairSection/RepairProgressBox/RepairProgressBar")
+@onready var repair_builders_label: Label = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/RepairSection/RepairProgressBox/RepairBuildersLabel")
+@onready var cancel_repair_btn: Button = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/RepairSection/RepairProgressBox/CancelRepairBtn")
+
 # Upgrade Section (Package 2I)
 @onready var upgrade_section: Control = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/UpgradeSection")
 @onready var upgrade_title_label: Label = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/UpgradeSection/UpgradeTitleLabel")
@@ -372,6 +384,10 @@ func _ready() -> void:
 		upgrade_btn.pressed.connect(_on_upgrade_building_pressed)
 	if cancel_upgrade_btn:
 		cancel_upgrade_btn.pressed.connect(_on_cancel_upgrade_building_pressed)
+	if repair_btn:
+		repair_btn.pressed.connect(_on_start_repair_pressed)
+	if cancel_repair_btn:
+		cancel_repair_btn.pressed.connect(_on_cancel_repair_pressed)
 	if demolish_confirm_overlay:
 		demolish_confirm_overlay.visible = false
 	if cancel_build_confirm_overlay:
@@ -3184,6 +3200,9 @@ func refresh_building_inspector() -> void:
 		if bool(b_data.get("is_upgrading", false)):
 			building_state_label.text = "[ĐANG NÂNG CẤP]"
 			building_state_label.add_theme_color_override("font_color", Color(0.95, 0.75, 0.3, 1))
+		elif bool(b_data.get("is_repairing", false)):
+			building_state_label.text = "[ĐANG SỬA CHỮA]"
+			building_state_label.add_theme_color_override("font_color", Color(0.95, 0.75, 0.2, 1))
 		else:
 			match state:
 				"under_construction":
@@ -3192,6 +3211,9 @@ func refresh_building_inspector() -> void:
 				"paused":
 					building_state_label.text = "[TẠM DỪNG]"
 					building_state_label.add_theme_color_override("font_color", Color(0.95, 0.5, 0.2, 1))
+				"damaged":
+					building_state_label.text = "[BỊ HƯ HẠI]"
+					building_state_label.add_theme_color_override("font_color", Color(0.95, 0.35, 0.2, 1))
 				"destroyed":
 					building_state_label.text = "[SỤP ĐỔ]"
 					building_state_label.add_theme_color_override("font_color", Color(0.9, 0.25, 0.25, 1))
@@ -3206,6 +3228,8 @@ func refresh_building_inspector() -> void:
 			workplace_section.visible = false
 		if civic_section != null:
 			civic_section.visible = false
+		if repair_section != null:
+			repair_section.visible = false
 		if upgrade_section != null:
 			upgrade_section.visible = false
 
@@ -3235,7 +3259,7 @@ func refresh_building_inspector() -> void:
 			construction_section.visible = false
 		var is_pausable_workplace: bool = BuildingSystem.is_building_pausable(b_type)
 		if pause_resume_btn != null:
-			pause_resume_btn.visible = is_pausable_workplace and (state == "active" or state == "paused")
+			pause_resume_btn.visible = is_pausable_workplace and (state == "active" or state == "paused") and not bool(b_data.get("is_repairing", false)) and state != "damaged"
 			pause_resume_btn.text = "Tiếp Tục Hoạt Động" if state == "paused" else "Tạm Dừng Hoạt Động"
 		if demolish_btn != null:
 			demolish_btn.visible = not bool(b_data.get("is_upgrading", false))
@@ -3254,6 +3278,7 @@ func refresh_building_inspector() -> void:
 				civic_section.visible = true
 			_refresh_civic_inspector(b_id, b_type, b_data)
 
+		_refresh_repair_inspector(b_id, b_type, b_data)
 		_refresh_upgrade_inspector(b_id, b_type, b_data)
 
 func _refresh_workplace_inspector(b_id: String, b_type: String, _b_data: Dictionary) -> void:
@@ -3527,6 +3552,101 @@ func _on_confirm_cancel_build_pressed() -> void:
 func _on_abort_cancel_build_pressed() -> void:
 	if cancel_build_confirm_overlay != null:
 		cancel_build_confirm_overlay.visible = false
+
+# -----------------------------------------------------------------------------
+# Settlement Building Damage & Repair Inspection (Package 2M)
+# -----------------------------------------------------------------------------
+
+func _refresh_repair_inspector(b_id: String, b_type: String, b_data: Dictionary) -> void:
+	if repair_section == null:
+		return
+
+	var state: String = b_data.get("state", "active")
+	var health: int = int(b_data.get("health", 100))
+	var max_health: int = int(b_data.get("max_health", 100))
+	var is_repairing: bool = bool(b_data.get("is_repairing", false))
+
+	# Only show repair section if building is damaged or actively repairing
+	if (state != "damaged" and health >= max_health and not is_repairing) or state == "under_construction" or state == "destroyed":
+		repair_section.visible = false
+		return
+
+	repair_section.visible = true
+
+	if is_repairing:
+		if repair_cost_label != null:
+			repair_cost_label.visible = false
+		if repair_btn != null:
+			repair_btn.visible = false
+		if repair_reason_label != null:
+			repair_reason_label.visible = false
+		if repair_progress_box != null:
+			repair_progress_box.visible = true
+
+		var req_h: float = float(b_data.get("repair_hours_required", 2.0))
+		var cur_prog: float = float(b_data.get("repair_progress", 0.0))
+		var pct: float = clampf((cur_prog / req_h) * 100.0 if req_h > 0.0 else 0.0, 0.0, 100.0)
+
+		if repair_progress_label != null:
+			repair_progress_label.text = "Tiến độ sửa chữa: %.1f / %.1f giờ (%.0f%%)" % [cur_prog, req_h, pct]
+		if repair_progress_bar != null:
+			repair_progress_bar.value = pct
+
+		var builder_count: int = 0
+		var max_builders: int = BuildingSystem.get_construction_worker_capacity(b_type)
+		if world_view_ref != null and world_view_ref.get("citizen_list") != null:
+			for cit in world_view_ref.citizen_list:
+				if is_instance_valid(cit) and cit.get("active_job") != null and JobManager.job_matches_building(cit.active_job, b_id):
+					builder_count += 1
+		if repair_builders_label != null:
+			repair_builders_label.text = "Thợ xây đang sửa chữa: %d / %d" % [builder_count, max_builders]
+	else:
+		if repair_progress_box != null:
+			repair_progress_box.visible = false
+
+		var rm := get_node_or_null("/root/ResourceManager")
+		var check: Dictionary = BuildingSystem.can_repair_building(b_data, world_view_ref.world_data if world_view_ref else null, rm)
+		var cost: Dictionary = check.get("cost", {})
+		var cost_str := ""
+		for r in cost:
+			var r_name: String = EconomyConfig.RESOURCE_NAMES_VI.get(r, r)
+			cost_str += "%s: %d  " % [r_name, cost[r]]
+		if cost_str == "":
+			cost_str = "Không cần nguyên liệu"
+
+		if repair_cost_label != null:
+			repair_cost_label.visible = true
+			repair_cost_label.text = "Chi phí sửa chữa: %s (Dự kiến: %.1fh)" % [cost_str, float(check.get("hours", 2.0))]
+
+		if repair_btn != null:
+			repair_btn.visible = true
+			repair_btn.disabled = not bool(check.get("can_repair", false))
+			repair_btn.text = "Tiến Hành Sửa Chữa"
+
+		if repair_reason_label != null:
+			if not bool(check.get("can_repair", false)):
+				repair_reason_label.visible = true
+				repair_reason_label.text = check.get("reason", "Không thể sửa chữa")
+			else:
+				repair_reason_label.visible = false
+
+func _on_start_repair_pressed() -> void:
+	if world_view_ref == null or inspected_building_id == "":
+		return
+	var res: Dictionary = world_view_ref.start_repair_building(inspected_building_id)
+	if not res.get("success", false):
+		show_event_banner("Không Thể Sửa Chữa", res.get("reason", "Lỗi khởi động sửa chữa"), false, 3.5)
+	else:
+		show_event_banner("Bắt Đầu Sửa Chữa", "Đã tạo công việc sửa chữa cho thợ xây", true, 3.0)
+	refresh_building_inspector()
+
+func _on_cancel_repair_pressed() -> void:
+	if world_view_ref == null or inspected_building_id == "":
+		return
+	var res: Dictionary = world_view_ref.cancel_repair_building(inspected_building_id)
+	if res.get("success", false):
+		show_event_banner("Đã Hủy Sửa Chữa", "Đã hoàn trả tài nguyên đặt trước", true, 3.0)
+	refresh_building_inspector()
 
 # -----------------------------------------------------------------------------
 # Settlement Building Upgrades Inspection (Package 2I)

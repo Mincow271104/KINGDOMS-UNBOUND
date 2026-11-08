@@ -10425,3 +10425,88 @@ Implement the Settlement Citizen Roster Panel (`CitizenRosterPanel`) in `scenes/
 - Package 2L implementation and acceptance verification are 100% complete.
 - Await project owner authorization before proceeding to Package 2M (Civic Building Damage & Maintenance Repair — GDD §7.2, resolving `TC-ARMY.32`).
 - Do not push to remote or merge into main.
+
+
+---
+
+## [2026-11-08] Package 2M — Civic Building Damage & Maintenance Repair (GDD §7.2, ISSUE-006 / TC-ARMY.32 Resolution) ✅ COMPLETE
+
+### Context & Objective
+Implement the complete authoritative GDD §7.2 Civic Building Damage & Maintenance Repair operational loop and resolve the long-standing baseline limitation `ISSUE-006` / `BASELINE-001` (`TC-ARMY.32` in `test_player_army.gd`) without altering or weakening any test assertions.
+In KINGDOMS UNBOUND, civic buildings were previously indestructible once constructed, with `set_building_state()` restricted to `"active"` and `"paused"`.
+Package 2M establishes the full operational state machine (`planned`, `under_construction`, `active`, `paused`, `damaged`, `destroyed`), physical durability tracking (`health`, `max_health`), proportional builder maintenance and repair lifecycle (`start_repair_building()`, `advance_repair_work()`, `complete_repair()`, `cancel_repair_building()`), atomic material reservation via `ResourceManager`, and dynamic Building Inspection UI integration.
+
+### Completed Work
+1. **Core Building System Architecture (`scripts/economy/building_system.gd`):**
+   - Implemented building durability fields (`health: 100`, `max_health: 100`, `damage_initial_health`, `repair_progress`, `repair_hours_required`, `repair_cost`, `repair_reserved`).
+   - Extended `BuildingSystem.is_building_under_construction()` to report `true` for repairing buildings (`is_repairing == true`), enabling existing builder job scheduling to service repair projects without duplicating logic.
+   - Added query helpers: `is_building_repairing()` and `is_building_damaged()`.
+   - Updated `can_start_upgrade()` to reject damaged (`"Công trình đang bị hư hại, không thể nâng cấp"`) and repairing (`"Công trình đang trong quá trình sửa chữa, không thể nâng cấp"`) buildings.
+   - Implemented repair calculations:
+     - `calculate_repair_cost(type, health, max_health, level)`: Proportional 25% of base building cost scaled by damage ratio, with a minimum clamp of 1 for required resource categories.
+     - `calculate_repair_hours(type, health, max_health)`: Proportional to damage ratio (minimum 2.0 hours).
+   - Implemented repair lifecycle methods: `can_repair_building()`, `start_repair()`, `advance_repair()`, `complete_repair()`, `cancel_repair()`, and `apply_damage()`.
+   - Added `normalize_building_data()` guaranteeing fail-closed default fallbacks for missing health/repair attributes.
+   - Integrated atomic material reservations via `ResourceManager.reserve_cost()`, `commit_cost()`, and `release_cost()`.
+2. **World View Lifecycle & State Cascade (`scripts/world/world_view.gd`):**
+   - Updated `set_building_state()` to support authoritative GDD §7.2 operational transitions: `"damaged"`, `"destroyed"`, and restoration to `"active"` / `"paused"`.
+   - Preserved `pre_damage_state`: A paused building that takes damage returns cleanly to `"paused"` when fully repaired, rather than unconditionally activating.
+   - Cascaded damage effects across dependent subsystems:
+     - Workplaces: Releases assigned workers with localized reason `"Công trình bị hư hại"`.
+     - Barracks: Signals `player_army_mgr.notify_capacity_changed()`, dynamically dropping granted soldier capacity to 0 and disabling HUD recruitment while strictly preserving living soldiers (resolving `TC-ARMY.32`).
+   - Implemented public WorldView methods: `damage_building(b_id, amount)`, `start_repair_building(b_id)`, `advance_repair_work(b_id, delta_hours)`, `complete_repair(b_id)`, `cancel_repair_building(b_id)`.
+   - Updated `register_construction_jobs()` to recognize repairing buildings and spawn builder jobs with description `"Sửa chữa [Building]"` and repair required hours.
+   - Updated `demolish_building_project()` to automatically clean up active repair projects and release material reservations before removing the structure.
+   - Added visual damage modulate feedback (`Color(0.85, 0.45, 0.45, 0.9)` for damaged, `Color(0.35, 0.25, 0.25, 0.7)` for destroyed).
+3. **HUD Inspection & Control Wiring (`scenes/ui/hud.tscn`, `scripts/ui/hud.gd`):**
+   - Added `RepairSection` in `BuildingInspectPanel` (`RepairTitleLabel`, `RepairCostLabel`, `RepairBtn`, `RepairReasonLabel`, and `RepairProgressBox` containing `RepairProgressBar`, `RepairProgressLabel`, `RepairBuildersLabel`, `CancelRepairBtn`).
+   - Updated `refresh_building_inspector()` to display `[BỊ HƯ HẠI]` (red-orange) and `[ĐANG SỬA CHỮA]` (gold) status badges in `building_state_label`.
+   - Wired `_on_start_repair_pressed()` and `_on_cancel_repair_pressed()` with localized event banners and live inspection refresh.
+   - Hid `pause_resume_btn` when building is damaged or repairing.
+4. **Persistence & Save/Load Roundtrip (`scripts/persistence/save_manager.gd`):**
+   - Serialized building durability (`health`, `max_health`, `pre_damage_state`) and active repair states (`is_repairing`, `repair_progress`, `repair_hours_required`, `repair_cost`, `repair_reserved`, `damage_initial_health`).
+   - Deserialized and restored building durability, re-registering repair builder jobs on world load.
+   - Maintained 100% backward compatibility for legacy saves lacking health/repair fields (defaulting cleanly to 100 health and active status).
+5. **Authored Automated Test Suite (`scripts/test/test_building_damage_repair.gd`):**
+   - Authored 25 comprehensive scenarios (118 assertions) verifying initialization, valid damage application, invalid damage rejection, clamp boundaries (0..100), damaged condition transition, barracks zero capacity, TC-ARMY.32 resolution, recruitment rejection, soldier preservation, repair eligibility, proportional cost/hours calculation, resource reservation/exact-once consumption, builder job registration, repair labor progression and proportional health restoration, interruption/resumption, cancellation & cleanup, functionality restoration, pre-damage paused state preservation, idempotency, demolition during repair, SaveManager disk save/load roundtrips for damaged and repairing buildings, legacy save compatibility, upgrade/repair mutual exclusion, and HUD inspector UI reflection.
+   - Test Result: **118 / 118 assertions PASS (Exit Code 0)**.
+6. **Regression Matrix & Baseline Resolution:**
+   - Updated `scripts/test/run_regression.ps1` to include `test_building_damage_repair.gd` (total 64 suites).
+   - `test_player_army.gd` now passes 100% cleanly (Exit Code 0), completely resolving `BASELINE-001` / `ISSUE-006`.
+   - Full regression suite execution: **64 / 64 suites PASS (Exit Code 0), 0 baseline failures, 0 unexpected failures**.
+
+### Files Modified & Created
+- `scripts/economy/building_system.gd`: Added durability tracking, repair calculations, repair lifecycle methods, query helpers, upgrade guards, and fail-closed normalization.
+- `scripts/world/world_view.gd`: Added state machine transitions (`damaged`, `destroyed`), builder repair job scheduling, subsystem deactivation cascade, visual modulations, and public repair API.
+- `scenes/ui/hud.tscn`: Added `RepairSection` in `BuildingInspectPanel`.
+- `scripts/ui/hud.gd`: Connected repair/cancel handlers, inspection refresh for condition badges and progress.
+- `scripts/persistence/save_manager.gd`: Serialized and deserialized building durability and repair state with legacy compatibility.
+- `scripts/test/test_building_damage_repair.gd`: New 25-scenario automated test suite (118 assertions).
+- `scripts/test/run_regression.ps1`: Registered new test suite and updated regression runner.
+- `docs/KNOWN_ISSUES.md`: Moved `ISSUE-006` / `BASELINE-001` to Resolved Issues.
+- `docs/planning/GAME_COMPLETION_ROADMAP.md`: Marked Domain D (Row 106) and Milestone 2 as COMPLETE.
+- `docs/planning/NEXT_GAMEPLAY_PACKAGE.md`: Specified Package 3A (Territorial Outpost Garrisoning & Reinforcement).
+- `docs/WORKLOG.md`: Appended this milestone entry.
+
+### Verification & Test Evidence
+- `test_building_damage_repair.gd`: **118 / 118 assertions PASS (25 scenarios, Exit Code 0)**.
+- `test_player_army.gd`: **ALL TESTS PASS (Exit Code 0)** — `TC-ARMY.32` verified resolved without modifying test assertions.
+- `test_barracks.gd`: **7 / 7 scenarios PASS (Exit Code 0)**.
+- `test_citizen_roster.gd`: **104 / 104 checks PASS (Exit Code 0)**.
+- `test_manual_citizen_commands.gd`: **239 / 239 checks PASS (Exit Code 0)**.
+- `test_building_management.gd`: **53 / 53 checks PASS (Exit Code 0)**.
+- `test_all_scripts_load.gd`: **130 / 130 scripts load and compile cleanly (Exit Code 0)**.
+- Full regression runner `run_regression.ps1`: **64 suites run: 64 PASS (Exit Code 0), 0 EXPECTED_BASELINE_FAILURES, 0 UNEXPECTED_FAILURES**.
+
+### Acceptance Classification
+- **T1 — Data/API:** VERIFIED (118/118 damage & repair assertions pass, SaveManager schema & disk roundtrip validated).
+- **T2 — Backend Simulation:** VERIFIED (Dynamic capacity updates, soldier preservation, builder job assignment, proportional labor progression, exact-once material consumption).
+- **T3 — Player UI Interaction:** VERIFIED (Condition badges `[BỊ HƯ HẠI]`, `[ĐANG SỬA CHỮA]`, live repair progress bar, start/cancel repair buttons, error/event banners).
+- **T4 — Natural Gameplay Loop:** NOT VERIFIED (Pending live interactive human playtesting session).
+- **T5 — End-to-End Acceptance:** NOT VERIFIED (Pending real-time interactive evaluation of visual/audio/camera ergonomics).
+
+### Next Exact Step
+- Package 2M implementation, verification, and regression runs are 100% complete.
+- Milestone 2 is officially complete.
+- Await project owner authorization before proceeding to Milestone 3 / Package 3A (Territorial Outpost Garrisoning & Reinforcement).
+- Do not push to remote or merge into main.

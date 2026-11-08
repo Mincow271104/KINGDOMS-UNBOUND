@@ -352,12 +352,35 @@ static func get_building_by_id(b_id: String, world_data: WorldGenerator.WorldDat
 			return b
 	return {}
 
-static func is_building_under_construction(world_data: WorldGenerator.WorldData, building_id: String = "") -> bool:
-	if world_data == null or building_id == "":
+static func is_building_under_construction(world_data_or_b_data, building_id: String = "") -> bool:
+	if world_data_or_b_data is Dictionary:
+		var b: Dictionary = world_data_or_b_data
+		return b.get("state", "") == "under_construction" or bool(b.get("is_upgrading", false)) or bool(b.get("is_repairing", false))
+	if world_data_or_b_data == null or building_id == "":
 		return false
-	for b in world_data.buildings:
+	for b in world_data_or_b_data.buildings:
 		if b.get("id", "") == building_id:
-			return b.get("state", "") == "under_construction" or bool(b.get("is_upgrading", false))
+			return b.get("state", "") == "under_construction" or bool(b.get("is_upgrading", false)) or bool(b.get("is_repairing", false))
+	return false
+
+static func is_building_repairing(world_data_or_b_data, building_id: String = "") -> bool:
+	if world_data_or_b_data is Dictionary:
+		return bool(world_data_or_b_data.get("is_repairing", false))
+	if world_data_or_b_data == null or building_id == "":
+		return false
+	for b in world_data_or_b_data.buildings:
+		if b.get("id", "") == building_id:
+			return bool(b.get("is_repairing", false))
+	return false
+
+static func is_building_damaged(world_data_or_b_data, building_id: String = "") -> bool:
+	if world_data_or_b_data is Dictionary:
+		return world_data_or_b_data.get("state", "") == "damaged" or int(world_data_or_b_data.get("health", 100)) < int(world_data_or_b_data.get("max_health", 100))
+	if world_data_or_b_data == null or building_id == "":
+		return false
+	for b in world_data_or_b_data.buildings:
+		if b.get("id", "") == building_id:
+			return b.get("state", "") == "damaged" or int(b.get("health", 100)) < int(b.get("max_health", 100))
 	return false
 
 static func is_building_upgrading(world_data: WorldGenerator.WorldData, building_id: String = "") -> bool:
@@ -760,6 +783,12 @@ static func can_start_upgrade(b_data_or_id, world_data: WorldGenerator.WorldData
 		return {"can_upgrade": false, "reason": "Công trình không tồn tại", "cost": {}, "target_level": 0, "duration": 0.0, "insufficient_resources": false}
 
 	var state: String = b_data.get("state", "active")
+	if bool(b_data.get("is_repairing", false)):
+		return {"can_upgrade": false, "reason": "Công trình đang trong quá trình sửa chữa, không thể nâng cấp", "cost": {}, "target_level": 0, "duration": 0.0, "insufficient_resources": false}
+
+	if state == "damaged" or int(b_data.get("health", 100)) < int(b_data.get("max_health", 100)):
+		return {"can_upgrade": false, "reason": "Công trình đang bị hư hại, không thể nâng cấp", "cost": {}, "target_level": 0, "duration": 0.0, "insufficient_resources": false}
+
 	if state != "active":
 		return {"can_upgrade": false, "reason": "Chỉ công trình đang hoạt động bình thường mới có thể nâng cấp", "cost": {}, "target_level": 0, "duration": 0.0, "insufficient_resources": false}
 
@@ -1126,4 +1155,307 @@ static func cancel_upgrade(b_data_or_id, world_data: WorldGenerator.WorldData, r
 	b_data.erase("upgrade_cost")
 
 	return {"success": true, "reason": "", "refunded": refunded, "building": b_data}
+
+# -----------------------------------------------------------------------------
+# Civic Building Damage, Durability & Maintenance Repair (Package 2M / GDD §7.2)
+# -----------------------------------------------------------------------------
+
+static func calculate_repair_cost(type_or_b_data, health: int = -1, max_health: int = -1, level: int = 1) -> Dictionary:
+	var type: String = ""
+	var h: int = 100
+	var mh: int = 100
+	var lvl: int = 1
+	if type_or_b_data is Dictionary:
+		type = type_or_b_data.get("type", "")
+		h = int(type_or_b_data.get("health", 100))
+		mh = int(type_or_b_data.get("max_health", 100))
+		lvl = int(type_or_b_data.get("upgrade_level", 1))
+	else:
+		type = str(type_or_b_data)
+		h = health
+		mh = max_health
+		lvl = level
+
+	var bp: Dictionary = EconomyConfig.BLUEPRINTS.get(type, {})
+	var base_cost: Dictionary = bp.get("cost", {})
+	if base_cost.is_empty():
+		return {}
+
+	var damage_ratio: float = clampf(float(mh - h) / float(mh) if mh > 0 else 0.0, 0.0, 1.0)
+	if damage_ratio <= 0.0:
+		return {}
+
+	# Scale base cost by 25% and damage ratio, minimum 1 for required materials
+	var cost: Dictionary = {}
+	for res_id in base_cost:
+		var base_amt: int = int(base_cost[res_id])
+		if base_amt > 0:
+			var req: int = maxi(1, int(round(float(base_amt) * 0.25 * damage_ratio)))
+			cost[res_id] = req
+	return cost
+
+static func calculate_repair_hours(type_or_b_data, health: int = -1, max_health: int = -1) -> float:
+	var type: String = ""
+	var h: int = 100
+	var mh: int = 100
+	if type_or_b_data is Dictionary:
+		type = type_or_b_data.get("type", "")
+		h = int(type_or_b_data.get("health", 100))
+		mh = int(type_or_b_data.get("max_health", 100))
+	else:
+		type = str(type_or_b_data)
+		h = health
+		mh = max_health
+
+	var bp: Dictionary = EconomyConfig.BLUEPRINTS.get(type, {})
+	var base_hours: float = float(bp.get("construction_hours", 12.0))
+	var damage_ratio: float = clampf(float(mh - h) / float(mh) if mh > 0 else 0.0, 0.0, 1.0)
+	return maxf(2.0, base_hours * 0.5 * damage_ratio)
+
+static func can_repair_building(b_data_or_id, world_data: WorldGenerator.WorldData = null, resource_mgr: Object = null) -> Dictionary:
+	var b_data: Dictionary = {}
+	if b_data_or_id is Dictionary:
+		b_data = b_data_or_id
+	elif b_data_or_id is String:
+		b_data = get_building_by_id(b_data_or_id, world_data)
+
+	if b_data.is_empty():
+		return {"can_repair": false, "reason": "Công trình không tồn tại", "cost": {}, "hours": 0.0, "insufficient_resources": false}
+
+	var state: String = b_data.get("state", "active")
+	if state == "under_construction":
+		return {"can_repair": false, "reason": "Công trình đang thi công xây dựng", "cost": {}, "hours": 0.0, "insufficient_resources": false}
+	if state == "destroyed":
+		return {"can_repair": false, "reason": "Công trình đã bị phá hủy hoàn toàn, không thể sửa chữa", "cost": {}, "hours": 0.0, "insufficient_resources": false}
+	if bool(b_data.get("is_upgrading", false)):
+		return {"can_repair": false, "reason": "Công trình đang nâng cấp, không thể sửa chữa", "cost": {}, "hours": 0.0, "insufficient_resources": false}
+	if bool(b_data.get("is_repairing", false)):
+		return {"can_repair": false, "reason": "Công trình đang trong quá trình sửa chữa", "cost": {}, "hours": 0.0, "insufficient_resources": false}
+
+	var health: int = int(b_data.get("health", 100))
+	var max_health: int = int(b_data.get("max_health", 100))
+	if health >= max_health and state != "damaged":
+		return {"can_repair": false, "reason": "Công trình còn nguyên vẹn, không cần sửa chữa", "cost": {}, "hours": 0.0, "insufficient_resources": false}
+
+	var type: String = b_data.get("type", "")
+	var level: int = clampi(int(b_data.get("upgrade_level", 1)), 1, EconomyConfig.MAX_BUILDING_LEVEL)
+	var cost: Dictionary = calculate_repair_cost(type, health, max_health, level)
+	var hours: float = calculate_repair_hours(type, health, max_health)
+
+	if resource_mgr != null:
+		var has_method_can_afford := resource_mgr.has_method("can_afford")
+		var has_method_has_resource := resource_mgr.has_method("has_resource")
+		for res_id in cost:
+			var req_amt: int = int(cost[res_id])
+			if has_method_has_resource:
+				if not resource_mgr.has_resource(res_id, req_amt):
+					return {"can_repair": false, "reason": "Không đủ tài nguyên để sửa chữa (thiếu %s)" % EconomyConfig.RESOURCE_NAMES_VI.get(res_id, res_id), "cost": cost, "hours": hours, "insufficient_resources": true}
+			elif has_method_can_afford:
+				if not resource_mgr.can_afford({res_id: req_amt}):
+					return {"can_repair": false, "reason": "Không đủ tài nguyên để sửa chữa (thiếu %s)" % EconomyConfig.RESOURCE_NAMES_VI.get(res_id, res_id), "cost": cost, "hours": hours, "insufficient_resources": true}
+
+	return {"can_repair": true, "reason": "", "cost": cost, "hours": hours, "insufficient_resources": false}
+
+static func start_repair(b_data_or_id, world_data: WorldGenerator.WorldData = null, resource_mgr: Object = null) -> Dictionary:
+	var b_data: Dictionary = {}
+	if b_data_or_id is Dictionary:
+		b_data = b_data_or_id
+	elif b_data_or_id is String:
+		b_data = get_building_by_id(b_data_or_id, world_data)
+
+	var check := can_repair_building(b_data, world_data, resource_mgr)
+	if not check.get("can_repair", false):
+		return {"success": false, "reason": check.get("reason", "Không đủ điều kiện sửa chữa"), "cost": {}, "hours": 0.0}
+
+	var cost: Dictionary = check.get("cost", {})
+	var hours: float = float(check.get("hours", 2.0))
+
+	# Reserve resources atomically
+	var reserved_ok := false
+	if not cost.is_empty() and resource_mgr != null:
+		if resource_mgr.has_method("reserve_cost"):
+			var res_res = resource_mgr.reserve_cost(cost)
+			if res_res is bool and not res_res:
+				return {"success": false, "reason": "Không thể đặt trước tài nguyên sửa chữa", "cost": cost, "hours": hours}
+			reserved_ok = true
+		elif resource_mgr.has_method("reserve_resources"):
+			var res_res = resource_mgr.reserve_resources(cost)
+			if res_res is bool and not res_res:
+				return {"success": false, "reason": "Không thể đặt trước tài nguyên sửa chữa", "cost": cost, "hours": hours}
+			reserved_ok = true
+
+	b_data["is_repairing"] = true
+	b_data["repair_progress"] = 0.0
+	b_data["repair_hours_required"] = hours
+	b_data["repair_cost"] = cost.duplicate()
+	b_data["repair_reserved"] = reserved_ok
+	b_data["damage_initial_health"] = int(b_data.get("health", 50))
+	if b_data.get("state", "active") != "damaged":
+		b_data["pre_damage_state"] = b_data.get("state", "active")
+		b_data["state"] = "damaged"
+
+	return {"success": true, "reason": "", "cost": cost, "hours": hours}
+
+static func advance_repair(b_data_or_id, delta_hours: float, world_data: WorldGenerator.WorldData = null) -> Dictionary:
+	var b_data: Dictionary = {}
+	if b_data_or_id is Dictionary:
+		b_data = b_data_or_id
+	elif b_data_or_id is String:
+		b_data = get_building_by_id(b_data_or_id, world_data)
+
+	if b_data.is_empty():
+		return {"success": false, "completed": false, "progress": 0.0, "hours": 0.0}
+
+	if not bool(b_data.get("is_repairing", false)):
+		return {"success": false, "completed": false, "progress": 0.0, "hours": 0.0}
+
+	var hours_req: float = float(b_data.get("repair_hours_required", 2.0))
+	var cur_prog: float = float(b_data.get("repair_progress", 0.0))
+	var new_prog: float = clampf(cur_prog + delta_hours, 0.0, hours_req)
+	b_data["repair_progress"] = new_prog
+
+	# Proportionally recover health during repair
+	var init_h: int = int(b_data.get("damage_initial_health", b_data.get("health", 50)))
+	var max_h: int = int(b_data.get("max_health", 100))
+	var pct: float = clampf(new_prog / hours_req if hours_req > 0.0 else 1.0, 0.0, 1.0)
+	var new_h: int = clampi(int(round(float(init_h) + float(max_h - init_h) * pct)), init_h, max_h)
+	b_data["health"] = new_h
+
+	if new_prog >= hours_req:
+		return {"success": true, "completed": true, "progress": new_prog, "hours": hours_req}
+	return {"success": true, "completed": false, "progress": new_prog, "hours": hours_req}
+
+static func complete_repair(b_data_or_id, world_data: WorldGenerator.WorldData = null, resource_mgr: Object = null) -> Dictionary:
+	var b_data: Dictionary = {}
+	if b_data_or_id is Dictionary:
+		b_data = b_data_or_id
+	elif b_data_or_id is String:
+		b_data = get_building_by_id(b_data_or_id, world_data)
+
+	if b_data.is_empty() or not bool(b_data.get("is_repairing", false)):
+		return {"success": false, "reason": "Công trình không ở trạng thái sửa chữa"}
+
+	# Commit reserved resources exactly once
+	var cost: Dictionary = b_data.get("repair_cost", {})
+	if bool(b_data.get("repair_reserved", false)) and resource_mgr != null:
+		if resource_mgr.has_method("commit_cost"):
+			resource_mgr.commit_cost(cost)
+		elif resource_mgr.has_method("commit_reservation"):
+			resource_mgr.commit_reservation(cost)
+		elif resource_mgr.has_method("consume_resources"):
+			resource_mgr.consume_resources(cost)
+
+	b_data["health"] = int(b_data.get("max_health", 100))
+	b_data["is_repairing"] = false
+	b_data["repair_progress"] = 0.0
+	b_data["repair_hours_required"] = 0.0
+	b_data["repair_cost"] = {}
+	b_data["repair_reserved"] = false
+	b_data.erase("damage_initial_health")
+
+	# Restore operational state: if previously paused, return to paused; otherwise active
+	var pre_state: String = b_data.get("pre_damage_state", "active")
+	var b_type: String = b_data.get("type", "")
+	var target_state := "active"
+	if pre_state == "paused" and is_building_pausable(b_type):
+		target_state = "paused"
+
+	b_data["state"] = target_state
+	return {"success": true, "new_state": target_state}
+
+static func cancel_repair(b_data_or_id, world_data: WorldGenerator.WorldData = null, resource_mgr: Object = null) -> Dictionary:
+	var b_data: Dictionary = {}
+	if b_data_or_id is Dictionary:
+		b_data = b_data_or_id
+	elif b_data_or_id is String:
+		b_data = get_building_by_id(b_data_or_id, world_data)
+
+	if b_data.is_empty() or not bool(b_data.get("is_repairing", false)):
+		return {"success": false, "reason": "Công trình không ở trạng thái sửa chữa"}
+
+	# Release reserved resources cleanly
+	var cost: Dictionary = b_data.get("repair_cost", {})
+	if bool(b_data.get("repair_reserved", false)) and resource_mgr != null:
+		if resource_mgr.has_method("release_cost"):
+			resource_mgr.release_cost(cost)
+		elif resource_mgr.has_method("release_reservation"):
+			resource_mgr.release_reservation(cost)
+
+	b_data["is_repairing"] = false
+	b_data["repair_progress"] = 0.0
+	b_data["repair_hours_required"] = 0.0
+	b_data["repair_cost"] = {}
+	b_data["repair_reserved"] = false
+	b_data.erase("damage_initial_health")
+
+	return {"success": true}
+
+static func normalize_building_data(b: Dictionary) -> Dictionary:
+	var norm := b.duplicate()
+	if not norm.has("health"):
+		norm["health"] = 100
+	else:
+		norm["health"] = int(norm["health"])
+	if not norm.has("max_health"):
+		norm["max_health"] = 100
+	else:
+		norm["max_health"] = int(norm["max_health"])
+	if not norm.has("state"):
+		norm["state"] = "active"
+	if not norm.has("is_repairing"):
+		norm["is_repairing"] = false
+	else:
+		norm["is_repairing"] = bool(norm["is_repairing"])
+	if not norm.has("repair_progress"):
+		norm["repair_progress"] = 0.0
+	else:
+		norm["repair_progress"] = float(norm["repair_progress"])
+	if not norm.has("repair_hours_required"):
+		norm["repair_hours_required"] = 0.0
+	else:
+		norm["repair_hours_required"] = float(norm["repair_hours_required"])
+	if not norm.has("upgrade_level"):
+		norm["upgrade_level"] = 1
+	else:
+		norm["upgrade_level"] = int(norm["upgrade_level"])
+	return norm
+
+static func apply_damage(b_data_or_id, amount: int, world_data: WorldGenerator.WorldData = null) -> Dictionary:
+	var b_data: Dictionary = {}
+	if b_data_or_id is Dictionary:
+		b_data = b_data_or_id
+	elif b_data_or_id is String:
+		b_data = get_building_by_id(b_data_or_id, world_data)
+
+	if b_data.is_empty():
+		return {"success": false, "reason": "Công trình không tồn tại"}
+
+	var cur_state: String = b_data.get("state", "active")
+	if cur_state == "destroyed":
+		return {"success": false, "reason": "Công trình đã bị phá hủy hoàn toàn"}
+
+	if amount <= 0:
+		return {"success": false, "reason": "Lượng sát thương phải lớn hơn 0"}
+
+	var cur_h: int = int(b_data.get("health", 100))
+	var max_h: int = int(b_data.get("max_health", 100))
+	var new_h: int = clampi(cur_h - amount, 0, max_h)
+	b_data["health"] = new_h
+
+	if new_h <= 0:
+		# If it was repairing, cancel repair
+		if bool(b_data.get("is_repairing", false)):
+			b_data["is_repairing"] = false
+			b_data["repair_cost"] = {}
+			b_data["repair_reserved"] = false
+		b_data["state"] = "destroyed"
+		return {"success": true, "destroyed": true, "damaged": false, "health": 0}
+	elif new_h <= 50 or cur_state == "damaged":
+		if cur_state != "damaged":
+			b_data["pre_damage_state"] = cur_state
+			b_data["state"] = "damaged"
+		return {"success": true, "destroyed": false, "damaged": true, "health": new_h}
+	else:
+		return {"success": true, "destroyed": false, "damaged": false, "health": new_h}
+
 

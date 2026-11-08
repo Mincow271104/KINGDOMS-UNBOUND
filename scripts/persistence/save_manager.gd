@@ -186,7 +186,9 @@ static func serialize_world_state(world_view: Node) -> Dictionary:
 				"size_x": b.get("size", Vector2i.ONE).x,
 				"size_y": b.get("size", Vector2i.ONE).y,
 				"state": b_state,
-				"health": b.get("health", 100),
+				"health": int(b.get("health", 100)),
+				"max_health": int(b.get("max_health", 100)),
+				"pre_damage_state": b.get("pre_damage_state", "active"),
 				"construction_progress": b_prog,
 				"construction_hours": b_hours,
 				"upgrade_level": int(b.get("upgrade_level", 1))
@@ -197,6 +199,13 @@ static func serialize_world_state(world_view: Node) -> Dictionary:
 				b_rec["upgrade_progress"] = float(b.get("upgrade_progress", 0.0))
 				b_rec["upgrade_required_hours"] = float(b.get("upgrade_required_hours", 2.0))
 				b_rec["upgrade_cost"] = b.get("upgrade_cost", {}).duplicate()
+			if bool(b.get("is_repairing", false)):
+				b_rec["is_repairing"] = true
+				b_rec["repair_progress"] = float(b.get("repair_progress", 0.0))
+				b_rec["repair_hours_required"] = float(b.get("repair_hours_required", 2.0))
+				b_rec["repair_cost"] = b.get("repair_cost", {}).duplicate()
+				b_rec["repair_reserved"] = bool(b.get("repair_reserved", false))
+				b_rec["damage_initial_health"] = int(b.get("damage_initial_health", 50))
 			b_list.append(b_rec)
 		data["buildings"] = b_list
 
@@ -1933,7 +1942,9 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 				"cell": b_origin,
 				"size": b_size,
 				"state": b_state,
-				"health": b.get("health", 100),
+				"health": int(b.get("health", 100)),
+				"max_health": int(b.get("max_health", 100)),
+				"pre_damage_state": b.get("pre_damage_state", "active"),
 				"upgrade_level": int(b.get("upgrade_level", 1)),
 				"construction_progress": b_prog,
 				"construction_hours": b_hours
@@ -1944,6 +1955,13 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 				b_dict["upgrade_progress"] = float(b.get("upgrade_progress", 0.0))
 				b_dict["upgrade_required_hours"] = float(b.get("upgrade_required_hours", 2.0))
 				b_dict["upgrade_cost"] = b.get("upgrade_cost", {}).duplicate()
+			if bool(b.get("is_repairing", false)):
+				b_dict["is_repairing"] = true
+				b_dict["repair_progress"] = float(b.get("repair_progress", 0.0))
+				b_dict["repair_hours_required"] = float(b.get("repair_hours_required", 2.0))
+				b_dict["repair_cost"] = b.get("repair_cost", {}).duplicate()
+				b_dict["repair_reserved"] = bool(b.get("repair_reserved", false))
+				b_dict["damage_initial_health"] = int(b.get("damage_initial_health", 50))
 			world_data.buildings.append(b_dict)
 			
 			# Occupancy
@@ -1956,6 +1974,8 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 						world_view.get("buildings_by_cell")[Vector2i(cx, cy)] = b_type
 						
 			world_view.call("_instantiate_building_node", b_type, b_origin, b_size, b_state)
+			if bool(b_dict.get("is_repairing", false)) and world_view.has_method("register_construction_jobs"):
+				world_view.call("register_construction_jobs", b_dict)
 
 	# 3b. Sync Workplaces & Logistics Buffers
 	if world_view.has_method("sync_workplaces_after_load"):

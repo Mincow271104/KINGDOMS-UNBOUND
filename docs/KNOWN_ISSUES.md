@@ -2,16 +2,23 @@
 
 ## Active Issues
 
-### ISSUE-006: Pre-Existing test_player_army.gd TC-ARMY.32 Baseline Limitation
-- **Severity:** Low / Baseline Test Limitation
-- **Symptom:** `scripts/test/test_player_army.gd` test case `TC-ARMY.32` fails with assertion error when testing building damage state.
-- **Root Cause:** Package 2F (commit `a55021c`) restricted `WorldView.set_building_state()` to valid operational transitions (`"paused"` and `"active"`). `TC-ARMY.32` was written prior to Package 2F and calls `set_building_state(b_id, "damaged")`, which is rejected by `WorldView`.
-- **Architectural Scope Isolation:** In accordance with Stage F of the Package 2J audit, Package 2J is strictly scoped to Army Equipment Progression and does not absorb unrelated fixes for building state management (preserving `TC-ARMY.32` as an intentional baseline failure). For Package 2J integration hygiene, `scripts/world/world_view.gd` was modified to correctly display a red error banner when `issue_attack_order()` fails after a field siege launch (Package 2J Field Siege failure path) and to resolve shadowed GDScript variable warnings in upgrade and workshop construction routines.
-- **Status:** Documented baseline issue to be addressed in subsequent building maintenance tasks.
+*(None — All tracked defects and pre-existing baseline limitations have been resolved as of Package 2M)*
 
 ---
 
 ## Resolved Issues
+
+### ISSUE-006: Pre-Existing test_player_army.gd TC-ARMY.32 Barracks State Transition & Capacity Gating (Resolved in Package 2M)
+- **Severity:** Low / Baseline Test Limitation (BASELINE-001)
+- **Symptom:** `scripts/test/test_player_army.gd` test case `TC-ARMY.32` failed with assertion error when testing barracks damage state transitions (`set_building_state(b_id, "damaged")`).
+- **Root Cause:** Package 2F (commit `a55021c`) restricted `WorldView.set_building_state()` to valid operational transitions (`"paused"` and `"active"`). `TC-ARMY.32` was written prior to Package 2F and called `set_building_state(b_id, "damaged")`, which was rejected by `WorldView`, leaving capacity at 5 instead of dropping to 0.
+- **Resolution (Package 2M):**
+  - Authoritative GDD §7.2 building state transitions implemented in `BuildingSystem` and `WorldView`: `"active"`, `"under_construction"`, `"paused"`, `"damaged"`, and `"destroyed"`.
+  - When a Barracks is transitioned to `"damaged"`, `PlayerArmyManager.notify_capacity_changed()` dynamically re-evaluates active barracks, dropping granted soldier capacity to 0 while strictly preserving existing living soldiers (zero silent deletion).
+  - When repaired back to `"active"`, Barracks capacity is restored to 5 and recruitment re-enables.
+  - Implemented complete maintenance and repair lifecycle (`start_repair_building()`, `advance_repair_work()`, `complete_repair()`, `cancel_repair_building()`) with proportional resource reservations via `ResourceManager.reserve_cost()`, `commit_cost()`, and `release_cost()`.
+  - Authored dedicated 25-scenario test suite `scripts/test/test_building_damage_repair.gd` (118/118 assertions passing).
+- **Verification:** `test_player_army.gd` (TC-ARMY.32) and all 64 regression suites PASS cleanly with Exit Code 0 (0 baseline failures, 0 unexpected regressions).
 
 ### ISSUE-014: Absence of Direct Manual Dispatch for Civilian Citizens (Resolved in Package 2K)
 - **Severity:** Medium / Core Player Agency (GDD §8.2, §8.3)

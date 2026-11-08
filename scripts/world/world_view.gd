@@ -408,6 +408,10 @@ func _instantiate_building_node(type: String, origin: Vector2i, size: Vector2i, 
 		spr.modulate = Color(0.8, 0.7, 0.5, 0.7)
 	elif state == "paused":
 		spr.modulate = Color(0.7, 0.7, 0.7, 0.85)
+	elif state == "damaged":
+		spr.modulate = Color(0.85, 0.45, 0.45, 0.9)
+	elif state == "destroyed":
+		spr.modulate = Color(0.35, 0.25, 0.25, 0.7)
 	else:
 		spr.modulate = Color(1.0, 1.0, 1.0, 1.0)
 			
@@ -1461,7 +1465,9 @@ func register_construction_jobs(b_data: Dictionary) -> Array[JobManager.JobData]
 		return result
 
 	var b_state: String = b_data.get("state", "")
-	if b_state != "under_construction":
+	var is_repairing: bool = bool(b_data.get("is_repairing", false))
+	var is_upgrading: bool = bool(b_data.get("is_upgrading", false))
+	if b_state != "under_construction" and not is_repairing and not is_upgrading:
 		return result
 
 	var b_type: String = b_data.get("type", "")
@@ -1571,12 +1577,20 @@ func register_construction_jobs(b_data: Dictionary) -> Array[JobManager.JobData]
 			break
 		if cell in used_cells:
 			continue
+		var desc: String = "Thi công xây dựng %s" % _get_building_display_name(b_type)
+		var j_hours: float = float(b_data.get("construction_hours", 12.0))
+		if is_repairing:
+			desc = "Sửa chữa %s" % _get_building_display_name(b_type)
+			j_hours = float(b_data.get("repair_hours_required", 2.0))
+		elif is_upgrading:
+			desc = "Nâng cấp %s" % _get_building_display_name(b_type)
+			j_hours = float(b_data.get("upgrade_required_hours", 2.0))
 		var job = job_mgr.create_job(
 			"builder",
 			cell,
-			"Thi công xây dựng %s" % _get_building_display_name(b_type),
+			desc,
 			b_id,
-			float(b_data.get("construction_hours", 12.0)),
+			j_hours,
 			2,
 			false
 		)
@@ -1595,6 +1609,18 @@ func advance_construction_work(b_id: String, delta_hours: float, p_resource_mgr:
 		return {"success": false, "completed": false, "progress": 0.0, "hours": 0.0}
 
 	var rm: Object = p_resource_mgr if p_resource_mgr != null else _get_resource_mgr()
+
+	if bool(b_data.get("is_repairing", false)):
+		var repair_result := BuildingSystem.advance_repair(b_data, delta_hours, world_data)
+		if not repair_result.get("success", false):
+			return repair_result
+		if repair_result.get("completed", false):
+			var completed_ok: bool = complete_repair(b_id, rm)
+			if not completed_ok:
+				repair_result["completed"] = false
+				repair_result["completion_blocked"] = true
+				repair_result["reason"] = "Sửa chữa hoàn thành thời gian thi công nhưng chưa thể hoàn tất (chờ ResourceManager sẵn sàng)"
+		return repair_result
 
 	if bool(b_data.get("is_upgrading", false)):
 		var upgrade_result := BuildingSystem.advance_upgrade(b_data, delta_hours, world_data)
@@ -2016,15 +2042,23 @@ func set_building_state(b_id: String, new_state: String) -> bool:
 		# Only supported pausable workplace types can be paused
 		if not BuildingSystem.is_building_pausable(type):
 			return false
-		# Only active buildings can be paused
-		if old_state != "active":
+		# Only active buildings can be paused (or preserve pause preference when damaged)
+		if old_state != "active" and old_state != "damaged":
 			return false
+		if old_state == "damaged":
+			b_data["pre_damage_state"] = "paused"
+			return true
 	elif new_state == "active":
-		# Can only resume if currently paused, or completing construction
-		if old_state != "paused" and old_state != "under_construction":
+		# Can only resume if currently paused, completing construction, or recovering from damaged/repairing
+		if old_state != "paused" and old_state != "under_construction" and old_state != "damaged" and old_state != "repairing":
 			return false
 		if old_state == "paused" and not BuildingSystem.is_building_pausable(type):
 			return false
+	elif new_state == "damaged":
+		if old_state == "destroyed":
+			return false
+	elif new_state == "destroyed":
+		pass
 	else:
 		return false
 
@@ -2049,17 +2083,52 @@ func set_building_state(b_id: String, new_state: String) -> bool:
 			spr.modulate = Color(0.7, 0.7, 0.7, 0.85)
 		# Release active workers targeting this building
 		for cit in citizen_list:
-			if cit.get("active_job") != null and JobManager.job_matches_building(cit.active_job, b_id):
+			if is_instance_valid(cit) and cit.get("active_job") != null and JobManager.job_matches_building(cit.active_job, b_id):
 				if job_mgr != null:
 					job_mgr.release_job(cit.active_job)
 				cit.active_job = null
 				cit.set("current_state", CitizenController.State.IDLE)
 				cit.set("status_reason", "Công trình tạm dừng hoạt động")
+	elif new_state == "damaged":
+		if old_state == "active" or old_state == "paused":
+			b_data["pre_damage_state"] = old_state
+		if int(b_data.get("health", 100)) >= 100:
+			b_data["health"] = 50
+		if workplace_mgr != null:
+			workplace_mgr.set_workplace_paused(b_id, true)
+		if spr != null:
+			spr.modulate = Color(0.85, 0.45, 0.45, 0.9)
+		# Release active workers targeting this building
+		for cit in citizen_list:
+			if is_instance_valid(cit) and cit.get("active_job") != null and JobManager.job_matches_building(cit.active_job, b_id):
+				if job_mgr != null:
+					job_mgr.release_job(cit.active_job)
+				cit.active_job = null
+				cit.set("current_state", CitizenController.State.IDLE)
+				cit.set("status_reason", "Công trình bị hư hại")
 	elif new_state == "active":
+		if old_state == "damaged" or old_state == "repairing":
+			b_data["health"] = int(b_data.get("max_health", 100))
+			b_data["is_repairing"] = false
+			b_data["repair_progress"] = 0.0
+			b_data["repair_cost"] = {}
+			b_data["repair_reserved"] = false
 		if workplace_mgr != null:
 			workplace_mgr.set_workplace_paused(b_id, false)
 		if spr != null:
 			spr.modulate = Color(1.0, 1.0, 1.0, 1.0)
+	elif new_state == "destroyed":
+		if spr != null:
+			spr.modulate = Color(0.35, 0.25, 0.25, 0.7)
+		if workplace_mgr != null:
+			workplace_mgr.set_workplace_paused(b_id, true)
+		for cit in citizen_list:
+			if is_instance_valid(cit) and cit.get("active_job") != null and JobManager.job_matches_building(cit.active_job, b_id):
+				if job_mgr != null:
+					job_mgr.release_job(cit.active_job)
+				cit.active_job = null
+				cit.set("current_state", CitizenController.State.IDLE)
+				cit.set("status_reason", "Công trình đã bị phá hủy")
 
 	if b_data.get("type", "") == "barracks":
 		if hud != null and hud.has_method("_refresh_role_options"):
@@ -2078,6 +2147,137 @@ func set_building_state(b_id: String, new_state: String) -> bool:
 		hud.refresh_building_inspector()
 
 	return true
+
+func damage_building(b_id: String, amount: int) -> bool:
+	if world_data == null or b_id == "" or amount <= 0:
+		return false
+	var res := BuildingSystem.apply_damage(b_id, amount, world_data)
+	if not res.get("success", false):
+		return false
+
+	var b_data: Dictionary = BuildingSystem.get_building_by_id(b_id, world_data)
+	if res.get("destroyed", false):
+		set_building_state(b_id, "destroyed")
+		if b_data.get("type", "") == "townhall":
+			if victory_mgr != null and victory_mgr.has_method("notify_town_hall_destroyed"):
+				victory_mgr.notify_town_hall_destroyed()
+	elif res.get("damaged", false):
+		set_building_state(b_id, "damaged")
+
+	if hud != null and hud.has_method("refresh_building_inspector") and selected_building_id == b_id:
+		hud.refresh_building_inspector()
+
+	return true
+
+func start_repair_building(b_id: String, p_resource_mgr: Object = null) -> Dictionary:
+	if world_data == null or b_id == "":
+		return {"success": false, "reason": "Dữ liệu thế giới rỗng"}
+
+	var b_data: Dictionary = BuildingSystem.get_building_by_id(b_id, world_data)
+	if b_data.is_empty():
+		return {"success": false, "reason": "Công trình không tồn tại"}
+
+	var rm: Object = p_resource_mgr if p_resource_mgr != null else _get_resource_mgr()
+	var res := BuildingSystem.start_repair(b_data, world_data, rm)
+	if not res.get("success", false):
+		return res
+
+	# Create builder jobs for repair
+	register_construction_jobs(b_data)
+
+	if hud != null and hud.has_method("refresh_building_inspector") and selected_building_id == b_id:
+		hud.refresh_building_inspector()
+
+	return res
+
+func advance_repair_work(b_id: String, delta_hours: float, p_resource_mgr: Object = null) -> Dictionary:
+	return advance_construction_work(b_id, delta_hours, p_resource_mgr)
+
+func complete_repair(b_id: String, p_resource_mgr: Object = null) -> bool:
+	if world_data == null or b_id == "":
+		return false
+
+	var b_data: Dictionary = BuildingSystem.get_building_by_id(b_id, world_data)
+	if b_data.is_empty() or not bool(b_data.get("is_repairing", false)):
+		return false
+
+	var rm: Object = p_resource_mgr if p_resource_mgr != null else _get_resource_mgr()
+	var res := BuildingSystem.complete_repair(b_data, world_data, rm)
+	if not res.get("success", false):
+		return false
+
+	# Clean up builder jobs for this building
+	if job_mgr != null and job_mgr.has_method("get_jobs_for_building"):
+		var jobs := job_mgr.get_jobs_for_building(b_id)
+		for j in jobs:
+			if j.type == "builder":
+				_safe_cleanup_construction_job(j)
+
+	var target_state: String = res.get("new_state", "active")
+	var origin: Vector2i = b_data.get("cell", Vector2i.ZERO)
+	var type: String = b_data.get("type", "")
+	var node_name := "Building_%s_%d_%d" % [type, origin.x, origin.y]
+	var b_node = buildings_container.get_node_or_null(node_name) if buildings_container != null else null
+	var spr: Sprite2D = null
+	if b_node != null:
+		spr = b_node.get_node_or_null("Sprite2D")
+		if spr == null:
+			for ch in b_node.get_children():
+				if ch is Sprite2D:
+					spr = ch
+					break
+
+	if target_state == "paused":
+		if workplace_mgr != null:
+			workplace_mgr.set_workplace_paused(b_id, true)
+		if spr != null:
+			spr.modulate = Color(0.7, 0.7, 0.7, 0.85)
+	else:
+		if workplace_mgr != null:
+			workplace_mgr.set_workplace_paused(b_id, false)
+		if spr != null:
+			spr.modulate = Color(1.0, 1.0, 1.0, 1.0)
+
+	if type == "barracks":
+		if hud != null and hud.has_method("_refresh_role_options"):
+			hud.call("_refresh_role_options")
+		if player_army_mgr != null and player_army_mgr.has_method("notify_capacity_changed"):
+			player_army_mgr.call("notify_capacity_changed")
+		elif hud != null and hud.has_method("_refresh_army_panel"):
+			hud.call("_refresh_army_panel")
+
+	if type == "market":
+		refresh_caravan_marker()
+
+	if hud != null and hud.has_method("refresh_building_inspector") and selected_building_id == b_id:
+		hud.refresh_building_inspector()
+
+	return true
+
+func cancel_repair_building(b_id: String, p_resource_mgr: Object = null) -> Dictionary:
+	if world_data == null or b_id == "":
+		return {"success": false, "reason": "Dữ liệu thế giới rỗng"}
+
+	var b_data: Dictionary = BuildingSystem.get_building_by_id(b_id, world_data)
+	if b_data.is_empty():
+		return {"success": false, "reason": "Công trình không tồn tại"}
+
+	var rm: Object = p_resource_mgr if p_resource_mgr != null else _get_resource_mgr()
+	var res := BuildingSystem.cancel_repair(b_data, world_data, rm)
+	if not res.get("success", false):
+		return res
+
+	# Clean up builder jobs
+	if job_mgr != null and job_mgr.has_method("get_jobs_for_building"):
+		var jobs := job_mgr.get_jobs_for_building(b_id)
+		for j in jobs:
+			if j.type == "builder":
+				_safe_cleanup_construction_job(j)
+
+	if hud != null and hud.has_method("refresh_building_inspector") and selected_building_id == b_id:
+		hud.refresh_building_inspector()
+
+	return res
 
 func get_carried_cargo_for_building(b_id: String) -> Dictionary:
 	var cargo: Dictionary = {}
@@ -2105,6 +2305,8 @@ func demolish_building_project(b_id: String) -> Dictionary:
 		return {"success": false, "reason": "Công trình không tồn tại"}
 
 	var rm := get_node_or_null("/root/ResourceManager")
+	if bool(b_data.get("is_repairing", false)):
+		cancel_repair_building(b_id, rm)
 	# Preflight check: must conserve both refunds and any carried cargo without inventory loss
 	var carried_cargo := get_carried_cargo_for_building(b_id)
 	var res := BuildingSystem.demolish_building(b_data, world_data, rm, job_mgr, 0.5, carried_cargo)

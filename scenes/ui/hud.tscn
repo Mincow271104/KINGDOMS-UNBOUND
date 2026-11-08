@@ -600,6 +600,64 @@ theme_override_font_sizes/font_size = 11
 text = "Thông số..."
 autowrap_mode = 2
 
+[node name="RepairSection" type="VBoxContainer" parent="BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox"]
+visible = false
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="HSeparatorRepair" type="HSeparator" parent="BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/RepairSection"]
+layout_mode = 2
+
+[node name="RepairTitleLabel" type="Label" parent="BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/RepairSection"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.95, 0.7, 0.25, 1)
+theme_override_font_sizes/font_size = 12
+text = "🔨 BẢO TRÌ & SỬA CHỮA"
+
+[node name="RepairCostLabel" type="Label" parent="BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/RepairSection"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 11
+text = "Chi phí sửa chữa: Đang tính toán..."
+autowrap_mode = 2
+
+[node name="RepairBtn" type="Button" parent="BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/RepairSection"]
+custom_minimum_size = Vector2(0, 26)
+layout_mode = 2
+text = "Tiến Hành Sửa Chữa"
+
+[node name="RepairReasonLabel" type="Label" parent="BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/RepairSection"]
+visible = false
+layout_mode = 2
+theme_override_colors/font_color = Color(0.95, 0.4, 0.4, 1)
+theme_override_font_sizes/font_size = 11
+text = "Lý do không thể sửa chữa..."
+autowrap_mode = 2
+
+[node name="RepairProgressBox" type="VBoxContainer" parent="BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/RepairSection"]
+visible = false
+layout_mode = 2
+theme_override_constants/separation = 3
+
+[node name="RepairProgressLabel" type="Label" parent="BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/RepairSection/RepairProgressBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 11
+text = "Tiến độ: 0.0 / 0.0 giờ (0%)"
+
+[node name="RepairProgressBar" type="ProgressBar" parent="BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/RepairSection/RepairProgressBox"]
+custom_minimum_size = Vector2(0, 14)
+layout_mode = 2
+show_percentage = false
+
+[node name="RepairBuildersLabel" type="Label" parent="BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/RepairSection/RepairProgressBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 11
+text = "Thợ xây đang sửa chữa: 0 / 2"
+
+[node name="CancelRepairBtn" type="Button" parent="BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/RepairSection/RepairProgressBox"]
+custom_minimum_size = Vector2(0, 24)
+layout_mode = 2
+text = "Hủy Sửa Chữa"
+
 [node name="UpgradeSection" type="VBoxContainer" parent="BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox"]
 layout_mode = 2
 theme_override_constants/separation = 4
