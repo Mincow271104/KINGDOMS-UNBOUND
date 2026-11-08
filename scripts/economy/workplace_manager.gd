@@ -212,6 +212,9 @@ func produce_to_buffer(workplace_id: String, season_modifier: float = 1.0, resou
 	if wp.output_resource == EconomyConfig.RES_FOOD:
 		prod *= season_modifier
 
+	if prod <= 0.0:
+		return 0
+
 	var produced_qty: int = maxi(1, int(round(prod)))
 	var available_space: int = maxi(0, wp.buffer_capacity - wp.buffer_amount)
 	var added: int = mini(produced_qty, available_space)
@@ -232,6 +235,8 @@ func get_expected_cycle_production(workplace_id: String, season_modifier: float 
 	var prod: float = wp.base_production_per_cycle * wp.level_multiplier
 	if wp.output_resource == EconomyConfig.RES_FOOD:
 		prod *= season_modifier
+	if prod <= 0.0:
+		return 0
 	return maxi(1, int(round(prod)))
 
 ## Hauler picks up goods from workplace buffer.

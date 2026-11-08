@@ -11062,3 +11062,52 @@ Every crisis features a complete 5-stage lifecycle conforming strictly to GDD §
   - docs/planning/PACKAGE_4A_SPECIFICATION.md (Created)
   - docs/WORKLOG.md (Modified)
 - **Regression Baseline:** 68/68 suites passing (Exit Code 0, 0 unexpected failures).
+
+
+---
+
+## [2026-11-09] Milestone: Package 4A — Endgame Crisis Gameplay Integrity Review & Hardening ✅ COMPLETE
+
+### Context & Objective
+Perform rigorous gameplay integrity review and hardening of Package 4A (Endgame Crisis Scenarios & Settlement Resilience) before authorizing progression to Package 4B:
+1. Verify regression suite evidence, runtime logs, JSON reports, and timing integrity.
+2. Review Crisis Lifecycle State Machine in scripts/core/crisis_manager.gd (cooldown enforcement, stage transitions, boundary conditions).
+3. Verify Drought & Blizzard economic simulation and call paths (workplace farm production, citizen needs, frozen field zero-production handling).
+4. Verify Bandit Horde military integrity (outpost garrisons, standing army, casualty application, soldier conservation, Save/Load replay prevention).
+5. Verify Victory/Collapse integration (VictoryManager prosperity hold invalidation per GDD §12.3 line 936).
+6. Verify HUD crisis presentation (GDD §12.2 compliance, stage icons, auto-hide).
+7. Verify Save/Load across all crisis stages and legacy saves.
+8. Expand test coverage in scripts/test/test_endgame_crisis.gd to test subsystem integration and exact boundary transitions.
+
+### Completed Work & Hardening
+1. **Crisis State-Machine Hardening (scripts/core/crisis_manager.gd):**
+   - Formalized 4-stage lifecycle: STAGE_INACTIVE, STAGE_WARNING, STAGE_ACTIVE, STAGE_RECOVERY with 120-hour cooldown timer operating while STAGE_INACTIVE.
+   - Updated trigger_crisis(..., force: bool = false) to enforce cooldown unless explicitly forced, preventing runaway crisis spam.
+   - Updated tick_hourly() to return accurate current_stage at transition boundaries and report cooldown_left when inactive.
+   - Guarded resolve_bandit_raid() with if last_raid_result.is_empty() to ensure the raid resolves exactly once upon entering STAGE_ACTIVE (including direct skip_warning transitions) and prevents re-plunder / re-casualties upon Save/Load.
+   - Cleared last_raid_result upon transition from STAGE_RECOVERY to STAGE_INACTIVE.
+2. **Workplace & Production Disruption Hardening (scripts/economy/workplace_manager.gd & scripts/entities/citizen_controller.gd):**
+   - Fixed zero-production frozen field leak: In workplace_manager.gd (produce_to_buffer and get_expected_cycle_production), added explicit if prod <= 0.0: return 0 guard so that maxi(1, int(round(prod))) does not leak 1 food per cycle when fields are frozen (season_modifier == 0.0).
+   - In citizen_controller.gd, added specific status reason 'Cánh đồng bị đóng băng trong bão tuyết' when season_mod <= 0.0 for farmer jobs.
+3. **Test Suite Expansion (scripts/test/test_endgame_crisis.gd):**
+   - Expanded from 14 scenarios (92 assertions) to 18 scenarios (129 assertions):
+     - test_boundary_conditions_and_exact_transitions: 23h warning, 24h warning transition, 71h active, 72h active transition, 23h recovery, 24h recovery transition, 120h cooldown decrement.
+     - test_workplace_farm_production_drought_and_blizzard_integration: verifies real WorkplaceManager + WorldEventSystem + CrisisManager integration (peacetime 5 food -> drought 2 food -> blizzard 0 food -> recovery 6 food -> post-crisis 5 food).
+     - test_trigger_crisis_cooldown_enforcement: verifies rejection during cooldown without force, acceptance with force.
+     - test_bandit_raid_no_replay_on_load: verifies active bandit crisis does not re-plunder or re-apply casualties upon save/load.
+4. **Verification Runs & Evidence:**
+   - Dedicated crisis suite: scripts/test/test_endgame_crisis.gd passed with 129/129 assertions (Exit code 0).
+   - Related subsystem suites: test_dynamic_workplaces.gd, test_logistics.gd, test_victory_and_collapse.gd, test_building_damage_repair.gd, test_outpost_garrison_reinforcement.gd all passed (Exit code 0).
+   - Script compilation: test_all_scripts_load.gd passed with 139/139 scripts (Exit code 0).
+   - Full regression suite: scripts/test/run_regression.ps1 (Run 20261109_003424) passed 68/68 suites in 158.98s (Exit code 0).
+   - GUI Live Acceptance: scripts/test/visual_package_4a_live_acceptance.gd captured 6 PNG screenshots in D3D12 Forward+ mode.
+
+### Acceptance Classification
+- **T1 — Data/API:** VERIFIED (129/129 dedicated crisis assertions, 139/139 scripts compiled cleanly).
+- **T2 — Backend Simulation:** VERIFIED (Zero farm production during blizzard, cooldown enforcement, raid anti-replay on load, exact boundary transitions, soldier conservation).
+- **T3 — UI Wiring/Integration:** VERIFIED (HUD crisis banners, icons, stage transitions, auto-hide on recovery, citizen status reasons).
+- **T4 — Natural Gameplay Loop:** NOT VERIFIED (Requires live manual play session across 5+ game-days).
+- **T5 — End-to-End Acceptance:** NOT VERIFIED (Requires multi-year campaign playthrough with consecutive crises).
+
+### Gate Assessment for Package 4B
+- **Status: APPROVED.** All technical invariants, state machine transitions, economic disruptions, raid persistence protections, and regression suites are verified and passing. Package 4A is stable, hardened, and ready for Package 4B.

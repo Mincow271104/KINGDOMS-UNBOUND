@@ -152,11 +152,17 @@ func get_active_crisis_data() -> Dictionary:
 	return active_crisis_data
 
 ## Manually or script-triggers a crisis.
-func trigger_crisis(crisis_type: String, skip_warning: bool = false, custom_duration: float = -1.0) -> Dictionary:
+func trigger_crisis(crisis_type: String, skip_warning: bool = false, custom_duration: float = -1.0, force: bool = false) -> Dictionary:
 	if current_stage != STAGE_INACTIVE:
 		return {
 			"success": false,
 			"reason": "Một cuộc khủng hoảng đang diễn ra hoặc đang trong giai đoạn phục hồi/cảnh báo."
+		}
+
+	if cooldown_hours_remaining > 0.0 and not force:
+		return {
+			"success": false,
+			"reason": "Vương quốc đang trong thời gian hồi phục (cooldown: %.1f giờ)." % cooldown_hours_remaining
 		}
 
 	if not [CRISIS_DROUGHT, CRISIS_BLIZZARD, CRISIS_BANDIT_HORDE].has(crisis_type):
@@ -245,7 +251,7 @@ func tick_hourly(
 	if current_stage == STAGE_INACTIVE:
 		if cooldown_hours_remaining > 0.0:
 			cooldown_hours_remaining = maxf(0.0, cooldown_hours_remaining - 1.0)
-		return {"stage": STAGE_INACTIVE, "type": CRISIS_NONE}
+		return {"stage": STAGE_INACTIVE, "type": CRISIS_NONE, "cooldown_left": cooldown_hours_remaining}
 
 	# 2. Stage: Warning countdown
 	if current_stage == STAGE_WARNING:
@@ -264,7 +270,7 @@ func tick_hourly(
 				bandit_raid_resolved.emit(raid_res)
 
 		return {
-			"stage": STAGE_WARNING,
+			"stage": current_stage,
 			"type": current_crisis_type,
 			"warning_hours_left": warning_hours_remaining
 		}
@@ -280,8 +286,11 @@ func tick_hourly(
 			CRISIS_DROUGHT:
 				_process_drought_hour(citizen_list)
 			CRISIS_BANDIT_HORDE:
-				# Bandit raid resolved on entry; active duration represents the lingering aftermath
-				pass
+				# Resolve raid once on active entry if not yet resolved
+				if last_raid_result.is_empty():
+					var raid_res := resolve_bandit_raid(world_data, rm, citizen_list, player_army_mgr, field_siege_mgr)
+					last_raid_result = raid_res
+					bandit_raid_resolved.emit(raid_res)
 
 		if active_hours_remaining <= 0.0:
 			# Transition to RECOVERY!
@@ -294,7 +303,7 @@ func tick_hourly(
 			crisis_resolved.emit(active_crisis_data)
 
 		return {
-			"stage": STAGE_ACTIVE,
+			"stage": current_stage,
 			"type": current_crisis_type,
 			"active_hours_left": active_hours_remaining,
 			"hypothermia": cold_hypothermia_active
@@ -310,11 +319,12 @@ func tick_hourly(
 			current_crisis_type = CRISIS_NONE
 			cooldown_hours_remaining = DEFAULT_COOLDOWN_HOURS
 			active_crisis_data = {}
+			last_raid_result = {}
 			crisis_stage_changed.emit(STAGE_INACTIVE, CRISIS_NONE)
 			crisis_recovered.emit({"crisis_type": resolved_type})
 
 		return {
-			"stage": STAGE_RECOVERY,
+			"stage": current_stage,
 			"type": current_crisis_type,
 			"recovery_hours_left": recovery_hours_remaining
 		}

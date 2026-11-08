@@ -113,6 +113,10 @@ func run_all_tests() -> void:
 	test_deterministic_seeded_outcomes()
 	test_bounded_plunder_and_resource_safety()
 	test_multi_outpost_casualty_distribution()
+	test_boundary_conditions_and_exact_transitions()
+	test_workplace_farm_production_drought_and_blizzard_integration()
+	test_trigger_crisis_cooldown_enforcement()
+	test_bandit_raid_no_replay_on_load()
 
 func test_initial_state() -> void:
 	print("Running test_initial_state...")
@@ -423,6 +427,153 @@ func test_multi_outpost_casualty_distribution() -> void:
 	var total_remaining: int = army_mgr.get_garrison_count("outpost_1") + army_mgr.get_garrison_count("outpost_2")
 	var recorded_cas: int = int(raid_summary.get("garrison_casualties", 0))
 	assert_eq(total_remaining + recorded_cas, total_initial, "Total soldiers must be strictly conserved across outposts")
+
+func test_boundary_conditions_and_exact_transitions() -> void:
+	print("Running test_boundary_conditions_and_exact_transitions...")
+	var cm = CrisisManagerScript.new(12345)
+	cm.trigger_crisis(CrisisManagerScript.CRISIS_DROUGHT, false, 72.0)
+
+	# Boundary: 1 hour before warning ends (hour 23)
+	for h in range(23):
+		cm.tick_hourly(h, 1, "summer")
+	assert_eq(cm.current_stage, CrisisManagerScript.STAGE_WARNING, "Stage at 23h should be WARNING")
+	assert_almost_eq(cm.warning_hours_remaining, 1.0, 0.01, "Warning hours remaining should be 1.0 at 23h")
+
+	# Boundary: Exactly when warning ends (hour 24)
+	var tick_24 := cm.tick_hourly(23, 1, "summer")
+	assert_eq(cm.current_stage, CrisisManagerScript.STAGE_ACTIVE, "Stage at 24h must transition to ACTIVE")
+	assert_eq(tick_24.get("stage"), CrisisManagerScript.STAGE_ACTIVE, "Tick result at 24h must report ACTIVE")
+	assert_almost_eq(cm.active_hours_remaining, 72.0, 0.01, "Active hours should initialize to 72.0")
+
+	# Boundary: 1 hour before active ends (hour 71 of active)
+	for h in range(71):
+		cm.tick_hourly(h % 24, 2 + (h / 24), "summer")
+	assert_eq(cm.current_stage, CrisisManagerScript.STAGE_ACTIVE, "Stage at 71h active should be ACTIVE")
+	assert_almost_eq(cm.active_hours_remaining, 1.0, 0.01, "Active hours remaining should be 1.0 at 71h")
+
+	# Boundary: Exactly when active ends (hour 72 of active)
+	var tick_active_end := cm.tick_hourly(23, 4, "summer")
+	assert_eq(cm.current_stage, CrisisManagerScript.STAGE_RECOVERY, "Stage must transition to RECOVERY when active ends")
+	assert_eq(tick_active_end.get("stage"), CrisisManagerScript.STAGE_RECOVERY, "Tick result must report RECOVERY")
+	assert_almost_eq(cm.recovery_hours_remaining, 24.0, 0.01, "Recovery hours should initialize to 24.0")
+
+	# Boundary: 1 hour before recovery ends (hour 23 of recovery)
+	for h in range(23):
+		cm.tick_hourly(h % 24, 5, "summer")
+	assert_eq(cm.current_stage, CrisisManagerScript.STAGE_RECOVERY, "Stage at 23h recovery should be RECOVERY")
+	assert_almost_eq(cm.recovery_hours_remaining, 1.0, 0.01, "Recovery hours remaining should be 1.0 at 23h")
+
+	# Boundary: Exactly when recovery ends (hour 24 of recovery)
+	var tick_rec_end := cm.tick_hourly(23, 5, "summer")
+	assert_eq(cm.current_stage, CrisisManagerScript.STAGE_INACTIVE, "Stage must transition to INACTIVE when recovery ends")
+	assert_eq(tick_rec_end.get("stage"), CrisisManagerScript.STAGE_INACTIVE, "Tick result must report INACTIVE")
+	assert_almost_eq(cm.cooldown_hours_remaining, CrisisManagerScript.DEFAULT_COOLDOWN_HOURS, 0.01, "Cooldown hours should initialize to 120.0")
+
+	# Boundary: Cooldown ticks down to 0
+	for h in range(120):
+		cm.tick_hourly(h % 24, 6 + (h / 24), "summer")
+	assert_almost_eq(cm.cooldown_hours_remaining, 0.0, 0.01, "Cooldown must reach 0 after 120 hours")
+	var day_eligibility := cm.process_day(11, "summer", 1, null, null, 20, 500)
+	assert_true(day_eligibility.get("success", false) or day_eligibility.get("action") == "none", "Should be eligible for daily evaluation when cooldown reaches 0")
+
+func test_workplace_farm_production_drought_and_blizzard_integration() -> void:
+	print("Running test_workplace_farm_production_drought_and_blizzard_integration...")
+	var wp_mgr = WorkplaceManager.new()
+	# Register a farm producing food: base_production = 5
+	wp_mgr.register_workplace("test_farm", "farm", Vector2i(10, 10), Vector2i(2, 2), Vector2i(9, 10), EconomyConfig.RES_FOOD, 50, 5.0, 5)
+
+	var cm = CrisisManagerScript.new(12345)
+	var ev_sys = WorldEventSystem.new(12345)
+	ev_sys.set_crisis_manager(cm)
+
+	# 1. Peacetime: farm modifier = 1.0 -> produced = 5
+	var base_mod := ev_sys.get_farm_production_multiplier(1.0)
+	assert_almost_eq(base_mod, 1.0, 0.001, "Peacetime farm multiplier should be 1.0")
+	var peacetime_prod := wp_mgr.produce_to_buffer("test_farm", base_mod)
+	assert_eq(peacetime_prod, 5, "Peacetime farm should produce 5 food")
+	wp_mgr.pickup_from_buffer("test_farm", 50) # clear buffer
+
+	# 2. Active Drought: multiplier = 0.40 -> produced = round(5 * 0.40) = 2
+	cm.trigger_crisis(CrisisManagerScript.CRISIS_DROUGHT, true, 72.0)
+	var drought_mod := ev_sys.get_farm_production_multiplier(1.0)
+	assert_almost_eq(drought_mod, 0.40, 0.001, "Drought farm multiplier should be 0.40")
+	var drought_prod := wp_mgr.produce_to_buffer("test_farm", drought_mod)
+	assert_eq(drought_prod, 2, "Drought farm should produce exactly 2 food (60% penalty)")
+	wp_mgr.pickup_from_buffer("test_farm", 50)
+
+	# 3. Active Blizzard: multiplier = 0.0 -> produced must be strictly 0 (frozen fields)
+	cm.current_crisis_type = CrisisManagerScript.CRISIS_BLIZZARD
+	var blizzard_mod := ev_sys.get_farm_production_multiplier(1.0)
+	assert_almost_eq(blizzard_mod, 0.0, 0.001, "Blizzard farm multiplier should be 0.0")
+	var blizzard_prod := wp_mgr.produce_to_buffer("test_farm", blizzard_mod)
+	assert_eq(blizzard_prod, 0, "Frozen farm during blizzard must produce strictly 0 food")
+
+	# 4. Drought Recovery: multiplier = 1.10 -> produced = round(5 * 1.10) = 6
+	cm.current_crisis_type = CrisisManagerScript.CRISIS_DROUGHT
+	cm.current_stage = CrisisManagerScript.STAGE_RECOVERY
+	var recovery_mod := ev_sys.get_farm_production_multiplier(1.0)
+	assert_almost_eq(recovery_mod, 1.10, 0.001, "Recovery farm multiplier should be 1.10")
+	var recovery_prod := wp_mgr.produce_to_buffer("test_farm", recovery_mod)
+	assert_eq(recovery_prod, 6, "Recovery farm should produce 6 food (+10% soil revitalization)")
+	wp_mgr.pickup_from_buffer("test_farm", 50)
+
+	# 5. Return to Inactive: farm returns to standard 5 food with zero permanent corruption
+	cm.current_stage = CrisisManagerScript.STAGE_INACTIVE
+	cm.current_crisis_type = CrisisManagerScript.CRISIS_NONE
+	var post_mod := ev_sys.get_farm_production_multiplier(1.0)
+	assert_almost_eq(post_mod, 1.0, 0.001, "Post-crisis farm multiplier should return to 1.0")
+	var post_prod := wp_mgr.produce_to_buffer("test_farm", post_mod)
+	assert_eq(post_prod, 5, "Post-crisis farm should return to baseline 5 food")
+
+func test_trigger_crisis_cooldown_enforcement() -> void:
+	print("Running test_trigger_crisis_cooldown_enforcement...")
+	var cm = CrisisManagerScript.new(12345)
+	cm.cooldown_hours_remaining = 50.0
+
+	# Attempt to trigger crisis during cooldown without force
+	var fail_trig := cm.trigger_crisis(CrisisManagerScript.CRISIS_DROUGHT, false)
+	assert_false(fail_trig.get("success", true), "trigger_crisis must reject during cooldown")
+	assert_eq(cm.current_stage, CrisisManagerScript.STAGE_INACTIVE, "Stage must remain INACTIVE")
+
+	# Trigger with force = true should succeed (for admin/tests)
+	var force_trig := cm.trigger_crisis(CrisisManagerScript.CRISIS_DROUGHT, false, -1.0, true)
+	assert_true(force_trig.get("success", false), "trigger_crisis with force=true should bypass cooldown")
+	assert_eq(cm.current_stage, CrisisManagerScript.STAGE_WARNING, "Stage should become WARNING with force=true")
+
+func test_bandit_raid_no_replay_on_load() -> void:
+	print("Running test_bandit_raid_no_replay_on_load...")
+	var cm = CrisisManagerScript.new(12345)
+	var rm = MockResourceManager.new()
+	rm.stock["food"] = 300
+	rm.stock["gold"] = 500
+
+	var army_mgr = MockPlayerArmyManager.new()
+	army_mgr.soldier_count = 0
+	army_mgr.garrisons = {}
+
+	# Trigger warning then advance to active across 24 warning hours (resolving raid once)
+	cm.trigger_crisis(CrisisManagerScript.CRISIS_BANDIT_HORDE, false, 24.0, true)
+	for h in range(24):
+		cm.tick_hourly(h, 1, "summer", null, rm, [], army_mgr, null)
+	assert_eq(cm.current_stage, CrisisManagerScript.STAGE_ACTIVE, "Should be active now")
+	assert_true(not cm.last_raid_result.is_empty(), "Raid result should be recorded")
+
+	var food_after_raid: int = rm.stock["food"]
+	var gold_after_raid: int = rm.stock["gold"]
+
+	# Save active state
+	var saved := cm.serialize()
+
+	# Restore into fresh manager
+	var restored_cm = CrisisManagerScript.new(9999)
+	restored_cm.deserialize(saved)
+	assert_eq(restored_cm.current_stage, CrisisManagerScript.STAGE_ACTIVE, "Restored stage should be ACTIVE")
+	assert_true(not restored_cm.last_raid_result.is_empty(), "Restored raid result should be populated")
+
+	# Tick another hour in active stage
+	restored_cm.tick_hourly(1, 2, "summer", null, rm, [], army_mgr, null)
+	assert_eq(rm.stock["food"], food_after_raid, "Food stock must not be plundered again after load")
+	assert_eq(rm.stock["gold"], gold_after_raid, "Gold stock must not be plundered again after load")
 
 func assert_false(condition: bool, message: String) -> void:
 	assert_true(not condition, message)

@@ -148,19 +148,19 @@ When loading a legacy save without `"crisis_manager"`:
 ## 6. Verification & Test Evidence Summary
 
 - **Dedicated Test Suite:** `scripts/test/test_endgame_crisis.gd`
-  - Assertions Passed: **92 / 92** (100% pass rate).
-  - Scenarios: Initial state, Warning countdown, Drought, Blizzard hypothermia & wood consumption, Seasonal eligibility, Bandit Horde outpost interception, Settlement breach consequences, VictoryManager hold invalidation, Save/Load roundtrip, Legacy fallback, Seed determinism, Resource safety, Multi-outpost soldier conservation.
+  - Assertions Passed: **129 / 129** (100% pass rate).
+  - Scenarios: Initial state, Warning countdown, Drought, Blizzard hypothermia & wood consumption, Seasonal eligibility, Bandit Horde outpost interception, Settlement breach consequences, VictoryManager hold invalidation, Save/Load roundtrip, Legacy fallback, Seed determinism, Resource safety, Multi-outpost soldier conservation, Boundary conditions and exact transitions (23h warning, 24h warning transition, 71h active, 72h active transition, 23h recovery, 24h recovery transition, 120h cooldown decrement), Workplace farm production during drought/blizzard integration, Trigger crisis cooldown enforcement, Bandit raid no replay on load.
 - **Related Subsystem Regressions:**
   - `test_victory_and_collapse.gd`: **All Phase 7 tests passed** (Exit code 0).
   - `test_building_damage_repair.gd`: **172 / 172 assertions passed** (Exit code 0).
   - `test_outpost_garrison_reinforcement.gd`: **171 / 171 assertions passed** (Exit code 0).
   - `test_save_load.gd`: **182 / 182 assertions passed** (Exit code 0).
   - `test_trade_route_risk.gd`: **178 / 178 assertions passed** (Exit code 0).
-  - `test_all_scripts_load.gd`: **138 / 138 scripts compiled cleanly** (Exit code 0).
+  - `test_all_scripts_load.gd`: **139 / 139 scripts compiled cleanly** (Exit code 0).
 - **Full Regression Runner:** `scripts/test/run_regression.ps1`
   - Total Suites Tested: **68 / 68**
   - Passed: **68**
-  - Failures: **0** (Exit code 0)
+  - Failures: **0** (Exit code 0, Duration: 158.98s)
 - **GUI Live Acceptance:** `scripts/test/visual_package_4a_live_acceptance.gd`
   - Hardware Execution: D3D12 Forward+ on NVIDIA GeForce RTX 3050 Ti Laptop GPU.
   - Screenshots Captured in `scratch/visual_validation/package_4a_live/`:

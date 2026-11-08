@@ -700,6 +700,8 @@ func _process_working(delta: float) -> void:
 					var wp_obj = workplace_mgr.get_workplace(target_wp_id) if workplace_mgr.has_method("get_workplace") else null
 					if wp_obj and wp_obj.buffer_amount >= wp_obj.buffer_capacity:
 						status_reason = "Kho đệm xưởng đã đầy, chờ vận chuyển"
+					elif season_mod <= 0.0 and active_job.type == "farmer":
+						status_reason = "Cánh đồng bị đóng băng trong bão tuyết"
 					else:
 						status_reason = "Thiếu nguyên liệu chế tác tại xưởng"
 		active_job = null
