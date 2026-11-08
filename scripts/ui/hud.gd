@@ -1418,15 +1418,32 @@ func _refresh_diplomacy_ui() -> void:
 				loc_name = world_view_ref.call("get_caravan_docking_location_name")
 			elif world_view_ref.get("world_data") != null and BuildingSystem.is_market_active(world_view_ref.get("world_data")):
 				loc_name = "Chợ"
-		var war_note: String = ""
-		if active_caravan.get("is_origin_at_war"):
-			war_note = "\n⚠️ VÙNG CHIẾN SỰ: Xuất phát từ lãnh thổ có chiến tranh (Phụ phí rủi ro: +15% giá mua)"
+		var risk_note: String = ""
+		var r_risk: float = float(active_caravan.get("route_risk")) if active_caravan.get("route_risk") != null else 0.0
+		var r_sum: Dictionary = active_caravan.get("route_summary") if active_caravan.get("route_summary") is Dictionary else {}
+		if r_risk > 0.001:
+			var u_pct: int = int(round(float(r_sum.get("unexplored_ratio", 0.0)) * 100.0))
+			var h_pct: int = int(round(float(r_sum.get("hostile_ratio", 0.0)) * 100.0))
+			var reasons: Array[String] = []
+			if u_pct > 0: reasons.append("Vùng chưa khám phá: %d%%" % u_pct)
+			if h_pct > 0: reasons.append("Gần tiền đồn địch: %d%%" % h_pct)
+			if bool(active_caravan.get("is_origin_at_war")): reasons.append("Vùng chiến sự")
+			var reason_str := (", ".join(reasons)) if not reasons.is_empty() else "Địa hình nguy hiểm"
+			risk_note = "\n⚠️ TUYẾN ĐƯỜNG NGUY HIỂM (+%d%% giá mua) — %s" % [int(round(r_risk * 100.0)), reason_str]
+		elif r_risk < -0.001:
+			var s_pct: int = int(round(float(r_sum.get("secured_ratio", 0.0)) * 100.0))
+			risk_note = "\n🛡️ TUYẾN ĐƯỜNG AN TOÀN (-%d%% giá mua) — Tiền đồn & chòi canh bảo hộ: %d%% tuyến đường" % [int(round(abs(r_risk) * 100.0)), s_pct]
+		elif active_caravan.get("is_origin_at_war"):
+			risk_note = "\n⚠️ VÙNG CHIẾN SỰ: Xuất phát từ lãnh thổ có chiến tranh (Phụ phí rủi ro: +15% giá mua)"
+		else:
+			risk_note = "\n✅ TUYẾN ĐƯỜNG ỔN ĐỊNH — Giá giao thương tiêu chuẩn"
+
 		caravan_status_label.text = "🐪 Đang có mặt: %s (Rời đi ngày %d) | Ngân sách: %d Vàng\n📍 Địa điểm giao thương: %s%s" % [
 			active_caravan.get("name"),
 			active_caravan.get("departure_day"),
 			active_caravan.get("gold"),
 			loc_name,
-			war_note
+			risk_note
 		]
 		
 		# Add caravan quick trade section
@@ -1696,7 +1713,12 @@ func _populate_caravan_trade_panel(c_panel: PanelContainer, active_caravan: Obje
 				unit_price,
 				total_cost
 			]
-			if bd.get("is_origin_at_war", false):
+			var risk_surcharge: float = float(bd.get("route_risk_surcharge", 0.0))
+			if risk_surcharge > 0.001:
+				tt += "\n⚠️ Phụ phí rủi ro tuyến đường: +%d%%" % int(round(risk_surcharge * 100.0))
+			elif risk_surcharge < -0.001:
+				tt += "\n🛡️ Giảm trừ tuyến đường an toàn: -%d%%" % int(round(abs(risk_surcharge) * 100.0))
+			elif bd.get("is_origin_at_war", false):
 				tt += "\n⚠️ Phụ phí vùng chiến sự: +15%"
 			buy_btn.tooltip_text = tt
 			buy_btn.pressed.connect(func():
@@ -1761,15 +1783,32 @@ func _refresh_caravan_trade_section() -> void:
 				loc_name = world_view_ref.call("get_caravan_docking_location_name")
 			elif world_view_ref.get("world_data") != null and BuildingSystem.is_market_active(world_view_ref.get("world_data")):
 				loc_name = "Chợ"
-		var war_note: String = ""
-		if active_caravan.get("is_origin_at_war"):
-			war_note = "\n⚠️ VÙNG CHIẾN SỰ: Xuất phát từ lãnh thổ có chiến tranh (Phụ phí rủi ro: +15% giá mua)"
+		var risk_note: String = ""
+		var r_risk: float = float(active_caravan.get("route_risk")) if active_caravan.get("route_risk") != null else 0.0
+		var r_sum: Dictionary = active_caravan.get("route_summary") if active_caravan.get("route_summary") is Dictionary else {}
+		if r_risk > 0.001:
+			var u_pct: int = int(round(float(r_sum.get("unexplored_ratio", 0.0)) * 100.0))
+			var h_pct: int = int(round(float(r_sum.get("hostile_ratio", 0.0)) * 100.0))
+			var reasons: Array[String] = []
+			if u_pct > 0: reasons.append("Vùng chưa khám phá: %d%%" % u_pct)
+			if h_pct > 0: reasons.append("Gần tiền đồn địch: %d%%" % h_pct)
+			if bool(active_caravan.get("is_origin_at_war")): reasons.append("Vùng chiến sự")
+			var reason_str := (", ".join(reasons)) if not reasons.is_empty() else "Địa hình nguy hiểm"
+			risk_note = "\n⚠️ TUYẾN ĐƯỜNG NGUY HIỂM (+%d%% giá mua) — %s" % [int(round(r_risk * 100.0)), reason_str]
+		elif r_risk < -0.001:
+			var s_pct: int = int(round(float(r_sum.get("secured_ratio", 0.0)) * 100.0))
+			risk_note = "\n🛡️ TUYẾN ĐƯỜNG AN TOÀN (-%d%% giá mua) — Tiền đồn & chòi canh bảo hộ: %d%% tuyến đường" % [int(round(abs(r_risk) * 100.0)), s_pct]
+		elif active_caravan.get("is_origin_at_war"):
+			risk_note = "\n⚠️ VÙNG CHIẾN SỰ: Xuất phát từ lãnh thổ có chiến tranh (Phụ phí rủi ro: +15% giá mua)"
+		else:
+			risk_note = "\n✅ TUYẾN ĐƯỜNG ỔN ĐỊNH — Giá giao thương tiêu chuẩn"
+
 		caravan_status_label.text = "🐪 Đang có mặt: %s (Rời đi ngày %d) | Ngân sách: %d Vàng\n📍 Địa điểm giao thương: %s%s" % [
 			active_caravan.get("name"),
 			active_caravan.get("departure_day"),
 			active_caravan.get("gold"),
 			loc_name,
-			war_note
+			risk_note
 		]
 	else:
 		_refresh_diplomacy_ui()

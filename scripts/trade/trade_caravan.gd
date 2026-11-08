@@ -11,6 +11,9 @@ var arrival_day: int
 var departure_day: int
 var is_active: bool = true
 var is_origin_at_war: bool = false
+var route_risk: float = 0.0
+var has_explicit_route_risk: bool = false
+var route_summary: Dictionary = {}
 
 const WARTIME_PRICE_SURCHARGE: float = 0.15
 
@@ -80,8 +83,14 @@ static func generate_caravan(seed_val: int, day: int, origin_faction: String = "
 	}
 	return c
 
-## Dynamic Pricing Breakdown Helper (Package 2H)
-## Unifies deterministic supply-demand calculations between UI quote and transaction execution.
+## Configures the evaluated dynamic route risk (Package 3C)
+func set_route_risk(p_risk: float, p_summary: Dictionary = {}) -> void:
+	route_risk = clampf(p_risk, -0.10, 0.25)
+	has_explicit_route_risk = true
+	route_summary = p_summary.duplicate(true)
+
+## Dynamic Pricing Breakdown Helper (Package 2H & 3C)
+## Unifies deterministic supply-demand and route-risk calculations between UI quote and transaction execution.
 func get_price_breakdown(res_id: String, faction_opinion: float = 0.0, resource_mgr: Object = null) -> Dictionary:
 	var base_sell: int = sell_prices.get(res_id, 10)
 	var base_buy: int = buy_prices.get(res_id, 5)
@@ -117,13 +126,19 @@ func get_price_breakdown(res_id: String, faction_opinion: float = 0.0, resource_
 	var sell_opinion_mult: float = 1.0 - opinion_clamped
 	var buy_opinion_mult: float = 1.0 + opinion_clamped
 
-	# 5. Route risk surcharge (+15% to sell price when origin is at war)
-	var route_risk_surcharge: float = WARTIME_PRICE_SURCHARGE if is_origin_at_war else 0.0
+	# 5. Route risk surcharge (Package 3C Dynamic Route Risk)
+	# When dynamic route risk is computed via TradeRouteCalculator, it authoritatively governs route risk.
+	# Fallback: if no explicit route risk was set (legacy / headless test), retain Package 2H wartime surcharge.
+	var route_risk_surcharge: float = 0.0
+	if has_explicit_route_risk:
+		route_risk_surcharge = route_risk
+	elif is_origin_at_war:
+		route_risk_surcharge = WARTIME_PRICE_SURCHARGE
 
 	# 6. Effective Sell Price (Player BUYS from caravan)
 	var effective_sell_mult: float = (sell_opinion_mult + route_risk_surcharge) * market_multiplier
 	var raw_sell_price: int = int(round(base_sell * effective_sell_mult))
-	if is_origin_at_war and raw_sell_price <= base_sell:
+	if not has_explicit_route_risk and is_origin_at_war and raw_sell_price <= base_sell:
 		raw_sell_price = base_sell + 1
 	var final_sell_price: int = maxi(2, raw_sell_price)
 
@@ -148,6 +163,9 @@ func get_price_breakdown(res_id: String, faction_opinion: float = 0.0, resource_
 		"market_multiplier": market_multiplier,
 		"opinion_adjustment": opinion_clamped,
 		"route_risk_surcharge": route_risk_surcharge,
+		"route_risk": route_risk,
+		"has_explicit_route_risk": has_explicit_route_risk,
+		"route_summary": route_summary,
 		"is_origin_at_war": is_origin_at_war,
 		"final_sell_price": final_sell_price,
 		"final_buy_price": final_buy_price,
@@ -272,6 +290,9 @@ func serialize() -> Dictionary:
 		"departure_day": departure_day,
 		"is_active": is_active,
 		"is_origin_at_war": is_origin_at_war,
+		"route_risk": route_risk,
+		"has_explicit_route_risk": has_explicit_route_risk,
+		"route_summary": route_summary.duplicate(true),
 		"inventory": inventory.duplicate(true),
 		"gold": gold,
 		"sell_prices": sell_prices.duplicate(true),
@@ -292,6 +313,10 @@ static func deserialize(data: Dictionary) -> RefCounted:
 	c.departure_day = int(data.get("departure_day", c.arrival_day + 2))
 	c.is_active = bool(data.get("is_active", true))
 	c.is_origin_at_war = bool(data.get("is_origin_at_war", false))
+	c.route_risk = clampf(float(data.get("route_risk", 0.0)), -0.10, 0.25)
+	c.has_explicit_route_risk = bool(data.get("has_explicit_route_risk", false))
+	var raw_sum = data.get("route_summary", {})
+	c.route_summary = raw_sum.duplicate(true) if raw_sum is Dictionary else {}
 	c.gold = maxi(0, int(data.get("gold", 0)))
 
 	c.inventory = {}

@@ -10,6 +10,7 @@ const PlayerArmyManagerScript = preload("res://scripts/military/player_army_mana
 const TacticalMilitaryManagerScript = preload("res://scripts/military/tactical_military_manager.gd")
 const ArmyMarkerScript = preload("res://scripts/military/army_marker.gd")
 const CaravanMarkerScript = preload("res://scripts/trade/caravan_marker.gd")
+const TradeRouteCalculatorScript = preload("res://scripts/trade/trade_route_calculator.gd")
 const EnemyMilitaryManagerScript = preload("res://scripts/military/enemy_military_manager.gd")
 const FieldSiegeManagerScript = preload("res://scripts/combat/field_siege_manager.gd")
 const LegacyProfileManagerScript = preload("res://scripts/legacy/legacy_profile_manager.gd")
@@ -712,6 +713,8 @@ func get_army_marker() -> Node2D:
 
 func _setup_caravan_marker() -> void:
 	if citizens_container == null:
+		citizens_container = get_node_or_null("World/Entities/Citizens")
+	if citizens_container == null:
 		return
 	if active_caravan == null or not bool(active_caravan.get("is_active")):
 		if caravan_marker != null and is_instance_valid(caravan_marker):
@@ -746,6 +749,32 @@ func _update_caravan_marker_docking() -> void:
 	var cell: Vector2i = dock_info.get("cell", Vector2i(-1, -1))
 	var at_market: bool = bool(dock_info.get("is_market", false))
 	caravan_marker.call("update_docking", cell, at_market, active_caravan)
+	refresh_caravan_route_risk()
+
+func refresh_caravan_route_risk() -> void:
+	if active_caravan == null or not bool(active_caravan.get("is_active")):
+		return
+	var origin_faction: String = String(active_caravan.get("origin_faction_id")) if active_caravan.get("origin_faction_id") != null else "rival_merchant"
+	if origin_faction.is_empty():
+		origin_faction = "rival_merchant"
+	var origin_cell: Vector2i = TradeRouteCalculatorScript.get_caravan_origin_cell(origin_faction, field_siege_mgr, world_seed)
+	var dock_info: Dictionary = BuildingSystem.find_caravan_docking_cell(world_data)
+	var dest_cell: Vector2i = dock_info.get("cell", Vector2i(31, 34))
+	if dest_cell == Vector2i(-1, -1):
+		dest_cell = Vector2i(32, 32)
+	var is_war: bool = bool(active_caravan.get("is_origin_at_war")) if active_caravan.get("is_origin_at_war") != null else false
+	var eval: Dictionary = TradeRouteCalculatorScript.evaluate_route_risk_between(
+		origin_cell,
+		dest_cell,
+		fog_of_war,
+		field_siege_mgr,
+		world_data,
+		is_war
+	)
+	var net_risk: float = float(eval.get("net_risk", 0.0))
+	active_caravan.call("set_route_risk", net_risk, eval)
+	if hud != null and hud.has_method("refresh_caravan_trade_section"):
+		hud.call("refresh_caravan_trade_section")
 
 func refresh_caravan_marker() -> void:
 	if active_caravan == null or not bool(active_caravan.get("is_active")):
@@ -759,6 +788,7 @@ func refresh_caravan_marker() -> void:
 				existing.queue_free()
 		return
 	_setup_caravan_marker()
+	refresh_caravan_route_risk()
 
 func get_caravan_marker() -> Node2D:
 	return caravan_marker
@@ -2791,6 +2821,10 @@ func refresh_world_vision() -> void:
 	# Discover any newly visible POIs
 	if poi_mgr != null and fog_of_war != null:
 		poi_mgr.update_discovery(fog_of_war)
+
+	# Package 3C: Refresh dynamic route risk for active trade caravan
+	if active_caravan != null and bool(active_caravan.get("is_active")):
+		refresh_caravan_route_risk()
 
 func _on_tactical_unit_moved(_unit_id: String, _new_cell: Vector2i) -> void:
 	refresh_world_vision()

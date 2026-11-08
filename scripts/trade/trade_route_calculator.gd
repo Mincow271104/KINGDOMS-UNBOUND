@@ -1,0 +1,200 @@
+class_name TradeRouteCalculator
+extends RefCounted
+## =============================================================================
+## KINGDOMS UNBOUND — Dynamic Trade Route Risk Calculator (Package 3C)
+## Conforms to GDD §11.1, §11.2 (Market Pricing, Route Risk & Trade Caravans).
+## Strictly evaluates corridor security across Fog of War, territorial outposts,
+## and watchtower defenses, returning deterministic and explainable price modifiers.
+## =============================================================================
+
+# Authoritative Faction Anchors (Mirrors WorldView setup)
+const DEFAULT_MERCHANT_ANCHOR := Vector2i(50, 16)
+const DEFAULT_MILITARY_ANCHOR := Vector2i(14, 14)
+const DEFAULT_TRIBE_ANCHOR := Vector2i(16, 48)
+
+# Bounded Risk Surcharge Limits (Package 3C Implementation Baseline)
+# GDD §11.2 mandates route risk influence without unbounded price spikes or arbitrage.
+const MAX_DISCOUNT: float = -0.10     # Max -10% discount for fully secured trade route
+const MAX_SURCHARGE: float = 0.25    # Max +25% surcharge for perilous wilderness / wartime
+const UNEXPLORED_WEIGHT: float = 0.15 # Up to +15% surcharge for 100% unexplored path
+const SECURED_WEIGHT: float = 0.10    # Up to -10% discount for 100% player outpost/watchtower coverage
+const HOSTILE_WEIGHT: float = 0.10    # Up to +10% surcharge for enemy outpost interception zone
+const WARTIME_WEIGHT: float = 0.10    # +10% surcharge if merchant origin faction is at war
+
+## Computes discrete grid cells connecting start and end using standard Bresenham line traversal.
+## Guaranteed deterministic, symmetric, bounded, and allocation-friendly.
+static func compute_route_cells(start_cell: Vector2i, end_cell: Vector2i) -> Array[Vector2i]:
+	var cells: Array[Vector2i] = []
+	var x0 := start_cell.x
+	var y0 := start_cell.y
+	var x1 := end_cell.x
+	var y1 := end_cell.y
+
+	var dx := absi(x1 - x0)
+	var dy := -absi(y1 - y0)
+	var sx := 1 if x0 < x1 else -1
+	var sy := 1 if y0 < y1 else -1
+	var err := dx + dy
+
+	while true:
+		if IsoMath.is_in_bounds(Vector2i(x0, y0)):
+			cells.append(Vector2i(x0, y0))
+		if x0 == x1 and y0 == y1:
+			break
+		var e2 := 2 * err
+		if e2 >= dy:
+			err += dy
+			x0 += sx
+		if e2 <= dx:
+			err += dx
+			y0 += sy
+
+	return cells
+
+## Resolves the origin cell for a merchant caravan based on faction outpost or default anchor.
+static func get_caravan_origin_cell(origin_faction: String, field_siege_mgr: Object = null, _world_seed: int = 0) -> Vector2i:
+	if field_siege_mgr != null and field_siege_mgr.has_method("get_all_objectives"):
+		for obj in field_siege_mgr.get_all_objectives():
+			if obj != null and is_instance_valid(obj):
+				var fid: String = str(obj.get("owning_faction_id"))
+				if fid == origin_faction:
+					var is_alive: bool = bool(obj.get("is_alive")) if obj.get("is_alive") != null else true
+					var hp: float = float(obj.get("health")) if obj.get("health") != null else 0.0
+					if is_alive and hp > 0.0:
+						var o_cell = obj.get("current_cell")
+						if o_cell is Vector2i and IsoMath.is_in_bounds(o_cell):
+							return o_cell
+
+	match origin_faction:
+		"rival_military":
+			return DEFAULT_MILITARY_ANCHOR
+		"neutral_tribe":
+			return DEFAULT_TRIBE_ANCHOR
+		"rival_merchant", _:
+			return DEFAULT_MERCHANT_ANCHOR
+
+## Evaluates the route risk across an array of route cells.
+## Evaluates:
+## 1. Unexplored Fog of War ratio (wilderness hazard)
+## 2. Player defensive coverage (player outposts [r=6] + watchtowers [r=15])
+## 3. Hostile outpost interception (enemy outposts [r=6])
+## 4. Origin faction wartime status
+static func evaluate_route_risk(
+	route_cells: Array,
+	fow: Object = null,
+	field_siege_mgr: Object = null,
+	world_data: Object = null,
+	is_origin_at_war: bool = false
+) -> Dictionary:
+	var total_cells := route_cells.size()
+	if total_cells == 0:
+		var war_only: float = WARTIME_WEIGHT if is_origin_at_war else 0.0
+		return {
+			"total_cells": 0,
+			"unexplored_cells": 0,
+			"unexplored_ratio": 0.0,
+			"secured_cells": 0,
+			"secured_ratio": 0.0,
+			"hostile_cells": 0,
+			"hostile_ratio": 0.0,
+			"is_origin_at_war": is_origin_at_war,
+			"wartime_factor": war_only,
+			"raw_risk": war_only,
+			"net_risk": clampf(war_only, MAX_DISCOUNT, MAX_SURCHARGE)
+		}
+
+	# Gather living player outposts and active enemy outposts
+	var player_outposts: Array[Dictionary] = []
+	var hostile_outposts: Array[Dictionary] = []
+	if field_siege_mgr != null and field_siege_mgr.has_method("get_all_objectives"):
+		for obj in field_siege_mgr.get_all_objectives():
+			if obj != null and is_instance_valid(obj):
+				var is_alive: bool = bool(obj.get("is_alive")) if obj.get("is_alive") != null else true
+				var hp: float = float(obj.get("health")) if obj.get("health") != null else 0.0
+				if is_alive and hp > 0.0:
+					var o_cell: Vector2i = obj.get("current_cell")
+					var o_rad: int = int(obj.get("vision_radius")) if obj.get("vision_radius") != null else 6
+					var fid: String = str(obj.get("owning_faction_id"))
+					if fid == "player":
+						player_outposts.append({"cell": o_cell, "radius": o_rad})
+					elif fid != "neutral_tribe" and not fid.is_empty():
+						hostile_outposts.append({"cell": o_cell, "radius": 6})
+
+	# Gather active player watchtowers from world_data
+	var player_watchtowers: Array[Dictionary] = []
+	if world_data != null and world_data.get("buildings") != null:
+		for b in world_data.buildings:
+			if b.get("type") == "watchtower" and b.get("state", "active") == "active":
+				var b_cell: Vector2i = b.get("cell", Vector2i.ZERO)
+				var bp: Dictionary = EconomyConfig.BLUEPRINTS.get("watchtower", {})
+				var v_rad: int = bp.get("vision_radius", 15)
+				player_watchtowers.append({"cell": b_cell, "radius": v_rad})
+
+	var unexplored_count := 0
+	var secured_count := 0
+	var hostile_count := 0
+
+	for cell in route_cells:
+		# 1. Fog of War Check
+		if fow != null and fow.has_method("is_unexplored"):
+			if fow.is_unexplored(cell):
+				unexplored_count += 1
+
+		# 2. Player Security Check (Outposts & Watchtowers)
+		var is_sec := false
+		for po in player_outposts:
+			var poc: Vector2i = po["cell"]
+			if absi(cell.x - poc.x) + absi(cell.y - poc.y) <= po["radius"]:
+				is_sec = true
+				break
+		if not is_sec:
+			for pwt in player_watchtowers:
+				var wtc: Vector2i = pwt["cell"]
+				if absi(cell.x - wtc.x) + absi(cell.y - wtc.y) <= pwt["radius"]:
+					is_sec = true
+					break
+		if is_sec:
+			secured_count += 1
+
+		# 3. Hostile Outpost Interception Check
+		var is_host := false
+		for ho in hostile_outposts:
+			var hoc: Vector2i = ho["cell"]
+			if absi(cell.x - hoc.x) + absi(cell.y - hoc.y) <= ho["radius"]:
+				is_host = true
+				break
+		if is_host:
+			hostile_count += 1
+
+	var u_ratio := float(unexplored_count) / float(total_cells)
+	var s_ratio := float(secured_count) / float(total_cells)
+	var h_ratio := float(hostile_count) / float(total_cells)
+	var war_val := WARTIME_WEIGHT if is_origin_at_war else 0.0
+
+	var raw_risk := (UNEXPLORED_WEIGHT * u_ratio) - (SECURED_WEIGHT * s_ratio) + (HOSTILE_WEIGHT * h_ratio) + war_val
+	var net_risk := clampf(raw_risk, MAX_DISCOUNT, MAX_SURCHARGE)
+
+	return {
+		"total_cells": total_cells,
+		"unexplored_cells": unexplored_count,
+		"unexplored_ratio": u_ratio,
+		"secured_cells": secured_count,
+		"secured_ratio": s_ratio,
+		"hostile_cells": hostile_count,
+		"hostile_ratio": h_ratio,
+		"is_origin_at_war": is_origin_at_war,
+		"wartime_factor": war_val,
+		"raw_risk": raw_risk,
+		"net_risk": net_risk
+	}
+
+static func evaluate_route_risk_between(
+	origin: Vector2i,
+	destination: Vector2i,
+	fow: Object = null,
+	field_siege_mgr: Object = null,
+	world_data: Object = null,
+	is_origin_at_war: bool = false
+) -> Dictionary:
+	var route := compute_route_cells(origin, destination)
+	return evaluate_route_risk(route, fow, field_siege_mgr, world_data, is_origin_at_war)

@@ -10942,3 +10942,54 @@ Package 2M establishes the full operational state machine (`planned`, `under_con
   - `docs/WORKLOG.md`
 - **Regression Baseline:** 66/66 suites passing (Exit Code 0, 0 unexpected failures).
 
+
+
+---
+
+## [2026-11-08] Package 3C — Dynamic Trade Route Risk & Caravan Economy
+
+### Context & Objective
+Implementation of Package 3C within Milestone 3 (Strategic Gameplay Complete), connecting merchant entry and settlement docking point across the 64x64 discrete world grid. Route risk incorporates Fog of War unexplored wilderness, player territorial outposts and watchtowers, hostile enemy outpost interception, and origin faction wartime status.
+
+### Completed Work
+1. **Trade Route Corridor Calculation (`scripts/trade/trade_route_calculator.gd`):**
+   - Discrete integer Bresenham line algorithm (`compute_route_cells`) deterministically traces the spatial corridor between merchant entry and settlement docking location.
+   - Anchor / origin resolution (`get_caravan_origin_cell`) maps visiting caravan origin factions to regional outposts or map perimeter edges.
+   - Authoritative corridor risk evaluator (`evaluate_route_risk`, `evaluate_route_risk_between`) incorporates unexplored Fog of War ratio ($U \in [0, 1]$, up to $+15\%$), player outpost ($r=6$) and watchtower ($r=15$) security coverage ($S \in [0, 1]$, up to $-10\%$), hostile enemy outpost interception ($H \in [0, 1]$, up to $+10\%$), and origin faction wartime status ($+10\%$). Net risk is strictly bounded to $[-10\%, +25\%]$ ($[-0.10, 0.25]$).
+2. **Trade Caravan Pricing Integration (`scripts/trade/trade_caravan.gd`):**
+   - Dynamic route risk fields `route_risk`, `has_explicit_route_risk`, and `route_summary` configured via `set_route_risk()`.
+   - Unified `get_price_breakdown()` incorporates route risk surcharge into `effective_sell_mult`.
+   - Guaranteed positive bid/ask spread ($\ge 1\text{ Gold}$) and positive prices ($\ge 2\text{ Gold}$ sell, $\ge 1\text{ Gold}$ buy).
+   - Preserved legacy Package 2E wartime floor when explicit route risk is absent.
+   - Full serialization and backward-compatible deserialization for save/load persistence.
+3. **WorldView Event-Driven Refresh (`scripts/world/world_view.gd`):**
+   - Wired route risk calculation into `refresh_caravan_marker()` and `refresh_world_vision()`.
+   - Recalculates route risk reactively on caravan arrivals, unit movement, outpost captures/destructions.
+4. **HUD Presentation (`scripts/ui/hud.gd`):**
+   - Updated caravan status label to display dynamic route risk percentage and localized reasons.
+   - Updated trade button tooltips with price breakdowns reflecting route risk surcharges and security discounts.
+5. **Dedicated Regression Test Suite (`scripts/test/test_trade_route_risk.gd`):**
+   - 15 test scenarios with 178 assertions covering corridor traversal, deterministic risk, unexplored FoW, outpost/watchtower protection, hostile outposts, ownership flips, quote/transaction parity, fail-closed atomicity, bid/ask spread, legacy compatibility, save/load roundtrips, and WorldView integration. All passed with Exit Code 0.
+6. **Regression Manifest Update (`scripts/test/run_regression.ps1`):**
+   - Expanded regression suite manifest to 67 suites.
+
+### Acceptance Classification
+- **T1 — Data/API:** VERIFIED (178/178 dedicated route risk assertions, 26/26 market assertions, 81/81 fog/recon assertions, 98/98 siege assertions, 182/182 save/load assertions).
+- **T2 — Backend Simulation:** VERIFIED (Exact Bresenham lines, strictly bounded $[-10\%, +25\%]$ net risk, positive bid/ask spread $\ge 1\text{ Gold}$, zero arbitrage).
+- **T3 — UI Wiring/Integration:** VERIFIED (HUD caravan status label and trade button tooltips wired with route risk and breakdown reasons).
+- **T4 — Natural Gameplay Loop:** NOT VERIFIED (Pending interactive GUI session).
+- **T5 — End-to-End Acceptance:** NOT VERIFIED (Pending live player session).
+
+### Git Status & Verification Checkpoint
+- **Branch:** `feature/package-3a-outpost-garrison-reinforcement`
+- **Base HEAD:** `86d01f0`
+- **Files Modified / Created:**
+  - `scripts/trade/trade_route_calculator.gd` (Created)
+  - `scripts/trade/trade_caravan.gd` (Modified)
+  - `scripts/world/world_view.gd` (Modified)
+  - `scripts/ui/hud.gd` (Modified)
+  - `scripts/test/test_trade_route_risk.gd` (Created)
+  - `scripts/test/run_regression.ps1` (Modified)
+  - `docs/planning/PACKAGE_3C_SPECIFICATION.md` (Created)
+  - `docs/WORKLOG.md` (Modified)
+- **Regression Baseline:** 67/67 suites passing (Exit Code 0, 0 unexpected failures).
