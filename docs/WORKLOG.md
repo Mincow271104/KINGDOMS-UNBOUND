@@ -10614,3 +10614,54 @@ Package 2M establishes the full operational state machine (`planned`, `under_con
 - **Files Modified:** `scripts/economy/resource_manager.gd`, `scripts/economy/building_system.gd`, `scripts/persistence/save_manager.gd`, `scripts/combat/field_siege_manager.gd`, `scripts/test/test_building_damage_repair.gd`, `scripts/test/test_outpost_garrison_reinforcement.gd`, `docs/WORKLOG.md`
 - **Files Created:** `docs/planning/PACKAGE_3B_SPECIFICATION.md`
 - **Remotes:** No push, no merge to main. Unrelated scratch and prototype assets strictly preserved.
+
+
+---
+
+## 2026-11-08 — Package 3A Final Design Reconciliation & Package 3B Specification Finalization
+
+### Summary of Completed Work
+1. **Verified Checkpoint & Post-Commit Test Artifacts:**
+   - Commit `f6d9631` verified as latest commit on `feature/package-3a-outpost-garrison-reinforcement`.
+   - Verified that the post-commit regression run (`scratch/regression_runs/20261108_190303/regression_summary.json`) executed across all 65 suites with 65/65 passing (Exit Code 0, 0 unexpected failures, 0 baseline failures, duration 155.64s).
+2. **Garrison Capacity Reconciliation:**
+   - Established single authoritative capacity matrix distinguishing two distinct categories:
+     a) Civic Fortifications (`WorldData` buildings): Watchtower (2), Palisade (2), other buildings (0, non-garrisonable).
+     b) Regional Territorial Outposts (`FieldSiegeManager` objectives): Explicit instance capacity `garrison_count` assigned upon registration/generation (e.g. 4 for standard frontier outposts, 2 for camps, 6 for towns, 8 for fortresses), falling back safely to 4 if unset.
+   - Confirmed 0 contradiction between GDD and implementation code.
+3. **Defender Power Formula Reconciliation:**
+   - Authoritative formula in `BattleResolver.resolve_battle()`:
+     $$\text{Combat Score}_{\text{def}} = \text{def\_troops} \times \text{def\_equip\_bonus} \times \text{def\_morale\_factor} \times \text{def\_fort\_bonus} \times \text{def\_terrain}$$
+     where $\text{def\_troops} = N$ (stationed garrison count), $\text{def\_equip\_bonus} = 1.0 + (\text{tier} - 1) \times 0.25$, $\text{def\_morale\_factor} = \text{clampf}(\text{morale}/100.0, 0.4, 1.2)$, $\text{def\_terrain} = 1.2$, and $\text{def\_fort\_bonus} = 1.0 + \text{fort} \times 0.30$.
+   - Sourced directly from `BattleCampaignManager.construct_outpost_defending_force()` and `BattleResolver`.
+4. **Soldier Identity Conservation Invariant Verified:**
+   - Global invariant: $\text{Total Living} = \text{Central Reserve} + \sum \text{Garrisons} + \sum \text{In-Transit}$.
+   - Tactical units in `TacticalMilitaryManager` and campaign force dictionaries in `BattleCampaignManager` are lightweight execution snapshots, not independent soldier owners.
+   - Unique IDs (`soldier_gar_%d`, `soldier_reinf_%d`) maintained in `PlayerArmyManager`. Eviction on outpost conquest safely returns surviving defenders to central reserve without duplication.
+5. **Building Damage & Durability Operational Reconciliation:**
+   - Reconciled GDD §7.2 state model (`Planned`, `Under Construction`, `Active`, `Paused`, `Damaged`, `Destroyed`).
+   - Structural durability is tracked via `health: int` $[0, \text{max\_health}]$.
+   - Damage between $51 \le \text{health} < 100$ keeps `state = "active"` (fully functional, but eligible for repair).
+   - Damage at $\text{health} \le 50$ transitions to `state = "damaged"` (functionality disabled per GDD §7.2: *"Chỉ công trình Active mới thực hiện chức năng bình thường"*).
+   - Damage at $\text{health} \le 0$ clamps at 0 HP in `state = "damaged"`, requiring maintenance repair or demolition salvage.
+6. **Garrison Food Upkeep & Attrition Traceability:**
+   - Sourced from GDD §10.4 and §12.1 ("Tiếp tế" / Supply factor).
+   - Daily rate: `ARMY_DAILY_FOOD_UPKEEP = 1` Food/soldier/day, billed once globally across `get_total_soldier_count()`.
+   - Insufficient food applies supply failure (`is_supplied = false`, dropping morale from 80.0 to 40.0), with **zero physical troop casualties/deaths**. No duplicate food billing for garrisoned soldiers.
+7. **Package 3B Specification Finalization:**
+   - Authored and updated `docs/planning/PACKAGE_3B_SPECIFICATION.md`, `docs/planning/GAME_COMPLETION_ROADMAP.md`, and `docs/planning/NEXT_GAMEPLAY_PACKAGE.md`.
+   - Formally scoped Package 3B to **Campaign Fog of War & Scout Reconnaissance** (GDD §3.4, §8.2, §10.4).
+   - Removed ungrounded assumptions (e.g. arbitrary "+15% for 60s" buff and custom bitset).
+   - Specification-only; zero production code implementation.
+
+### Acceptance Classification
+- **T1 — Data/API:** VERIFIED
+- **T2 — Backend Simulation:** VERIFIED
+- **T3 — UI Wiring/Integration:** VERIFIED
+- **T4 — Natural Gameplay Loop:** NOT VERIFIED (Requires live interactive GUI playtesting)
+- **T5 — End-to-End Acceptance:** NOT VERIFIED (Requires live player session)
+
+### Git Status
+- **Branch:** `feature/package-3a-outpost-garrison-reinforcement`
+- **HEAD Commit:** `f6d9631`
+- **Remotes:** No push, no merge to main. `project.godot` unstaged. All user scratch artifacts preserved.

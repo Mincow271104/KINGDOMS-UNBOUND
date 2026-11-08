@@ -260,7 +260,12 @@ flowchart LR
      - Interactive HUD garrison inspection panel with localized Vietnamese actions (`+ Điều Binh`, `- Rút Quân`).
      - SaveManager persistence with backward compatibility for legacy save files.
      - Fully verified across 26 automated scenarios (107 assertions) in `test_outpost_garrison_reinforcement.gd` and 65/65 regression runner suites.
-  2. **Package 3B (Dynamic Trade Route Interception & Caravan Defense — GDD §11.1 & §11.2) (NEXT WORKSTREAM):**
+  2. **Package 3B (Campaign Fog of War & Scout Reconnaissance — GDD §3.4, §8.2, §10.4) (SPECIFICATION READY — AWAITING IMPLEMENTATION AUTHORIZATION):**
+     - Outpost territorial vision projection integrating captured outposts into `FogOfWar._grid`.
+     - Distinct civilian exploration (Package 2K) vs. military combat reconnaissance.
+     - Integration of GDD §10.4 reconnaissance factor into `BattleResolver` (penalizing blind attacks into unexplored fog).
+     - Full save/load persistence leveraging existing coordinate serialization in `SaveManager`.
+  3. **Package 3C (Dynamic Trade Route Interception & Caravan Defense — GDD §11.1 & §11.2) (FUTURE WORKSTREAM):**
      - Escort allied merchant caravans or protect trade routes from forest bandits and rival raiders.
 
 ### Milestone 4 — Complete Endgame & Longevity
