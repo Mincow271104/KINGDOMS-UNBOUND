@@ -99,6 +99,11 @@ func _run_all_tests() -> void:
 	all_ok = _test_separate_campaigns_isolation() and all_ok
 	all_ok = _test_legacy_save_compatibility_without_perks() and all_ok
 	all_ok = _test_main_menu_ui_wiring_and_selection() and all_ok
+	all_ok = _test_victory_reward_calculation_and_settlement() and all_ok
+	all_ok = _test_collapse_zero_reward_policy() and all_ok
+	all_ok = _test_reward_idempotency_and_reopened_save() and all_ok
+	all_ok = _test_cross_campaign_multi_reward_and_perk_progression() and all_ok
+	all_ok = _test_profile_atomic_backup_recovery_and_fail_closed() and all_ok
 
 	_cleanup_test_files()
 
@@ -620,3 +625,301 @@ func _test_main_menu_ui_wiring_and_selection() -> bool:
 	menu.queue_free()
 	LegacyProfileManagerScript.reset_instance()
 	return ok
+
+# -----------------------------------------------------------------------------
+# Scenario 18: Victory Reward Calculation & Settlement Integration
+# -----------------------------------------------------------------------------
+func _test_victory_reward_calculation_and_settlement() -> bool:
+	print("\n--- Scenario 18: Victory Reward Calculation & Settlement Integration ---")
+	var prof := _setup_test_profile(0)
+	LegacyProfileManagerScript.set_instance(prof)
+
+	var scene_res = load("res://scenes/world/world_view.tscn")
+	var wv: WorldView = scene_res.instantiate()
+	wv.world_seed = 6001
+	root.add_child(wv)
+
+	var rm: Node = root.get_node_or_null("ResourceManager")
+	if rm != null:
+		rm.call("reset_economy")
+		rm.call("add_resource", "gold", 3300) # Total 3500 gold (200 initial + 3300)
+
+	# Save world to establish valid persisted world_id
+	SaveManagerScript.save_to_file(wv, TEST_SAVE_A)
+	var wid: String = wv.world_id
+
+	var vic_mgr: VictoryManager = wv.victory_mgr
+	vic_mgr.is_victory_achieved = true
+	vic_mgr.legacy_points_earned = 100
+
+	# Preview conversion: 3500 gold, 85% stability -> 1000 protected, 2500 surplus -> 25 legacy points, 2500 gold deducted
+	var preview: Dictionary = vic_mgr.preview_treasury_conversion(3500, 85.0)
+	var ok: bool = true
+	ok = _assert_check(preview.get("eligible", false) == true, "Treasury conversion is eligible") and ok
+	ok = _assert_check(preview.get("legacy_awarded", 0) == 25, "Preview awards exactly +25 Legacy Points") and ok
+	ok = _assert_check(preview.get("gold_deducted", 0) == 2500, "Preview deducts exactly 2500 Gold") and ok
+	ok = _assert_check(preview.get("remaining_gold", 0) == 1000, "Remaining Gold is 1000 (protected reserve)") and ok
+
+	# Finalize victory settlement
+	var res: Dictionary = vic_mgr.finalize_victory_settlement(rm, 85.0)
+	ok = _assert_check(res.get("success", false) == true, "Settlement finalized successfully") and ok
+	ok = _assert_check(res.get("victory_points_awarded", 0) == 100, "Victory awards 100 LP") and ok
+	ok = _assert_check(res.get("treasury_points_awarded", 0) == 25, "Treasury awards 25 LP") and ok
+	ok = _assert_check(res.get("total_legacy_awarded", 0) == 125, "Total settlement awards 125 LP (100 + 25)") and ok
+	ok = _assert_check(prof.legacy_balance == 125, "Legacy balance updated to 125") and ok
+	ok = _assert_check(prof.lifetime_legacy_earned == 125, "Lifetime earned updated to 125") and ok
+	ok = _assert_check(prof.lifetime_legacy_spent == 0, "Lifetime spent is 0") and ok
+	ok = _assert_check(prof.is_reward_claimed("victory_" + wid), "Base victory reward recorded in claimed_rewards") and ok
+	ok = _assert_check(prof.is_reward_claimed("treasury_conv_" + wid), "Treasury conversion recorded in claimed_rewards") and ok
+	ok = _assert_check(rm.call("get_available_stock", "gold") == 1000, "Remaining Gold stock is exactly 1000") and ok
+
+	root.remove_child(wv)
+	wv.queue_free()
+	return ok
+
+# -----------------------------------------------------------------------------
+# Scenario 19: Collapse Zero-Reward Policy & Summary Report
+# -----------------------------------------------------------------------------
+func _test_collapse_zero_reward_policy() -> bool:
+	print("\n--- Scenario 19: Collapse Zero-Reward Policy & Summary Report ---")
+	var prof := _setup_test_profile(125)
+	LegacyProfileManagerScript.set_instance(prof)
+
+	var scene_res = load("res://scenes/world/world_view.tscn")
+	var wv: WorldView = scene_res.instantiate()
+	wv.world_seed = 6002
+	root.add_child(wv)
+
+	var rm: Node = root.get_node_or_null("ResourceManager")
+	if rm != null:
+		rm.call("reset_economy")
+		rm.call("add_resource", "gold", 3800) # Total 4000 gold
+
+	SaveManagerScript.save_to_file(wv, TEST_SAVE_B)
+
+	var vic_mgr: VictoryManager = wv.victory_mgr
+	vic_mgr.is_victory_achieved = true
+	vic_mgr.is_collapse_triggered = true
+	vic_mgr.primary_collapse_reason = "Tuyệt chủng: Toàn bộ cư dân đã qua đời vì nạn đói hoặc kiệt sức."
+
+	var preview: Dictionary = vic_mgr.preview_treasury_conversion(4000, 0.0)
+	var ok: bool = true
+	ok = _assert_check(preview.get("eligible", true) == false, "Treasury conversion rejected on collapse") and ok
+	ok = _assert_check(preview.get("status") == "collapsed", "Status is 'collapsed'") and ok
+	ok = _assert_check(preview.get("legacy_awarded", -1) == 0, "Zero legacy awarded on collapse") and ok
+
+	var report: Dictionary = vic_mgr.generate_summary_report("COLLAPSE", 0, 0, 4000, 0.0, 0.0, 2, 5)
+	ok = _assert_check(report.get("outcome") == "COLLAPSE", "Summary outcome is COLLAPSE") and ok
+	ok = _assert_check(report.get("legacy_points", -1) == 0, "Summary legacy points earned is 0") and ok
+
+	var res: Dictionary = vic_mgr.finalize_victory_settlement(rm, 0.0)
+	ok = _assert_check(res.get("success", true) == false, "Finalize settlement rejected on collapse") and ok
+	ok = _assert_check(res.get("reason") == "collapse_triggered", "Reason is collapse_triggered") and ok
+	ok = _assert_check(rm.call("get_available_stock", "gold") == 4000, "Gold conserved at 4000 (no deduction)") and ok
+	ok = _assert_check(prof.legacy_balance == 125, "Profile balance conserved at 125 (zero gain/loss)") and ok
+
+	root.remove_child(wv)
+	wv.queue_free()
+	return ok
+
+# -----------------------------------------------------------------------------
+# Scenario 20: Reward Idempotency, Repeated Settlement & Reopened Save
+# -----------------------------------------------------------------------------
+func _test_reward_idempotency_and_reopened_save() -> bool:
+	print("\n--- Scenario 20: Reward Idempotency, Repeated Settlement & Reopened Save ---")
+	var prof := _setup_test_profile(0)
+	LegacyProfileManagerScript.set_instance(prof)
+
+	var scene_res = load("res://scenes/world/world_view.tscn")
+	var wv: WorldView = scene_res.instantiate()
+	wv.world_seed = 6003
+	root.add_child(wv)
+
+	var rm: Node = root.get_node_or_null("ResourceManager")
+	if rm != null:
+		rm.call("reset_economy")
+		rm.call("add_resource", "gold", 1800) # Total 2000 gold
+
+	SaveManagerScript.save_to_file(wv, TEST_SAVE_A)
+	var wid: String = wv.world_id
+
+	var vic_mgr: VictoryManager = wv.victory_mgr
+	vic_mgr.is_victory_achieved = true
+	vic_mgr.legacy_points_earned = 100
+
+	# 1st Settlement: Earn 100 (victory) + 10 (surplus: 1000 / 100) = 110 LP
+	var res1: Dictionary = vic_mgr.finalize_victory_settlement(rm, 85.0)
+	var ok: bool = true
+	ok = _assert_check(res1.get("success", false) == true, "1st settlement succeeded") and ok
+	ok = _assert_check(res1.get("total_legacy_awarded", 0) == 110, "1st settlement awarded 110 LP") and ok
+	ok = _assert_check(prof.legacy_balance == 110, "Balance is 110") and ok
+
+	# 2nd Immediate Settlement Attempt on same live instance
+	var res2: Dictionary = vic_mgr.finalize_victory_settlement(rm, 85.0)
+	ok = _assert_check(res2.get("success", true) == false, "2nd settlement call rejected") and ok
+	ok = _assert_check(res2.get("total_legacy_awarded", -1) == 0, "2nd call awards 0 LP") and ok
+	ok = _assert_check(prof.legacy_balance == 110, "Balance invariant holds at 110 (no double-crediting)") and ok
+
+	# Save world in settled state
+	SaveManagerScript.save_to_file(wv, TEST_SAVE_A)
+	root.remove_child(wv)
+	wv.queue_free()
+
+	# Reload completed campaign from disk into fresh WorldView
+	var wv_reloaded: WorldView = scene_res.instantiate()
+	wv_reloaded.world_seed = 6003
+	root.add_child(wv_reloaded)
+	var load_res: Dictionary = SaveManagerScript.load_from_file(TEST_SAVE_A)
+	SaveManagerScript.apply_loaded_state_to_world(wv_reloaded, load_res.get("data", {}))
+
+	var reloaded_vic: VictoryManager = wv_reloaded.victory_mgr
+	ok = _assert_check(reloaded_vic.is_legacy_claimed == true, "Restored world preserves is_legacy_claimed == true") and ok
+	ok = _assert_check(reloaded_vic.is_treasury_converted == true, "Restored world preserves is_treasury_converted == true") and ok
+
+	# 3rd Settlement Attempt on reloaded completed save
+	var res3: Dictionary = reloaded_vic.finalize_victory_settlement(rm, 85.0)
+	ok = _assert_check(res3.get("success", true) == false, "3rd settlement on reloaded save rejected") and ok
+	ok = _assert_check(res3.get("total_legacy_awarded", -1) == 0, "Zero points awarded on reloaded save") and ok
+	ok = _assert_check(prof.legacy_balance == 110, "Balance conserved at 110 across reloads") and ok
+
+	# Direct backend API duplicate claim rejection
+	var direct_claim: Dictionary = prof.claim_reward("victory_" + wid, "victory", 100, wid)
+	ok = _assert_check(direct_claim.get("success", true) == false, "Direct backend claim rejected duplicate reward") and ok
+	ok = _assert_check(direct_claim.get("reason") == "already_claimed", "Direct backend reason is already_claimed") and ok
+
+	root.remove_child(wv_reloaded)
+	wv_reloaded.queue_free()
+	return ok
+
+# -----------------------------------------------------------------------------
+# Scenario 21: Cross-Campaign Multi-Reward & Perk Progression Flow
+# -----------------------------------------------------------------------------
+func _test_cross_campaign_multi_reward_and_perk_progression() -> bool:
+	print("\n--- Scenario 21: Cross-Campaign Multi-Reward & Perk Progression Flow ---")
+	var prof := _setup_test_profile(0)
+	LegacyProfileManagerScript.set_instance(prof)
+
+	var scene_res = load("res://scenes/world/world_view.tscn")
+	var rm: Node = root.get_node_or_null("ResourceManager")
+
+	# --- Campaign A Genesis & Victory ---
+	var wv_a: WorldView = scene_res.instantiate()
+	wv_a.world_seed = 7001
+	root.add_child(wv_a)
+	if rm != null:
+		rm.call("reset_economy")
+	SaveManagerScript.save_to_file(wv_a, TEST_SAVE_A)
+	var wid_a: String = wv_a.world_id
+
+	var vic_a: VictoryManager = wv_a.victory_mgr
+	vic_a.is_victory_achieved = true
+	vic_a.legacy_points_earned = 100
+	var res_a: Dictionary = vic_a.finalize_victory_settlement(rm, 85.0)
+
+	var ok: bool = true
+	ok = _assert_check(res_a.get("success", false) == true, "Campaign A settled successfully") and ok
+	ok = _assert_check(prof.legacy_balance == 100, "Campaign A awarded 100 LP (balance: 100)") and ok
+	root.remove_child(wv_a)
+	wv_a.queue_free()
+
+	# --- Main Menu: Purchase master_carpenter (75 LP) ---
+	var pur1: Dictionary = prof.purchase_perk("master_carpenter")
+	ok = _assert_check(pur1.get("success", false) == true, "master_carpenter purchased for 75 LP") and ok
+	ok = _assert_check(prof.legacy_balance == 25, "Balance deducted to 25 (100 - 75)") and ok
+	ok = _assert_check(prof.is_perk_unlocked("master_carpenter"), "master_carpenter unlocked in profile") and ok
+
+	# --- Campaign B Genesis with master_carpenter active ---
+	if rm != null:
+		rm.call("reset_economy")
+	var wv_b: WorldView = scene_res.instantiate()
+	wv_b.world_seed = 7002
+	wv_b.active_perks = ["master_carpenter"]
+	root.add_child(wv_b)
+	if rm != null:
+		ok = _assert_check(rm.call("get_available_stock", "wood") == 160, "Campaign B starts with 160 Wood from master_carpenter") and ok
+		rm.call("add_resource", "gold", 1800) # Total 2000 gold
+
+	SaveManagerScript.save_to_file(wv_b, TEST_SAVE_B)
+	var wid_b: String = wv_b.world_id
+
+	var vic_b: VictoryManager = wv_b.victory_mgr
+	vic_b.is_victory_achieved = true
+	vic_b.legacy_points_earned = 100
+	var res_b: Dictionary = vic_b.finalize_victory_settlement(rm, 85.0)
+
+	ok = _assert_check(res_b.get("success", false) == true, "Campaign B settled successfully") and ok
+	ok = _assert_check(res_b.get("total_legacy_awarded", 0) == 110, "Campaign B awarded 110 LP (100 victory + 10 surplus)") and ok
+	ok = _assert_check(prof.legacy_balance == 135, "Balance updated to 135 (25 + 110)") and ok
+	ok = _assert_check(prof.lifetime_legacy_earned == 210, "Lifetime earned is 210 (100 + 110)") and ok
+	ok = _assert_check(prof.lifetime_legacy_spent == 75, "Lifetime spent is 75") and ok
+	ok = _assert_check(prof.legacy_balance == prof.lifetime_legacy_earned - prof.lifetime_legacy_spent, "Balance invariant holds: 135 == 210 - 75") and ok
+
+	root.remove_child(wv_b)
+	wv_b.queue_free()
+
+	# --- Unlock hardened_outposts (100 LP, requires master_carpenter) ---
+	var pur2: Dictionary = prof.purchase_perk("hardened_outposts")
+	ok = _assert_check(pur2.get("success", false) == true, "hardened_outposts unlocked successfully") and ok
+	ok = _assert_check(prof.legacy_balance == 35, "Balance updated to 35 (135 - 100)") and ok
+	ok = _assert_check(prof.lifetime_legacy_spent == 175, "Lifetime spent updated to 175 (75 + 100)") and ok
+	ok = _assert_check(prof.legacy_balance == prof.lifetime_legacy_earned - prof.lifetime_legacy_spent, "Balance invariant holds: 35 == 210 - 175") and ok
+
+	# --- Simulate Application Restart ---
+	LegacyProfileManagerScript.reset_instance()
+	var reloaded_prof = LegacyProfileManagerScript.new(TEST_PROFILE_PATH)
+	LegacyProfileManagerScript.set_instance(reloaded_prof)
+
+	ok = _assert_check(reloaded_prof.legacy_balance == 35, "Restarted profile balance is 35") and ok
+	ok = _assert_check(reloaded_prof.lifetime_legacy_earned == 210, "Restarted profile lifetime earned is 210") and ok
+	ok = _assert_check(reloaded_prof.lifetime_legacy_spent == 175, "Restarted profile lifetime spent is 175") and ok
+	ok = _assert_check(reloaded_prof.is_perk_unlocked("master_carpenter") == true, "master_carpenter persists across restart") and ok
+	ok = _assert_check(reloaded_prof.is_perk_unlocked("hardened_outposts") == true, "hardened_outposts persists across restart") and ok
+	ok = _assert_check(reloaded_prof.is_reward_claimed("victory_" + wid_a) == true, "Campaign A reward claim persisted") and ok
+	ok = _assert_check(reloaded_prof.is_reward_claimed("victory_" + wid_b) == true, "Campaign B reward claim persisted") and ok
+	ok = _assert_check(reloaded_prof.is_reward_claimed("treasury_conv_" + wid_b) == true, "Campaign B treasury claim persisted") and ok
+
+	return ok
+
+# -----------------------------------------------------------------------------
+# Scenario 22: Profile Atomic Backup Recovery & Corrupt File Handling
+# -----------------------------------------------------------------------------
+func _test_profile_atomic_backup_recovery_and_fail_closed() -> bool:
+	print("\n--- Scenario 22: Profile Atomic Backup Recovery & Corrupt File Handling ---")
+	var prof := _setup_test_profile(50)
+	prof.save_profile()
+
+	var ok: bool = true
+	ok = _assert_check(FileAccess.file_exists(TEST_PROFILE_PATH), "Primary profile exists on disk") and ok
+	ok = _assert_check(FileAccess.file_exists(TEST_PROFILE_PATH + ".bak"), "Backup profile .bak exists on disk") and ok
+
+	# 1. Corrupt primary profile with malformed JSON
+	var f := FileAccess.open(TEST_PROFILE_PATH, FileAccess.WRITE)
+	f.store_string("<<<INVALID JSON SYNTAX DUMP>>>")
+	f.close()
+
+	# Instantiate fresh manager to test automatic recovery
+	var recov_mgr = LegacyProfileManagerScript.new(TEST_PROFILE_PATH)
+	ok = _assert_check(recov_mgr.is_available() == true, "Recovered profile is available") and ok
+	ok = _assert_check(recov_mgr.legacy_balance == 50, "Recovered profile restored balance 50 from .bak") and ok
+
+	# 2. Corrupt BOTH primary and .bak
+	var f1 := FileAccess.open(TEST_PROFILE_PATH, FileAccess.WRITE)
+	f1.store_string("<<<CORRUPT PRIMARY>>>")
+	f1.close()
+	var f2 := FileAccess.open(TEST_PROFILE_PATH + ".bak", FileAccess.WRITE)
+	f2.store_string("<<<CORRUPT BAK>>>")
+	f2.close()
+
+	var fail_mgr = LegacyProfileManagerScript.new(TEST_PROFILE_PATH)
+	ok = _assert_check(fail_mgr.is_available() == false, "Manager fails closed when all copies corrupt") and ok
+
+	var reject_claim: Dictionary = fail_mgr.claim_reward("test_fail", "victory", 100, "world_fail")
+	ok = _assert_check(reject_claim.get("success", true) == false, "Claim rejected on unavailable profile") and ok
+	ok = _assert_check(reject_claim.get("reason") == "profile_unavailable", "Reason is profile_unavailable") and ok
+
+	var reject_buy: Dictionary = fail_mgr.purchase_perk("starter_grain")
+	ok = _assert_check(reject_buy.get("success", true) == false, "Purchase rejected on unavailable profile") and ok
+	ok = _assert_check(reject_buy.get("reason") == "profile_unavailable", "Reason is profile_unavailable") and ok
+
+	return ok
+
