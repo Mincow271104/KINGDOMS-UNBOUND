@@ -278,6 +278,7 @@ func _generate_and_build_world() -> void:
 				hud.show_event_banner("Rút Quân Công Thành", "Lực lượng công thành đã rút lui khỏi chiến địa.", false, 4.0)
 	)
 	field_siege_mgr.outpost_ownership_changed.connect(func(_obj_id: String, prev_owner: String, new_owner: String, _tx_id: String):
+		refresh_world_vision()
 		if hud != null:
 			var prev_name := _get_faction_display_name(prev_owner)
 			if new_owner == "player":
@@ -290,6 +291,23 @@ func _generate_and_build_world() -> void:
 				var desc := "%s đã chiếm tiền đồn từ %s." % [new_name, prev_name]
 				hud.show_event_banner(title, desc, true, 5.0)
 	)
+	if field_siege_mgr.has_signal("objective_registered"):
+		field_siege_mgr.objective_registered.connect(func(_oid: String, _cell: Vector2i, _fid: String): refresh_world_vision())
+	if field_siege_mgr.has_signal("objective_destroyed"):
+		field_siege_mgr.objective_destroyed.connect(func(_oid: String, _killer: String): refresh_world_vision())
+	if field_siege_mgr.has_signal("objective_unregistered"):
+		field_siege_mgr.objective_unregistered.connect(func(_oid: String): refresh_world_vision())
+
+	# Package 3B: Connect military movement & unit lifecycle to fog of war reconnaissance
+	if tactical_military_mgr != null:
+		if tactical_military_mgr.has_signal("unit_moved"):
+			tactical_military_mgr.unit_moved.connect(_on_tactical_unit_moved)
+		if tactical_military_mgr.has_signal("unit_spawned"):
+			tactical_military_mgr.unit_spawned.connect(_on_tactical_unit_spawned)
+		if tactical_military_mgr.has_signal("unit_despawned"):
+			tactical_military_mgr.unit_despawned.connect(_on_tactical_unit_despawned)
+	if player_army_mgr != null and player_army_mgr.has_signal("army_moved"):
+		player_army_mgr.army_moved.connect(_on_player_army_moved)
 	_setup_selection_box_overlay()
 
 	# Building Selection Footprint Highlight (Package 2F)
@@ -323,6 +341,7 @@ func _generate_and_build_world() -> void:
 	_setup_army_marker()
 	refresh_caravan_marker()
 	_setup_default_siege_objectives()
+	refresh_world_vision()
 
 	if faction_mgr != null:
 		if faction_mgr.has_signal("war_declared") and not faction_mgr.war_declared.is_connected(_on_faction_war_declared):
@@ -2738,13 +2757,52 @@ func refresh_world_vision() -> void:
 				var v_rad: int = bp.get("vision_radius", 15)
 				fog_of_war.reveal_circle(b_cell, v_rad)
 
-	# 4. Living player tactical units vision
+	# 4. Living player tactical units / strategic army vision
+	var tactical_units_observed := false
 	if tactical_military_mgr != null and tactical_military_mgr.has_method("get_all_units"):
-		for u in tactical_military_mgr.get_all_units():
-			if u != null and is_instance_valid(u) and bool(u.get("is_alive")):
-				var u_cell = u.get("current_cell")
-				if u_cell is Vector2i:
-					fog_of_war.reveal_circle(u_cell, 4)
+		var t_units = tactical_military_mgr.get_all_units()
+		if not t_units.is_empty():
+			tactical_units_observed = true
+			for u in t_units:
+				if u != null and is_instance_valid(u) and bool(u.get("is_alive")):
+					var u_cell = u.get("current_cell")
+					if u_cell is Vector2i:
+						fog_of_war.reveal_circle(u_cell, 4)
+	if not tactical_units_observed and player_army_mgr != null:
+		var s_count: int = int(player_army_mgr.get("soldier_count")) if player_army_mgr.get("soldier_count") != null else 0
+		if s_count > 0:
+			var a_cell = player_army_mgr.get("current_cell")
+			if a_cell is Vector2i:
+				fog_of_war.reveal_circle(a_cell, 4)
+
+	# 5. Active player-owned territorial outposts vision (Package 3B: Manhattan radius 6)
+	if field_siege_mgr != null and field_siege_mgr.has_method("get_all_objectives"):
+		for obj in field_siege_mgr.get_all_objectives():
+			if obj != null and is_instance_valid(obj):
+				var is_player: bool = (str(obj.get("owning_faction_id")) == "player")
+				var is_alive: bool = bool(obj.get("is_alive")) if obj.get("is_alive") != null else true
+				var hp: float = float(obj.get("health")) if obj.get("health") != null else 0.0
+				if is_player and is_alive and hp > 0.0:
+					var o_cell = obj.get("current_cell")
+					if o_cell is Vector2i:
+						var r: int = int(obj.get("vision_radius")) if obj.get("vision_radius") != null else 6
+						fog_of_war.reveal_circle(o_cell, r)
+
+	# Discover any newly visible POIs
+	if poi_mgr != null and fog_of_war != null:
+		poi_mgr.update_discovery(fog_of_war)
+
+func _on_tactical_unit_moved(_unit_id: String, _new_cell: Vector2i) -> void:
+	refresh_world_vision()
+
+func _on_tactical_unit_spawned(_unit_id: String, _cell: Vector2i) -> void:
+	refresh_world_vision()
+
+func _on_tactical_unit_despawned(_unit_id: String) -> void:
+	refresh_world_vision()
+
+func _on_player_army_moved(_new_cell: Vector2i) -> void:
+	refresh_world_vision()
 
 func _on_simulation_hour_passed(hour: int, day: int) -> void:
 	var rm = _get_resource_mgr()

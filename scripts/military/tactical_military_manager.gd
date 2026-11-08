@@ -20,6 +20,7 @@ signal formation_changed(formation_name: String)
 signal control_groups_changed(groups: Dictionary)
 signal unit_spawned(unit_id: String, cell: Vector2i)
 signal unit_despawned(unit_id: String)
+signal unit_moved(unit_id: String, new_cell: Vector2i)
 signal order_issued(order_type: String, count: int, target_cell: Vector2i)
 signal tactical_state_updated()
 
@@ -315,6 +316,8 @@ func _create_unit_instance(u_id: String, spawn_cell: Vector2i) -> Node2D:
 
 	if unit.has_signal("unit_reached_destination") and not unit.unit_reached_destination.is_connected(_on_unit_reached_destination):
 		unit.unit_reached_destination.connect(_on_unit_reached_destination)
+	if unit.has_signal("unit_cell_changed") and not unit.unit_cell_changed.is_connected(_on_unit_cell_changed):
+		unit.unit_cell_changed.connect(_on_unit_cell_changed)
 	if unit.has_signal("unit_defeated") and not unit.unit_defeated.is_connected(_on_unit_defeated):
 		unit.unit_defeated.connect(_on_unit_defeated)
 
@@ -326,6 +329,9 @@ func _create_unit_instance(u_id: String, spawn_cell: Vector2i) -> Node2D:
 
 func _on_unit_reached_destination(_id: String, _cell: Vector2i) -> void:
 	tactical_state_updated.emit()
+
+func _on_unit_cell_changed(u_id: String, new_cell: Vector2i) -> void:
+	unit_moved.emit(u_id, new_cell)
 
 func _on_unit_defeated(u_id: String, _killer_id: String) -> void:
 	_remove_unit(u_id)

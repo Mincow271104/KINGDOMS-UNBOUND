@@ -12,6 +12,13 @@ enum State {
 	VISIBLE = 2
 }
 
+# Standardized vision radii across entities & structures (GDD §3.4, Package 3B)
+const OUTPOST_VISION_RADIUS: int = 6
+const ARMY_UNIT_VISION_RADIUS: int = 4
+const CITIZEN_VISION_RADIUS: int = 4
+const WATCHTOWER_VISION_RADIUS: int = 15
+const TOWN_HALL_VISION_RADIUS: int = 10
+
 var map_size: int = 64
 var _grid: Array = [] # 2D array [x][y] storing State
 
@@ -60,7 +67,8 @@ func reveal_circle(center: Vector2i, radius: int) -> int:
 					_grid[cell.x][cell.y] = State.VISIBLE
 	return newly_revealed
 
-## Updates vision from an array of observer positions (citizens, buildings).
+## Updates vision from an array of observer positions (citizens, buildings, units, outposts).
+## Supports Vector2i, objects with current_cell, or Dictionary {"cell": Vector2i, "radius": int}.
 ## Previously visible cells degrade to EXPLORED; cells in active range become VISIBLE.
 func update_observers(observer_cells: Array, sight_radius: int = 4) -> int:
 	# Step 1: Degrade current VISIBLE to EXPLORED
@@ -72,8 +80,23 @@ func update_observers(observer_cells: Array, sight_radius: int = 4) -> int:
 	# Step 2: Mark cells within sight radius of any active observer as VISIBLE
 	var total_visible := 0
 	for obs in observer_cells:
-		var c: Vector2i = obs if obs is Vector2i else obs.get("current_cell")
-		total_visible += reveal_circle(c, sight_radius)
+		var c: Vector2i = Vector2i.ZERO
+		var r: int = sight_radius
+		if obs is Vector2i:
+			c = obs
+		elif obs is Dictionary:
+			if obs.has("cell") and obs["cell"] is Vector2i:
+				c = obs["cell"]
+			elif obs.has("current_cell") and obs["current_cell"] is Vector2i:
+				c = obs["current_cell"]
+			r = int(obs.get("radius", obs.get("vision_radius", sight_radius)))
+		elif obs is Object and is_instance_valid(obs):
+			var obj_c = obs.get("current_cell")
+			if obj_c is Vector2i:
+				c = obj_c
+			if obs.get("vision_radius") != null:
+				r = int(obs.get("vision_radius"))
+		total_visible += reveal_circle(c, r)
 		
 	return total_visible
 

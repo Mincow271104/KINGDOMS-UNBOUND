@@ -10843,3 +10843,102 @@ Package 2M establishes the full operational state machine (`planned`, `under_con
   - `docs/WORKLOG.md`
 - **Regression Baseline:** 65/65 suites passing (Exit Code 0, 0 unexpected failures).
 
+---
+
+## 2026-11-08 — Package 3B: Fog of War & Military Reconnaissance
+
+### Summary of Completed Work
+1. **Implementation of Approved Design Decisions:**
+   - **DEC-3B-01 (Outpost Vision Radius):** Set to exactly 6 tiles using the existing FogOfWar Manhattan distance convention ($|dx| + |dy| \le 6$). Preserved all existing sight radii without changes: Town Hall (10), Citizen (4), Watchtower (15), Army Unit (4).
+   - **DEC-3B-02 (Combat Effects Excluded):** Zero combat penalties, multipliers (including the provisional 0.85 attack penalty), or stat changes implemented. Military reconnaissance remains strictly an information/map-visibility feature.
+   - **DEC-3B-03 (Scouting Dispatch Model):** Passive/abstract reconnaissance: army movement and presence reveal appropriate map cells through the existing FogOfWar system. Existing civilian Explore behavior remains completely intact. No separate scout units, reconnaissance missions, or duplicate POI grids created.
+   - **DEC-3B-04 (Implementation Authorization):** Technical decisions delegated to lead; implementation authorized and executed.
+
+2. **Production Code Changes:**
+   - `scripts/world/fog_of_war.gd`:
+     - Added canonical constants: `OUTPOST_VISION_RADIUS: int = 6`, `ARMY_UNIT_VISION_RADIUS: int = 4`, `CITIZEN_VISION_RADIUS: int = 4`, `WATCHTOWER_VISION_RADIUS: int = 15`, `TOWN_HALL_VISION_RADIUS: int = 10`.
+     - Enhanced `update_observers()` to handle Vector2i coordinates, Objects with `current_cell`/`vision_radius`, and Dictionaries with `{"cell": Vector2i, "radius": int}` while preserving full backward compatibility.
+   - `scripts/combat/siege_objective_actor.gd`:
+     - Added `@export var vision_radius: int = 6`.
+     - Serialized `vision_radius` in `serialize()` and restored in `deserialize()` with fallback to 6 for legacy compatibility.
+   - `scripts/combat/field_siege_manager.gd`:
+     - Added `OUTPOST_VISION_RADIUS: int = 6`.
+     - Added signals: `objective_destroyed(objective_id, killer_id)` and `objective_unregistered(objective_id)`.
+     - Implemented `unregister_objective(obj_id)` with node cleanup and signal emission.
+     - Emitted `objective_destroyed` in `_on_objective_destroyed()`.
+   - `scripts/military/tactical_military_manager.gd`:
+     - Added `signal unit_moved(unit_id: String, new_cell: Vector2i)`.
+     - Connected `unit.unit_cell_changed` in `_create_unit_instance()` to emit `unit_moved`.
+   - `scripts/world/world_view.gd`:
+     - In `refresh_world_vision()`:
+       - 1. Core settlement vision around Town Hall (`Vector2i(32, 32)`, radius 10).
+       - 2. Living citizens vision (radius 4).
+       - 3. Active watchtowers vision (radius 15).
+       - 4. Living player tactical units / strategic army vision (radius 4).
+       - 5. Active player-owned living territorial outposts (`is_player and is_alive and health > 0.0`, radius 6).
+       - Triggered POI discovery via `poi_mgr.update_discovery(fog_of_war)`.
+     - Wired event-driven triggers for vision refresh on `tactical_military_mgr.unit_moved`, `unit_spawned`, `unit_despawned`, `player_army_mgr.army_moved`, `field_siege_mgr.outpost_ownership_changed`, `objective_registered`, `objective_destroyed`, and `objective_unregistered`.
+     - Added initial `refresh_world_vision()` invocation in `_generate_and_build_world()`.
+   - `scripts/test/run_regression.ps1`:
+     - Added `test_fog_of_war_reconnaissance.gd` to `$manifest` (manifest expanded to 66 suites).
+
+3. **Dedicated Test Suite (`scripts/test/test_fog_of_war_reconnaissance.gd`):**
+   - Authored 14 comprehensive test cases covering all acceptance criteria (81 assertions total, all passing):
+     - `TC-FOW.01`: Outpost reveals cells within Manhattan radius 6 (cardinal and diagonal boundaries).
+     - `TC-FOW.02`: Outpost strictly excludes cells at Manhattan distance 7+ (unexplored).
+     - `TC-FOW.03`: Outpost vision removes/degrades to EXPLORED upon ownership loss and restores to VISIBLE upon recapture.
+     - `TC-FOW.04`: Destroyed (0 HP) and unregistered outposts immediately cease contributing vision.
+     - `TC-FOW.05`: Army movement reveals cells through FogOfWar when authoritative cell position changes.
+     - `TC-FOW.06`: Army movement creates zero duplicate observers or memory leaks across multiple steps.
+     - `TC-FOW.07`: Previously explored cells degrade to EXPLORED when an observer departs (never revert to UNEXPLORED).
+     - `TC-FOW.08`: Overlapping observers preserve VISIBLE state until the final observer departs.
+     - `TC-FOW.09`: Civilian Explore command and POI discovery remain completely unaffected.
+     - `TC-FOW.10`: Real disk SaveManager save/load cycle preserves explored coordinate arrays identically.
+     - `TC-FOW.11`: SaveManager load correctly rebuilds active visibility from restored valid observers.
+     - `TC-FOW.12`: Legacy saves omitting `vision_radius` deserialize cleanly, defaulting to 6.
+     - `TC-FOW.13`: Reinforcement dispatch, arrival, recall, and garrison operations do not leak phantom vision across fog.
+     - `TC-FOW.14`: Enemy-owned outposts grant strictly 0 player vision.
+
+4. **Validation & Regression Results:**
+   - `test_fog_of_war_reconnaissance.gd`: **81/81 assertions PASS** (Exit Code 0).
+   - `test_watchtower.gd`: **ALL PASS** (Exit Code 0).
+   - `test_research_and_exploration.gd`: **ALL PASS** (Exit Code 0).
+   - `test_field_siege.gd`: **98/98 assertions PASS** (Exit Code 0).
+   - `test_outpost_garrison_reinforcement.gd`: **171/171 assertions PASS** (Exit Code 0).
+   - `test_save_load.gd`: **182/182 assertions PASS** (Exit Code 0).
+   - **Headless Full Regression Runner (`run_regression.ps1`):**
+     - Total Suites Tested: **66/66**
+     - Passed: **66**
+     - Expected Baseline Failures: **0**
+     - Unexpected Failures: **0**
+     - Duration: **155.83 seconds**
+     - Exit Code: **0**
+     - Report: `scratch/regression_runs/20261108_222905/regression_summary.json`
+
+5. **Repository Hygiene & Scope Safety:**
+   - `project.godot` preserved untouched and unstaged.
+   - All untracked artifacts, screenshots, and `.uid` files preserved.
+   - No remote push, no merge to `main`.
+
+### Acceptance Classification
+- **T1 — Data/API:** VERIFIED (81/81 fog/recon assertions, 171/171 outpost assertions, 182/182 save/load assertions, 131/131 scripts load).
+- **T2 — Backend Simulation:** VERIFIED (Strict observer lifecycle, exact Manhattan distance 6, zero phantom vision leakage, deterministic 3-state FoW transitions).
+- **T3 — UI Wiring/Integration:** VERIFIED (Event banner on outpost ownership change, POI discovery visual feedback).
+- **T4 — Natural Gameplay Loop:** NOT VERIFIED (Pending interactive GUI playtesting).
+- **T5 — End-to-End Acceptance:** NOT VERIFIED (Pending live player session).
+
+### Git Status & Verification Checkpoint
+- **Branch:** `feature/package-3a-outpost-garrison-reinforcement`
+- **Base HEAD:** `126dadf`
+- **Files Modified / Created:**
+  - `scripts/world/fog_of_war.gd`
+  - `scripts/combat/siege_objective_actor.gd`
+  - `scripts/combat/field_siege_manager.gd`
+  - `scripts/military/tactical_military_manager.gd`
+  - `scripts/world/world_view.gd`
+  - `scripts/test/run_regression.ps1`
+  - `scripts/test/test_fog_of_war_reconnaissance.gd`
+  - `docs/planning/PACKAGE_3B_SPECIFICATION.md`
+  - `docs/WORKLOG.md`
+- **Regression Baseline:** 66/66 suites passing (Exit Code 0, 0 unexpected failures).
+

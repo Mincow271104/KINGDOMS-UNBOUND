@@ -135,6 +135,7 @@ $manifest = @(
     "scripts/test/test_faction_strategy_execution.gd",
     "scripts/test/test_faction_strategy_planner.gd",
     "scripts/test/test_field_siege.gd",
+    "scripts/test/test_fog_of_war_reconnaissance.gd",
     "scripts/test/test_gold_transactions.gd",
     "scripts/test/test_hauler_death_cargo_conservation.gd",
     "scripts/test/test_job_lifecycle_pruning.gd",

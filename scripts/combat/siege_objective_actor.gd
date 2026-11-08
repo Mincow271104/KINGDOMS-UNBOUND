@@ -19,6 +19,7 @@ extends Node2D
 @export var is_captured: bool = false
 @export var is_under_active_siege: bool = false
 @export var garrison_count: int = 3
+@export var vision_radius: int = 6
 @export var defending_unit_ids: Array[String] = []
 
 signal objective_damaged(obj_id: String, amount: float, current_hp: float, max_hp: float)
@@ -261,6 +262,7 @@ func serialize() -> Dictionary:
 		"is_captured": is_captured,
 		"is_under_active_siege": is_under_active_siege,
 		"garrison_count": garrison_count,
+		"vision_radius": vision_radius,
 		"defending_unit_ids": defending_unit_ids.duplicate()
 	}
 
@@ -299,6 +301,11 @@ func deserialize(data: Dictionary) -> bool:
 		garrison_count = int(raw_gar)
 	else:
 		garrison_count = 3
+	var raw_vr = data.get("vision_radius")
+	if raw_vr != null and int(raw_vr) > 0:
+		vision_radius = int(raw_vr)
+	else:
+		vision_radius = 6
 	defending_unit_ids.clear()
 	var raw_def = data.get("defending_unit_ids")
 	if raw_def is Array:

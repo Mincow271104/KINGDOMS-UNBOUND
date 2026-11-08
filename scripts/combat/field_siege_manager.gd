@@ -12,6 +12,10 @@ signal field_siege_started(siege_id: String, faction_id: String, objective_id: S
 signal field_siege_resolved(siege_id: String, outcome: String, details: Dictionary)
 signal objective_registered(objective_id: String, cell: Vector2i, faction_id: String)
 signal outpost_ownership_changed(objective_id: String, prev_owner: String, new_owner: String, tx_id: String)
+signal objective_destroyed(objective_id: String, killer_id: String)
+signal objective_unregistered(objective_id: String)
+
+const OUTPOST_VISION_RADIUS: int = 6
 
 var world_view: Node = null
 var faction_mgr: Object = null
@@ -602,6 +606,16 @@ func get_siege_record(siege_id: String) -> Dictionary:
 		return active_sieges[siege_id].duplicate(true)
 	return get_resolved_siege_record(siege_id)
 
+func unregister_objective(obj_id: String) -> bool:
+	if not objectives.has(obj_id):
+		return false
+	var obj = objectives[obj_id]
+	objectives.erase(obj_id)
+	if is_instance_valid(obj) and obj is Node:
+		obj.queue_free()
+	objective_unregistered.emit(obj_id)
+	return true
+
 func _on_objective_destroyed(obj_id: String, _killer_id: String) -> void:
 	var active_keys = active_sieges.keys()
 	for s_id in active_keys:
@@ -610,6 +624,7 @@ func _on_objective_destroyed(obj_id: String, _killer_id: String) -> void:
 		var s = active_sieges[s_id]
 		if s.get("objective_id") == obj_id and s.get("status") == "active":
 			_resolve_siege_outcome(s_id, "VICTORY")
+	objective_destroyed.emit(obj_id, _killer_id)
 
 # -----------------------------------------------------------------------------
 # Serialization
