@@ -127,6 +127,7 @@ $manifest = @(
     "scripts/test/test_dynamic_workplaces.gd",
     "scripts/test/test_economy.gd",
     "scripts/test/test_emerging_faction_ascension.gd",
+    "scripts/test/test_endgame_crisis.gd",
     "scripts/test/test_enemy_military_ai.gd",
     "scripts/test/test_factions_and_battles.gd",
     "scripts/test/test_faction_diplomacy_ai.gd",

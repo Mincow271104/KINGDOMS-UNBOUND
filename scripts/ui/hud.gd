@@ -2889,8 +2889,20 @@ func update_population_display(current_pop: int, max_pop: int) -> void:
 func show_crisis_warning(data: Dictionary) -> void:
 	if not crisis_banner:
 		return
-	crisis_title.text = "⚠️ " + data.get("title", "CẢNH BÁO NGUY CƠ")
-	crisis_desc.text = "%s\nKhuyến nghị: %s" % [data.get("message", ""), data.get("recommended_action", "")]
+	var stage: String = str(data.get("stage", "warning"))
+	var icon: String = "⚠️ "
+	if stage == "active":
+		icon = "🚨 "
+	elif stage in ["recovery", "resolved"]:
+		icon = "✅ "
+	crisis_title.text = icon + data.get("title", "CẢNH BÁO NGUY CƠ")
+	var msg: String = str(data.get("message", ""))
+	var proj: String = str(data.get("projected_consequences", ""))
+	var act: String = str(data.get("recommended_action", ""))
+	if not proj.is_empty():
+		crisis_desc.text = "%s\nHậu quả dự kiến: %s\nKhuyến nghị: %s" % [msg, proj, act]
+	else:
+		crisis_desc.text = "%s\nKhuyến nghị: %s" % [msg, act]
 	crisis_banner.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	crisis_banner.visible = true
 	var timer := get_tree().create_timer(7.0)
@@ -2898,6 +2910,16 @@ func show_crisis_warning(data: Dictionary) -> void:
 		if is_instance_valid(crisis_banner):
 			crisis_banner.visible = false
 	)
+
+func show_crisis_active(data: Dictionary) -> void:
+	var active_data := data.duplicate(true)
+	active_data["stage"] = "active"
+	show_crisis_warning(active_data)
+
+func show_crisis_resolved(data: Dictionary) -> void:
+	var res_data := data.duplicate(true)
+	res_data["stage"] = "resolved"
+	show_crisis_warning(res_data)
 
 func hide_crisis_warning() -> void:
 	if crisis_banner:

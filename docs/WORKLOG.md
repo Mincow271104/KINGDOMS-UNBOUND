@@ -10993,3 +10993,72 @@ Implementation of Package 3C within Milestone 3 (Strategic Gameplay Complete), c
   - `docs/planning/PACKAGE_3C_SPECIFICATION.md` (Created)
   - `docs/WORKLOG.md` (Modified)
 - **Regression Baseline:** 67/67 suites passing (Exit Code 0, 0 unexpected failures).
+
+
+---
+
+## [2026-11-09] Package 4A — Endgame Crisis Scenarios & Settlement Resilience
+
+### Context & Objective
+Implementation of Package 4A under Milestone 4 (Complete Endgame & Longevity). Introduces meaningful late-game survival pressure through three GDD-backed crisis scenarios:
+1. Drought (Hạn Hán): Summer crop failure, water/food depletion pressure, citizen fatigue stress, post-drought soil recovery.
+2. Blizzard (Bão Tuyết): Winter seasonal eligibility, 100% frozen agriculture, wood heating fuel consumption (2 Wood/hr), cold hypothermia damage and lethal freezing upon wood exhaustion, structural snow load wear.
+3. Bandit Horde (Đại Họa Đạo Tặc): Prosperity-triggered militarized threat, border outpost garrison interception (Package 3A), standing army defense, bounded resource plundering (20% Food/Gold), and structural building damage (Package 2M durability).
+
+Every crisis features a complete 5-stage lifecycle conforming strictly to GDD §12.2 rules for warnings, integrates seamlessly with VictoryManager prosperity hold invalidation (GDD §12.3), and provides full backward-compatible Save/Load persistence.
+
+### Completed Work
+1. **Endgame Crisis Manager (scripts/core/crisis_manager.gd):**
+   - Authoritative crisis lifecycle state machine: STAGE_INACTIVE -> STAGE_WARNING (24h) -> STAGE_ACTIVE (24-72h) -> STAGE_RECOVERY (24h) -> STAGE_INACTIVE with 120h (5-day) cooldown.
+   - Seeded deterministic scheduling: process_day() evaluates seasonal constraints (Summer for Drought, Winter for Blizzard, Day >= 10 for Bandit Horde).
+   - Scenario Consequence Engine:
+     - Drought: Sets farm production multiplier to 0.40 (60% crop failure); increases citizen work fatigue accumulation (+0.5/hr). Recovers with revitalized soil (1.10 multiplier) for 24h.
+     - Blizzard: Sets farm production multiplier to 0.0 (frozen agriculture); increases outdoor fatigue (+50%); consumes 2 Wood/hr for heating. If wood stock reaches 0, activates hypothermia (-1 HP/hr); citizens die with cause 'hypothermia_or_cold'. Snow load deals periodic structural wear (2 damage) to random civic buildings every 12 hours via BuildingSystem.apply_damage().
+     - Bandit Horde: Threat scales with prosperity (8 to 14 bandits). Intercepted first by border outpost garrisons (PlayerArmyManager.garrisons), eliminating up to 2 bandits per garrisoned soldier with 1 casualty per 3 kills. Remaining bandits are engaged by standing field army. If any breach defenses, plunders bounded Food (20%, max 100) and Gold (20%, max 150), damages 1-2 civic buildings (25 damage each), and inflicts -10 morale across alive citizens. Strictly conserves soldier count.
+2. **Event System & Farm Multiplier Integration (scripts/core/world_event_system.gd):**
+   - Added crisis_manager reference and wired get_farm_production_multiplier() and get_active_fatigue_multiplier() to incorporate crisis multipliers dynamically without modifying individual workplace or job controllers.
+3. **Prosperity Victory Invalidation (scripts/core/victory_manager.gd):**
+   - Implemented GDD §12.3 line 936 constraint ('Không có khủng hoảng nghiêm trọng').
+   - Added 'crisis' prosperity check to evaluate_prosperity_conditions().
+   - Active crisis invalidates continuous 5-day prosperity hold, immediately resetting hold_hours_elapsed to 0.
+4. **HUD Warning & Alert Banner (scripts/ui/hud.gd):**
+   - Enhanced show_crisis_warning() to display GDD §12.2 compliant fields: Title with icon, Root Cause, Severity, Projected Consequences, and Recommended Actions.
+   - Added show_crisis_active() and show_crisis_resolved() for visual stage transitions.
+5. **WorldView Lifecycle Wiring (scripts/world/world_view.gd):**
+   - Instantiated and connected crisis_mgr with world_seed.
+   - Wired hourly simulation ticks in _on_simulation_hour_passed() and daily evaluations in _on_simulation_day_passed().
+6. **Save/Load Persistence & Legacy Safety (scripts/persistence/save_manager.gd):**
+   - Added crisis_manager section in extract_world_state().
+   - Validated crisis_manager dictionary in validate_save_data().
+   - Restored crisis stage, timers, active type, hypothermia, and stats in apply_loaded_state_to_world().
+   - Verified legacy saves lacking crisis_manager deserialize safely to clean idle state with zero errors.
+7. **Comprehensive Test Suite (scripts/test/test_endgame_crisis.gd):**
+   - 92 assertions across 14 scenarios covering lifecycle, drought, blizzard wood/hypothermia, seasonal eligibility, bandit horde outpost defense, breach damage/plunder, victory invalidation, save/load roundtrips, legacy compatibility, seed determinism, and multi-outpost soldier conservation.
+8. **Regression Manifest Update (scripts/test/run_regression.ps1):**
+   - Expanded regression suite manifest to 68 suites. All 68 passed with Exit Code 0.
+9. **GUI Live Gameplay Acceptance (scripts/test/visual_package_4a_live_acceptance.gd):**
+   - Executed live hardware test (D3D12 Forward+ on Windows, NVIDIA RTX 3050 Ti GPU). Captured 6 high-fidelity PNG screenshots in scratch/visual_validation/package_4a_live/.
+
+### Acceptance Classification
+- **T1 — Data/API:** VERIFIED (92/92 dedicated crisis assertions, 172/172 building damage/repair assertions, 171/171 outpost garrison assertions, 182/182 save/load assertions, 178/178 trade risk assertions, 138/138 scripts compiled cleanly).
+- **T2 — Backend Simulation:** VERIFIED (Deterministic crisis clocks, strict soldier conservation, bounded resource plundering, exact wood heating deduction, hypothermia health progression).
+- **T3 — UI Wiring/Integration:** VERIFIED (HUD crisis warning banner displays title, cause, consequences, recommendations, and stage transitions; live GUI acceptance verified).
+- **T4 — Natural Gameplay Loop:** NOT VERIFIED (Pending interactive user playtesting session).
+- **T5 — End-to-End Acceptance:** NOT VERIFIED (Pending full multi-year campaign playthrough).
+
+### Git Status & Verification Checkpoint
+- **Branch:** feature/package-3a-outpost-garrison-reinforcement
+- **Base HEAD:** f27daea
+- **Files Modified / Created:**
+  - scripts/core/crisis_manager.gd (Created)
+  - scripts/core/world_event_system.gd (Modified)
+  - scripts/core/victory_manager.gd (Modified)
+  - scripts/world/world_view.gd (Modified)
+  - scripts/ui/hud.gd (Modified)
+  - scripts/persistence/save_manager.gd (Modified)
+  - scripts/test/test_endgame_crisis.gd (Created)
+  - scripts/test/visual_package_4a_live_acceptance.gd (Created)
+  - scripts/test/run_regression.ps1 (Modified)
+  - docs/planning/PACKAGE_4A_SPECIFICATION.md (Created)
+  - docs/WORKLOG.md (Modified)
+- **Regression Baseline:** 68/68 suites passing (Exit Code 0, 0 unexpected failures).

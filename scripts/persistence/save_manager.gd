@@ -94,7 +94,8 @@ static func serialize_world_state(world_view: Node) -> Dictionary:
 		"automation": {},
 		"tactical_military": {},
 		"enemy_military": {},
-		"field_siege": {}
+		"field_siege": {},
+		"crisis_manager": {}
 	}
 	
 	if world_view == null:
@@ -389,6 +390,13 @@ static func serialize_world_state(world_view: Node) -> Dictionary:
 		data["active_caravan"] = act_caravan.call("serialize")
 	else:
 		data["active_caravan"] = {}
+
+	# 21. Crisis Manager (Package 4A)
+	var cr_mgr = world_view.get("crisis_mgr")
+	if cr_mgr != null and cr_mgr.has_method("serialize"):
+		data["crisis_manager"] = cr_mgr.call("serialize")
+	else:
+		data["crisis_manager"] = {}
 
 	return data
 
@@ -1655,6 +1663,11 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 			if car_val.has("is_origin_at_war") and not (car_val.get("is_origin_at_war") is bool):
 				return {"valid": false, "error": "is_origin_at_war trong active_caravan phải là bool."}
 
+	if json_dict.has("crisis_manager") and not json_dict.get("crisis_manager").is_empty():
+		var cr_val = json_dict.get("crisis_manager")
+		if not (cr_val is Dictionary):
+			return {"valid": false, "error": "Dữ liệu khủng hoảng 'crisis_manager' phải là Dictionary."}
+
 	return {"valid": true, "error": ""}
 
 static func _read_and_validate_save_file(path: String) -> Dictionary:
@@ -2405,6 +2418,14 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 
 	if world_view.has_method("refresh_caravan_marker"):
 		world_view.call("refresh_caravan_marker")
+
+	# 21. Restore Crisis Manager (Package 4A)
+	var cr_mgr = world_view.get("crisis_mgr")
+	if cr_mgr != null and cr_mgr.has_method("deserialize"):
+		var cr_data = loaded_data.get("crisis_manager", {})
+		if not (cr_data is Dictionary):
+			cr_data = {}
+		cr_mgr.call("deserialize", cr_data)
 
 	var cit_count: int = world_view.get("citizen_list").size() if world_view.get("citizen_list") != null else 0
 	var bld_count: int = world_data.buildings.size() if world_data != null and world_data.get("buildings") != null else 0

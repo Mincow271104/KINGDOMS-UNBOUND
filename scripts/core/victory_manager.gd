@@ -89,14 +89,15 @@ func calculate_stability(food_stock: int, treasury_stock: int, pop: int, housing
 		
 	return clampf(stability, 0.0, 100.0)
 
-func evaluate_prosperity_conditions(pop: int, food: int, treasury: int, stability: float, morale: float, techs_unlocked: int) -> Dictionary:
+func evaluate_prosperity_conditions(pop: int, food: int, treasury: int, stability: float, morale: float, techs_unlocked: int, crisis_active: bool = false, crisis_name: String = "") -> Dictionary:
 	var conditions: Dictionary = {
 		"population": {"met": pop >= min_population, "current": pop, "target": min_population, "name": "Dân số (>= 30)"},
 		"food": {"met": food >= min_food, "current": food, "target": min_food, "name": "Lương thực (>= 500)"},
 		"treasury": {"met": treasury >= min_treasury, "current": treasury, "target": min_treasury, "name": "Ngân khố (>= 1000)"},
 		"stability": {"met": stability >= min_stability, "current": stability, "target": min_stability, "name": "Độ ổn định (>= 80%)"},
 		"morale": {"met": morale >= min_morale, "current": morale, "target": min_morale, "name": "Sĩ khí trung bình (>= 75%)"},
-		"technologies": {"met": techs_unlocked >= min_technologies, "current": techs_unlocked, "target": min_technologies, "name": "Công nghệ (>= 3)"}
+		"technologies": {"met": techs_unlocked >= min_technologies, "current": techs_unlocked, "target": min_technologies, "name": "Công nghệ (>= 3)"},
+		"crisis": {"met": not crisis_active, "current": ("Đang khủng hoảng: " + crisis_name) if crisis_active else "Bình yên", "target": "Không có khủng hoảng", "name": "Không có khủng hoảng nghiêm trọng"}
 	}
 	
 	var all_met: bool = true
@@ -112,7 +113,7 @@ func evaluate_prosperity_conditions(pop: int, food: int, treasury: int, stabilit
 		"failed": failed_conditions
 	}
 
-func tick_hourly(pop: int, food: int, treasury: int, stability: float, morale: float, techs_unlocked: int, town_hall_alive: bool, buildings_count: int = 0) -> Dictionary:
+func tick_hourly(pop: int, food: int, treasury: int, stability: float, morale: float, techs_unlocked: int, town_hall_alive: bool, buildings_count: int = 0, crisis_active: bool = false, crisis_name: String = "") -> Dictionary:
 	if is_collapse_triggered:
 		return {"status": "collapsed"}
 		
@@ -156,8 +157,8 @@ func tick_hourly(pop: int, food: int, treasury: int, stability: float, morale: f
 	# 2. Check Crisis / Decline warnings
 	_evaluate_crises(food, treasury, morale, stability, town_hall_alive)
 
-	# 3. Evaluate Prosperity Victory Continuous Hold
-	var victory_eval := evaluate_prosperity_conditions(pop, food, treasury, stability, morale, techs_unlocked)
+	# 3. Evaluate Prosperity Victory Continuous Hold (GDD §12.3: No active severe crisis)
+	var victory_eval := evaluate_prosperity_conditions(pop, food, treasury, stability, morale, techs_unlocked, crisis_active, crisis_name)
 	if victory_eval["all_met"]:
 		hold_hours_elapsed += 1.0
 		victory_progress_updated.emit(hold_hours_elapsed, TARGET_VICTORY_HOLD_HOURS)

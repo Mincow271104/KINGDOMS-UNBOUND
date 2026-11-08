@@ -14,6 +14,7 @@ const TradeRouteCalculatorScript = preload("res://scripts/trade/trade_route_calc
 const EnemyMilitaryManagerScript = preload("res://scripts/military/enemy_military_manager.gd")
 const FieldSiegeManagerScript = preload("res://scripts/combat/field_siege_manager.gd")
 const LegacyProfileManagerScript = preload("res://scripts/legacy/legacy_profile_manager.gd")
+const CrisisManagerScript = preload("res://scripts/core/crisis_manager.gd")
 
 @export var world_seed: int = 12345
 @export var world_id: String = ""
@@ -50,6 +51,7 @@ var faction_mgr: FactionManager
 var active_caravan: RefCounted = null
 var immigration_mgr: ImmigrationManager
 var victory_mgr: VictoryManager
+var crisis_mgr: RefCounted = null
 var battle_campaign_mgr: RefCounted = null
 var player_army_mgr: RefCounted = null
 var tactical_military_mgr: RefCounted = null
@@ -250,6 +252,8 @@ func _generate_and_build_world() -> void:
 	poi_mgr.poi_revealed.connect(_on_poi_revealed)
 	
 	event_system = WorldEventSystem.new(world_seed)
+	crisis_mgr = CrisisManagerScript.new(world_seed)
+	event_system.set_crisis_manager(crisis_mgr)
 	faction_mgr = FactionManager.new()
 	immigration_mgr = ImmigrationManager.new(world_seed + 777)
 	if world_id.strip_edges().is_empty():
@@ -331,6 +335,10 @@ func _generate_and_build_world() -> void:
 		victory_mgr.victory_achieved.connect(func(report: Dictionary): hud.show_victory_panel(report))
 		victory_mgr.collapse_triggered.connect(func(report: Dictionary): hud.show_collapse_panel(report))
 		victory_mgr.crisis_warning_issued.connect(func(warning: Dictionary): hud.show_crisis_warning(warning))
+		if crisis_mgr != null:
+			crisis_mgr.crisis_warning_issued.connect(func(w: Dictionary): hud.show_crisis_warning(w))
+			crisis_mgr.crisis_started.connect(func(w: Dictionary): hud.show_crisis_active(w))
+			crisis_mgr.crisis_resolved.connect(func(w: Dictionary): hud.show_crisis_resolved(w))
 	
 	_setup_workplaces()
 	_create_workplace_jobs()
@@ -2905,16 +2913,30 @@ func _on_simulation_hour_passed(hour: int, day: int) -> void:
 		if imm_res["allowed"] and not imm_res["immigrants"].is_empty():
 			_spawn_immigrant_wave(imm_res["immigrants"])
 
+	if crisis_mgr != null:
+		var tm_node = get_node_or_null("/root/TimeManager")
+		var season_name: String = tm_node.get_season_name() if tm_node else "spring"
+		crisis_mgr.tick_hourly(hour, day, season_name, world_data, rm, citizen_list, player_army_mgr, field_siege_mgr, hud)
+
 	if victory_mgr != null:
 		var stability: float = victory_mgr.calculate_stability(food_stock, gold_stock, current_pop, housing_cap, avg_morale, town_hall_alive)
-		victory_mgr.tick_hourly(current_pop, food_stock, gold_stock, stability, avg_morale, techs_count, town_hall_alive, buildings_count)
+		var is_cr_active: bool = (crisis_mgr != null and crisis_mgr.is_crisis_active())
+		var cr_name: String = crisis_mgr.get_crisis_display_name() if crisis_mgr else ""
+		victory_mgr.tick_hourly(current_pop, food_stock, gold_stock, stability, avg_morale, techs_count, town_hall_alive, buildings_count, is_cr_active, cr_name)
 
 func _on_simulation_day_passed(day: int, _season: String, _year: int) -> void:
 	var rm = _get_resource_mgr()
 	var em = get_node_or_null("/root/EventManager")
+	var tm = get_node_or_null("/root/TimeManager")
 
 	if not pending_death_cargo.is_empty():
 		flush_pending_death_cargo()
+
+	if crisis_mgr != null:
+		var s_idx: int = tm.season_index if tm else 0
+		var s_name: String = tm.get_season_name() if tm else "spring"
+		var cur_gold: int = rm.get_available_stock("gold") if rm else 0
+		crisis_mgr.process_day(day, s_name, s_idx, world_data, rm, citizen_list.size(), cur_gold)
 
 	if event_system != null:
 		event_system.update_daily_modifiers(day)

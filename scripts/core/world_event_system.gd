@@ -65,6 +65,12 @@ var _farm_bonus_expires_day: int = -1
 var _active_fatigue_multiplier: float = BASE_FATIGUE_MULTIPLIER
 var _fatigue_mult_expires_day: int = -1
 
+# Package 4A: Crisis Manager linkage
+var crisis_manager: RefCounted = null
+
+func set_crisis_manager(cm: RefCounted) -> void:
+	crisis_manager = cm
+
 func _init(seed_val: int = 12345) -> void:
 	_initial_seed = seed_val + 9999
 	rng = RandomNumberGenerator.new()
@@ -151,14 +157,21 @@ func get_active_farm_modifier_bonus(current_day: int = -1) -> float:
 
 func get_farm_production_multiplier(base_season_modifier: float = 1.0, current_day: int = -1) -> float:
 	var bonus := get_active_farm_modifier_bonus(current_day)
-	return maxf(0.0, base_season_modifier * (1.0 + bonus))
+	var mult: float = maxf(0.0, base_season_modifier * (1.0 + bonus))
+	if crisis_manager != null and crisis_manager.has_method("get_farm_production_multiplier"):
+		mult *= float(crisis_manager.call("get_farm_production_multiplier"))
+	return maxf(0.0, mult)
 
 func get_active_fatigue_multiplier(current_day: int = -1) -> float:
+	var mult: float = BASE_FATIGUE_MULTIPLIER
 	if current_day >= 0:
 		update_daily_modifiers(current_day)
-	elif _fatigue_mult_expires_day < 0:
-		return BASE_FATIGUE_MULTIPLIER
-	return _active_fatigue_multiplier
+		mult = _active_fatigue_multiplier
+	elif _fatigue_mult_expires_day >= 0:
+		mult = _active_fatigue_multiplier
+	if crisis_manager != null and crisis_manager.has_method("get_citizen_fatigue_multiplier"):
+		mult *= float(crisis_manager.call("get_citizen_fatigue_multiplier"))
+	return mult
 
 func is_farm_bonus_active(current_day: int = -1) -> bool:
 	return get_active_farm_modifier_bonus(current_day) > 0.0
