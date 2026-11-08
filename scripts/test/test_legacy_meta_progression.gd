@@ -104,6 +104,7 @@ func _run_all_tests() -> void:
 	all_ok = _test_reward_idempotency_and_reopened_save() and all_ok
 	all_ok = _test_cross_campaign_multi_reward_and_perk_progression() and all_ok
 	all_ok = _test_profile_atomic_backup_recovery_and_fail_closed() and all_ok
+	all_ok = _test_victory_settlement_crash_consistency_interruption_windows() and all_ok
 
 	_cleanup_test_files()
 
@@ -922,4 +923,193 @@ func _test_profile_atomic_backup_recovery_and_fail_closed() -> bool:
 	ok = _assert_check(reject_buy.get("reason") == "profile_unavailable", "Reason is profile_unavailable") and ok
 
 	return ok
+
+# -----------------------------------------------------------------------------
+# Scenario 23: Multi-File Settlement Interruption Windows & Crash Consistency
+# -----------------------------------------------------------------------------
+func _test_victory_settlement_crash_consistency_interruption_windows() -> bool:
+	print("\n--- Scenario 23: Settlement Interruption Windows & Crash Consistency ---")
+	var prof := _setup_test_profile(0)
+	LegacyProfileManagerScript.set_instance(prof)
+	var scene_res = load("res://scenes/world/world_view.tscn")
+	var ok: bool = true
+
+	# =========================================================================
+	# Window 1: Interruption before any profile mutation
+	# =========================================================================
+	print("  -> Testing Window 1: Halt before any profile mutation...")
+	var wv1: WorldView = scene_res.instantiate()
+	wv1.world_seed = 7001
+	root.add_child(wv1)
+	var rm1: Node = root.get_node_or_null("ResourceManager")
+	if rm1 != null:
+		rm1.call("reset_economy")
+		rm1.call("add_resource", "gold", 2300) # 2500 total gold
+	SaveManagerScript.save_to_file(wv1, TEST_SAVE_A)
+
+	# Simulate interruption: process stopped before any mutation.
+	root.remove_child(wv1)
+	wv1.queue_free()
+
+	# Fresh reload from disk
+	var wv1_fresh: WorldView = scene_res.instantiate()
+	wv1_fresh.world_seed = 7001
+	root.add_child(wv1_fresh)
+	var load_res1: Dictionary = SaveManagerScript.load_from_file(TEST_SAVE_A)
+	SaveManagerScript.apply_loaded_state_to_world(wv1_fresh, load_res1.get("data", {}))
+	var vic1: VictoryManager = wv1_fresh.victory_mgr
+	vic1.is_victory_achieved = true
+	vic1.legacy_points_earned = 100
+
+	# Retry settlement on recovered instance
+	var set1: Dictionary = vic1.finalize_victory_settlement(rm1, 85.0)
+	ok = _assert_check(set1.get("success", false) == true, "W1: Settlement succeeds after clean restart") and ok
+	ok = _assert_check(set1.get("total_legacy_awarded", 0) == 115, "W1: Full 115 LP awarded (100 base + 15 surplus)") and ok
+	ok = _assert_check(prof.legacy_balance == 115, "W1: Profile balance reflects 115 LP") and ok
+	ok = _assert_check(rm1.call("get_available_stock", "gold") == 1000, "W1: 1500 gold deducted, 1000 reserve remains") and ok
+
+	root.remove_child(wv1_fresh)
+	wv1_fresh.queue_free()
+
+	# =========================================================================
+	# Window 2: Interruption after base Victory reward persisted, before treasury conversion
+	# =========================================================================
+	print("  -> Testing Window 2: Interruption after base reward, before treasury conversion...")
+	var wv2: WorldView = scene_res.instantiate()
+	wv2.world_seed = 7002
+	root.add_child(wv2)
+	var rm2: Node = root.get_node_or_null("ResourceManager")
+	if rm2 != null:
+		rm2.call("reset_economy")
+		rm2.call("add_resource", "gold", 1800) # 2000 total gold
+	SaveManagerScript.save_to_file(wv2, TEST_SAVE_A)
+	var wid2: String = wv2.world_id
+
+	# Simulate Step 1 completed (base victory persisted), but execution stopped before treasury conversion:
+	var can_id2: String = "victory_" + wid2
+	var base_claim: Dictionary = prof.claim_reward(can_id2, "victory", 100, wid2)
+	ok = _assert_check(base_claim.get("success", false) == true, "W2: Base victory reward persisted to profile") and ok
+	var bal_before_w2_retry: int = prof.legacy_balance
+	# Note: Campaign save TEST_SAVE_A on disk still has is_legacy_claimed=false, is_treasury_converted=false, gold=2000
+
+	root.remove_child(wv2)
+	wv2.queue_free()
+
+	# Restart into fresh instance from un-settled campaign save
+	var wv2_fresh: WorldView = scene_res.instantiate()
+	wv2_fresh.world_seed = 7002
+	root.add_child(wv2_fresh)
+	var load_res2: Dictionary = SaveManagerScript.load_from_file(TEST_SAVE_A)
+	SaveManagerScript.apply_loaded_state_to_world(wv2_fresh, load_res2.get("data", {}))
+	var vic2: VictoryManager = wv2_fresh.victory_mgr
+	vic2.is_victory_achieved = true
+	vic2.legacy_points_earned = 100
+
+	# Reconciled on load via SaveManager
+	ok = _assert_check(vic2.is_legacy_claimed == true, "W2: SaveManager reconciled is_legacy_claimed == true from profile") and ok
+	ok = _assert_check(vic2.is_treasury_converted == false, "W2: Treasury conversion not yet settled") and ok
+
+	# Resume/Retry settlement: should detect base already claimed, skip 100 LP, and convert treasury (+10 LP)
+	var set2: Dictionary = vic2.finalize_victory_settlement(rm2, 85.0)
+	ok = _assert_check(set2.get("success", false) == true, "W2: Settlement completes remaining treasury conversion") and ok
+	ok = _assert_check(set2.get("victory_points_awarded", -1) == 0, "W2: Zero duplicate victory points awarded") and ok
+	ok = _assert_check(set2.get("treasury_points_awarded", 0) == 10, "W2: Treasury conversion awarded +10 LP") and ok
+	ok = _assert_check(set2.get("total_legacy_awarded", 0) == 10, "W2: Total awarded in retry is +10 LP") and ok
+	ok = _assert_check(prof.legacy_balance == bal_before_w2_retry + 10, "W2: Total profile balance increased by exactly 10 (no double-count)") and ok
+	ok = _assert_check(rm2.call("get_available_stock", "gold") == 1000, "W2: 1000 gold converted, 1000 reserve protected") and ok
+
+	root.remove_child(wv2_fresh)
+	wv2_fresh.queue_free()
+
+	# =========================================================================
+	# Window 3 & 4 & 7: Interruption after treasury conversion persisted, before/during campaign save
+	# =========================================================================
+	print("  -> Testing Window 3/4/7: Interruption after profile conversion, before campaign save...")
+	var wv3: WorldView = scene_res.instantiate()
+	wv3.world_seed = 7003
+	root.add_child(wv3)
+	var rm3: Node = root.get_node_or_null("ResourceManager")
+	if rm3 != null:
+		rm3.call("reset_economy")
+		rm3.call("add_resource", "gold", 2800) # 3000 total gold
+	var vic3: VictoryManager = wv3.victory_mgr
+	vic3.is_victory_achieved = true
+	vic3.legacy_points_earned = 100
+	# Save initial world with victory achieved BEFORE settlement
+	SaveManagerScript.save_to_file(wv3, TEST_SAVE_A)
+
+	# Full settlement succeeds in memory & writes profile (100 base + 20 treasury = 120 LP)
+	var bal_before_w3: int = prof.legacy_balance
+	var set3: Dictionary = vic3.finalize_victory_settlement(rm3, 85.0)
+	ok = _assert_check(set3.get("success", false) == true, "W3: Settlement succeeded in profile") and ok
+	ok = _assert_check(prof.legacy_balance == bal_before_w3 + 120, "W3: Profile balance credited +120 LP") and ok
+
+	# CRASH SIMULATION: We DO NOT call SaveManagerScript.save_to_file().
+	# Therefore, TEST_SAVE_A on disk still has 3000 gold and is_treasury_converted = false!
+	root.remove_child(wv3)
+	wv3.queue_free()
+
+	# Fresh reload from the old un-settled campaign save
+	var wv3_fresh: WorldView = scene_res.instantiate()
+	wv3_fresh.world_seed = 7003
+	root.add_child(wv3_fresh)
+	var load_res3: Dictionary = SaveManagerScript.load_from_file(TEST_SAVE_A)
+	# Apply loaded state: this triggers SaveManager Cross-File Crash Recovery!
+	SaveManagerScript.apply_loaded_state_to_world(wv3_fresh, load_res3.get("data", {}))
+	var vic3_fresh: VictoryManager = wv3_fresh.victory_mgr
+
+	ok = _assert_check(vic3_fresh.is_legacy_claimed == true, "W3: Recovery reconciled is_legacy_claimed == true") and ok
+	ok = _assert_check(vic3_fresh.is_treasury_converted == true, "W3: Recovery reconciled is_treasury_converted == true") and ok
+	ok = _assert_check(rm3.call("get_available_stock", "gold") == 1000, "W3: Retroactive gold deduction: 3000 - 2000 = 1000 gold!") and ok
+
+	# Retrying settlement on recovered world rejects safely with already_settled
+	var set3_retry: Dictionary = vic3_fresh.finalize_victory_settlement(rm3, 85.0)
+	ok = _assert_check(set3_retry.get("success", true) == false, "W3: Retry rejected because settlement already settled") and ok
+	ok = _assert_check(set3_retry.get("reason") == "already_settled", "W3: Retry reason is already_settled") and ok
+	ok = _assert_check(set3_retry.get("total_legacy_awarded", -1) == 0, "W3: 0 points awarded on retry") and ok
+	ok = _assert_check(prof.legacy_balance == bal_before_w3 + 120, "W3: Balance invariant holds (no double-crediting)") and ok
+
+	root.remove_child(wv3_fresh)
+	wv3_fresh.queue_free()
+
+	# =========================================================================
+	# Window 6: Profile write failure during settlement
+	# =========================================================================
+	print("  -> Testing Window 6: Profile write failure fail-closed rollback...")
+	var wv4: WorldView = scene_res.instantiate()
+	wv4.world_seed = 7004
+	root.add_child(wv4)
+	var rm4: Node = root.get_node_or_null("ResourceManager")
+	if rm4 != null:
+		rm4.call("reset_economy")
+		rm4.call("add_resource", "gold", 2300) # 2500 total gold
+	SaveManagerScript.save_to_file(wv4, TEST_SAVE_A)
+
+	var vic4: VictoryManager = wv4.victory_mgr
+	vic4.is_victory_achieved = true
+	vic4.legacy_points_earned = 100
+
+	# Inject profile write failure
+	prof._test_inject_fail_write = true
+	var bal_before_w6: int = prof.legacy_balance
+	var set4_fail: Dictionary = vic4.finalize_victory_settlement(rm4, 85.0)
+
+	ok = _assert_check(set4_fail.get("success", true) == false, "W6: Settlement failed when profile cannot write") and ok
+	ok = _assert_check(prof.legacy_balance == bal_before_w6, "W6: Profile balance rolled back cleanly (0 phantom LP)") and ok
+	ok = _assert_check(rm4.call("get_available_stock", "gold") == 2500, "W6: Gold untouched on disk failure (2500 remains)") and ok
+	ok = _assert_check(vic4.is_treasury_converted == false, "W6: Treasury conversion state remains false") and ok
+
+	# Restore normal profile write capability and retry
+	prof._test_inject_fail_write = false
+	var set4_retry: Dictionary = vic4.finalize_victory_settlement(rm4, 85.0)
+	ok = _assert_check(set4_retry.get("success", false) == true, "W6: Settlement succeeds on retry after disk error cleared") and ok
+	ok = _assert_check(set4_retry.get("total_legacy_awarded", 0) == 115, "W6: Awards 115 LP on retry") and ok
+	ok = _assert_check(prof.legacy_balance == bal_before_w6 + 115, "W6: Profile balance credited exactly 115 LP") and ok
+	ok = _assert_check(rm4.call("get_available_stock", "gold") == 1000, "W6: Gold deducted properly on retry") and ok
+
+	root.remove_child(wv4)
+	wv4.queue_free()
+
+	return ok
+
 

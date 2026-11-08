@@ -2163,9 +2163,10 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 	var vic_data: Dictionary = loaded_data.get("victory", {}) if loaded_data.get("victory") is Dictionary else {}
 	var vic_mgr = world_view.get("victory_mgr")
 	if vic_mgr != null:
+		var active_inst = null
 		var LegacyProfileManagerScript = load("res://scripts/legacy/legacy_profile_manager.gd")
 		if LegacyProfileManagerScript != null and LegacyProfileManagerScript.has_method("get_instance"):
-			var active_inst = LegacyProfileManagerScript.get_instance()
+			active_inst = LegacyProfileManagerScript.get_instance()
 			if active_inst != null:
 				vic_mgr.set("profile_mgr", active_inst)
 		vic_mgr.set("hold_hours_elapsed", float(vic_data.get("hold_hours_elapsed", 0.0)))
@@ -2174,7 +2175,16 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 		vic_mgr.set("peak_population", int(vic_data.get("peak_population", 24)))
 		vic_mgr.set("total_simulation_hours", float(vic_data.get("total_simulation_hours", 0.0)))
 		vic_mgr.set("legacy_points_earned", int(vic_data.get("legacy_points_earned", 0)))
-		vic_mgr.set("is_legacy_claimed", bool(vic_data.get("is_legacy_claimed", false)))
+		var was_save_claimed: bool = bool(vic_data.get("is_legacy_claimed", false))
+		if not was_save_claimed and active_inst != null and active_inst.has_method("is_reward_claimed"):
+			var can_id: String = ""
+			if vic_mgr.has_method("get_canonical_victory_reward_id"):
+				can_id = vic_mgr.get_canonical_victory_reward_id()
+			if can_id.is_empty() and not str(restored_world_id).strip_edges().is_empty():
+				can_id = ("victory_" + str(restored_world_id)).strip_edges()
+			if not can_id.is_empty() and active_inst.is_reward_claimed(can_id):
+				was_save_claimed = true
+		vic_mgr.set("is_legacy_claimed", was_save_claimed)
 		var was_save_converted: bool = bool(vic_data.get("is_treasury_converted", false))
 		vic_mgr.set("is_treasury_converted", was_save_converted)
 		var tc_rec = vic_data.get("treasury_conversion_record", {})
@@ -2188,6 +2198,8 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 				var gold_to_deduct: int = int(active_rec.get("gold_deducted", 0))
 				if gold_to_deduct > 0:
 					var rm_node = world_view.get_node_or_null("/root/ResourceManager") if world_view.is_inside_tree() else null
+					if rm_node == null and world_view.has_method("_get_resource_mgr"):
+						rm_node = world_view.call("_get_resource_mgr")
 					if rm_node == null and world_view.get("resource_mgr") != null:
 						rm_node = world_view.get("resource_mgr")
 					if rm_node != null:
