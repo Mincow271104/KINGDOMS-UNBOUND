@@ -2851,7 +2851,7 @@ func _on_day_passed(_day: int, _season: String, _year: int) -> void:
 		_refresh_army_panel()
 
 func _update_time_display() -> void:
-	if not get_node_or_null("/root/TimeManager"):
+	if not is_inside_tree() or not get_node_or_null("/root/TimeManager"):
 		return
 	var tm = get_node("/root/TimeManager")
 	clock_label.text = tm.get_clock_string()
@@ -2863,7 +2863,7 @@ func _on_resource_changed(id: String, _avail: int, _total: int) -> void:
 		_request_caravan_quotes_refresh()
 
 func _refresh_all_resources() -> void:
-	if not get_node_or_null("/root/ResourceManager"):
+	if not is_inside_tree() or not get_node_or_null("/root/ResourceManager"):
 		return
 	var rm = get_node("/root/ResourceManager")
 	food_label.text = "🌾 Lương thực: %d" % rm.get_available_stock("food")
