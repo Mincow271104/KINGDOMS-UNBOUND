@@ -42,6 +42,7 @@ var next_reinforce_id: int = 1
 var next_soldier_id: int = 1
 var _test_registered_outposts: Dictionary = {}
 var _custom_field_siege_mgr: Object = null
+const DEFAULT_OUTPOST_GARRISON_CAPACITY: int = 3
 
 const RALLY_PERIMETER_DISTANCE: int = 5
 var tactical_military_mgr: Object = null
@@ -1351,7 +1352,9 @@ func get_garrison_count(outpost_id: String) -> int:
 
 func get_garrison_capacity(outpost_id: String) -> int:
 	if garrisons.has(outpost_id) and garrisons[outpost_id].has("capacity"):
-		return int(garrisons[outpost_id]["capacity"])
+		var g_cap = garrisons[outpost_id]["capacity"]
+		if g_cap != null and int(g_cap) > 0:
+			return int(g_cap)
 	var info := get_outpost_info(outpost_id)
 	return int(info.get("capacity", 0))
 
@@ -1360,13 +1363,15 @@ func get_outpost_info(outpost_id: String) -> Dictionary:
 		var t_info = _test_registered_outposts[outpost_id]
 		var is_p: bool = (str(t_info.get("owner", "player")) == "player")
 		var is_a: bool = bool(t_info.get("is_alive", true))
+		var raw_t_cap = t_info.get("capacity")
+		var t_cap: int = int(raw_t_cap) if raw_t_cap != null and int(raw_t_cap) > 0 else DEFAULT_OUTPOST_GARRISON_CAPACITY
 		return {
 			"valid": is_p and is_a,
 			"type": "outpost",
 			"owner": str(t_info.get("owner", "player")),
 			"is_alive": is_a,
 			"cell": t_info.get("cell", Vector2i.ZERO),
-			"capacity": maxi(1, int(t_info.get("capacity", 4))),
+			"capacity": t_cap,
 			"name": outpost_id,
 			"reason": "" if (is_p and is_a) else "Tiền đồn không thuộc quyền kiểm soát của bạn hoặc đã bị phá hủy"
 		}
@@ -1379,7 +1384,8 @@ func get_outpost_info(outpost_id: String) -> Dictionary:
 			var owner_str: String = str(obj.get("owning_faction_id"))
 			var alive: bool = bool(obj.get("is_alive")) if obj.get("is_alive") != null else true
 			var is_player: bool = (owner_str == "player")
-			var cap: int = maxi(1, int(obj.get("garrison_count"))) if obj.get("garrison_count") != null and int(obj.get("garrison_count")) > 0 else 4
+			var raw_cap = obj.get("garrison_count")
+			var cap: int = int(raw_cap) if raw_cap != null and int(raw_cap) > 0 else DEFAULT_OUTPOST_GARRISON_CAPACITY
 			return {
 				"valid": is_player and alive,
 				"type": "objective",
@@ -1427,13 +1433,15 @@ func get_outpost_info(outpost_id: String) -> Dictionary:
 
 	# If already recorded in garrisons (e.g. from loaded save)
 	if garrisons.has(outpost_id):
+		var raw_g_cap = garrisons[outpost_id].get("capacity")
+		var g_cap: int = int(raw_g_cap) if raw_g_cap != null and int(raw_g_cap) > 0 else DEFAULT_OUTPOST_GARRISON_CAPACITY
 		return {
 			"valid": true,
 			"type": "outpost",
 			"owner": "player",
 			"is_alive": true,
 			"cell": rally_cell,
-			"capacity": int(garrisons[outpost_id].get("capacity", 4)),
+			"capacity": g_cap,
 			"name": outpost_id,
 			"reason": ""
 		}
@@ -1453,7 +1461,8 @@ func station_soldier(outpost_id: String, count: int = 1) -> Dictionary:
 	if not bool(info.get("valid", false)):
 		return {"success": false, "reason": info.get("reason", "Tiền đồn không hợp lệ")}
 
-	var cap: int = int(info.get("capacity", 4))
+	var raw_cap = info.get("capacity")
+	var cap: int = int(raw_cap) if raw_cap != null and int(raw_cap) > 0 else DEFAULT_OUTPOST_GARRISON_CAPACITY
 	var cur: int = get_garrison_count(outpost_id)
 	var in_transit: int = get_in_transit_count(outpost_id)
 	if cur + in_transit + count > cap:
@@ -1526,7 +1535,8 @@ func dispatch_reinforcements(outpost_id: String, count: int = 1, travel_hours: f
 	if not bool(info.get("valid", false)):
 		return {"success": false, "reason": info.get("reason", "Tiền đồn không hợp lệ")}
 
-	var cap: int = int(info.get("capacity", 4))
+	var raw_cap = info.get("capacity")
+	var cap: int = int(raw_cap) if raw_cap != null and int(raw_cap) > 0 else DEFAULT_OUTPOST_GARRISON_CAPACITY
 	var cur: int = get_garrison_count(outpost_id)
 	var in_transit: int = get_in_transit_count(outpost_id)
 	if cur + in_transit + count > cap:
@@ -1596,9 +1606,11 @@ func advance_reinforcements(delta_hours: float) -> Array[Dictionary]:
 			var info := get_outpost_info(out_id)
 			if bool(info.get("valid", false)):
 				if not garrisons.has(out_id):
+					var raw_cap = info.get("capacity")
+					var cap: int = int(raw_cap) if raw_cap != null and int(raw_cap) > 0 else DEFAULT_OUTPOST_GARRISON_CAPACITY
 					garrisons[out_id] = {
 						"outpost_id": out_id,
-						"capacity": int(info.get("capacity", 4)),
+						"capacity": cap,
 						"soldiers": []
 					}
 				for s in s_list:
@@ -1654,9 +1666,11 @@ func serialize_garrisons() -> Dictionary:
 		for s in g.get("soldiers", []):
 			if s is Dictionary:
 				s_copy.append(s.duplicate())
+		var raw_cap = g.get("capacity")
+		var cap: int = int(raw_cap) if raw_cap != null and int(raw_cap) > 0 else DEFAULT_OUTPOST_GARRISON_CAPACITY
 		result["garrisons"][o_id] = {
 			"outpost_id": o_id,
-			"capacity": int(g.get("capacity", 4)),
+			"capacity": cap,
 			"soldiers": s_copy
 		}
 	for r in active_reinforcements:
@@ -1680,9 +1694,11 @@ func deserialize_garrisons(data: Dictionary) -> bool:
 					for s in raw_s:
 						if s is Dictionary:
 							s_list.append(s.duplicate())
+				var raw_cap = g_rec.get("capacity")
+				var cap: int = int(raw_cap) if raw_cap != null and int(raw_cap) > 0 else DEFAULT_OUTPOST_GARRISON_CAPACITY
 				garrisons[str(o_id)] = {
 					"outpost_id": str(o_id),
-					"capacity": maxi(1, int(g_rec.get("capacity", 4))),
+					"capacity": cap,
 					"soldiers": s_list
 				}
 

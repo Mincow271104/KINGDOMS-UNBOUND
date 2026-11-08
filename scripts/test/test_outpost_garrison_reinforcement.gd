@@ -94,6 +94,15 @@ func _run_all_tests() -> void:
 	_test_tc_ogr_24_save_manager_persistence_roundtrip()
 	_test_tc_ogr_25_save_manager_legacy_backward_compatibility()
 	_test_tc_ogr_26_idempotency_and_invalid_inputs()
+	# Package 3A Follow-Up: Outpost Capacity Correctness (TC-CAP.01 to TC-CAP.08)
+	_test_tc_cap_01_legacy_save_missing_capacity()
+	_test_tc_cap_02_invalid_zero_capacity()
+	_test_tc_cap_03_negative_capacity()
+	_test_tc_cap_04_explicit_capacity_preservation()
+	_test_tc_cap_05_new_objective_default()
+	_test_tc_cap_06_legacy_pre_package_1x_default_objectives()
+	_test_tc_cap_07_save_load_persistence()
+	_test_tc_cap_08_soldier_conservation()
 
 # -----------------------------------------------------------------------------
 # 1. TC-OGR.01: Initialization & Defaults
@@ -695,3 +704,255 @@ func _test_tc_ogr_26_idempotency_and_invalid_inputs() -> void:
 	_assert(res_neg_disp.get("success", true) == false, "TC-OGR.26.4: Negative dispatch count rejected fail-closed")
 
 	_assert(pam.soldier_count == 5, "TC-OGR.26.5: Soldier count completely unaffected by invalid operations")
+
+# =============================================================================
+# PACKAGE 3A FOLLOW-UP: OUTPOST CAPACITY CORRECTNESS (TC-CAP.01 to TC-CAP.08)
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# 27. TC-CAP.01: Legacy Field Siege Save Missing Capacity
+# -----------------------------------------------------------------------------
+func _test_tc_cap_01_legacy_save_missing_capacity() -> void:
+	print("\n--- TC-CAP.01: Legacy Field Siege Save Missing Capacity ---")
+	var legacy_dict := {
+		"objective_id": "outpost_legacy_missing",
+		"objective_name": "Tiền Đồn Cũ",
+		"owning_faction_id": "player",
+		"current_cell": [10, 10],
+		"health": 250.0,
+		"max_health": 250.0,
+		"is_alive": true
+	}
+	var actor := SiegeObjectiveActorScript.new()
+	var deser_ok: bool = actor.deserialize(legacy_dict)
+	_assert(deser_ok, "TC-CAP.01.1: Actor deserialized legacy dictionary successfully")
+	_assert(actor.garrison_count == 3, "TC-CAP.01.2: Actor garrison_count defaulted to 3")
+	actor.free()
+
+	var fsm := FieldSiegeManagerScript.new()
+	fsm.deserialize({"objectives": [legacy_dict]})
+	_assert(fsm.get_objective("outpost_legacy_missing") != null, "TC-CAP.01.3: Objective registered in FSM")
+
+	var pam := PlayerArmyManagerScript.new()
+	pam._custom_field_siege_mgr = fsm
+	var info := pam.get_outpost_info("outpost_legacy_missing")
+	_assert(int(info.get("capacity", -1)) == 3, "TC-CAP.01.4: PlayerArmyManager get_outpost_info returns capacity = 3")
+	_assert(pam.get_garrison_capacity("outpost_legacy_missing") == 3, "TC-CAP.01.5: get_garrison_capacity returns 3")
+
+# -----------------------------------------------------------------------------
+# 28. TC-CAP.02: Invalid Zero Capacity
+# -----------------------------------------------------------------------------
+func _test_tc_cap_02_invalid_zero_capacity() -> void:
+	print("\n--- TC-CAP.02: Invalid Zero Capacity ---")
+	var zero_dict := {
+		"objective_id": "outpost_zero_cap",
+		"objective_name": "Tiền Đồn Không",
+		"owning_faction_id": "player",
+		"current_cell": [12, 12],
+		"health": 250.0,
+		"max_health": 250.0,
+		"is_alive": true,
+		"garrison_count": 0
+	}
+	var actor := SiegeObjectiveActorScript.new()
+	actor.deserialize(zero_dict)
+	_assert(actor.garrison_count == 3, "TC-CAP.02.1: Actor normalized zero garrison_count to 3")
+	actor.free()
+
+	var fsm := FieldSiegeManagerScript.new()
+	fsm.deserialize({"objectives": [zero_dict]})
+	var pam := PlayerArmyManagerScript.new()
+	pam._custom_field_siege_mgr = fsm
+	var info := pam.get_outpost_info("outpost_zero_cap")
+	_assert(int(info.get("capacity", -1)) == 3, "TC-CAP.02.2: Final capacity for zero capacity save resolves to 3")
+	_assert(pam.get_garrison_capacity("outpost_zero_cap") == 3, "TC-CAP.02.3: get_garrison_capacity resolves to 3")
+
+# -----------------------------------------------------------------------------
+# 29. TC-CAP.03: Negative Capacity
+# -----------------------------------------------------------------------------
+func _test_tc_cap_03_negative_capacity() -> void:
+	print("\n--- TC-CAP.03: Negative Capacity ---")
+	var neg_dict := {
+		"objective_id": "outpost_neg_cap",
+		"objective_name": "Tiền Đồn Âm",
+		"owning_faction_id": "player",
+		"current_cell": [14, 14],
+		"health": 250.0,
+		"max_health": 250.0,
+		"is_alive": true,
+		"garrison_count": -5
+	}
+	var actor := SiegeObjectiveActorScript.new()
+	actor.deserialize(neg_dict)
+	_assert(actor.garrison_count == 3, "TC-CAP.03.1: Actor normalized negative garrison_count to 3")
+	actor.free()
+
+	var fsm := FieldSiegeManagerScript.new()
+	fsm.deserialize({"objectives": [neg_dict]})
+	var pam := PlayerArmyManagerScript.new()
+	pam._custom_field_siege_mgr = fsm
+	var info := pam.get_outpost_info("outpost_neg_cap")
+	_assert(int(info.get("capacity", -1)) == 3, "TC-CAP.03.2: Final capacity for negative capacity save resolves to 3")
+
+	var neg_reg = fsm.register_objective("outpost_neg_reg", Vector2i(15, 15), "player", 250.0, -2)
+	_assert(neg_reg.garrison_count == 3, "TC-CAP.03.3: register_objective normalized negative capacity to 3")
+	var info_reg := pam.get_outpost_info("outpost_neg_reg")
+	_assert(int(info_reg.get("capacity", -1)) == 3, "TC-CAP.03.4: get_outpost_info for registered negative capacity resolves to 3")
+
+# -----------------------------------------------------------------------------
+# 30. TC-CAP.04: Explicit Capacity Preservation
+# -----------------------------------------------------------------------------
+func _test_tc_cap_04_explicit_capacity_preservation() -> void:
+	print("\n--- TC-CAP.04: Explicit Capacity Preservation ---")
+	var caps := [2, 4, 5]
+	for c in caps:
+		var d := {
+			"objective_id": "outpost_exp_%d" % c,
+			"objective_name": "Tiền Đồn %d" % c,
+			"owning_faction_id": "player",
+			"current_cell": [16 + c, 16],
+			"health": 250.0,
+			"max_health": 250.0,
+			"is_alive": true,
+			"garrison_count": c
+		}
+		var actor := SiegeObjectiveActorScript.new()
+		actor.deserialize(d)
+		_assert(actor.garrison_count == c, "TC-CAP.04.1_%d: Actor preserved explicit capacity %d" % [c, c])
+		actor.free()
+
+		var fsm := FieldSiegeManagerScript.new()
+		fsm.deserialize({"objectives": [d]})
+		var pam := PlayerArmyManagerScript.new()
+		pam._custom_field_siege_mgr = fsm
+		var info := pam.get_outpost_info("outpost_exp_%d" % c)
+		_assert(int(info.get("capacity", -1)) == c, "TC-CAP.04.2_%d: get_outpost_info preserved explicit capacity %d" % [c, c])
+		_assert(pam.get_garrison_capacity("outpost_exp_%d" % c) == c, "TC-CAP.04.3_%d: get_garrison_capacity preserved explicit capacity %d" % [c, c])
+
+# -----------------------------------------------------------------------------
+# 31. TC-CAP.05: New Objective Default
+# -----------------------------------------------------------------------------
+func _test_tc_cap_05_new_objective_default() -> void:
+	print("\n--- TC-CAP.05: New Objective Default ---")
+	var fsm := FieldSiegeManagerScript.new()
+	var obj = fsm.register_objective("outpost_new_default", Vector2i(22, 22), "player")
+	_assert(obj.garrison_count == 3, "TC-CAP.05.1: register_objective default parameter is 3")
+
+	var pam := PlayerArmyManagerScript.new()
+	pam._custom_field_siege_mgr = fsm
+	var info := pam.get_outpost_info("outpost_new_default")
+	_assert(int(info.get("capacity", -1)) == 3, "TC-CAP.05.2: get_outpost_info returns 3 for new default objective")
+	_assert(pam.get_garrison_capacity("outpost_new_default") == 3, "TC-CAP.05.3: get_garrison_capacity returns 3")
+
+# -----------------------------------------------------------------------------
+# 32. TC-CAP.06: Legacy Pre-Package-1X Default Objectives
+# -----------------------------------------------------------------------------
+func _test_tc_cap_06_legacy_pre_package_1x_default_objectives() -> void:
+	print("\n--- TC-CAP.06: Legacy Pre-Package-1X Default Objectives ---")
+	_assert(world_instance.has_method("_setup_default_siege_objectives"), "TC-CAP.06.1: WorldView has _setup_default_siege_objectives")
+	var fsm_wv = world_instance.get("field_siege_mgr")
+	if fsm_wv != null:
+		var obj_mil = fsm_wv.get_objective("outpost_rival_military")
+		if obj_mil != null:
+			_assert(obj_mil.garrison_count == 4, "TC-CAP.06.2: Historical rival_military capacity 4 preserved")
+		var obj_mer = fsm_wv.get_objective("outpost_rival_merchant")
+		if obj_mer != null:
+			_assert(obj_mer.garrison_count == 3, "TC-CAP.06.3: Historical rival_merchant capacity 3 preserved")
+		var obj_tri = fsm_wv.get_objective("outpost_neutral_tribe")
+		if obj_tri != null:
+			_assert(obj_tri.garrison_count == 2, "TC-CAP.06.4: Historical neutral_tribe capacity 2 preserved")
+
+# -----------------------------------------------------------------------------
+# 33. TC-CAP.07: Save/Load Persistence
+# -----------------------------------------------------------------------------
+func _test_tc_cap_07_save_load_persistence() -> void:
+	print("\n--- TC-CAP.07: Save/Load Persistence ---")
+	var test_slot := "user://test_cap_persistence.json"
+	var pam_live = world_instance.get("player_army_mgr")
+	var fsm_live = world_instance.get("field_siege_mgr")
+	_assert(pam_live != null and fsm_live != null, "TC-CAP.07.1: Live PAM and FSM available in WorldView")
+
+	# Register an objective with explicit capacity 5
+	var obj_persist = fsm_live.register_objective("outpost_persist_cap5", Vector2i(25, 25), "player", 250.0, 5)
+	pam_live.soldier_count = 10
+	pam_live.station_soldier("outpost_persist_cap5", 2)
+
+	var save_res = SaveManagerScript.save_to_file(world_instance, test_slot)
+	_assert(save_res.get("success", false) == true, "TC-CAP.07.2: SaveManager successfully saved state")
+
+	var load_res = SaveManagerScript.load_from_file(test_slot)
+	_assert(load_res.get("success", false) == true, "TC-CAP.07.3: SaveManager load returned success")
+	var loaded_data: Dictionary = load_res.get("data", {})
+	var apply_res = SaveManagerScript.apply_loaded_state_to_world(world_instance, loaded_data)
+	_assert(apply_res.get("success", false) == true, "TC-CAP.07.4: apply_loaded_state_to_world returned success")
+
+	_assert(pam_live.get_garrison_capacity("outpost_persist_cap5") == 5, "TC-CAP.07.5: Post-load garrison capacity remains 5")
+	_assert(pam_live.get_garrison_count("outpost_persist_cap5") == 2, "TC-CAP.07.6: Post-load garrison count remains 2")
+
+	# Legacy missing-field simulation through real SaveManager.apply_loaded_state_to_world
+	var legacy_loaded_data = loaded_data.duplicate(true)
+	if legacy_loaded_data.has("field_siege") and legacy_loaded_data["field_siege"].has("objectives"):
+		var objs: Array = legacy_loaded_data["field_siege"]["objectives"]
+		objs.append({
+			"objective_id": "outpost_legacy_disk_sim",
+			"objective_name": "Tiền Đồn Cũ Disk",
+			"owning_faction_id": "player",
+			"current_cell": [28, 28],
+			"health": 250.0,
+			"max_health": 250.0,
+			"is_alive": true
+			# Missing garrison_count
+		})
+		var apply_leg_res = SaveManagerScript.apply_loaded_state_to_world(world_instance, legacy_loaded_data)
+		_assert(apply_leg_res.get("success", false) == true, "TC-CAP.07.7: Legacy missing-field state applied cleanly")
+		_assert(pam_live.get_garrison_capacity("outpost_legacy_disk_sim") == 3, "TC-CAP.07.8: Legacy missing-field outpost resolved capacity to 3 via real SaveManager apply")
+
+	if FileAccess.file_exists(test_slot):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(test_slot))
+
+# -----------------------------------------------------------------------------
+# 34. TC-CAP.08: Soldier Conservation
+# -----------------------------------------------------------------------------
+func _test_tc_cap_08_soldier_conservation() -> void:
+	print("\n--- TC-CAP.08: Soldier Conservation ---")
+	var pam_c = PlayerArmyManagerScript.new()
+	var fsm_c = FieldSiegeManagerScript.new()
+	pam_c._custom_field_siege_mgr = fsm_c
+	var out_c = fsm_c.register_objective("outpost_cons_1", Vector2i(10, 10), "player")
+	pam_c.soldier_count = 10
+
+	# Station 2 soldiers (cap is 3)
+	var stat_res = pam_c.station_soldier("outpost_cons_1", 2)
+	_assert(stat_res.get("success", false) == true, "TC-CAP.08.1: Stationed 2 soldiers")
+	_assert(pam_c.soldier_count == 8, "TC-CAP.08.2: Central reserve reduced by exactly 2")
+	_assert(pam_c.get_total_soldier_count() == 10, "TC-CAP.08.3: Total soldier count conserved at 10")
+
+	# Dispatch 1 reinforcement (cur 2 + 1 transit <= cap 3)
+	var disp_res = pam_c.dispatch_reinforcements("outpost_cons_1", 1, 2.0)
+	_assert(disp_res.get("success", false) == true, "TC-CAP.08.4: Dispatched 1 reinforcement")
+	_assert(pam_c.soldier_count == 7, "TC-CAP.08.5: Central reserve reduced to 7")
+	_assert(pam_c.get_in_transit_count("outpost_cons_1") == 1, "TC-CAP.08.6: In-transit count is 1")
+	_assert(pam_c.get_total_soldier_count() == 10, "TC-CAP.08.7: Total soldier count conserved at 10 (7 + 2 + 1)")
+
+	# Reject stationing beyond cap (cur 2 + transit 1 + attempt 1 > cap 3)
+	var over_res = pam_c.station_soldier("outpost_cons_1", 1)
+	_assert(over_res.get("success", true) == false, "TC-CAP.08.8: Over-capacity station rejected")
+	_assert(pam_c.get_total_soldier_count() == 10, "TC-CAP.08.9: Total soldiers strictly conserved after rejection")
+
+	# Advance arrival
+	pam_c.advance_reinforcements(2.5)
+	_assert(pam_c.get_in_transit_count("outpost_cons_1") == 0, "TC-CAP.08.10: Transit completed")
+	_assert(pam_c.get_garrison_count("outpost_cons_1") == 3, "TC-CAP.08.11: Garrison count is 3")
+	_assert(pam_c.get_total_soldier_count() == 10, "TC-CAP.08.12: Conservation holds after reinforcement arrival")
+
+	# Apply casualties (1 casualty)
+	var cas_removed = pam_c.apply_outpost_casualties("outpost_cons_1", 1)
+	_assert(cas_removed == 1, "TC-CAP.08.13: Exactly 1 casualty removed")
+	_assert(pam_c.get_garrison_count("outpost_cons_1") == 2, "TC-CAP.08.14: Garrison count now 2")
+	_assert(pam_c.get_total_soldier_count() == 9, "TC-CAP.08.15: Total soldier count decremented exactly once to 9")
+
+	# Evict outpost garrison on ownership loss (retreat to central)
+	pam_c.evict_outpost_garrison("outpost_cons_1", true)
+	_assert(pam_c.get_garrison_count("outpost_cons_1") == 0, "TC-CAP.08.16: Garrison evicted to 0")
+	_assert(pam_c.soldier_count == 9, "TC-CAP.08.17: Central reserve restored to 9 (7 + 2)")
+	_assert(pam_c.get_total_soldier_count() == 9, "TC-CAP.08.18: Final conservation holds at 9 with zero leaks")

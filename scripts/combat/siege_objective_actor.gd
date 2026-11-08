@@ -294,7 +294,11 @@ func deserialize(data: Dictionary) -> bool:
 	is_alive = bool(data.get("is_alive", health > 0.0))
 	is_captured = bool(data.get("is_captured", false))
 	is_under_active_siege = bool(data.get("is_under_active_siege", false))
-	garrison_count = maxi(0, int(data.get("garrison_count", 3)))
+	var raw_gar = data.get("garrison_count")
+	if raw_gar != null and int(raw_gar) > 0:
+		garrison_count = int(raw_gar)
+	else:
+		garrison_count = 3
 	defending_unit_ids.clear()
 	var raw_def = data.get("defending_unit_ids")
 	if raw_def is Array:

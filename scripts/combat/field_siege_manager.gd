@@ -118,7 +118,7 @@ func register_objective(obj_id: String, cell: Vector2i, faction_id: String, max_
 	obj.current_cell = cell
 	obj.max_health = max_hp
 	obj.health = max_hp
-	obj.garrison_count = garrison
+	obj.garrison_count = garrison if garrison > 0 else 3
 	obj.faction_manager = get_faction_manager()
 	obj.enemy_military_manager = get_enemy_military_manager()
 

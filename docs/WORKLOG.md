@@ -10770,3 +10770,76 @@ Package 2M establishes the full operational state machine (`planned`, `under_con
 - **HEAD Commit:** `c82c498` (prior to this documentation consistency commit)
 - **Production Code Status:** 100% frozen; zero changes after `f6d9631`.
 - **Regression Baseline:** 65/65 suites passing (Exit Code 0, 0 unexpected failures).
+
+---
+
+## 2026-11-08 — Outpost Capacity Consistency Correctness Patch
+
+### Summary of Completed Work
+1. **Unification of Outpost Garrison Capacity Invariant:**
+   - Eliminated the confirmed runtime fallback discrepancy between `FieldSiegeManager`/`SiegeObjectiveActor` (which defaulted to 3) and `PlayerArmyManager` (which fell back to 4 for missing/invalid data or zero values).
+   - Established the universal production invariant across all subsystems: **Default outpost garrison capacity is 3 whenever capacity data is omitted, missing, zero, or negative**.
+   - Explicit positive capacities (e.g. 2, 4, 5) are strictly preserved across creation, runtime queries, stationing, reinforcement dispatch, and save/load serialization.
+   - Civic building garrison capacities (`Watchtower`: 2, `Palisade`: 2) and starter outposts (`outpost_rival_military`: 4, `outpost_rival_merchant`: 3, `outpost_neutral_tribe`: 2) remain completely unaffected and preserved.
+
+2. **Production Code Implementation:**
+   - `scripts/combat/siege_objective_actor.gd`:
+     - In `deserialize()`, updated garrison count rehydration: reads `raw_gar`, sets `garrison_count = int(raw_gar)` if `raw_gar != null and int(raw_gar) > 0`, else falls back to 3.
+   - `scripts/combat/field_siege_manager.gd`:
+     - In `register_objective()`, normalized capacity: `obj.garrison_count = garrison if garrison > 0 else 3`.
+   - `scripts/military/player_army_manager.gd`:
+     - Added constant `const DEFAULT_OUTPOST_GARRISON_CAPACITY: int = 3`.
+     - In `get_garrison_capacity()`: Validates `garrisons[outpost_id]["capacity"] > 0` before returning, else queries `get_outpost_info()`.
+     - In `get_outpost_info()`: Standardized test registered outposts, active FSM objectives, and orphaned garrisons to fallback to `DEFAULT_OUTPOST_GARRISON_CAPACITY` (3) when capacity is missing or non-positive.
+     - In `station_soldier()`, `dispatch_reinforcements()`, `_complete_reinforcement()`, `serialize_garrisons()`, and `deserialize_garrisons()`: Replaced hardcoded `4` fallbacks with `DEFAULT_OUTPOST_GARRISON_CAPACITY` (3).
+
+3. **Regression Test Suite Expansion (`test_outpost_garrison_reinforcement.gd`):**
+   - Implemented 8 dedicated test cases adding 54 assertions (expanding suite from 117 to 171 assertions):
+     - `TC-CAP.01`: Legacy Save Missing Capacity (verifies missing `garrison_count` restores to capacity 3).
+     - `TC-CAP.02`: Invalid Zero Capacity (verifies `garrison_count: 0` normalizes to capacity 3).
+     - `TC-CAP.03`: Negative Capacity (verifies negative values normalize to capacity 3).
+     - `TC-CAP.04`: Explicit Capacity Preservation (verifies explicit positive values 2, 4, 5 are strictly preserved).
+     - `TC-CAP.05`: New Objective Default (verifies unparameterized `register_objective()` defaults to 3).
+     - `TC-CAP.06`: Legacy Default Objectives (verifies starter objectives retain 4, 3, 2).
+     - `TC-CAP.07`: Save/Load Persistence (verifies real disk `SaveManager` save/load roundtrip and synthetic legacy disk state).
+     - `TC-CAP.08`: Soldier Conservation (verifies strict soldier conservation across station, dispatch, arrival, casualties, and eviction).
+
+4. **Verification & Regression Results:**
+   - `test_outpost_garrison_reinforcement.gd`: **171/171 assertions PASS** (Exit Code 0).
+   - `test_field_siege.gd`: **98/98 assertions PASS** (Exit Code 0).
+   - `test_outpost_territorial_control.gd`: **200/200 assertions PASS** (Exit Code 0).
+   - `test_player_army.gd`: **48/48 assertions PASS** (Exit Code 0).
+   - `test_save_load.gd`: **182/182 assertions PASS** (Exit Code 0).
+   - `test_autonomous_faction_conflict.gd`: **205/205 assertions PASS** (Exit Code 0).
+   - **Headless Full Regression Runner (`run_regression.ps1`):**
+     - Total Suites Tested: **65/65**
+     - Passed: **65**
+     - Expected Failures: **0**
+     - Unexpected Failures: **0**
+     - Duration: **154.03s**
+     - Exit Code: **0**
+
+5. **Repository Hygiene & Scope Safety:**
+   - `project.godot` preserved untouched and unstaged.
+   - All untracked test screenshots, scratch files, and `.uid` artifacts preserved.
+   - Package 3B implementation strictly avoided.
+   - Local commit only; no remote push or merge to `main`.
+
+### Acceptance Classification
+- **T1 — Data/API:** VERIFIED (171/171 outpost garrison assertions, 182/182 save/load assertions, 131/131 scripts load).
+- **T2 — Backend Simulation:** VERIFIED (Strict conservation, deterministic capacity rehydration, exact-once casualty removal).
+- **T3 — UI Wiring/Integration:** VERIFIED (HUD inspection, action buttons, feedback toasts).
+- **T4 — Natural Gameplay Loop:** NOT VERIFIED (Pending interactive GUI playtesting).
+- **T5 — End-to-End Acceptance:** NOT VERIFIED (Pending live player session).
+
+### Git Status & Verification Checkpoint
+- **Branch:** `feature/package-3a-outpost-garrison-reinforcement`
+- **Base HEAD:** `d73ea6e`
+- **Files Modified:**
+  - `scripts/combat/siege_objective_actor.gd`
+  - `scripts/combat/field_siege_manager.gd`
+  - `scripts/military/player_army_manager.gd`
+  - `scripts/test/test_outpost_garrison_reinforcement.gd`
+  - `docs/WORKLOG.md`
+- **Regression Baseline:** 65/65 suites passing (Exit Code 0, 0 unexpected failures).
+
