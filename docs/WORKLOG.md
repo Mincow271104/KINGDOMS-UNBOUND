@@ -10665,3 +10665,49 @@ Package 2M establishes the full operational state machine (`planned`, `under_con
 - **Branch:** `feature/package-3a-outpost-garrison-reinforcement`
 - **HEAD Commit:** `f6d9631`
 - **Remotes:** No push, no merge to main. `project.godot` unstaged. All user scratch artifacts preserved.
+
+
+---
+
+## 2026-11-08 — Final Design & Source-of-Truth Audit (Package 3A / 3B Pre-Implementation)
+
+### Summary of Completed Work
+1. **Repository Safety & Branch Integrity:**
+   - Active branch: `feature/package-3a-outpost-garrison-reinforcement`.
+   - Verified commit ancestry: `f4f24ae` $\to$ `f6d9631` $\to$ `654bd8f` $\to$ `fff9011`.
+   - AI M2-B branch identified as `feature/ai-m2b-decision-display-prototype` and preserved read-only.
+   - Zero production gameplay code modified. All scratch logs, `.uid` files, and visual validation artifacts intact.
+2. **Authoritative Garrison Capacity Audit:**
+   - Fact: GDD §6.3, §7.1, §10.4, §10.5 contain no numerical garrison capacity values.
+   - Fact: `Watchtower` (2) and `Palisade` (2) capacities are hardcoded in `BuildingSystem.get_building_garrison_capacity()`.
+   - Fact: `FieldSiegeManager.register_objective()` and `SiegeObjectiveActor.garrison_count` default to `3`.
+   - Fact: `PlayerArmyManager.get_outpost_info()` line 1382 uses `maxi(1, obj.garrison_count)` if $> 0$, and falls back to `4` if missing or $\le 0$.
+   - Fact: "Camp: 2, Village: 4, Town: 6, Fortress: 8" were speculative agent proposals; no such classes or types exist in code or GDD.
+3. **Defender Power Factor Audit:**
+   - Fact: GDD §10.4 lists factors qualitatively (Quân số, Trang bị, Kinh nghiệm, Công sự, Địa hình, Trinh sát, Tiếp tế).
+   - Fact: Numerical values (Terrain `1.20`, Fortification `0.30`/level, Equipment Tier `0.25`/tier) are derived implementation decisions from Packages 1J, 1X, and 2J, not GDD mandates.
+   - Fact: Soldier experience/rank in combat is not yet implemented (deferred from MVP).
+4. **Building Damage Operational Lifecycle & Repair Cost Audit:**
+   - Fact: At HP 51–99, building is `active` (operational, repairable).
+   - Fact: At HP 1–50, building transitions to `damaged` (operationally disabled, repairable).
+   - Fact: At HP 0, `apply_damage()` sets `state = "destroyed"`. In `can_repair_building()`, `state == "destroyed"` rejects repair with *"Công trình đã bị phá hủy hoàn toàn, không thể sửa chữa"*.
+   - Fact: Repair cost in `calculate_repair_cost()` is scaled by `0.25` (25% of construction cost $\times$ damage ratio), which was an implemented decision in Package 2M. GDD §7.2 and §7.3 mention no repair cost percentage (only 50% construction cancellation refund).
+5. **Army Upkeep Audit:**
+   - Fact: 1 Food/soldier/day, midnight tick, and non-lethal supply status (`is_supplied = false`, morale 80 $\to$ 40) are implemented decisions from Package 1L/1M operationalizing GDD §10.4/§12.1 "Tiếp tế".
+6. **Package 3B Provisional Specification & Decision Register:**
+   - Removed 0.85 blind attack penalty from authoritative rules; marked as recommendation in Decision Register (DEC-3B-02).
+   - Marked Outpost vision radius 6 as proposed derived technical value (DEC-3B-01).
+   - Established explicit Owner Decision Register (DEC-3B-01 through DEC-3B-04) required before Package 3B implementation.
+
+### Acceptance Classification
+- **T1 — Data/API:** VERIFIED (117/117 outpost garrison assertions, 172/172 repair assertions, 182/182 save/load assertions, 131/131 scripts load).
+- **T2 — Backend Simulation:** VERIFIED (Strict conservation, deterministic reservation rehydration, exact-once casualty removal).
+- **T3 — UI Wiring/Integration:** VERIFIED (HUD inspection, action buttons, feedback toasts).
+- **T4 — Natural Gameplay Loop:** NOT VERIFIED (Pending interactive GUI playtesting).
+- **T5 — End-to-End Acceptance:** NOT VERIFIED (Pending live player session).
+
+### Git Status & Verification Checkpoint
+- **Branch:** `feature/package-3a-outpost-garrison-reinforcement`
+- **HEAD Commit:** `f4f24ae` (plus documentation updates)
+- **Production Code Status:** 100% frozen; zero changes after `f6d9631`.
+- **Regression Baseline:** 65/65 suites passing (Exit Code 0, 0 unexpected failures).

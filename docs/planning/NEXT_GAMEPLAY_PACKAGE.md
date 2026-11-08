@@ -37,5 +37,5 @@
 
 ---
 
-## 3. PENDING AUTHORIZATION
-*Package 3B is fully specified and awaiting project owner review and implementation authorization. No production code changes will be made until explicitly authorized.*
+## 3. PENDING OWNER DECISION APPROVAL & IMPLEMENTATION AUTHORIZATION
+*Package 3B architecture is provisionally drafted with 4 explicit design decisions (DEC-3B-01 through DEC-3B-04) awaiting project owner review and approval. No production code changes will be made until explicitly authorized.*
