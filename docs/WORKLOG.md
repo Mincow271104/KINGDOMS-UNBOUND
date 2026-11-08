@@ -10711,3 +10711,62 @@ Package 2M establishes the full operational state machine (`planned`, `under_con
 - **HEAD Commit:** `f4f24ae` (plus documentation updates)
 - **Production Code Status:** 100% frozen; zero changes after `f6d9631`.
 - **Regression Baseline:** 65/65 suites passing (Exit Code 0, 0 unexpected failures).
+
+
+---
+
+## 2026-11-08 — Final Document Consistency Patch Before Package 3B Owner Approval
+
+### Summary of Completed Work
+1. **Outpost Garrison Default Runtime Reconciliation (DEC-01):**
+   - Eliminated conflation between constructor default, exported actor default, and legacy fallback.
+   - Audited exact runtime implementations:
+     - `FieldSiegeManager.register_objective()` default parameter: `3`.
+     - `SiegeObjectiveActor.garrison_count` `@export` property & `deserialize()` fallback: `3`.
+     - `PlayerArmyManager.get_outpost_info()` line 1382 and `deserialize_garrisons()` lines 1436/1456/1685 invalid/missing data fallback: `4`.
+     - Explicitly configured objective: `N`, clamped via `maxi(1, int(obj.garrison_count))`.
+   - DEC-01 accurately presents Option A (retain default 3 in FSM/Actor and fallback 4 in PAM) vs. Option B (standardize new objectives to 4 in a future authorized change) without silently choosing Option B.
+2. **Building Damage Absolute Threshold Formula & Boundary Behavior (DEC-05):**
+   - Verified exact formula in `BuildingSystem.apply_damage()`: uses an **absolute HP value (`new_h <= 50`)**, NOT a ratio (`health / max_health`).
+   - Mapped all critical HP boundaries:
+     - 100% HP (100 HP): `active`, operational, non-repairable (`can_repair = false`, reason: "Công trình đang ở trạng thái tối ưu").
+     - 51% HP (51 HP): `active`, operational, repairable (`can_repair = true`, permits preventive maintenance).
+     - 50% HP (50 HP): `damaged`, operationally disabled per GDD §7.2, repairable (`can_repair = true`).
+     - 49% HP (49 HP): `damaged`, operationally disabled, repairable (`can_repair = true`).
+     - 1 HP (1 HP): `damaged`, operationally disabled, repairable (`can_repair = true`).
+     - 0 HP (0 HP): `destroyed`, operationally disabled, **strictly non-repairable** per `can_repair_building()` (`can_repair = false`, reason: "Công trình đã bị phá hủy hoàn toàn, không thể sửa chữa"). Must be demolished/rebuilt per GDD §7.2/§7.3.
+3. **Repair Economy Source Classification Honesty (DEC-06):**
+   - Confirmed code baselines:
+     - Repair cost ratio: `0.25 * damage_ratio * construction_cost` (`building_system.gd` L1197). Package 2M design decision; GDD is silent on repair cost.
+     - Repair duration: `0.50 * damage_ratio * construction_time_hours` with minimum `2.0` hours (`building_system.gd` L1217). Package 2M design decision; GDD is silent on repair time.
+     - Demolition salvage ratio: `50%` of construction cost. Conforms to GDD §7.3.
+   - The unsupported 20% repair cost claim is strictly repudiated.
+4. **Decision Register Separation:**
+   - Standardized decision registers across `PACKAGE_3B_SPECIFICATION.md`, `GAME_COMPLETION_ROADMAP.md`, and `NEXT_GAMEPLAY_PACKAGE.md`:
+     - **Section A: Existing Gameplay Baseline Ratification (DEC-01 through DEC-07):** All 7 items can remain documented baselines pending a later balance review; none block Package 3B.
+     - **Section B: Package 3B Mandatory Implementation Gates (DEC-3B-01 through DEC-3B-04):**
+       - `DEC-3B-01`: Outpost Vision Radius (Proposed: 6; Alternatives: 5 or 8).
+       - `DEC-3B-02`: Reconnaissance Combat Effect (Proposed default: Attacker $\times 0.85$ when target is in `UNEXPLORED` fog; Alternatives: additive or defender bonus; strictly provisional, not an approved rule).
+       - `DEC-3B-03`: Scouting Dispatch Model (Proposed default: Passive discovery via civilian Explore / army movement; Alternative: Active dedicated scout dispatch from Barracks).
+       - `DEC-3B-04`: Formal Owner Implementation Authorization (Written sign-off prior to code implementation).
+5. **Reconnaissance Rule Provisional Status:**
+   - Explicitly documented that GDD §10.4 requires reconnaissance qualitatively; `0.85` is strictly a proposed default; target-cell `is_explored()` is a derived trigger; passive discovery is a proposed dispatch model; and dedicated military scouts are not currently implemented.
+6. **Preservation & Safety Verification:**
+   - ZERO production gameplay code modified.
+   - ZERO test suites broken or modified.
+   - `project.godot` preserved unstaged.
+   - AI M2-B prototype and branch preserved untouched.
+   - No remote push, no merge to `main`.
+
+### Acceptance Classification
+- **T1 — Data/API:** VERIFIED (117/117 outpost garrison assertions, 172/172 repair assertions, 182/182 save/load assertions, 131/131 scripts load).
+- **T2 — Backend Simulation:** VERIFIED (Strict soldier identity conservation, deterministic reservation rehydration, exact-once casualty removal).
+- **T3 — UI Wiring/Integration:** VERIFIED (HUD inspection, action buttons, feedback toasts).
+- **T4 — Natural Gameplay Loop:** NOT VERIFIED (Pending interactive GUI playtesting).
+- **T5 — End-to-End Acceptance:** NOT VERIFIED (Pending live player session).
+
+### Git Status & Verification Checkpoint
+- **Branch:** `feature/package-3a-outpost-garrison-reinforcement`
+- **HEAD Commit:** `c82c498` (prior to this documentation consistency commit)
+- **Production Code Status:** 100% frozen; zero changes after `f6d9631`.
+- **Regression Baseline:** 65/65 suites passing (Exit Code 0, 0 unexpected failures).
