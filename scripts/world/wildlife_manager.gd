@@ -34,8 +34,8 @@ func set_container(container: Node2D) -> void:
 	_wildlife_container = container
 
 func clear_all() -> void:
-	animals.clear()
-	animals_by_id.clear()
+	animals = []
+	animals_by_id = {}
 	reservations_by_animal_id.clear()
 	reservations_by_hunter_id.clear()
 	recovery_timers = {"rabbit": 0.0, "deer": 0.0}
@@ -55,94 +55,25 @@ func invalidate_hunter_range_cache() -> void:
 	_hunter_range_bridge_count = -1
 	_hunter_range_dirty = true
 
-func generate_initial_population(world_data: WorldGenerator.WorldData, nav: GridNavigation) -> void:
+func generate_initial_population(world_data: WorldGenerator.WorldData, nav: GridNavigation = null) -> void:
 	clear_all()
-	if world_data == null or nav == null:
+	if world_data == null:
 		return
+	var active_nav: GridNavigation = nav
+	if active_nav == null:
+		active_nav = GridNavigation.new(world_data)
 	# Legacy V1-V4 worlds lack biome_grid; handle safely without rewriting world data.
 	if world_data.biome_grid.is_empty():
 		return
 
-	_rng.seed = int(world_data.seed_value) ^ WildlifeConfig.WILDLIFE_RNG_SALT
-	var candidates_by_biome: Dictionary = {
-		WorldGenerator.BiomeType.GRASSLAND: [],
-		WorldGenerator.BiomeType.TEMPERATE_FOREST: [],
-		WorldGenerator.BiomeType.PINE_FOREST: [],
-		WorldGenerator.BiomeType.HIGHLANDS: [],
-		WorldGenerator.BiomeType.WETLANDS: [],
-	}
+	if world_data.wildlife.is_empty():
+		WorldGenerator.generate_canonical_wildlife(world_data, active_nav)
 
-	var occupied_spawn_cells: Dictionary = {}
-	var building_cells: Array[Vector2i] = []
-	for b in world_data.buildings:
-		var origin: Vector2i = b.get("cell", Vector2i.ZERO)
-		var b_size: Vector2i = b.get("size", Vector2i.ONE)
-		for ox in range(b_size.x):
-			for oy in range(b_size.y):
-				building_cells.append(origin + Vector2i(ox, oy))
+	animals = world_data.wildlife
+	animals_by_id = world_data.wildlife_by_id
 
-	for x in range(world_data.map_width):
-		for y in range(world_data.map_height):
-			var c := Vector2i(x, y)
-			if not nav.is_cell_walkable(c):
-				continue
-			if IsoMath.grid_distance(c, world_data.center_spawn) <= 5:
-				continue
-			var too_close_to_bld: bool = false
-			for bc in building_cells:
-				if IsoMath.grid_distance(c, bc) <= 2:
-					too_close_to_bld = true
-					break
-			if too_close_to_bld:
-				continue
-			var walkable_neighbors: int = 0
-			for d in CARDINAL_DIRS:
-				if nav.is_cell_walkable(c + d):
-					walkable_neighbors += 1
-			if walkable_neighbors < 2:
-				continue
-			var b_id: int = world_data.get_biome(c)
-			if candidates_by_biome.has(b_id):
-				candidates_by_biome[b_id].append(c)
-
-	var total_spawned: int = 0
-	for species_id in WildlifeConfig.SPECIES_ORDER:
-		if total_spawned >= WildlifeConfig.MAX_TOTAL_POPULATION:
-			break
-		var spec: Dictionary = WildlifeConfig.get_species_def(species_id)
-		var pool: Array[Vector2i] = []
-		for b_id in spec.get("biomes", []):
-			if candidates_by_biome.has(b_id):
-				for c in candidates_by_biome[b_id]:
-					pool.append(c)
-		if pool.is_empty():
-			continue
-		# Deterministic Fisher-Yates shuffle
-		for i in range(pool.size() - 1, 0, -1):
-			var j: int = _rng.randi_range(0, i)
-			var tmp := pool[i]
-			pool[i] = pool[j]
-			pool[j] = tmp
-
-		var cells_per_spawn: int = maxi(1, int(spec.get("cells_per_spawn", 150)))
-		var area_cap: int = maxi(1, pool.size() / cells_per_spawn)
-		var species_cap: int = mini(int(spec.get("max_pop", 8)), area_cap)
-		species_cap = mini(species_cap, WildlifeConfig.MAX_TOTAL_POPULATION - total_spawned)
-
-		var spawned_for_species: int = 0
-		for c in pool:
-			if spawned_for_species >= species_cap:
-				break
-			if occupied_spawn_cells.has(c):
-				continue
-			occupied_spawn_cells[c] = true
-			var a_id := "wl_%s_%02d" % [species_id, spawned_for_species + 1]
-			var rec := _make_animal_record(a_id, species_id, int(spec.get("category", 0)), c)
-			animals.append(rec)
-			animals_by_id[a_id] = rec
-			_spawn_actor_for_record(rec)
-			spawned_for_species += 1
-			total_spawned += 1
+	for rec in animals:
+		_spawn_actor_for_record(rec)
 
 func _make_animal_record(a_id: String, species_id: String, cat: int, cell: Vector2i, state: int = WildlifeConfig.BehaviorState.IDLE) -> Dictionary:
 	var spec: Dictionary = WildlifeConfig.get_species_def(species_id)
@@ -165,6 +96,15 @@ func _make_animal_record(a_id: String, species_id: String, cat: int, cell: Vecto
 		"state_timer": idle_t,
 		"threat_cell": Vector2i(-1, -1),
 		"flip_h": false,
+		"is_available": true,
+		"reserved_by": "",
+		"reservation_type": "",
+		"recovery_hours_left": 0.0,
+		"raw_meat_yield": 2 if species_id == "rabbit" else (4 if species_id == "deer" else 0),
+		"hunt_duration_hours": 1.5 if species_id == "rabbit" else (2.5 if species_id == "deer" else 0.0),
+		"recovery_hours": 48.0 if species_id == "rabbit" else (72.0 if species_id == "deer" else 0.0),
+		"allocated_workplace_id": "",
+		"allocated_settlement_id": "",
 	}
 
 func _spawn_actor_for_record(rec: Dictionary) -> void:
@@ -537,12 +477,18 @@ func reserve_animal(a_id: String, hunter_id: String) -> bool:
 	var rec: Dictionary = animals_by_id.get(a_id, {})
 	if rec.is_empty() or not WildlifeConfig.is_huntable_species(str(rec.get("species_id", ""))):
 		return false
+	if not bool(rec.get("is_available", true)):
+		if str(rec.get("reserved_by", "")) != hunter_id:
+			return false
 	if reservations_by_animal_id.has(a_id):
 		return str(reservations_by_animal_id[a_id]) == hunter_id
 	if reservations_by_hunter_id.has(hunter_id):
 		release_hunter_reservations(hunter_id)
 	reservations_by_animal_id[a_id] = hunter_id
 	reservations_by_hunter_id[hunter_id] = a_id
+	rec["is_available"] = false
+	rec["reserved_by"] = hunter_id
+	rec["reservation_type"] = "player"
 	return true
 
 func release_reservation(a_id: String, hunter_id: String = "") -> void:
@@ -555,9 +501,14 @@ func release_reservation(a_id: String, hunter_id: String = "") -> void:
 	if reservations_by_hunter_id.get(owner_id, "") == a_id:
 		reservations_by_hunter_id.erase(owner_id)
 	var rec: Dictionary = animals_by_id.get(a_id, {})
-	if not rec.is_empty() and int(rec.get("state", 0)) == WildlifeConfig.BehaviorState.BEING_HUNTED:
-		rec["state"] = WildlifeConfig.BehaviorState.IDLE
-		rec["state_timer"] = 1.0
+	if not rec.is_empty():
+		if str(rec.get("reserved_by", "")) == owner_id:
+			rec["is_available"] = true
+			rec["reserved_by"] = ""
+			rec["reservation_type"] = ""
+		if int(rec.get("state", 0)) == WildlifeConfig.BehaviorState.BEING_HUNTED:
+			rec["state"] = WildlifeConfig.BehaviorState.IDLE
+			rec["state_timer"] = 1.0
 
 func release_hunter_reservations(hunter_id: String) -> void:
 	if hunter_id == "" or not reservations_by_hunter_id.has(hunter_id):
@@ -629,8 +580,10 @@ func find_and_reserve_nearest_prey(hunter_id: String, hunter_cell: Vector2i, wor
 		var sp: String = str(rec.get("species_id", ""))
 		if not WildlifeConfig.is_huntable_species(sp):
 			continue
+		if not bool(rec.get("is_available", true)):
+			continue
 		var a_id: String = str(rec.get("id", ""))
-		if reservations_by_animal_id.has(a_id):
+		if reservations_by_animal_id.has(a_id) or str(rec.get("reserved_by", "")) != "":
 			continue
 		var a_cell: Vector2i = rec["cell"]
 		if not permitted.has(a_cell):
