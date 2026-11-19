@@ -1286,7 +1286,11 @@ static func prepare_hunter_production_transaction(
 		prey_rec = world_data.get_animal_by_id(target_prey_id) if world_data.has_method("get_animal_by_id") else {}
 		var is_avail: bool = bool(prey_rec.get("is_available", true))
 		var res_by: String = String(prey_rec.get("reserved_by", ""))
-		if prey_rec.is_empty() or (not is_avail and res_by != villager.villager_id):
+		var res_type: String = String(prey_rec.get("reservation_type", ""))
+		var rec_left: float = float(prey_rec.get("recovery_hours_left", 0.0))
+		var owned_by_self: bool = (res_by == villager.villager_id and (res_type == "rival" or res_type.is_empty()))
+		var free_to_claim: bool = (is_avail and res_by.is_empty() and res_type.is_empty() and rec_left <= 0.0)
+		if prey_rec.is_empty() or res_type == "player" or not (owned_by_self or free_to_claim):
 			target_prey_id = ""
 			prey_rec = {}
 
@@ -1299,6 +1303,8 @@ static func prepare_hunter_production_transaction(
 			if not bool(cand_rec.get("is_available", true)):
 				continue
 			if not String(cand_rec.get("reserved_by", "")).is_empty():
+				continue
+			if not String(cand_rec.get("reservation_type", "")).is_empty():
 				continue
 			if float(cand_rec.get("recovery_hours_left", 0.0)) > 0.0:
 				continue

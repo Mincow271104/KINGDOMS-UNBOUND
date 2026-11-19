@@ -84,6 +84,7 @@ func _test_category_a_real_clock_progression() -> void:
 	ctx1.reconcile_buildings(stl1)
 
 	var mgr1 := SettlementSimulationManagerScript.new()
+	mgr1.set_immigration_enabled(false) # Isolate F1 single-farmer rate test from Phase 5 daily immigration
 	var tm1 := TimeManagerScript.new()
 	mgr1.connect_time_manager(tm1)
 	mgr1.register_context(ctx1)
@@ -871,6 +872,7 @@ func _test_category_g_daily_cap_gating_and_schedule_preservation() -> void:
 	vf_g2.last_processed_hour_seq = -1
 	ctx_g2.reconcile_buildings(stl_g2)
 	var mgr_g2 := SettlementSimulationManagerScript.new()
+	mgr_g2.set_immigration_enabled(false) # Isolate F1 single-farmer daily cap test from Phase 5 daily immigration
 	var tm_g2 := TimeManagerScript.new()
 	mgr_g2.connect_time_manager(tm_g2)
 	mgr_g2.register_context(ctx_g2)

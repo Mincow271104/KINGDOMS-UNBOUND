@@ -116,6 +116,9 @@ var _drag_current_screen: Vector2 = Vector2.ZERO
 
 # Building Inspection & Selection State (Package 2F)
 const BuildingSelectionHighlightScript = preload("res://scripts/world/building_selection_highlight.gd")
+const SettlementSimulationManagerScript = preload("res://scripts/world/settlement_simulation_manager.gd")
+const RivalPresentationControllerScript = preload("res://scripts/world/rival_presentation_controller.gd")
+const RivalInspectionQueryScript = preload("res://scripts/world/rival_inspection_query.gd")
 var selected_building_id: String = ""
 var building_highlight: Node2D = null
 var settlement_simulation_manager: Node = null
@@ -1095,13 +1098,54 @@ func apply_settlement_overlays_from_world_data(excluded_cells: Dictionary = {}) 
 	_ensure_settlement_simulation_manager()
 
 func _ensure_settlement_simulation_manager() -> void:
-	return
+	if settlement_simulation_manager == null or not is_instance_valid(settlement_simulation_manager):
+		var existing := get_node_or_null("SettlementSimulationManager")
+		if existing != null:
+			settlement_simulation_manager = existing
+		else:
+			settlement_simulation_manager = SettlementSimulationManagerScript.new()
+			settlement_simulation_manager.name = "SettlementSimulationManager"
+			add_child(settlement_simulation_manager)
+	var tm = get_node_or_null("/root/TimeManager")
+	if tm != null and settlement_simulation_manager.has_method("connect_time_manager"):
+		settlement_simulation_manager.connect_time_manager(tm)
+	if world_data != null and settlement_simulation_manager.has_method("register_settlements_from_world_data"):
+		settlement_simulation_manager.register_settlements_from_world_data(world_data)
+	_ensure_rival_presentation_controller()
 
 func _get_rival_settlement_group(sid: String) -> Node2D:
 	return _rival_settlement_groups.get(sid, null)
 
 func _ensure_rival_presentation_controller() -> void:
-	return
+	if entity_container != null and (_rival_villager_pool_container == null or not is_instance_valid(_rival_villager_pool_container)):
+		var existing_pool := entity_container.get_node_or_null("RivalVillagerPool")
+		if existing_pool is Node2D:
+			_rival_villager_pool_container = existing_pool
+		else:
+			_rival_villager_pool_container = Node2D.new()
+			_rival_villager_pool_container.name = "RivalVillagerPool"
+			_rival_villager_pool_container.y_sort_enabled = true
+			entity_container.add_child(_rival_villager_pool_container)
+
+	if rival_presentation_controller == null or not is_instance_valid(rival_presentation_controller):
+		var existing_ctrl := get_node_or_null("RivalPresentationController")
+		if existing_ctrl != null:
+			rival_presentation_controller = existing_ctrl
+		else:
+			rival_presentation_controller = RivalPresentationControllerScript.new()
+			rival_presentation_controller.name = "RivalPresentationController"
+			add_child(rival_presentation_controller)
+
+	if rival_presentation_controller.has_method("setup"):
+		rival_presentation_controller.debug_fog_disabled = debug_fog_disabled
+		rival_presentation_controller.setup(
+			settlement_simulation_manager,
+			world_data,
+			nav,
+			camera,
+			fog_of_war,
+			_rival_villager_pool_container
+		)
 
 func _refresh_rival_settlement_visibility() -> void:
 	for entry in _rival_settlement_visuals:
@@ -2800,6 +2844,15 @@ func _handle_citizen_right_click(cell: Vector2i, citizen: Node) -> void:
 			hud._refresh_inspected_citizen()
 
 func get_rival_inspection_query() -> RefCounted:
+	if _rival_inspection_query == null:
+		_rival_inspection_query = RivalInspectionQueryScript.new()
+	_rival_inspection_query.configure(
+		settlement_simulation_manager,
+		world_data,
+		fog_of_war,
+		rival_presentation_controller,
+		debug_fog_disabled
+	)
 	return _rival_inspection_query
 
 func clear_rival_selection_highlight() -> void:
