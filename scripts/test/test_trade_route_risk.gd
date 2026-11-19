@@ -103,6 +103,26 @@ func _run_all_tests() -> void:
 	test_tc_tr_14_route_risk_save_load_roundtrip()
 	test_tc_tr_15_world_view_event_driven_integration()
 
+	# Package 3C.1 Targeted 18-Scenario Matrix
+	test_sc_01_horizontal_corridor()
+	test_sc_02_vertical_corridor()
+	test_sc_03_diagonal_symmetric_corridor()
+	test_sc_04_non_square_displacement()
+	test_sc_05_out_of_bounds_endpoints()
+	test_sc_06_same_cell_corridor()
+	test_sc_07_map_boundary_coordinates()
+	test_sc_08_null_missing_fow_fallback()
+	test_sc_09_fully_unexplored_corridor()
+	test_sc_10_single_friendly_outpost()
+	test_sc_11_overlapping_friendly_outposts()
+	test_sc_12_friendly_watchtower_and_outpost_overlap()
+	test_sc_13_overlapping_hostile_outposts()
+	test_sc_14_contested_cell_cancels_and_exposes_both_reasons()
+	test_sc_15_destroyed_stale_outpost_safely_rejected()
+	test_sc_16_origin_faction_wartime_status()
+	test_sc_17_restless_bandits_modifier()
+	test_sc_18_final_risk_clamp_exact_boundaries()
+
 # -----------------------------------------------------------------------------
 # 1. TC-TR.01: Bresenham Line Corridor Traversal
 # -----------------------------------------------------------------------------
@@ -456,3 +476,359 @@ func test_tc_tr_15_world_view_event_driven_integration() -> void:
 		_assert(is_equal_approx(restored_risk, initial_risk), "TC-TR.15.4: Unregistering outpost restores original risk level (%.3f == %.3f)" % [restored_risk, initial_risk])
 
 	wv.queue_free()
+
+# =============================================================================
+# PACKAGE 3C.1 VALIDATION MATRIX: 18 TARGETED SCENARIOS
+# =============================================================================
+
+# Scenario 1: Horizontal corridor traversal
+func test_sc_01_horizontal_corridor() -> void:
+	print("\n--- Scenario 1: Horizontal Corridor Traversal ---")
+	var cells := TradeRouteCalculatorScript.compute_route_cells(Vector2i(5, 10), Vector2i(9, 10))
+	_assert(cells.size() == 5, "SC-01.1: Horizontal 5-cell span has size 5")
+	_assert(cells[0] == Vector2i(5, 10) and cells[4] == Vector2i(9, 10), "SC-01.2: Endpoints match start and end")
+	for i in range(cells.size()):
+		_assert(cells[i].y == 10 and cells[i].x == 5 + i, "SC-01.3: Cell %d is strictly horizontal (x=%d, y=10)" % [i, 5 + i])
+
+# Scenario 2: Vertical corridor traversal
+func test_sc_02_vertical_corridor() -> void:
+	print("\n--- Scenario 2: Vertical Corridor Traversal ---")
+	var cells := TradeRouteCalculatorScript.compute_route_cells(Vector2i(10, 5), Vector2i(10, 9))
+	_assert(cells.size() == 5, "SC-02.1: Vertical 5-cell span has size 5")
+	_assert(cells[0] == Vector2i(10, 5) and cells[4] == Vector2i(10, 9), "SC-02.2: Endpoints match start and end")
+	for i in range(cells.size()):
+		_assert(cells[i].x == 10 and cells[i].y == 5 + i, "SC-02.3: Cell %d is strictly vertical (x=10, y=%d)" % [i, 5 + i])
+
+# Scenario 3: Diagonal symmetric corridor traversal
+func test_sc_03_diagonal_symmetric_corridor() -> void:
+	print("\n--- Scenario 3: Diagonal Symmetric Corridor Traversal ---")
+	var cells := TradeRouteCalculatorScript.compute_route_cells(Vector2i(10, 10), Vector2i(14, 14))
+	_assert(cells.size() == 5, "SC-03.1: Symmetric diagonal (10,10)->(14,14) produces 5 cells")
+	for i in range(cells.size()):
+		_assert(cells[i] == Vector2i(10 + i, 10 + i), "SC-03.2: Step %d is symmetric diagonal (%d, %d)" % [i, 10 + i, 10 + i])
+
+# Scenario 4: Non-square endpoint displacement
+func test_sc_04_non_square_displacement() -> void:
+	print("\n--- Scenario 4: Non-Square Endpoint Displacement ---")
+	var cells := TradeRouteCalculatorScript.compute_route_cells(Vector2i(10, 10), Vector2i(15, 12))
+	_assert(cells.size() == 6, "SC-04.1: Non-square span dx=5, dy=2 produces 6 cells (max(dx,dy)+1)")
+	_assert(cells[0] == Vector2i(10, 10), "SC-04.2: First cell is start")
+	_assert(cells[cells.size() - 1] == Vector2i(15, 12), "SC-04.3: Last cell is end")
+	for i in range(1, cells.size()):
+		_assert(cells[i].x >= cells[i-1].x and cells[i].y >= cells[i-1].y, "SC-04.4: Monotonic traversal progression at %d" % i)
+
+# Scenario 5: Out-of-bounds endpoint coordinates
+func test_sc_05_out_of_bounds_endpoints() -> void:
+	print("\n--- Scenario 5: Out-of-Bounds Endpoint Coordinates ---")
+	var oob_start := TradeRouteCalculatorScript.compute_route_cells(Vector2i(-1, -1), Vector2i(10, 10))
+	_assert(oob_start.is_empty(), "SC-05.1: Negative start (-1, -1) returns empty array immediately")
+
+	var oob_end := TradeRouteCalculatorScript.compute_route_cells(Vector2i(10, 10), Vector2i(64, 10))
+	_assert(oob_end.is_empty(), "SC-05.2: Over-bounds end (64, 10) returns empty array immediately")
+
+	var oob_both := TradeRouteCalculatorScript.compute_route_cells(Vector2i(-5, 70), Vector2i(80, -2))
+	_assert(oob_both.is_empty(), "SC-05.3: Both endpoints out-of-bounds returns empty array")
+
+	var eval_oob := TradeRouteCalculatorScript.evaluate_route_risk_between(Vector2i(-1, -1), Vector2i(10, 10))
+	_assert(eval_oob["total_cells"] == 0, "SC-05.4: OOB route evaluates total_cells == 0")
+	_assert(is_equal_approx(float(eval_oob["unexplored_ratio"]), 1.0), "SC-05.5: OOB route assigns unexplored_ratio == 1.0")
+	_assert(is_equal_approx(float(eval_oob["net_risk"]), 0.15), "SC-05.6: OOB route applies conservative +15% net risk")
+	_assert(eval_oob["reasons"].has("unexplored"), "SC-05.7: Reasons list contains 'unexplored'")
+
+# Scenario 6: Same-cell corridor
+func test_sc_06_same_cell_corridor() -> void:
+	print("\n--- Scenario 6: Same-Cell Corridor ---")
+	var same := TradeRouteCalculatorScript.compute_route_cells(Vector2i(25, 25), Vector2i(25, 25))
+	_assert(same.size() == 1, "SC-06.1: Same cell start==end returns exactly 1 cell")
+	_assert(same[0] == Vector2i(25, 25), "SC-06.2: Single cell is exactly (25, 25)")
+
+	var same_oob := TradeRouteCalculatorScript.compute_route_cells(Vector2i(-1, -1), Vector2i(-1, -1))
+	_assert(same_oob.is_empty(), "SC-06.3: Same cell out-of-bounds returns empty array")
+
+# Scenario 7: Map boundary coordinates
+func test_sc_07_map_boundary_coordinates() -> void:
+	print("\n--- Scenario 7: Map Boundary Coordinates ---")
+	var diag_full := TradeRouteCalculatorScript.compute_route_cells(Vector2i(0, 0), Vector2i(63, 63))
+	_assert(diag_full.size() == 64, "SC-07.1: Full map diagonal (0,0)->(63,63) produces 64 cells")
+	_assert(diag_full[0] == Vector2i(0, 0), "SC-07.2: First cell is (0, 0)")
+	_assert(diag_full[63] == Vector2i(63, 63), "SC-07.3: Last cell is (63, 63)")
+
+	var edge_h := TradeRouteCalculatorScript.compute_route_cells(Vector2i(0, 63), Vector2i(63, 63))
+	_assert(edge_h.size() == 64, "SC-07.4: Edge horizontal y=63 produces 64 cells")
+	_assert(edge_h[0] == Vector2i(0, 63) and edge_h[63] == Vector2i(63, 63), "SC-07.5: Edge endpoints correct")
+
+# Scenario 8: Null/missing FOW fallback
+func test_sc_08_null_missing_fow_fallback() -> void:
+	print("\n--- Scenario 8: Null/Missing FOW Fallback ---")
+	var route := [Vector2i(10, 10), Vector2i(11, 10), Vector2i(12, 10)]
+	var eval_null_fow := TradeRouteCalculatorScript.evaluate_route_risk(route, null, null, null, false)
+	_assert(int(eval_null_fow["unexplored_cells"]) == 3, "SC-08.1: Null FOW treats all 3 cells as unexplored")
+	_assert(is_equal_approx(float(eval_null_fow["unexplored_ratio"]), 1.0), "SC-08.2: Null FOW unexplored_ratio is 1.0")
+	_assert(is_equal_approx(float(eval_null_fow["net_risk"]), 0.15), "SC-08.3: Null FOW applies maximum +15% surcharge")
+	_assert(eval_null_fow["reasons"].has("unexplored"), "SC-08.4: Null FOW reasons includes 'unexplored'")
+
+# Scenario 9: Fully unexplored corridor
+func test_sc_09_fully_unexplored_corridor() -> void:
+	print("\n--- Scenario 9: Fully Unexplored Corridor ---")
+	var fow = FogOfWarScript.new(64)
+	var route := [Vector2i(20, 20), Vector2i(21, 20), Vector2i(22, 20), Vector2i(23, 20)]
+	var eval := TradeRouteCalculatorScript.evaluate_route_risk(route, fow, null, null, false)
+	_assert(int(eval["unexplored_cells"]) == 4, "SC-09.1: All 4 cells are unexplored")
+	_assert(is_equal_approx(float(eval["unexplored_ratio"]), 1.0), "SC-09.2: Unexplored ratio is exactly 1.0")
+	_assert(is_equal_approx(float(eval["net_risk"]), 0.15), "SC-09.3: Net risk is +0.15")
+
+# Scenario 10: Single friendly outpost coverage
+func test_sc_10_single_friendly_outpost() -> void:
+	print("\n--- Scenario 10: Single Friendly Outpost Coverage ---")
+	var mock_fsm = MockFSM.new()
+	var outpost := SiegeObjectiveActorScript.new()
+	outpost.current_cell = Vector2i(30, 30)
+	outpost.owning_faction_id = "player"
+	outpost.vision_radius = 6
+	outpost.is_alive = true
+	outpost.health = 200.0
+	mock_fsm.objectives = [outpost]
+
+	var fow = FogOfWarScript.new(64)
+	var route := [Vector2i(30, 30), Vector2i(31, 30), Vector2i(32, 30)]
+	for c in route: fow.set_state(c, FogOfWarScript.State.EXPLORED)
+
+	var eval := TradeRouteCalculatorScript.evaluate_route_risk(route, fow, mock_fsm, null, false)
+	_assert(int(eval["secured_cells"]) == 3, "SC-10.1: All 3 cells secured by player outpost")
+	_assert(is_equal_approx(float(eval["secured_ratio"]), 1.0), "SC-10.2: 100% secured ratio")
+	_assert(is_equal_approx(float(eval["net_risk"]), -0.10), "SC-10.3: Applies full -10% discount (-0.10)")
+	_assert(eval["reasons"].has("secured"), "SC-10.4: Reasons includes 'secured'")
+	outpost.free()
+
+# Scenario 11: Overlapping friendly outposts (no double-counting)
+func test_sc_11_overlapping_friendly_outposts() -> void:
+	print("\n--- Scenario 11: Overlapping Friendly Outposts ---")
+	var mock_fsm = MockFSM.new()
+	var op1 := SiegeObjectiveActorScript.new()
+	op1.current_cell = Vector2i(30, 30)
+	op1.owning_faction_id = "player"
+	op1.vision_radius = 6
+	op1.is_alive = true
+	op1.health = 200.0
+
+	var op2 := SiegeObjectiveActorScript.new()
+	op2.current_cell = Vector2i(31, 30)
+	op2.owning_faction_id = "player"
+	op2.vision_radius = 6
+	op2.is_alive = true
+	op2.health = 200.0
+	mock_fsm.objectives = [op1, op2]
+
+	var fow = FogOfWarScript.new(64)
+	var route := [Vector2i(30, 30), Vector2i(31, 30)]
+	for c in route: fow.set_state(c, FogOfWarScript.State.EXPLORED)
+
+	var eval := TradeRouteCalculatorScript.evaluate_route_risk(route, fow, mock_fsm, null, false)
+	_assert(int(eval["secured_cells"]) == 2, "SC-11.1: 2 corridor cells secured once each (no double count)")
+	_assert(is_equal_approx(float(eval["secured_ratio"]), 1.0), "SC-11.2: Secured ratio remains 1.0 (not 2.0)")
+	_assert(is_equal_approx(float(eval["net_risk"]), -0.10), "SC-11.3: Net risk capped at -10% (no stacked -20%)")
+	op1.free()
+	op2.free()
+
+# Scenario 12: Friendly watchtower and outpost overlap
+func test_sc_12_friendly_watchtower_and_outpost_overlap() -> void:
+	print("\n--- Scenario 12: Friendly Watchtower and Outpost Overlap ---")
+	var mock_fsm = MockFSM.new()
+	var op := SiegeObjectiveActorScript.new()
+	op.current_cell = Vector2i(20, 20)
+	op.owning_faction_id = "player"
+	op.vision_radius = 6
+	op.is_alive = true
+	op.health = 200.0
+	mock_fsm.objectives = [op]
+
+	var mock_wd = WorldGenerator.WorldData.new()
+	var blds: Array[Dictionary] = [
+		{"type": "watchtower", "cell": Vector2i(21, 20), "state": "active"}
+	]
+	mock_wd.buildings = blds
+
+	var fow = FogOfWarScript.new(64)
+	var route := [Vector2i(20, 20)]
+	fow.set_state(route[0], FogOfWarScript.State.EXPLORED)
+
+	var eval := TradeRouteCalculatorScript.evaluate_route_risk(route, fow, mock_fsm, mock_wd, false)
+	_assert(int(eval["secured_cells"]) == 1, "SC-12.1: Single cell covered by both outpost and watchtower counts exactly once")
+	_assert(is_equal_approx(float(eval["secured_ratio"]), 1.0), "SC-12.2: Secured ratio is 1.0")
+	_assert(is_equal_approx(float(eval["net_risk"]), -0.10), "SC-12.3: Discount is exactly -10%")
+	op.free()
+
+# Scenario 13: Overlapping hostile outposts (no double-counting)
+func test_sc_13_overlapping_hostile_outposts() -> void:
+	print("\n--- Scenario 13: Overlapping Hostile Outposts ---")
+	var mock_fsm = MockFSM.new()
+	var enemy1 := SiegeObjectiveActorScript.new()
+	enemy1.current_cell = Vector2i(40, 40)
+	enemy1.owning_faction_id = "rival_military"
+	enemy1.vision_radius = 6
+	enemy1.is_alive = true
+	enemy1.health = 300.0
+
+	var enemy2 := SiegeObjectiveActorScript.new()
+	enemy2.current_cell = Vector2i(41, 40)
+	enemy2.owning_faction_id = "rival_military"
+	enemy2.vision_radius = 6
+	enemy2.is_alive = true
+	enemy2.health = 300.0
+	mock_fsm.objectives = [enemy1, enemy2]
+
+	var fow = FogOfWarScript.new(64)
+	var route := [Vector2i(40, 40), Vector2i(41, 40)]
+	for c in route: fow.set_state(c, FogOfWarScript.State.EXPLORED)
+
+	var eval := TradeRouteCalculatorScript.evaluate_route_risk(route, fow, mock_fsm, null, false)
+	_assert(int(eval["hostile_cells"]) == 2, "SC-13.1: 2 corridor cells counted once each for hostile presence")
+	_assert(is_equal_approx(float(eval["hostile_ratio"]), 1.0), "SC-13.2: Hostile ratio is 1.0 (not 2.0)")
+	_assert(is_equal_approx(float(eval["net_risk"]), 0.10), "SC-13.3: Hostile surcharge capped at +10% (no double +20%)")
+	enemy1.free()
+	enemy2.free()
+
+# Scenario 14: Contested cell (covered by both, nets to 0, both reasons exposed)
+func test_sc_14_contested_cell_cancels_and_exposes_both_reasons() -> void:
+	print("\n--- Scenario 14: Contested Cell (Friendly + Hostile) ---")
+	var mock_fsm = MockFSM.new()
+	var friendly := SiegeObjectiveActorScript.new()
+	friendly.current_cell = Vector2i(35, 35)
+	friendly.owning_faction_id = "player"
+	friendly.vision_radius = 6
+	friendly.is_alive = true
+	friendly.health = 300.0
+
+	var enemy := SiegeObjectiveActorScript.new()
+	enemy.current_cell = Vector2i(36, 35)
+	enemy.owning_faction_id = "rival_military"
+	enemy.vision_radius = 6
+	enemy.is_alive = true
+	enemy.health = 300.0
+	mock_fsm.objectives = [friendly, enemy]
+
+	var fow = FogOfWarScript.new(64)
+	var route := [Vector2i(35, 35)]
+	fow.set_state(route[0], FogOfWarScript.State.EXPLORED)
+
+	var eval := TradeRouteCalculatorScript.evaluate_route_risk(route, fow, mock_fsm, null, false)
+	_assert(int(eval["secured_cells"]) == 1, "SC-14.1: Cell is counted as secured")
+	_assert(int(eval["hostile_cells"]) == 1, "SC-14.2: Cell is counted as hostile")
+	_assert(is_equal_approx(float(eval["raw_risk"]), 0.0), "SC-14.3: Friendly and hostile effects cancel out to 0.0 raw risk")
+	_assert(is_equal_approx(float(eval["net_risk"]), 0.0), "SC-14.4: Net risk is 0.0")
+	_assert(eval["reasons"].has("secured"), "SC-14.5: Reasons preserves 'secured'")
+	_assert(eval["reasons"].has("hostile_outpost"), "SC-14.6: Reasons preserves 'hostile_outpost'")
+	friendly.free()
+	enemy.free()
+
+# Scenario 15: Destroyed/stale outpost reference safely rejected
+func test_sc_15_destroyed_stale_outpost_safely_rejected() -> void:
+	print("\n--- Scenario 15: Destroyed/Stale Outpost Safely Rejected ---")
+	var mock_fsm = MockFSM.new()
+	var dead_op := SiegeObjectiveActorScript.new()
+	dead_op.current_cell = Vector2i(10, 10)
+	dead_op.owning_faction_id = "player"
+	dead_op.vision_radius = 6
+	dead_op.is_alive = false
+	dead_op.health = 0.0
+
+	var zero_hp_op := SiegeObjectiveActorScript.new()
+	zero_hp_op.current_cell = Vector2i(10, 10)
+	zero_hp_op.owning_faction_id = "player"
+	zero_hp_op.vision_radius = 6
+	zero_hp_op.is_alive = true
+	zero_hp_op.health = 0.0
+
+	var oob_op := SiegeObjectiveActorScript.new()
+	oob_op.current_cell = Vector2i(999, 999)
+	oob_op.owning_faction_id = "player"
+	oob_op.vision_radius = 6
+	oob_op.is_alive = true
+	oob_op.health = 100.0
+
+	mock_fsm.objectives = [dead_op, zero_hp_op, oob_op, null]
+
+	var fow = FogOfWarScript.new(64)
+	var route := [Vector2i(10, 10)]
+	fow.set_state(route[0], FogOfWarScript.State.EXPLORED)
+
+	var eval := TradeRouteCalculatorScript.evaluate_route_risk(route, fow, mock_fsm, null, false)
+	_assert(int(eval["secured_cells"]) == 0, "SC-15.1: Dead, zero-hp, and OOB outposts contribute 0 security")
+	_assert(is_equal_approx(float(eval["net_risk"]), 0.0), "SC-15.2: Net risk remains neutral 0.0")
+	dead_op.free()
+	zero_hp_op.free()
+	oob_op.free()
+
+# Scenario 16: Origin faction wartime status
+func test_sc_16_origin_faction_wartime_status() -> void:
+	print("\n--- Scenario 16: Origin Faction Wartime Status ---")
+	var fow = FogOfWarScript.new(64)
+	var route := [Vector2i(10, 10), Vector2i(11, 10)]
+	for c in route: fow.set_state(c, FogOfWarScript.State.EXPLORED)
+
+	var eval_peace := TradeRouteCalculatorScript.evaluate_route_risk(route, fow, null, null, false)
+	var eval_war := TradeRouteCalculatorScript.evaluate_route_risk(route, fow, null, null, true)
+	_assert(is_equal_approx(float(eval_peace["net_risk"]), 0.0), "SC-16.1: Peaceful route net risk is 0.0")
+	_assert(is_equal_approx(float(eval_war["net_risk"]), 0.10), "SC-16.2: Wartime route net risk is exactly +0.10 (+10%)")
+	_assert(eval_war["reasons"].has("wartime"), "SC-16.3: Wartime reason present in reasons list")
+
+# Scenario 17: Restless Bandits modifier
+func test_sc_17_restless_bandits_modifier() -> void:
+	print("\n--- Scenario 17: Restless Bandits Modifier ---")
+	var fow = FogOfWarScript.new(64)
+	var route := [Vector2i(10, 10), Vector2i(11, 10)]
+	for c in route: fow.set_state(c, FogOfWarScript.State.EXPLORED)
+
+	var eval_bandits := TradeRouteCalculatorScript.evaluate_route_risk(route, fow, null, null, false, ["restless_bandits"])
+	_assert(is_equal_approx(float(eval_bandits["net_risk"]), 0.10), "SC-17.1: restless_bandits adds +0.10 (+10%) risk")
+	_assert(eval_bandits["reasons"].has("restless_bandits"), "SC-17.2: Reasons contains 'restless_bandits'")
+
+	var eval_null_mod := TradeRouteCalculatorScript.evaluate_route_risk(route, fow, null, null, false, null)
+	_assert(is_equal_approx(float(eval_null_mod["net_risk"]), 0.0), "SC-17.3: Null modifier input handled safely as empty")
+
+	var eval_invalid_mod := TradeRouteCalculatorScript.evaluate_route_risk(route, fow, null, null, false, 12345)
+	_assert(is_equal_approx(float(eval_invalid_mod["net_risk"]), 0.0), "SC-17.4: Non-array modifier input handled safely as empty")
+
+# Scenario 18: Final risk clamp at exact boundaries
+func test_sc_18_final_risk_clamp_exact_boundaries() -> void:
+	print("\n--- Scenario 18: Final Risk Clamp Exact Boundaries ---")
+	var mock_fsm = MockFSM.new()
+	var p_op := SiegeObjectiveActorScript.new()
+	p_op.current_cell = Vector2i(10, 10)
+	p_op.owning_faction_id = "player"
+	p_op.vision_radius = 6
+	p_op.is_alive = true
+	p_op.health = 200.0
+	mock_fsm.objectives = [p_op]
+
+	var fow = FogOfWarScript.new(64)
+	var route := [Vector2i(10, 10)]
+	fow.set_state(route[0], FogOfWarScript.State.EXPLORED)
+
+	var eval_min := TradeRouteCalculatorScript.evaluate_route_risk(route, fow, mock_fsm, null, false)
+	_assert(is_equal_approx(float(eval_min["net_risk"]), -0.10), "SC-18.1: Minimum discount clamp at exactly -0.10 (-10%)")
+
+	var hostile_op := SiegeObjectiveActorScript.new()
+	hostile_op.current_cell = Vector2i(10, 10)
+	hostile_op.owning_faction_id = "rival_military"
+	hostile_op.vision_radius = 6
+	hostile_op.is_alive = true
+	hostile_op.health = 200.0
+	mock_fsm.objectives = [hostile_op]
+
+	var fow_unex = FogOfWarScript.new(64)
+	var eval_max := TradeRouteCalculatorScript.evaluate_route_risk(route, fow_unex, mock_fsm, null, true, ["restless_bandits"])
+	_assert(eval_max["raw_risk"] > 0.25, "SC-18.2: Raw risk exceeds maximum (observed: %.2f)" % float(eval_max["raw_risk"]))
+	_assert(is_equal_approx(float(eval_max["net_risk"]), 0.25), "SC-18.3: Net risk strictly clamped to +0.25 (+25%)")
+
+	var caravan = TradeCaravanScript.generate_caravan(9999, 5, "rival_merchant", false)
+	for extreme_risk in [-0.10, 0.25]:
+		caravan.set_route_risk(extreme_risk)
+		for res_id in [EconomyConfigScript.RES_FOOD, EconomyConfigScript.RES_WOOD, EconomyConfigScript.RES_METAL, EconomyConfigScript.RES_TOOLS, EconomyConfigScript.RES_CRYSTAL]:
+			var bp: Dictionary = caravan.get_price_breakdown(res_id)
+			var buy_p: int = int(bp["final_buy_price"])
+			var sell_p: int = int(bp["final_sell_price"])
+			_assert(buy_p <= sell_p - 1, "SC-18.4 (Risk %.2f, %s): Anti-arbitrage hold: buy (%d) <= sell (%d) - 1" % [extreme_risk, res_id, buy_p, sell_p])
+
+	p_op.free()
+	hostile_op.free()

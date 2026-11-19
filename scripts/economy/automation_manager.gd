@@ -27,6 +27,8 @@ var _next_program_counter: int = 1
 # Pending Delayed Continuations (Package 1Y)
 var pending_continuations: Array[Dictionary] = []
 var _next_continuation_counter: int = 1
+var _applied_graph_priority_sources: Dictionary = {} # prog_id -> {source_id: true}
+var _last_job_mgr: Variant = null
 
 # -----------------------------------------------------------------------------
 # Program Lifecycle & Management
@@ -67,11 +69,66 @@ func duplicate_program(prog_id: String) -> AutomationProgram:
 
 func delete_program(prog_id: String) -> bool:
 	clear_pending_continuations_for_program(prog_id)
+	cleanup_program_priority_modifiers(prog_id)
 	for i in range(programs.size()):
 		if programs[i].id == prog_id:
 			programs.remove_at(i)
 			return true
 	return false
+
+func set_program_enabled(prog_id: String, enabled: bool, job_mgr: Variant = null) -> bool:
+	var prog := get_program(prog_id)
+	if prog == null:
+		return false
+	prog.enabled = enabled
+	if not enabled:
+		cleanup_program_priority_modifiers(prog_id, job_mgr)
+	return true
+
+func _remember_job_mgr(job_mgr: Variant) -> void:
+	if job_mgr is Object and job_mgr.has_method("remove_priority_modifier"):
+		_last_job_mgr = job_mgr
+
+func _remove_modifier_from_job_mgr(target_jm: Variant, source_id: String) -> void:
+	if target_jm is Object and target_jm.has_method("remove_priority_modifier"):
+		target_jm.call("remove_priority_modifier", source_id)
+
+func cleanup_program_priority_modifiers(prog_id: String, job_mgr: Variant = null) -> int:
+	if prog_id.is_empty() or not _applied_graph_priority_sources.has(prog_id):
+		return 0
+	var target_jm: Variant = job_mgr if job_mgr != null else _last_job_mgr
+	var sources: Dictionary = _applied_graph_priority_sources[prog_id]
+	var removed := 0
+	for source_id in sources.keys():
+		_remove_modifier_from_job_mgr(target_jm, str(source_id))
+		removed += 1
+	_applied_graph_priority_sources.erase(prog_id)
+	return removed
+
+func cleanup_stale_graph_priority_modifiers(job_mgr: Variant = null) -> void:
+	var target_jm: Variant = job_mgr if job_mgr != null else _last_job_mgr
+	var tracked_ids: Array = _applied_graph_priority_sources.keys()
+	for pid in tracked_ids:
+		var prog_id: String = str(pid)
+		var prog := get_program(prog_id)
+		if prog == null or not prog.enabled:
+			cleanup_program_priority_modifiers(prog_id, target_jm)
+			continue
+		var valid_sources: Dictionary = {}
+		for node in prog.nodes:
+			if str(node.get("type", "")) == "Action" and str(node.get("subtype", "")) == "BoostJobPriority":
+				var params: Dictionary = node.get("params", {})
+				var jtype: String = str(params.get("job_type", "farmer")).to_lower()
+				var sid := "automation_graph:%s:%s" % [prog.id, str(node.get("id", jtype))]
+				valid_sources[sid] = true
+		var tracked_sources: Dictionary = _applied_graph_priority_sources.get(prog_id, {})
+		for sid in tracked_sources.keys():
+			var s_str: String = str(sid)
+			if not valid_sources.has(s_str):
+				_remove_modifier_from_job_mgr(target_jm, s_str)
+				tracked_sources.erase(s_str)
+		if tracked_sources.is_empty():
+			_applied_graph_priority_sources.erase(prog_id)
 
 func get_program(prog_id: String) -> AutomationProgram:
 	for p in programs:
@@ -825,6 +882,8 @@ func execute_action_node(
 			var cid: String = str(c.get("id")) if c.get("id") != null else str(c.name)
 			if action_locks.has("cit_%s" % cid):
 				continue
+			if c.has_method("can_accept_role_change") and not bool(c.call("can_accept_role_change", to_role, false)):
+				continue
 			candidate = c
 			break
 
@@ -875,7 +934,14 @@ func execute_action_node(
 
 		var boosted: int = 0
 		if not is_dry_run:
-			if job_mgr is Object and job_mgr.has_method("boost_jobs_priority"):
+			_remember_job_mgr(job_mgr)
+			var source_id := "automation_graph:%s:%s" % [prog.id, str(node.get("id", job_type))]
+			if job_mgr is Object and job_mgr.has_method("set_priority_modifier"):
+				boosted = int(job_mgr.call("set_priority_modifier", source_id, delta_p, job_type, ""))
+				if not _applied_graph_priority_sources.has(prog.id):
+					_applied_graph_priority_sources[prog.id] = {}
+				_applied_graph_priority_sources[prog.id][source_id] = true
+			elif job_mgr is Object and job_mgr.has_method("boost_jobs_priority"):
 				boosted = int(job_mgr.call("boost_jobs_priority", job_type, delta_p))
 			elif job_mgr is Dictionary and job_mgr.has("boost_jobs_priority") and job_mgr["boost_jobs_priority"] is Callable:
 				boosted = int(job_mgr["boost_jobs_priority"].call(job_type, delta_p))
@@ -1357,6 +1423,8 @@ func run_program(prog_id: String, context: Dictionary, options: Dictionary = {})
 	}
 
 func evaluate_all_graphs(context: Dictionary, _dt: float = 0.0) -> Dictionary:
+	_remember_job_mgr(context.get("job_mgr"))
+	cleanup_stale_graph_priority_modifiers(context.get("job_mgr"))
 	if bool(context.get("is_paused", false)):
 		return {"executed_programs": []}
 
@@ -1440,19 +1508,23 @@ func evaluate_rules(
 				eff_hour = 0
 
 	if resource_mgr != null and job_mgr != null:
+		var supports_modifiers: bool = job_mgr is Object and job_mgr.has_method("set_priority_modifier") and job_mgr.has_method("remove_priority_modifier")
 		# --- Rule 1: Food Emergency Priority Boost ---
 		if execution_budget_used < MAX_RULE_CHECKS_PER_TICK:
 			execution_budget_used += 1
 			var food_avail: int = _get_resource_stock(resource_mgr, EconomyConfig.RES_FOOD)
 			if food_avail < food_emergency_threshold:
-				var farm_boosted := job_mgr.boost_jobs_priority("farmer", 2)
-				var haul_boosted := job_mgr.boost_jobs_priority("hauler", 3)
+				var farm_boosted: int = job_mgr.set_priority_modifier("automation_rule:food_emergency:farmer", 2, "farmer", "") if supports_modifiers else job_mgr.boost_jobs_priority("farmer", 2)
+				var haul_boosted: int = job_mgr.set_priority_modifier("automation_rule:food_emergency:hauler", 3, "hauler", "") if supports_modifiers else job_mgr.boost_jobs_priority("hauler", 3)
 				if farm_boosted > 0 or haul_boosted > 0:
 					actions_taken.append(
 						"Cảnh báo lương thực thấp (%d < %d): Tăng độ ưu tiên cho %d việc nông dân và %d việc vận chuyển" % [
 							food_avail, food_emergency_threshold, farm_boosted, haul_boosted
 						]
 					)
+			elif supports_modifiers:
+				job_mgr.remove_priority_modifier("automation_rule:food_emergency:farmer")
+				job_mgr.remove_priority_modifier("automation_rule:food_emergency:hauler")
 
 		# --- Rule 2: Workplace Buffer Congestion Protection ---
 		if workplace_mgr != null and execution_budget_used < MAX_RULE_CHECKS_PER_TICK:
@@ -1463,16 +1535,28 @@ func evaluate_rules(
 
 				if wp.buffer_capacity > 0:
 					var fill_ratio: float = float(wp.buffer_amount) / float(wp.buffer_capacity)
+					var cong_source: String = "automation_rule:buffer_congestion:%s" % wp.id
 					if fill_ratio >= buffer_congestion_ratio:
-						for job in job_mgr.get_all_jobs():
-							if job.type == "hauler" and job.source_workplace_id == wp.id:
-								job.priority = clampi(job.priority + 2, JobManager.MIN_JOB_PRIORITY, JobManager.MAX_JOB_PRIORITY)
+						if supports_modifiers:
+							var cong_boosted: int = job_mgr.set_priority_modifier(cong_source, 2, "hauler", wp.id)
+							if cong_boosted > 0:
 								actions_taken.append(
 									"Kho tạm %s đầy (%.0f%%): Tăng ưu tiên vận chuyển hàng về kho trung tâm" % [
 										wp.id, fill_ratio * 100.0
 									]
 								)
-								break
+						else:
+							for job in job_mgr.get_all_jobs():
+								if job.type == "hauler" and job.source_workplace_id == wp.id:
+									job.priority = clampi(job.priority + 2, JobManager.MIN_JOB_PRIORITY, JobManager.MAX_JOB_PRIORITY)
+									actions_taken.append(
+										"Kho tạm %s đầy (%.0f%%): Tăng ưu tiên vận chuyển hàng về kho trung tâm" % [
+											wp.id, fill_ratio * 100.0
+										]
+									)
+									break
+					elif supports_modifiers:
+						job_mgr.remove_priority_modifier(cong_source)
 
 		# --- Rule 3: Autumn Winter Preparation ---
 		if execution_budget_used < MAX_RULE_CHECKS_PER_TICK:
@@ -1480,11 +1564,15 @@ func evaluate_rules(
 			if current_season == "autumn":
 				var food_avail: int = _get_resource_stock(resource_mgr, EconomyConfig.RES_FOOD)
 				if food_avail < winter_prep_food_threshold:
-					var boosted := job_mgr.boost_jobs_priority("farmer", 1)
+					var boosted: int = job_mgr.set_priority_modifier("automation_rule:winter_prep:farmer", 1, "farmer", "") if supports_modifiers else job_mgr.boost_jobs_priority("farmer", 1)
 					if boosted > 0:
 						actions_taken.append(
 							"Mùa Thu chuẩn bị Mùa Đông: Tăng sản xuất lương thực dự trữ (kho hiện tại: %d)" % food_avail
 						)
+				elif supports_modifiers:
+					job_mgr.remove_priority_modifier("automation_rule:winter_prep:farmer")
+			elif supports_modifiers:
+				job_mgr.remove_priority_modifier("automation_rule:winter_prep:farmer")
 
 	# --- Evaluate Enabled Graph Programs ---
 	var graph_context: Dictionary = {

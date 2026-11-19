@@ -5,6 +5,8 @@ extends RefCounted
 
 
 static func can_place_building(type: String, origin: Vector2i, world_data: WorldGenerator.WorldData, resource_mgr: Node) -> Dictionary:
+	if type == "bridge":
+		return {"valid": false, "reason": "Vui lòng sử dụng công cụ đặt Cầu Vượt Sông"}
 	var bp: Dictionary = EconomyConfig.BLUEPRINTS.get(type, {})
 	if bp.is_empty():
 		return {"valid": false, "reason": "Bản thiết kế không tồn tại"}
@@ -28,13 +30,23 @@ static func can_place_building(type: String, origin: Vector2i, world_data: World
 			if not IsoMath.is_in_bounds(cell):
 				return {"valid": false, "reason": "Vị trí nằm ngoài ranh giới bản đồ"}
 				
-			# Water terrain check
+			# Water / Town Hall Mountain terrain check (GDD §3.2–3.3)
 			if world_data.terrain[cell.x][cell.y] == WorldGenerator.TerrainType.WATER:
 				return {"valid": false, "reason": "Không thể xây dựng trên mặt nước"}
+			if type == "townhall" and world_data.terrain[cell.x][cell.y] == WorldGenerator.TerrainType.MOUNTAINS:
+				return {"valid": false, "reason": "Không thể xây dựng Nhà Chính trên núi"}
 				
 			# Occupancy collision check
 			if world_data.occupancy[cell.x][cell.y]:
 				return {"valid": false, "reason": "Vị trí đã bị chiếm dụng bởi công trình hoặc chướng ngại vật"}
+
+	# 2b. Authoritative Kingdom Territory check (full footprint must be owned)
+	if world_data.owned_cells.size() == world_data.map_width:
+		for ox in range(size.x):
+			for oy in range(size.y):
+				var tcell := origin + Vector2i(ox, oy)
+				if not bool(world_data.owned_cells[tcell.x][tcell.y]):
+					return {"valid": false, "reason": "Ngoài lãnh thổ vương quốc (Outside Kingdom Territory). Hãy nâng cấp Tòa Thị Chính để mở rộng lãnh thổ."}
 				
 	# 3. Accessibility check for production workplaces and barracks
 	if bp.get("output_resource", "") != "" or bp.has("recipes") or type in ["workshop", "barracks"]:
@@ -221,8 +233,11 @@ static func complete_building(b_data_or_id, world_data: WorldGenerator.WorldData
 			return false
 
 	b_data["state"] = "active"
+	b_data["is_constructed"] = true
 	b_data["construction_progress"] = total_hours
 	apply_completion_effects(b_data, resource_mgr)
+	if type == "bridge" and world_data != null:
+		BridgeSystem.rebuild_bridge_walkability(world_data)
 	return true
 
 static func is_valid_resource_manager_for_cancellation(resource_mgr: Object) -> bool:
@@ -253,7 +268,7 @@ static func can_cancel_construction(b_data_or_id, world_data: WorldGenerator.Wor
 
 	var type: String = b_data.get("type", "")
 	var bp: Dictionary = EconomyConfig.BLUEPRINTS.get(type, {})
-	var cost: Dictionary = bp.get("cost", {})
+	var cost: Dictionary = b_data.get("cost", bp.get("cost", {})) if type == "bridge" else bp.get("cost", {})
 	var planned_refund: Dictionary = {}
 	for res_id in cost:
 		var refund_amount: int = int(float(cost[res_id]) * refund_ratio)
@@ -326,13 +341,17 @@ static func cancel_construction(b_data_or_id, world_data: WorldGenerator.WorldDa
 			return {"success": false, "reason": atomic_res.get("reason", "Không thể hoàn trả toàn bộ tài nguyên vào kho chứa"), "insufficient_storage": false, "refunded": {}}
 		refunded = atomic_res.get("credited", {})
 
-	# 1. Clear occupancy only for this building's footprint
+	# 1. Clear occupancy only for this building's footprint (preserve WATER occupancy for bridges)
+	var b_type: String = str(b_data.get("type", ""))
 	if world_data:
 		for ox in range(size.x):
 			for oy in range(size.y):
 				var cell := origin + Vector2i(ox, oy)
 				if IsoMath.is_in_bounds(cell):
-					world_data.occupancy[cell.x][cell.y] = false
+					if b_type == "bridge" and world_data.terrain[cell.x][cell.y] == WorldGenerator.TerrainType.WATER:
+						world_data.occupancy[cell.x][cell.y] = true
+					else:
+						world_data.occupancy[cell.x][cell.y] = false
 
 	# 2. Remove jobs from job_mgr using unambiguous separator-aware prefix matching
 	if job_mgr and job_mgr.has_method("remove_jobs_for_building"):
@@ -351,6 +370,115 @@ static func get_building_by_id(b_id: String, world_data: WorldGenerator.WorldDat
 		if b.get("id", "") == b_id:
 			return b
 	return {}
+
+## Returns cell coordinates from a building dictionary, supporting both Vector2i "cell" and integer "cell_x"/"cell_y".
+static func extract_building_cell(b: Dictionary) -> Vector2i:
+	var raw_cell: Variant = b.get("cell", null)
+	if raw_cell is Vector2i:
+		return raw_cell
+	if b.has("cell_x") and b.has("cell_y"):
+		return Vector2i(int(b["cell_x"]), int(b["cell_y"]))
+	return Vector2i(-1, -1)
+
+## Returns footprint size from a building dictionary, supporting Vector2i "size", integer "size_x"/"size_y", or blueprint default.
+static func extract_building_size(b: Dictionary, b_type: String = "") -> Vector2i:
+	var raw_size: Variant = b.get("size", null)
+	if raw_size is Vector2i:
+		return raw_size
+	if b.has("size_x") and b.has("size_y"):
+		return Vector2i(int(b["size_x"]), int(b["size_y"]))
+	var resolved_type: String = b_type if not b_type.is_empty() else str(b.get("type", ""))
+	return EconomyConfig.BLUEPRINTS.get(resolved_type, {}).get("footprint", Vector2i.ZERO)
+
+const RESERVED_STARTER_IDS: Dictionary = {
+	"farm_starter": ["farm"],
+	"woodcutter_starter": ["woodcutter"],
+	"storehouse_starter": ["storehouse"],
+	"townhall_starter": ["townhall", "town_hall"]
+}
+
+## Returns true if b_id is one of the reserved starter IDs.
+static func is_reserved_starter_id(b_id: String) -> bool:
+	return RESERVED_STARTER_IDS.has(b_id)
+
+## Validates whether an explicit building ID is a reserved starter ID, and if so,
+## whether its building type matches the authoritative definition.
+## Returns {"valid": true, "error": ""} for ordinary IDs or compatible starter IDs.
+## Returns {"valid": false, "error": "..."} if a reserved starter ID is attached to an incompatible type.
+static func validate_building_id_type_compatibility(b_id: String, b_type: String) -> Dictionary:
+	if not RESERVED_STARTER_IDS.has(b_id):
+		return {"valid": true, "error": ""}
+	var allowed_types: Array = RESERVED_STARTER_IDS[b_id]
+	if not (b_type in allowed_types):
+		return {
+			"valid": false,
+			"error": "ID khởi đầu dành riêng '%s' không tương thích với loại công trình '%s' (yêu cầu: %s)." % [
+				b_id, b_type, ", ".join(allowed_types)
+			]
+		}
+	return {"valid": true, "error": ""}
+
+## Matches genuine starter workplace IDs ("farm_starter", "woodcutter_starter")
+## by explicit ID or legacy blank/missing ID with exact type, origin, and 2x2 footprint.
+static func match_starter_workplace_id(b: Dictionary) -> String:
+	var raw_id: Variant = b.get("id", "")
+	var b_id: String = str(raw_id) if raw_id is String else ""
+	var b_type: String = str(b.get("type", ""))
+	if b_id == "farm_starter":
+		return "farm_starter" if b_type == "farm" else ""
+	if b_id == "woodcutter_starter":
+		return "woodcutter_starter" if b_type == "woodcutter" else ""
+	if b_id == "":
+		var cell: Vector2i = extract_building_cell(b)
+		var size: Vector2i = extract_building_size(b, b_type)
+		if b_type == "farm" and cell == Vector2i(36, 35) and size == Vector2i(2, 2):
+			return "farm_starter"
+		if b_type == "woodcutter" and cell == Vector2i(26, 30) and size == Vector2i(2, 2):
+			return "woodcutter_starter"
+	return ""
+
+## Matches genuine starter dropoff IDs ("storehouse_starter", "townhall_starter")
+## by explicit ID or legacy blank/missing ID with exact type, origin, and footprint.
+static func match_starter_dropoff_id(b: Dictionary) -> String:
+	var raw_id: Variant = b.get("id", "")
+	var b_id: String = str(raw_id) if raw_id is String else ""
+	var b_type: String = str(b.get("type", ""))
+	if b_id == "storehouse_starter":
+		return "storehouse_starter" if b_type == "storehouse" else ""
+	if b_id == "townhall_starter":
+		return "townhall_starter" if (b_type == "townhall" or b_type == "town_hall") else ""
+	if b_id == "":
+		var cell: Vector2i = extract_building_cell(b)
+		var size: Vector2i = extract_building_size(b, b_type)
+		if b_type == "storehouse" and cell == Vector2i(36, 30) and size == Vector2i(2, 2):
+			return "storehouse_starter"
+		if (b_type == "townhall" or b_type == "town_hall") and cell == Vector2i(31, 30) and size == Vector2i(3, 3):
+			return "townhall_starter"
+	return ""
+
+## Resolves the authoritative canonical ID for a building dictionary.
+## Preserves existing non-empty String IDs. For empty/missing/null/non-String IDs,
+## returns established starter ID if genuine legacy starter, else "bld_<type>_<cell_x>_<cell_y>".
+## If an explicit reserved starter ID is attached to an incompatible type, returns "" (fail closed).
+static func resolve_building_canonical_id(b: Dictionary) -> String:
+	var raw_id: Variant = b.get("id", "")
+	var b_id: String = str(raw_id) if raw_id is String else ""
+	var b_type: String = str(b.get("type", ""))
+	if not b_id.is_empty():
+		var id_check: Dictionary = validate_building_id_type_compatibility(b_id, b_type)
+		if not bool(id_check.get("valid", true)):
+			return ""
+		return b_id
+	var starter_wp: String = match_starter_workplace_id(b)
+	if not starter_wp.is_empty():
+		return starter_wp
+	var starter_dropoff: String = match_starter_dropoff_id(b)
+	if not starter_dropoff.is_empty():
+		return starter_dropoff
+	var cell: Vector2i = extract_building_cell(b)
+	if b_type.is_empty() or cell == Vector2i(-1, -1):
+		return ""
+	return "bld_%s_%d_%d" % [b_type, cell.x, cell.y]
 
 static func is_building_under_construction(world_data_or_b_data, building_id: String = "") -> bool:
 	if world_data_or_b_data is Dictionary:
@@ -444,7 +572,13 @@ static func can_demolish_building(b_data_or_id, world_data: WorldGenerator.World
 	if state == "under_construction":
 		return {"can_demolish": false, "reason": "Công trình đang thi công phải sử dụng lệnh hủy thi công", "refund": {}, "is_townhall": false}
 	if state == "destroyed":
-		return {"can_demolish": false, "reason": "Công trình đã bị phá hủy hoàn toàn", "refund": {}, "is_townhall": false}
+		# MBL-BLD-05: Destroyed ruins can be cleared/demolished with 0 refund to unblock grid cells
+		return {
+			"can_demolish": true,
+			"reason": "",
+			"refund": {},
+			"is_townhall": (str(b_data.get("type", "")) == "townhall")
+		}
 	if bool(b_data.get("is_upgrading", false)):
 		return {"can_demolish": false, "reason": "Công trình đang nâng cấp. Vui lòng hủy nâng cấp trước khi dỡ bỏ", "refund": {}, "is_townhall": false}
 
@@ -452,14 +586,16 @@ static func can_demolish_building(b_data_or_id, world_data: WorldGenerator.World
 	var level: int = clampi(int(b_data.get("upgrade_level", 1)), 1, EconomyConfig.MAX_BUILDING_LEVEL)
 	var is_townhall: bool = (type == "townhall")
 	var bp: Dictionary = EconomyConfig.BLUEPRINTS.get(type, {})
-	var cost: Dictionary = bp.get("cost", {})
+	var cost: Dictionary = b_data.get("cost", bp.get("cost", {})) if type == "bridge" else bp.get("cost", {})
 	var planned_refund: Dictionary = {}
 	for res_id in cost:
 		var refund_amount: int = int(float(cost[res_id]) * refund_ratio)
 		if refund_amount > 0:
 			planned_refund[res_id] = refund_amount
 
-	var storage_bonus: Dictionary = EconomyConfig.get_building_storage_bonus(type, level)
+	var storage_bonus: Dictionary = {}
+	if bool(b_data.get("storage_applied", true)):
+		storage_bonus = EconomyConfig.get_building_storage_bonus(type, level)
 	var requires_rm: bool = not planned_refund.is_empty() or not storage_bonus.is_empty() or not extra_required_resources.is_empty()
 	if requires_rm:
 		if not is_valid_resource_manager_for_demolition(resource_mgr, not storage_bonus.is_empty()):
@@ -509,7 +645,12 @@ static func can_demolish_building(b_data_or_id, world_data: WorldGenerator.World
 		"is_townhall": is_townhall
 	}
 
+static var _test_force_demolish_failure: bool = false
+
 static func demolish_building(b_data_or_id, world_data: WorldGenerator.WorldData, resource_mgr: Object = null, job_mgr: Object = null, refund_ratio: float = 0.5, extra_required_resources: Dictionary = {}) -> Dictionary:
+	if _test_force_demolish_failure:
+		return {"success": false, "reason": "Simulated forced demolition failure", "refunded": {}}
+
 	if world_data == null:
 		return {"success": false, "reason": "Dữ liệu thế giới không hợp lệ", "refunded": {}}
 
@@ -541,7 +682,9 @@ static func demolish_building(b_data_or_id, world_data: WorldGenerator.WorldData
 	var origin: Vector2i = b_data.get("cell", Vector2i(-1, -1))
 	var size: Vector2i = b_data.get("size", Vector2i(1, 1))
 	var planned_refund: Dictionary = check.get("refund", {})
-	var storage_bonus: Dictionary = EconomyConfig.get_building_storage_bonus(type, level)
+	var storage_bonus: Dictionary = {}
+	if bool(b_data.get("storage_applied", true)):
+		storage_bonus = EconomyConfig.get_building_storage_bonus(type, level)
 
 	# Double check resource_mgr validity if refund or storage bonus applies
 	if not planned_refund.is_empty() or not storage_bonus.is_empty() or not extra_required_resources.is_empty():
@@ -558,19 +701,23 @@ static func demolish_building(b_data_or_id, world_data: WorldGenerator.WorldData
 			return {"success": false, "reason": atomic_res.get("reason", "Không thể hoàn trả toàn bộ tài nguyên vào kho chứa"), "refunded": {}}
 		refunded = atomic_res.get("credited", {})
 
-	# Deduct storage capacity if this building granted storage
+	# Deduct storage capacity if this building granted storage and was applied
 	if resource_mgr != null and not storage_bonus.is_empty() and resource_mgr.has_method("remove_storage_capacity"):
-		for res_id in storage_bonus:
-			resource_mgr.remove_storage_capacity(res_id, int(storage_bonus[res_id]))
-		b_data["storage_applied"] = false
+		if bool(b_data.get("storage_applied", true)):
+			for res_id in storage_bonus:
+				resource_mgr.remove_storage_capacity(res_id, int(storage_bonus[res_id]))
+			b_data["storage_applied"] = false
 
-	# 2. Clear occupancy
+	# 2. Clear occupancy (preserve WATER occupancy for bridges)
 	if world_data.occupancy != null:
 		for ox in range(size.x):
 			for oy in range(size.y):
 				var cell := origin + Vector2i(ox, oy)
 				if IsoMath.is_in_bounds(cell):
-					world_data.occupancy[cell.x][cell.y] = false
+					if type == "bridge" and world_data.terrain[cell.x][cell.y] == WorldGenerator.TerrainType.WATER:
+						world_data.occupancy[cell.x][cell.y] = true
+					else:
+						world_data.occupancy[cell.x][cell.y] = false
 
 	# 3. Remove jobs
 	if job_mgr and job_mgr.has_method("remove_jobs_for_building") and b_id != "":
@@ -579,6 +726,8 @@ static func demolish_building(b_data_or_id, world_data: WorldGenerator.WorldData
 	# 4. Erase building record
 	if world_data.buildings != null:
 		world_data.buildings.erase(b_data)
+	if type == "bridge":
+		BridgeSystem.rebuild_bridge_walkability(world_data)
 
 	return {"success": true, "refunded": refunded, "building": b_data}
 
@@ -659,12 +808,13 @@ static func get_all_active_markets(world_data: WorldGenerator.WorldData) -> Arra
 	for b in world_data.buildings:
 		if b.get("type", "") == "market" and b.get("state", "active") == "active":
 			result.append(b)
-	# Stable deterministic selection: primary sort by coordinate (y * 64 + x), secondary by id
+	# Stable deterministic selection: primary sort by coordinate (y * map_width + x), secondary by id
+	var map_w: int = maxi(1, world_data.map_width)
 	result.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
 		var ca: Vector2i = a.get("cell", Vector2i(-1, -1))
 		var cb: Vector2i = b.get("cell", Vector2i(-1, -1))
-		var ka: int = ca.y * 64 + ca.x
-		var kb: int = cb.y * 64 + cb.x
+		var ka: int = ca.y * map_w + ca.x
+		var kb: int = cb.y * map_w + cb.x
 		if ka != kb:
 			return ka < kb
 		return String(a.get("id", "")) < String(b.get("id", ""))
@@ -909,6 +1059,8 @@ static func start_upgrade(b_data_or_id, world_data: WorldGenerator.WorldData, re
 	var target_lvl: int = int(check.get("target_level", 2))
 	var duration: float = float(check.get("duration", 2.0))
 
+	if not b_data.has("upgrade_level"):
+		b_data["upgrade_level"] = maxi(1, target_lvl - 1)
 	b_data["is_upgrading"] = true
 	b_data["upgrade_target_level"] = target_lvl
 	b_data["upgrade_progress"] = 0.0
@@ -1227,6 +1379,8 @@ static func can_repair_building(b_data_or_id, world_data: WorldGenerator.WorldDa
 		return {"can_repair": false, "reason": "Công trình không tồn tại", "cost": {}, "hours": 0.0, "insufficient_resources": false}
 
 	var state: String = b_data.get("state", "active")
+	var health: int = int(b_data.get("health", 100))
+	var max_health: int = int(b_data.get("max_health", 100))
 	if state == "under_construction":
 		return {"can_repair": false, "reason": "Công trình đang thi công xây dựng", "cost": {}, "hours": 0.0, "insufficient_resources": false}
 	if state == "destroyed":
@@ -1236,8 +1390,6 @@ static func can_repair_building(b_data_or_id, world_data: WorldGenerator.WorldDa
 	if bool(b_data.get("is_repairing", false)):
 		return {"can_repair": false, "reason": "Công trình đang trong quá trình sửa chữa", "cost": {}, "hours": 0.0, "insufficient_resources": false}
 
-	var health: int = int(b_data.get("health", 100))
-	var max_health: int = int(b_data.get("max_health", 100))
 	if health >= max_health and state != "damaged":
 		return {"can_repair": false, "reason": "Công trình còn nguyên vẹn, không cần sửa chữa", "cost": {}, "hours": 0.0, "insufficient_resources": false}
 
@@ -1375,11 +1527,22 @@ static func complete_repair(b_data_or_id, world_data: WorldGenerator.WorldData =
 	b_data["repair_ticket_id"] = ""
 	b_data.erase("damage_initial_health")
 
+	var was_townhall_restore := bool(b_data.get("is_restoring_townhall", false))
+	if was_townhall_restore:
+		b_data["upgrade_level"] = 1
+		b_data["is_constructed"] = true
+		b_data.erase("is_restoring_townhall")
+		b_data.erase("pre_damage_state")
+		b_data["state"] = "active"
+		return {"success": true, "new_state": "active", "restored_townhall": true}
+
 	# Restore operational state: if previously paused, return to paused; otherwise active
 	var pre_state: String = b_data.get("pre_damage_state", "active")
 	var b_type: String = b_data.get("type", "")
 	var target_state := "active"
-	if pre_state == "paused" and is_building_pausable(b_type):
+	if pre_state == "under_construction":
+		target_state = "under_construction"
+	elif pre_state == "paused" and is_building_pausable(b_type):
 		target_state = "paused"
 
 	b_data["state"] = target_state
@@ -1407,6 +1570,7 @@ static func cancel_repair(b_data_or_id, world_data: WorldGenerator.WorldData = n
 			resource_mgr.release_reservation(cost)
 
 	b_data["is_repairing"] = false
+	b_data["is_restoring_townhall"] = false
 	b_data["repair_progress"] = 0.0
 	b_data["repair_hours_required"] = 0.0
 	b_data["repair_cost"] = {}
@@ -1415,6 +1579,172 @@ static func cancel_repair(b_data_or_id, world_data: WorldGenerator.WorldData = n
 	b_data.erase("damage_initial_health")
 
 	return {"success": true}
+
+## Town Hall-only in-place restoration from `destroyed` state (KU-POST-MVP-TOWN-HALL-RESTORATION-07).
+static func can_restore_townhall(b_data_or_id, world_data: WorldGenerator.WorldData = null, resource_mgr: Object = null) -> Dictionary:
+	var b_data: Dictionary = {}
+	if b_data_or_id is Dictionary:
+		b_data = b_data_or_id
+	elif b_data_or_id is String:
+		b_data = get_building_by_id(b_data_or_id, world_data)
+
+	if b_data.is_empty():
+		return {"can_restore": false, "reason": "Công trình không tồn tại", "cost": {}, "hours": 0.0, "insufficient_resources": false}
+	if str(b_data.get("type", "")) != "townhall":
+		return {"can_restore": false, "reason": "Chỉ Tòa Thị Chính mới có thể phục hồi từ trạng thái sụp đổ", "cost": {}, "hours": 0.0, "insufficient_resources": false}
+	if str(b_data.get("state", "active")) != "destroyed":
+		return {"can_restore": false, "reason": "Tòa Thị Chính không ở trạng thái sụp đổ", "cost": {}, "hours": 0.0, "insufficient_resources": false}
+	if bool(b_data.get("is_repairing", false)) or bool(b_data.get("is_restoring_townhall", false)):
+		return {"can_restore": false, "reason": "Tòa Thị Chính đang được phục hồi", "cost": {}, "hours": 0.0, "insufficient_resources": false}
+
+	var cost: Dictionary = EconomyConfig.TOWNHALL_RESTORATION_COST.duplicate()
+	var hours: float = EconomyConfig.TOWNHALL_RESTORATION_HOURS
+	if resource_mgr != null:
+		var has_method_can_afford := resource_mgr.has_method("can_afford")
+		var has_method_has_resource := resource_mgr.has_method("has_resource")
+		for res_id in cost:
+			var req_amt: int = int(cost[res_id])
+			if has_method_has_resource:
+				if not resource_mgr.has_resource(res_id, req_amt):
+					return {"can_restore": false, "reason": "Không đủ tài nguyên để phục hồi Tòa Thị Chính (thiếu %s)" % EconomyConfig.RESOURCE_NAMES_VI.get(res_id, res_id), "cost": cost, "hours": hours, "insufficient_resources": true}
+			elif has_method_can_afford:
+				if not resource_mgr.can_afford({res_id: req_amt}):
+					return {"can_restore": false, "reason": "Không đủ tài nguyên để phục hồi Tòa Thị Chính (thiếu %s)" % EconomyConfig.RESOURCE_NAMES_VI.get(res_id, res_id), "cost": cost, "hours": hours, "insufficient_resources": true}
+
+	return {"can_restore": true, "reason": "", "cost": cost, "hours": hours, "insufficient_resources": false}
+
+static func start_townhall_restoration(b_data_or_id, world_data: WorldGenerator.WorldData = null, resource_mgr: Object = null) -> Dictionary:
+	var b_data: Dictionary = {}
+	if b_data_or_id is Dictionary:
+		b_data = b_data_or_id
+	elif b_data_or_id is String:
+		b_data = get_building_by_id(b_data_or_id, world_data)
+
+	var check := can_restore_townhall(b_data, world_data, resource_mgr)
+	if not bool(check.get("can_restore", false)):
+		return {"success": false, "reason": check.get("reason", "Không thể phục hồi Tòa Thị Chính"), "cost": check.get("cost", {}), "hours": 0.0}
+
+	var cost: Dictionary = check.get("cost", {})
+	var hours: float = float(check.get("hours", EconomyConfig.TOWNHALL_RESTORATION_HOURS))
+	var b_id: String = str(b_data.get("id", ""))
+	var ticket_id: String = "restore_" + b_id if not b_id.is_empty() else ""
+
+	var reserved_ok := false
+	if not cost.is_empty() and resource_mgr != null:
+		if ticket_id != "" and resource_mgr.has_method("register_transaction"):
+			var res_res = resource_mgr.register_transaction(ticket_id, cost)
+			if res_res is bool and not res_res:
+				return {"success": false, "reason": "Không thể đặt trước tài nguyên phục hồi Tòa Thị Chính", "cost": cost, "hours": hours}
+			reserved_ok = true
+		elif resource_mgr.has_method("begin_transaction"):
+			var assigned_tid: String = resource_mgr.begin_transaction(cost)
+			if assigned_tid.is_empty():
+				return {"success": false, "reason": "Không thể đặt trước tài nguyên phục hồi Tòa Thị Chính", "cost": cost, "hours": hours}
+			ticket_id = assigned_tid
+			reserved_ok = true
+		elif resource_mgr.has_method("reserve_cost"):
+			var res_res = resource_mgr.reserve_cost(cost)
+			if res_res is bool and not res_res:
+				return {"success": false, "reason": "Không thể đặt trước tài nguyên phục hồi Tòa Thị Chính", "cost": cost, "hours": hours}
+			reserved_ok = true
+		elif resource_mgr.has_method("reserve_resources"):
+			var res_res = resource_mgr.reserve_resources(cost)
+			if res_res is bool and not res_res:
+				return {"success": false, "reason": "Không thể đặt trước tài nguyên phục hồi Tòa Thị Chính", "cost": cost, "hours": hours}
+			reserved_ok = true
+
+	b_data["is_repairing"] = true
+	b_data["is_restoring_townhall"] = true
+	b_data["repair_progress"] = 0.0
+	b_data["repair_hours_required"] = hours
+	b_data["repair_cost"] = cost.duplicate()
+	b_data["repair_reserved"] = reserved_ok
+	b_data["repair_ticket_id"] = ticket_id
+	b_data["pre_damage_state"] = "destroyed"
+	return {"success": true, "reason": "", "cost": cost, "hours": hours}
+
+static func count_townhalls(world_data: WorldGenerator.WorldData) -> int:
+	if world_data == null:
+		return 0
+	var cnt := 0
+	for b in world_data.buildings:
+		if b is Dictionary and str(b.get("type", "")) == "townhall":
+			cnt += 1
+	return cnt
+
+static func can_emergency_rebuild_townhall(origin: Vector2i, world_data: WorldGenerator.WorldData, resource_mgr: Object, owned_count: int) -> Dictionary:
+	if world_data == null:
+		return {"valid": false, "reason": "Dữ liệu thế giới không hợp lệ"}
+	if owned_count > 0:
+		return {"valid": false, "reason": "Vương quốc vẫn còn lãnh thổ hoạt động"}
+	if count_townhalls(world_data) > 0:
+		return {"valid": false, "reason": "Vẫn còn phế tích hoặc Tòa Thị Chính trên bản đồ"}
+	if not IsoMath.is_in_bounds(world_data.townhall_anchor):
+		return {"valid": false, "reason": "Không tìm thấy vị trí gốc của Tòa Thị Chính để xây dựng lại"}
+	if origin != world_data.townhall_anchor:
+		return {"valid": false, "reason": "Chỉ có thể xây dựng lại Tòa Thị Chính tại vị trí gốc %s" % str(world_data.townhall_anchor)}
+
+	var bp: Dictionary = EconomyConfig.BLUEPRINTS.get("townhall", {})
+	var size: Vector2i = bp.get("footprint", Vector2i(3, 3))
+	for ox in range(size.x):
+		for oy in range(size.y):
+			var c := origin + Vector2i(ox, oy)
+			if not IsoMath.is_in_bounds(c):
+				return {"valid": false, "reason": "Vị trí gốc nằm ngoài bản đồ"}
+			if world_data.terrain[c.x][c.y] == WorldGenerator.TerrainType.WATER:
+				return {"valid": false, "reason": "Vị trí gốc bị ngập nước"}
+			if world_data.terrain[c.x][c.y] == WorldGenerator.TerrainType.MOUNTAINS:
+				return {"valid": false, "reason": "Vị trí gốc là địa hình núi"}
+			if world_data.occupancy[c.x][c.y]:
+				return {"valid": false, "reason": "Vị trí gốc đang bị chiếm dụng"}
+
+	var cost: Dictionary = EconomyConfig.TOWNHALL_RESTORATION_COST.duplicate()
+	if resource_mgr == null:
+		return {"valid": false, "reason": "Hệ thống tài nguyên không khả dụng"}
+	for res_id in cost:
+		var req_amt: int = int(cost[res_id])
+		if resource_mgr.has_method("has_resource") and not resource_mgr.has_resource(res_id, req_amt):
+			return {"valid": false, "reason": "Không đủ tài nguyên xây dựng lại Tòa Thị Chính (thiếu %s)" % EconomyConfig.RESOURCE_NAMES_VI.get(res_id, res_id)}
+		elif resource_mgr.has_method("can_afford") and not resource_mgr.can_afford({res_id: req_amt}):
+			return {"valid": false, "reason": "Không đủ tài nguyên xây dựng lại Tòa Thị Chính (thiếu %s)" % EconomyConfig.RESOURCE_NAMES_VI.get(res_id, res_id)}
+
+	return {"valid": true, "reason": "", "cost": cost, "hours": EconomyConfig.TOWNHALL_RESTORATION_HOURS, "size": size}
+
+static func place_emergency_townhall(origin: Vector2i, world_data: WorldGenerator.WorldData, resource_mgr: Object, owned_count: int, preferred_id: String = "townhall_starter") -> Dictionary:
+	var check := can_emergency_rebuild_townhall(origin, world_data, resource_mgr, owned_count)
+	if not bool(check.get("valid", false)):
+		return {"success": false, "reason": check.get("reason", "Không thể xây dựng lại Tòa Thị Chính")}
+
+	var cost: Dictionary = check.get("cost", {})
+	if resource_mgr != null and not cost.is_empty():
+		if resource_mgr.has_method("consume_resources"):
+			if not resource_mgr.consume_resources(cost):
+				return {"success": false, "reason": "Không đủ tài nguyên xây dựng lại Tòa Thị Chính"}
+
+	var size: Vector2i = check.get("size", Vector2i(3, 3))
+	for ox in range(size.x):
+		for oy in range(size.y):
+			var c := origin + Vector2i(ox, oy)
+			world_data.occupancy[c.x][c.y] = true
+
+	var b_id := preferred_id if preferred_id != "" else ("bld_townhall_%d_%d" % [origin.x, origin.y])
+	var building := {
+		"id": b_id,
+		"type": "townhall",
+		"cell": origin,
+		"size": size,
+		"state": "under_construction",
+		"is_constructed": false,
+		"is_emergency_rebuild": true,
+		"health": 100,
+		"max_health": 100,
+		"construction_progress": 0.0,
+		"construction_hours": EconomyConfig.TOWNHALL_RESTORATION_HOURS,
+		"upgrade_level": 1,
+		"storage_applied": false
+	}
+	world_data.buildings.append(building)
+	return {"success": true, "building": building, "cost": cost, "hours": EconomyConfig.TOWNHALL_RESTORATION_HOURS}
 
 static func normalize_building_data(b: Dictionary) -> Dictionary:
 	var norm := b.duplicate()
@@ -1450,7 +1780,7 @@ static func normalize_building_data(b: Dictionary) -> Dictionary:
 		norm["upgrade_level"] = int(norm["upgrade_level"])
 	return norm
 
-static func apply_damage(b_data_or_id, amount: int, world_data: WorldGenerator.WorldData = null) -> Dictionary:
+static func apply_damage(b_data_or_id, amount: int, world_data: Variant = null, resource_mgr: Object = null) -> Dictionary:
 	var b_data: Dictionary = {}
 	if b_data_or_id is Dictionary:
 		b_data = b_data_or_id
@@ -1461,11 +1791,17 @@ static func apply_damage(b_data_or_id, amount: int, world_data: WorldGenerator.W
 		return {"success": false, "reason": "Công trình không tồn tại"}
 
 	var cur_state: String = b_data.get("state", "active")
-	if cur_state == "destroyed":
+	if cur_state == "destroyed" and not bool(b_data.get("is_restoring_townhall", false)):
 		return {"success": false, "reason": "Công trình đã bị phá hủy hoàn toàn"}
 
 	if amount <= 0:
 		return {"success": false, "reason": "Lượng sát thương phải lớn hơn 0"}
+
+	var rm: Object = resource_mgr
+	if rm == null and Engine.get_main_loop() is SceneTree:
+		var tree := Engine.get_main_loop() as SceneTree
+		if tree != null and tree.root != null and tree.root.has_node("ResourceManager"):
+			rm = tree.root.get_node("ResourceManager")
 
 	var cur_h: int = int(b_data.get("health", 100))
 	var max_h: int = int(b_data.get("max_health", 100))
@@ -1473,13 +1809,23 @@ static func apply_damage(b_data_or_id, amount: int, world_data: WorldGenerator.W
 	b_data["health"] = new_h
 
 	if new_h <= 0:
-		# If it was repairing, cancel repair
+		# MBL-BLD-03: If it was repairing, cancel repair to safely rollback any active reservation transaction
 		if bool(b_data.get("is_repairing", false)):
-			b_data["is_repairing"] = false
-			b_data["repair_cost"] = {}
-			b_data["repair_reserved"] = false
+			cancel_repair(b_data, world_data, rm)
 		b_data["state"] = "destroyed"
 		return {"success": true, "destroyed": true, "damaged": false, "health": 0}
+
+	# MBL-BLD-05 (E1): Under construction buildings retain under_construction state when taking non-lethal damage
+	if cur_state == "under_construction":
+		return {"success": true, "destroyed": false, "damaged": (new_h <= 50), "health": new_h}
+
+	# MBL-BLD-04: Mid-repair non-lethal damage resets progress baseline without losing transaction
+	if bool(b_data.get("is_repairing", false)):
+		b_data["damage_initial_health"] = new_h
+		b_data["repair_progress"] = 0.0
+		b_data["repair_hours_required"] = calculate_repair_hours(b_data, new_h, max_h)
+		return {"success": true, "destroyed": false, "damaged": true, "health": new_h}
+
 	elif new_h <= 50 or cur_state == "damaged":
 		if cur_state != "damaged":
 			b_data["pre_damage_state"] = cur_state

@@ -9,7 +9,8 @@ const VOCATIONS: Array[String] = [
 	"mining",
 	"smithing",
 	"building",
-	"hauling"
+	"hauling",
+	"hunting"
 ]
 
 const LEVEL_THRESHOLDS: Array[int] = [0, 100, 300, 600, 1000]
@@ -24,7 +25,8 @@ const VOCATION_NAMES: Dictionary = {
 	"mining": "Khai khoáng",
 	"smithing": "Rèn & Chế tác",
 	"building": "Xây dựng",
-	"hauling": "Vận chuyển"
+	"hauling": "Vận chuyển",
+	"hunting": "Săn bắn"
 }
 
 const LEVEL_TITLES: Array[String] = [
@@ -48,7 +50,9 @@ const JOB_TO_VOCATION: Dictionary = {
 	"builder": "building",
 	"building": "building",
 	"hauler": "hauling",
-	"hauling": "hauling"
+	"hauling": "hauling",
+	"hunter": "hunting",
+	"hunting": "hunting"
 }
 
 # Cumulative XP storage per vocation (Float for fractional construction work time)

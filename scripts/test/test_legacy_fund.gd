@@ -811,7 +811,16 @@ func _test_world_id_persistence_save_load() -> bool:
 	dummy_wv.set_script(WorldViewScript)
 	var dummy_vic = VictoryManagerScript.new()
 	dummy_wv.set("victory_mgr", dummy_vic)
-	SaveManagerScript.apply_loaded_state_to_world(dummy_wv, load_res.get("data", {}))
+	var unresolved_dummy_res: Dictionary = SaveManagerScript.apply_loaded_state_to_world(dummy_wv, load_res.get("data", {}))
+	if unresolved_dummy_res.get("success", false) or not unresolved_dummy_res.get("requires_generator_resolution", false):
+		print("  [FAIL] Unresolved unversioned save must fail closed with requires_generator_resolution=true! Got: %s" % str(unresolved_dummy_res))
+		dummy_wv.free()
+		return false
+	var apply_dummy_res: Dictionary = SaveManagerScript.apply_loaded_state_to_world(dummy_wv, load_res.get("data", {}), false, WorldGenerator.LEGACY_GENERATOR_VERSION)
+	if not apply_dummy_res.get("success", false):
+		print("  [FAIL] apply_loaded_state_to_world failed for dummy_wv: %s" % str(apply_dummy_res))
+		dummy_wv.free()
+		return false
 	if dummy_wv.get("world_id") != unique_wid:
 		print("  [FAIL] dummy_wv world_id not set: %s" % str(dummy_wv.get("world_id")))
 		dummy_wv.free()
@@ -2144,9 +2153,16 @@ var citizens_by_id: Dictionary = {}
 	var test_vic = VictoryManagerScript.new()
 	test_world.victory_mgr = test_vic
 
-	var apply_res := SaveManager.apply_loaded_state_to_world(test_world, fail_load_res["data"])
+	var unresolved_apply_res := SaveManager.apply_loaded_state_to_world(test_world, fail_load_res["data"])
+	if unresolved_apply_res.get("success", false) or not unresolved_apply_res.get("requires_generator_resolution", false):
+		print("  [FAIL] Step 8: Unresolved unversioned save must fail closed with requires_generator_resolution=true! Got: %s" % str(unresolved_apply_res))
+		test_world.free()
+		cleanup_s.call()
+		return false
+
+	var apply_res := SaveManager.apply_loaded_state_to_world(test_world, fail_load_res["data"], false, WorldGenerator.LEGACY_GENERATOR_VERSION)
 	if not apply_res.get("success", false):
-		print("  [FAIL] Step 8: apply_loaded_state_to_world failed: %s" % str(apply_res))
+		print("  [FAIL] Step 8: apply_loaded_state_to_world failed after explicit V1 resolution: %s" % str(apply_res))
 		test_world.free()
 		cleanup_s.call()
 		return false

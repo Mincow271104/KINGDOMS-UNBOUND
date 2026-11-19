@@ -4,6 +4,7 @@ extends CanvasLayer
 ## Provides time controls, date/season/clock display, resource summary, building menu, citizen inspector, and pause menu.
 
 const LegacyProfileManagerScript = preload("res://scripts/legacy/legacy_profile_manager.gd")
+const MinimapPanelScript = preload("res://scripts/ui/minimap.gd")
 signal return_to_menu_requested
 signal build_requested(building_type: String)
 signal citizen_role_changed(citizen_id: String, new_role: String)
@@ -22,6 +23,21 @@ signal citizen_role_changed(citizen_id: String, new_role: String)
 @onready var metal_label: Label = $TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources/MetalLabel
 @onready var tools_label: Label = $TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources/ToolsLabel
 @onready var gold_label: Label = $TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources/GoldLabel
+@onready var crystal_label: Label = $TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources/CrystalLabel
+@onready var herbs_label: Label = $TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources/HerbsLabel
+var raw_meat_label: Label = null
+var meals_label: Label = null
+var citizen_meal_buff_label: Label = null
+var cookhouse_section: VBoxContainer = null
+var ck_status_label: Label = null
+var ck_inventory_label: Label = null
+var ck_active_label: Label = null
+var ck_progress_bar: ProgressBar = null
+var ck_add_stew_btn: Button = null
+var ck_add_broth_btn: Button = null
+var ck_pause_btn: Button = null
+var ck_queue_label: Label = null
+var ck_remove_btns: Array[Button] = []
 @onready var pop_label: Label = $TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources/PopLabel
 
 @onready var tile_info_label: Label = $BottomBar/PanelContainer/MarginContainer/HBoxContainer/TileInfoLabel
@@ -30,12 +46,17 @@ signal citizen_role_changed(citizen_id: String, new_role: String)
 @onready var open_diplomacy_btn: Button = $BottomBar/PanelContainer/MarginContainer/HBoxContainer/DiplomacyBtn
 @onready var open_military_btn: Button = $BottomBar/PanelContainer/MarginContainer/HBoxContainer.get_node_or_null("MilitaryBtn")
 @onready var open_automation_btn: Button = $BottomBar/PanelContainer/MarginContainer/HBoxContainer.get_node_or_null("AutomationBtn")
+@onready var open_economy_btn: Button = $BottomBar/PanelContainer/MarginContainer/HBoxContainer.get_node_or_null("EconomyBtn")
 @onready var automation_editor: AutomationEditor = get_node_or_null("AutomationEditor")
+var economy_panel: PanelContainer = null
+var _economy_rows: Dictionary = {}
+var minimap_panel: PanelContainer = null
 @onready var pause_menu_dialog: Control = $PauseMenuOverlay
 @onready var save_game_btn: Button = $PauseMenuOverlay/CenterContainer/PanelContainer/MarginContainer/VBoxContainer/SaveGameBtn
 @onready var load_game_btn: Button = $PauseMenuOverlay/CenterContainer/PanelContainer/MarginContainer/VBoxContainer/LoadGameBtn
 @onready var save_status_label: Label = $PauseMenuOverlay/CenterContainer/PanelContainer/MarginContainer/VBoxContainer/SaveStatusLabel
 @onready var build_menu_panel: Control = $BuildMenuPanel
+var emergency_townhall_btn: Button = null
 
 # Player Field Guide (Package 2D)
 @onready var player_field_guide: Control = get_node_or_null("PlayerFieldGuide")
@@ -87,6 +108,11 @@ var formation_scatter_btn: Button = null
 @onready var event_banner: Control = $EventBanner
 @onready var event_title: Label = $EventBanner/MarginContainer/VBoxContainer/EventTitle
 @onready var event_desc: Label = $EventBanner/MarginContainer/VBoxContainer/EventDesc
+
+var _bridge_placement_panel: PanelContainer = null
+var _bridge_width_btns: Array[Button] = []
+var _bridge_info_label: Label = null
+var _bridge_status_label: Label = null
 
 # Crisis Banner
 @onready var crisis_banner: Control = $CrisisBanner
@@ -197,6 +223,55 @@ var formation_scatter_btn: Button = null
 @onready var upgrade_builders_label: Label = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/UpgradeSection/UpgradeProgressBox/UpgradeBuildersLabel")
 @onready var cancel_upgrade_btn: Button = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/UpgradeSection/UpgradeProgressBox/CancelUpgradeBtn")
 @onready var upgrade_max_label: Label = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/UpgradeSection/UpgradeMaxLabel")
+
+# Phase 7: Read-Only Rival Settlement & Villager Inspection Panels
+var RivalInspectionQueryScript = null
+@onready var rival_settlement_panel: Control = get_node_or_null("RivalSettlementInspectPanel")
+@onready var rival_settlement_title_label: Label = get_node_or_null("RivalSettlementInspectPanel/MarginContainer/VBoxContainer/HeaderHBox/TitlesVBox/SettlementTitleLabel")
+@onready var rival_settlement_subtitle_label: Label = get_node_or_null("RivalSettlementInspectPanel/MarginContainer/VBoxContainer/HeaderHBox/TitlesVBox/SettlementSubtitleLabel")
+@onready var close_rival_settlement_btn: Button = get_node_or_null("RivalSettlementInspectPanel/MarginContainer/VBoxContainer/HeaderHBox/CloseRivalSettlementBtn")
+@onready var rival_settlement_status_label: Label = get_node_or_null("RivalSettlementInspectPanel/MarginContainer/VBoxContainer/StatusLabel")
+@onready var rival_settlement_notice_label: Label = get_node_or_null("RivalSettlementInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/NoticeLabel")
+@onready var rival_pop_section_label: Label = get_node_or_null("RivalSettlementInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/PopSectionLabel")
+@onready var rival_pop_details_label: Label = get_node_or_null("RivalSettlementInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/PopDetailsLabel")
+@onready var rival_buildings_section_label: Label = get_node_or_null("RivalSettlementInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/BuildingsSectionLabel")
+@onready var rival_buildings_details_label: Label = get_node_or_null("RivalSettlementInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/BuildingsDetailsLabel")
+@onready var rival_economy_section_label: Label = get_node_or_null("RivalSettlementInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/EconomySectionLabel")
+@onready var rival_economy_details_label: Label = get_node_or_null("RivalSettlementInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/EconomyDetailsLabel")
+@onready var rival_residents_section_label: Label = get_node_or_null("RivalSettlementInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/ResidentsSectionLabel")
+@onready var rival_residents_vbox: VBoxContainer = get_node_or_null("RivalSettlementInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/VisibleResidentsVBox")
+
+@onready var rival_villager_panel: Control = get_node_or_null("RivalVillagerInspectPanel")
+@onready var back_to_settlement_btn: Button = get_node_or_null("RivalVillagerInspectPanel/MarginContainer/VBoxContainer/HeaderHBox/BackToSettlementBtn")
+@onready var rival_villager_name_label: Label = get_node_or_null("RivalVillagerInspectPanel/MarginContainer/VBoxContainer/HeaderHBox/VillagerNameLabel")
+@onready var close_rival_villager_btn: Button = get_node_or_null("RivalVillagerInspectPanel/MarginContainer/VBoxContainer/HeaderHBox/CloseRivalVillagerBtn")
+@onready var rival_villager_meta_label: Label = get_node_or_null("RivalVillagerInspectPanel/MarginContainer/VBoxContainer/VillagerMetaLabel")
+@onready var rival_villager_activity_label: Label = get_node_or_null("RivalVillagerInspectPanel/MarginContainer/VBoxContainer/VillagerActivityLabel")
+@onready var rival_villager_housing_work_label: Label = get_node_or_null("RivalVillagerInspectPanel/MarginContainer/VBoxContainer/VillagerHousingWorkLabel")
+@onready var rival_villager_location_label: Label = get_node_or_null("RivalVillagerInspectPanel/MarginContainer/VBoxContainer/VillagerLocationLabel")
+@onready var rival_hunger_bar: ProgressBar = get_node_or_null("RivalVillagerInspectPanel/MarginContainer/VBoxContainer/NeedsGrid/HungerBar")
+@onready var rival_fatigue_bar: ProgressBar = get_node_or_null("RivalVillagerInspectPanel/MarginContainer/VBoxContainer/NeedsGrid/FatigueBar")
+@onready var rival_health_bar: ProgressBar = get_node_or_null("RivalVillagerInspectPanel/MarginContainer/VBoxContainer/NeedsGrid/HealthBar")
+@onready var rival_morale_bar: ProgressBar = get_node_or_null("RivalVillagerInspectPanel/MarginContainer/VBoxContainer/NeedsGrid/MoraleBar")
+
+var inspected_rival_settlement_id: String = ""
+var inspected_rival_villager_id: String = ""
+var _rival_villager_opened_from_settlement: bool = false
+var _rival_inspect_refresh_timer: float = 0.0
+
+# M6-1: Unified Entity Inspection System & Hover Tooltip
+const EntityInspectionQueryScript = preload("res://scripts/ui/entity_inspection_query.gd")
+const EntityInspectPanelScript = preload("res://scripts/ui/entity_inspect_panel.gd")
+const EntityHoverTooltipScript = preload("res://scripts/ui/entity_hover_tooltip.gd")
+
+var entity_inspection_query: RefCounted = null
+var entity_inspect_panel: Control = null
+var entity_hover_tooltip: Control = null
+var inspected_entity_category: String = ""
+var inspected_entity_id: String = ""
+var _entity_inspect_refresh_timer: float = 0.0
+var _hover_last_cell: Vector2i = Vector2i(-999, -999)
+var _hover_refresh_timer: float = 0.0
 @onready var upgrade_not_available_label: Label = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/UpgradeSection/UpgradeNotAvailableLabel")
 
 # Garrison Section (Package 3A)
@@ -240,6 +315,7 @@ var _custom_citizen_list: Array = []
 var _roster_filter: String = "all"
 var _roster_refresh_timer: float = 0.0
 var _roster_rows: Dictionary = {}
+var _economy_refresh_timer: float = 0.0
 
 func set_barracks_checker(checker: Callable) -> void:
 	barracks_checker = checker
@@ -260,10 +336,26 @@ func _ready() -> void:
 		tm.time_speed_changed.connect(_on_speed_changed)
 		tm.hour_passed.connect(_on_hour_passed)
 		tm.day_passed.connect(_on_day_passed)
+		if tm.has_signal("day_phase_changed"):
+			tm.day_phase_changed.connect(_on_day_phase_changed)
 		_update_time_display()
 		_update_speed_buttons(tm.current_speed)
 		
 	# Connect to ResourceManager signals
+	if herbs_label != null and herbs_label.get_parent() != null and raw_meat_label == null:
+		raw_meat_label = Label.new()
+		raw_meat_label.name = "RawMeatLabel"
+		raw_meat_label.add_theme_font_size_override("font_size", 13)
+		raw_meat_label.add_theme_color_override("font_color", Color(0.95, 0.58, 0.52, 1.0))
+		herbs_label.get_parent().add_child(raw_meat_label)
+		herbs_label.get_parent().move_child(raw_meat_label, herbs_label.get_index() + 1)
+	if raw_meat_label != null and raw_meat_label.get_parent() != null and meals_label == null:
+		meals_label = Label.new()
+		meals_label.name = "MealsLabel"
+		meals_label.add_theme_font_size_override("font_size", 13)
+		meals_label.add_theme_color_override("font_color", Color(0.98, 0.82, 0.45, 1.0))
+		raw_meat_label.get_parent().add_child(meals_label)
+		raw_meat_label.get_parent().move_child(meals_label, raw_meat_label.get_index() + 1)
 	if Engine.has_singleton("ResourceManager") or get_node_or_null("/root/ResourceManager"):
 		var rm = get_node("/root/ResourceManager")
 		rm.resource_changed.connect(_on_resource_changed)
@@ -274,6 +366,42 @@ func _ready() -> void:
 	speed_1x_btn.pressed.connect(func(): get_node("/root/TimeManager").set_speed(1))
 	speed_2x_btn.pressed.connect(func(): get_node("/root/TimeManager").set_speed(2))
 	speed_3x_btn.pressed.connect(func(): get_node("/root/TimeManager").set_speed(3))
+
+	# Minimap (Phase 3)
+	minimap_panel = MinimapPanelScript.new()
+	minimap_panel.anchor_left = 1.0
+	minimap_panel.anchor_right = 1.0
+	minimap_panel.anchor_top = 0.0
+	minimap_panel.anchor_bottom = 0.0
+	minimap_panel.offset_left = -184.0
+	minimap_panel.offset_right = -12.0
+	minimap_panel.offset_top = 114.0
+	minimap_panel.offset_bottom = 306.0
+	add_child(minimap_panel)
+
+	# Debug-only Fog of War visual toggle (Phase 5)
+	if OS.is_debug_build():
+		var fog_btn := Button.new()
+		fog_btn.name = "FogDebugBtn"
+		fog_btn.text = "Fog: ON"
+		fog_btn.tooltip_text = "Debug-only: Toggle Fog of War visual overlay"
+		fog_btn.anchor_left = 1.0
+		fog_btn.anchor_right = 1.0
+		fog_btn.anchor_top = 0.0
+		fog_btn.anchor_bottom = 0.0
+		fog_btn.offset_left = -184.0
+		fog_btn.offset_right = -12.0
+		fog_btn.offset_top = 310.0
+		fog_btn.offset_bottom = 336.0
+		fog_btn.pressed.connect(func():
+			var wv := get_parent()
+			if wv != null and wv.has_method("set_debug_fog_disabled") and wv.has_method("is_debug_fog_disabled"):
+				var next_disabled: bool = not bool(wv.call("is_debug_fog_disabled"))
+				wv.call("set_debug_fog_disabled", next_disabled)
+				fog_btn.text = "Fog: OFF" if next_disabled else "Fog: ON"
+		)
+		add_child(fog_btn)
+		set_meta("fog_debug_btn", fog_btn)
 	
 	# Pause menu controls
 	pause_menu_dialog.visible = false
@@ -342,6 +470,40 @@ func _ready() -> void:
 	var btn_market = $BuildMenuPanel/MarginContainer/VBoxContainer/GridContainer.get_node_or_null("MarketBtn")
 	if btn_market:
 		btn_market.pressed.connect(func(): _select_building("market"))
+	var build_grid = $BuildMenuPanel/MarginContainer/VBoxContainer/GridContainer
+	if build_grid != null:
+		var btn_cookhouse = build_grid.get_node_or_null("CookhouseBtn")
+		if btn_cookhouse == null:
+			btn_cookhouse = Button.new()
+			btn_cookhouse.name = "CookhouseBtn"
+			btn_cookhouse.custom_minimum_size = Vector2(250, 40)
+			btn_cookhouse.text = "🍲 Nhà Bếp (35 Gỗ, 20 Đá)"
+			build_grid.add_child(btn_cookhouse)
+			btn_cookhouse.pressed.connect(func(): _select_building("cookhouse"))
+		var btn_bridge = build_grid.get_node_or_null("BridgeBtn")
+		if btn_bridge == null:
+			btn_bridge = Button.new()
+			btn_bridge.name = "BridgeBtn"
+			btn_bridge.text = "🌉 Cầu Vượt Sông"
+			build_grid.add_child(btn_bridge)
+		btn_bridge.pressed.connect(func(): _select_building("bridge"))
+	_setup_bridge_placement_panel()
+	var btn_clear_land = $BuildMenuPanel/MarginContainer/VBoxContainer.get_node_or_null("ClearLandBtn")
+	if btn_clear_land:
+		btn_clear_land.pressed.connect(_on_clear_land_btn_pressed)
+	var build_vbox = $BuildMenuPanel/MarginContainer/VBoxContainer
+	if build_vbox != null:
+		emergency_townhall_btn = build_vbox.get_node_or_null("EmergencyTownhallBtn") as Button
+		if emergency_townhall_btn == null:
+			emergency_townhall_btn = Button.new()
+			emergency_townhall_btn.name = "EmergencyTownhallBtn"
+			emergency_townhall_btn.text = "🏛️ Xây Dựng Lại Tòa Thị Chính"
+			emergency_townhall_btn.visible = false
+			build_vbox.add_child(emergency_townhall_btn)
+			if btn_close_build != null:
+				build_vbox.move_child(emergency_townhall_btn, btn_close_build.get_index())
+		emergency_townhall_btn.pressed.connect(_on_emergency_townhall_rebuild_pressed)
+		_refresh_emergency_townhall_button()
 	btn_close_build.pressed.connect(func(): build_menu_panel.visible = false)
 
 	# Citizen inspector controls
@@ -390,6 +552,19 @@ func _ready() -> void:
 		abort_cancel_build_btn.pressed.connect(_on_abort_cancel_build_pressed)
 	if focus_cam_btn:
 		focus_cam_btn.pressed.connect(_on_focus_building_cam_pressed)
+
+	# Phase 7: Rival Settlement & Villager read-only inspector controls
+	if rival_settlement_panel:
+		rival_settlement_panel.visible = false
+	if rival_villager_panel:
+		rival_villager_panel.visible = false
+	_ensure_entity_inspection_ui()
+	if close_rival_settlement_btn:
+		close_rival_settlement_btn.pressed.connect(close_rival_inspectors)
+	if close_rival_villager_btn:
+		close_rival_villager_btn.pressed.connect(close_rival_inspectors)
+	if back_to_settlement_btn:
+		back_to_settlement_btn.pressed.connect(_on_back_to_rival_settlement_pressed)
 	if upgrade_btn:
 		upgrade_btn.pressed.connect(_on_upgrade_building_pressed)
 	if cancel_upgrade_btn:
@@ -445,6 +620,11 @@ func _ready() -> void:
 	if open_automation_btn:
 		open_automation_btn.pressed.connect(_toggle_automation_editor)
 
+	# Economy Panel controls (Batch 02 — GDD §14.4)
+	_ensure_economy_panel()
+	if open_economy_btn:
+		open_economy_btn.pressed.connect(toggle_economy_panel)
+
 	# Victory & Collapse dialog controls
 	if continue_victory_btn:
 		continue_victory_btn.pressed.connect(func():
@@ -485,6 +665,8 @@ func _setup_role_options() -> void:
 	role_option_btn.add_item("Dân Tự Do (Idle)", 5)
 	role_option_btn.add_item("Thợ Xưởng (Smith)", 6)
 	role_option_btn.add_item("Vệ Binh (Guard)", 7)
+	role_option_btn.add_item("Học Giả (Researcher)", 8)
+	role_option_btn.add_item("Thợ Săn (Hunter)", 9)
 	_refresh_role_options()
 
 func _refresh_role_options() -> void:
@@ -513,6 +695,8 @@ func set_research_manager(mgr: Object) -> void:
 func _toggle_research_menu() -> void:
 	research_menu_panel.visible = not research_menu_panel.visible
 	if research_menu_panel.visible:
+		if economy_panel:
+			economy_panel.visible = false
 		_refresh_research_ui()
 
 func _refresh_research_ui() -> void:
@@ -838,6 +1022,8 @@ func _on_battle_resolved(report: BattleResolver.BattleReport, context: Dictionar
 func _toggle_diplomacy_menu() -> void:
 	diplomacy_panel.visible = not diplomacy_panel.visible
 	if diplomacy_panel.visible:
+		if economy_panel:
+			economy_panel.visible = false
 		_refresh_diplomacy_ui()
 
 # -----------------------------------------------------------------------------
@@ -859,6 +1045,12 @@ func set_player_army_manager(mgr: Object) -> void:
 			player_army_mgr.army_moved.connect(_on_army_moved)
 		if player_army_mgr.has_signal("equipment_tier_changed") and not player_army_mgr.equipment_tier_changed.is_connected(_on_equipment_tier_changed):
 			player_army_mgr.equipment_tier_changed.connect(_on_equipment_tier_changed)
+		if player_army_mgr.has_signal("garrison_changed") and not player_army_mgr.garrison_changed.is_connected(_on_garrison_changed):
+			player_army_mgr.garrison_changed.connect(_on_garrison_changed)
+		if player_army_mgr.has_signal("reinforcement_dispatched") and not player_army_mgr.reinforcement_dispatched.is_connected(_on_reinforcement_dispatched):
+			player_army_mgr.reinforcement_dispatched.connect(_on_reinforcement_dispatched)
+		if player_army_mgr.has_signal("reinforcement_arrived") and not player_army_mgr.reinforcement_arrived.is_connected(_on_reinforcement_arrived):
+			player_army_mgr.reinforcement_arrived.connect(_on_reinforcement_arrived)
 	_setup_tactical_army_ui()
 	_refresh_army_panel()
 
@@ -876,6 +1068,8 @@ func set_tactical_military_manager(mgr: Object) -> void:
 
 func _on_tactical_selection_changed(_ids: Array) -> void:
 	_refresh_army_panel()
+	if entity_inspect_panel != null and entity_inspect_panel.visible:
+		refresh_entity_inspector()
 
 func _on_tactical_formation_changed(_f: String) -> void:
 	_refresh_army_panel()
@@ -979,6 +1173,22 @@ func _on_equipment_tier_changed(_new_tier: int, _mult: float) -> void:
 	_refresh_army_panel()
 	_refresh_all_resources()
 
+func _on_garrison_changed(_outpost_id: String, _count: int, _cap: int) -> void:
+	_refresh_army_panel()
+	if building_inspect_panel != null and building_inspect_panel.visible:
+		refresh_building_inspector()
+
+func _on_reinforcement_dispatched(_disp_id: String, _outpost_id: String, _count: int) -> void:
+	_refresh_army_panel()
+	if building_inspect_panel != null and building_inspect_panel.visible:
+		refresh_building_inspector()
+
+func _on_reinforcement_arrived(_disp_id: String, _outpost_id: String, _count: int) -> void:
+	show_event_banner("Viện Binh Đã Đến", "Viện binh đã đến tiền đồn an toàn!", true, 3.0)
+	_refresh_army_panel()
+	if building_inspect_panel != null and building_inspect_panel.visible:
+		refresh_building_inspector()
+
 func _toggle_army_menu() -> void:
 	if not army_panel:
 		return
@@ -992,6 +1202,8 @@ func _toggle_army_menu() -> void:
 			diplomacy_panel.visible = false
 		if automation_editor:
 			automation_editor.visible = false
+		if economy_panel:
+			economy_panel.visible = false
 		_refresh_army_panel()
 
 func _toggle_automation_editor() -> void:
@@ -1007,6 +1219,8 @@ func _toggle_automation_editor() -> void:
 			diplomacy_panel.visible = false
 		if army_panel:
 			army_panel.visible = false
+		if economy_panel:
+			economy_panel.visible = false
 		_setup_automation_editor()
 
 func _setup_automation_editor() -> void:
@@ -1040,18 +1254,19 @@ func _refresh_army_panel() -> void:
 		if recruit_reason_label: recruit_reason_label.text = "Hệ thống quân đội chưa khởi tạo"
 		return
 
-	var count: int = player_army_mgr.call("get_army_count")
-	var cap: int = player_army_mgr.call("get_army_capacity")
+	var central_reserve: int = int(player_army_mgr.call("get_army_count"))
+	var total_soldiers: int = int(player_army_mgr.call("get_total_soldier_count")) if player_army_mgr.has_method("get_total_soldier_count") else central_reserve
+	var cap: int = int(player_army_mgr.call("get_army_capacity"))
 	var is_sup: bool = player_army_mgr.get("is_supplied")
 	var morale: float = player_army_mgr.call("get_combat_morale")
-	var upkeep: int = count * EconomyConfig.ARMY_DAILY_FOOD_UPKEEP
+	var upkeep: int = total_soldiers * EconomyConfig.ARMY_DAILY_FOOD_UPKEEP
 
 	var active_barracks: int = int(cap / float(maxi(1, EconomyConfig.ARMY_CAPACITY_PER_BARRACKS)))
 	if barracks_count_label:
 		barracks_count_label.text = "🏰 Doanh trại hoạt động: %d (Sức chứa tối đa: %d lính)" % [active_barracks, cap]
 
 	if army_count_label:
-		army_count_label.text = "⚔️ Quân số chính quy: %d / %d lính" % [count, cap]
+		army_count_label.text = "⚔️ Quân số chính quy: %d / %d lính" % [total_soldiers, cap]
 
 	if deployment_label:
 		var m_state_int: int = player_army_mgr.get("movement_state") if player_army_mgr.get("movement_state") != null else 0
@@ -1174,13 +1389,13 @@ func _refresh_army_panel() -> void:
 		recruit_reason_label.text = reason if not can_r else ""
 
 	if move_army_btn:
-		move_army_btn.disabled = (count <= 0)
+		move_army_btn.disabled = (central_reserve <= 0)
 	if return_home_btn:
 		var is_home: bool = player_army_mgr.call("is_defense_eligible") if player_army_mgr.has_method("is_defense_eligible") else true
-		return_home_btn.disabled = (count <= 0 or is_home)
+		return_home_btn.disabled = (central_reserve <= 0 or is_home)
 	if attack_campaign_btn:
 		var can_atk: bool = false
-		if player_army_mgr != null and count > 0:
+		if player_army_mgr != null and central_reserve > 0:
 			var m_state_int: int = player_army_mgr.get("movement_state") if player_army_mgr.get("movement_state") != null else 0
 			var cur_cell: Vector2i = player_army_mgr.call("get_current_cell") if player_army_mgr.has_method("get_current_cell") else Vector2i.ZERO
 			var rally_cell: Vector2i = player_army_mgr.call("get_rally_cell") if player_army_mgr.has_method("get_rally_cell") else Vector2i.ZERO
@@ -1938,6 +2153,18 @@ func _unhandled_input(event: InputEvent) -> void:
 				close_building_inspector()
 				get_viewport().set_input_as_handled()
 				return
+			elif entity_inspect_panel and entity_inspect_panel.visible:
+				close_entity_inspector()
+				get_viewport().set_input_as_handled()
+				return
+			elif rival_villager_panel and rival_villager_panel.visible:
+				close_rival_villager_inspector()
+				get_viewport().set_input_as_handled()
+				return
+			elif rival_settlement_panel and rival_settlement_panel.visible:
+				close_rival_inspectors()
+				get_viewport().set_input_as_handled()
+				return
 			elif _army_move_targeting:
 				cancel_army_move_targeting()
 			elif citizen_panel.visible:
@@ -1952,6 +2179,8 @@ func _unhandled_input(event: InputEvent) -> void:
 				army_panel.visible = false
 			elif automation_editor and automation_editor.visible:
 				automation_editor.visible = false
+			elif economy_panel and economy_panel.visible:
+				economy_panel.visible = false
 			else:
 				_toggle_pause_menu()
 		elif k.keycode == KEY_SPACE:
@@ -1966,6 +2195,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			_toggle_army_menu()
 		elif k.keycode == KEY_G:
 			_toggle_automation_editor()
+		elif k.keycode == KEY_K:
+			toggle_economy_panel()
 		elif k.keycode == KEY_H or k.keycode == KEY_F1:
 			_toggle_field_guide()
 		elif k.keycode == KEY_C:
@@ -1997,10 +2228,28 @@ func _process(delta: float) -> void:
 		if _building_refresh_timer >= 0.1:
 			_building_refresh_timer = 0.0
 			refresh_building_inspector()
+	if economy_panel != null and economy_panel.visible:
+		_economy_refresh_timer += delta
+		if _economy_refresh_timer >= 0.5:
+			_economy_refresh_timer = 0.0
+			refresh_economy_panel()
+	if (rival_settlement_panel != null and rival_settlement_panel.visible) or (rival_villager_panel != null and rival_villager_panel.visible):
+		_rival_inspect_refresh_timer += delta
+		if _rival_inspect_refresh_timer >= 0.25:
+			_rival_inspect_refresh_timer = 0.0
+			refresh_rival_inspector()
+	if entity_inspect_panel != null and entity_inspect_panel.visible and not inspected_entity_id.is_empty():
+		_entity_inspect_refresh_timer += delta
+		if _entity_inspect_refresh_timer >= 0.25:
+			_entity_inspect_refresh_timer = 0.0
+			refresh_entity_inspector()
+	_hover_refresh_timer += delta
 
 func show_citizen_inspector(cit: Node) -> void:
 	if building_inspect_panel != null:
 		building_inspect_panel.visible = false
+	close_entity_inspector()
+	close_rival_inspectors()
 	inspected_citizen = cit
 	citizen_panel.visible = true
 	_refresh_role_options()
@@ -2016,6 +2265,8 @@ func show_citizen_inspector(cit: Node) -> void:
 		"miner", "quarryman": role_option_btn.select(4)
 		"smith": role_option_btn.select(6)
 		"guard": role_option_btn.select(7)
+		"researcher": role_option_btn.select(8)
+		"hunter": role_option_btn.select(9)
 		_: role_option_btn.select(5)
 
 func close_citizen_inspector() -> void:
@@ -2045,6 +2296,8 @@ func _reselect_current_citizen_role() -> void:
 		"miner", "quarryman": role_option_btn.select(4)
 		"smith": role_option_btn.select(6)
 		"guard": role_option_btn.select(7)
+		"researcher": role_option_btn.select(8)
+		"hunter": role_option_btn.select(9)
 		_: role_option_btn.select(5)
 
 func _refresh_inspected_citizen() -> void:
@@ -2060,7 +2313,43 @@ func _refresh_inspected_citizen() -> void:
 	if carry_amt > 0:
 		role_text += " | Mang: %d %s" % [carry_amt, inspected_citizen.get("carrying_resource")]
 	citizen_role_label.text = role_text
-	citizen_reason_label.text = "Hành vi: %s" % [inspected_citizen.get("status_reason")]
+	var reason_str := "Hành vi: %s" % [inspected_citizen.get("status_reason")]
+	var cl_id_val = inspected_citizen.get("active_clearing_order_id")
+	if cl_id_val != null and str(cl_id_val) != "":
+		var wv_inspect := get_tree().get_first_node_in_group("world_view") if is_inside_tree() else null
+		var lc_mgr = wv_inspect.get("land_clearing_mgr") if wv_inspect != null else null
+		if lc_mgr != null and lc_mgr.has_method("get_order"):
+			var cl_ord: Dictionary = lc_mgr.call("get_order", str(cl_id_val))
+			if not cl_ord.is_empty():
+				reason_str += " | Dọn: %s (%.1f/%.1f giờ)" % [
+					lc_mgr.state_to_string(int(cl_ord.get("state", 0))),
+					float(cl_ord.get("work_hours_done", 0.0)),
+					float(cl_ord.get("work_hours_required", 1.0))
+				]
+	citizen_reason_label.text = reason_str
+	if citizen_meal_buff_label == null and citizen_reason_label != null and citizen_reason_label.get_parent() != null:
+		citizen_meal_buff_label = Label.new()
+		citizen_meal_buff_label.name = "CitizenMealBuffLabel"
+		citizen_meal_buff_label.add_theme_font_size_override("font_size", 12)
+		citizen_meal_buff_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		citizen_reason_label.get_parent().add_child(citizen_meal_buff_label)
+		citizen_reason_label.get_parent().move_child(citizen_meal_buff_label, citizen_reason_label.get_index() + 1)
+	if citizen_meal_buff_label != null:
+		var b_id: String = str(inspected_citizen.get("active_meal_buff_id")) if inspected_citizen.get("active_meal_buff_id") != null else ""
+		var rem_h: float = float(inspected_citizen.get("active_meal_buff_remaining_hours")) if inspected_citizen.get("active_meal_buff_remaining_hours") != null else 0.0
+		var cd_h: float = float(inspected_citizen.get("meal_cooldown_remaining_hours")) if inspected_citizen.get("meal_cooldown_remaining_hours") != null else 0.0
+		if b_id != "" and rem_h > 0.0:
+			var b_def := CookhouseConfig.get_buff_def(b_id)
+			citizen_meal_buff_label.text = "🍽️ Hiệu ứng bữa ăn: %s (%s) — còn %.1f giờ" % [
+				str(b_def.get("name_vi", b_id)),
+				str(b_def.get("effect_desc_vi", "")),
+				rem_h,
+			]
+			citizen_meal_buff_label.add_theme_color_override("font_color", Color(0.55, 0.95, 0.65, 1.0))
+		else:
+			var cd_txt: String = " (Hồi bữa: %.1f giờ)" % cd_h if cd_h > 0.0 else ""
+			citizen_meal_buff_label.text = "🍽️ Hiệu ứng bữa ăn: Không có%s" % cd_txt
+			citizen_meal_buff_label.add_theme_color_override("font_color", Color(0.75, 0.78, 0.82, 1.0))
 	
 	hunger_bar.value = inspected_citizen.get("hunger")
 	fatigue_bar.value = inspected_citizen.get("fatigue")
@@ -2156,6 +2445,8 @@ func _on_role_option_selected(idx: int) -> void:
 				_reselect_current_citizen_role()
 				return
 			new_role = "guard"
+		8: new_role = "researcher"
+		9: new_role = "hunter"
 
 	var success = inspected_citizen.call("set_role", new_role)
 	if success is bool and not success:
@@ -2239,7 +2530,7 @@ func refresh_citizen_roster() -> void:
 
 	var role_counts := {
 		"farmer": 0, "woodcutter": 0, "builder": 0, "hauler": 0,
-		"miner": 0, "smith": 0, "guard": 0, "idle": 0
+		"miner": 0, "smith": 0, "guard": 0, "researcher": 0, "hunter": 0, "idle": 0
 	}
 
 	for cit in all_cits:
@@ -2260,10 +2551,11 @@ func refresh_citizen_roster() -> void:
 			idle_count += 1
 
 	if roster_summary_label:
-		roster_summary_label.text = "👥 Dân số: %d/%d | 💼 Đang làm: %d | 🛌 Tự do: %d | 🛡️ Vệ binh: %d | 🌾 Nông: %d | 🪓 Tiều: %d | ⛏️ Mỏ: %d | 🔨 Xây: %d | 📦 Vận: %d | ⚒️ Rèn: %d" % [
+		roster_summary_label.text = "👥 Dân số: %d/%d | 💼 Đang làm: %d | 🛌 Tự do: %d | 🛡️ Vệ binh: %d | 🌾 Nông: %d | 🪓 Tiều: %d | ⛏️ Mỏ: %d | 🔨 Xây: %d | 📦 Vận: %d | ⚒️ Rèn: %d | 📚 Học giả: %d | 🏹 Thợ săn: %d" % [
 			total_count, total_housing_cap, working_count, idle_count, guard_count,
 			role_counts["farmer"], role_counts["woodcutter"], role_counts["miner"],
-			role_counts["builder"], role_counts["hauler"], role_counts["smith"]
+			role_counts["builder"], role_counts["hauler"], role_counts["smith"], role_counts["researcher"],
+			role_counts["hunter"]
 		]
 
 	var displayed_cits: Array = []
@@ -2417,6 +2709,8 @@ func _create_roster_row_controls(cit: Node) -> Dictionary:
 	assign_btn.add_item("Dân Tự Do", 5)
 	assign_btn.add_item("Thợ Xưởng", 6)
 	assign_btn.add_item("Vệ Binh", 7)
+	assign_btn.add_item("Học Giả", 8)
+	assign_btn.add_item("Thợ Săn", 9)
 	assign_btn.item_selected.connect(func(idx: int): _on_roster_row_role_selected(cit, idx))
 	hbox.add_child(assign_btn)
 
@@ -2489,6 +2783,8 @@ func _update_row_display(row_dict: Dictionary, cit: Node) -> void:
 		"idle": assign_btn.select(5)
 		"smith": assign_btn.select(6)
 		"guard": assign_btn.select(7)
+		"researcher": assign_btn.select(8)
+		"hunter": assign_btn.select(9)
 		_: assign_btn.select(5)
 
 func _on_roster_citizen_clicked(cit: Node) -> void:
@@ -2517,6 +2813,8 @@ func _on_roster_row_role_selected(cit: Node, idx: int) -> void:
 		5: new_role = "idle"
 		6: new_role = "smith"
 		7: new_role = "guard"
+		8: new_role = "researcher"
+		9: new_role = "hunter"
 
 	if new_role == "guard" and not is_barracks_active():
 		var am = get_node_or_null("/root/AudioManager") if is_inside_tree() else null
@@ -2555,6 +2853,8 @@ func _setup_roster_filter_options() -> void:
 	roster_filter_option_btn.add_item("Thợ Mỏ", 6)
 	roster_filter_option_btn.add_item("Thợ Rèn", 7)
 	roster_filter_option_btn.add_item("Vệ Binh", 8)
+	roster_filter_option_btn.add_item("Học Giả", 9)
+	roster_filter_option_btn.add_item("Thợ Săn", 10)
 	roster_filter_option_btn.select(0)
 
 func _on_roster_filter_selected(idx: int) -> void:
@@ -2568,6 +2868,8 @@ func _on_roster_filter_selected(idx: int) -> void:
 		6: _roster_filter = "miner"
 		7: _roster_filter = "smith"
 		8: _roster_filter = "guard"
+		9: _roster_filter = "researcher"
+		10: _roster_filter = "hunter"
 		_: _roster_filter = "all"
 	refresh_citizen_roster()
 
@@ -2726,17 +3028,85 @@ func _get_role_vietnamese(role_str: String) -> String:
 		"miner": return "Thợ Mỏ"
 		"smith": return "Thợ Rèn"
 		"guard": return "Vệ Binh"
+		"researcher": return "Học Giả"
+		"hunter": return "Thợ Săn"
 		"idle": return "Dân Tự Do"
 		_: return role_str.capitalize()
 
 func _toggle_build_menu() -> void:
 	build_menu_panel.visible = not build_menu_panel.visible
+	if build_menu_panel.visible:
+		_refresh_emergency_townhall_button()
+		if economy_panel:
+			economy_panel.visible = false
+
+func _refresh_emergency_townhall_button() -> void:
+	if emergency_townhall_btn == null:
+		return
+	var wv := world_view_ref if world_view_ref != null else (get_tree().get_first_node_in_group("world_view") if is_inside_tree() else null)
+	if wv == null or wv.get("world_data") == null:
+		emergency_townhall_btn.visible = false
+		return
+	var wd = wv.get("world_data")
+	var t_mgr = wv.get("territory_mgr")
+	var owned_count: int = int(t_mgr.call("get_owned_count")) if (t_mgr != null and t_mgr.has_method("get_owned_count")) else 0
+	var th_count: int = BuildingSystem.count_townhalls(wd)
+	if owned_count > 0 or th_count > 0:
+		emergency_townhall_btn.visible = false
+		return
+	var rm := get_node_or_null("/root/ResourceManager") if is_inside_tree() else null
+	var check: Dictionary = BuildingSystem.can_emergency_rebuild_townhall(wd.townhall_anchor, wd, rm, owned_count)
+	emergency_townhall_btn.visible = true
+	emergency_townhall_btn.text = "🏛️ Xây Dựng Lại Tòa Thị Chính (50 Gỗ, 40 Đá, 75 Vàng · 12.0h · Cấp 1)"
+	emergency_townhall_btn.disabled = not bool(check.get("valid", false))
+	emergency_townhall_btn.tooltip_text = str(check.get("reason", ""))
+
+func _on_emergency_townhall_rebuild_pressed() -> void:
+	var wv := world_view_ref if world_view_ref != null else (get_tree().get_first_node_in_group("world_view") if is_inside_tree() else null)
+	if wv == null or not wv.has_method("start_emergency_townhall_rebuild"):
+		return
+	var res: Dictionary = wv.call("start_emergency_townhall_rebuild")
+	if not res.get("success", false):
+		show_event_banner("Không Thể Xây Dựng Lại", res.get("reason", "Không thể xây dựng lại Tòa Thị Chính"), false, 3.5)
+	else:
+		build_menu_panel.visible = false
+		show_event_banner("Xây Dựng Lại Tòa Thị Chính", "Đã đặt công trình Tòa Thị Chính tại vị trí cũ (Cấp 1)", true, 3.5)
+	_refresh_emergency_townhall_button()
 
 func _select_building(type: String) -> void:
 	if _army_move_targeting:
 		cancel_army_move_targeting()
+	var wv := get_tree().get_first_node_in_group("world_view") if is_inside_tree() else null
+	if wv != null and bool(wv.get("is_clear_land_mode")):
+		wv.call("set_clear_land_mode", false)
 	build_menu_panel.visible = false
 	build_requested.emit(type)
+
+func _on_clear_land_btn_pressed() -> void:
+	if _army_move_targeting:
+		cancel_army_move_targeting()
+	build_menu_panel.visible = false
+	var wv := get_tree().get_first_node_in_group("world_view") if is_inside_tree() else null
+	if wv != null and wv.has_method("toggle_clear_land_mode"):
+		wv.call("toggle_clear_land_mode")
+
+func set_clear_land_mode_active(enabled: bool) -> void:
+	var btn_clear_land = $BuildMenuPanel/MarginContainer/VBoxContainer.get_node_or_null("ClearLandBtn")
+	if btn_clear_land != null:
+		btn_clear_land.text = "🧹 Đang Dọn Mặt Bằng (X) — Nhấp Để Tắt" if enabled else "🧹 Dọn Mặt Bằng (X) — Cây & Đá"
+	if enabled:
+		show_event_banner("Chế Độ Dọn Mặt Bằng", "Nhấp hoặc kéo khung để đánh dấu Cây (Tiều Phu) / Đá (Thợ Mỏ). Nhấp lại ô đã đánh dấu để hủy. Chuột phải hoặc ESC để thoát.", true, 4.5)
+	else:
+		show_event_banner("Thoát Dọn Mặt Bằng", "Đã tắt chế độ dọn mặt bằng.", false, 2.0)
+
+func update_clear_land_summary(active_count: int, is_active: bool) -> void:
+	var btn_clear_land = $BuildMenuPanel/MarginContainer/VBoxContainer.get_node_or_null("ClearLandBtn")
+	if btn_clear_land != null:
+		var suffix := " [%d lệnh]" % active_count if active_count > 0 else ""
+		if is_active:
+			btn_clear_land.text = "🧹 Đang Dọn Mặt Bằng (X)%s — Nhấp Để Tắt" % suffix
+		else:
+			btn_clear_land.text = "🧹 Dọn Mặt Bằng (X) — Cây & Đá%s" % suffix
 
 func _toggle_pause_menu() -> void:
 	pause_menu_dialog.visible = not pause_menu_dialog.visible
@@ -2787,20 +3157,7 @@ func _on_load_game_pressed() -> void:
 			save_status_label.modulate = Color(1.0, 0.4, 0.4)
 		return
 		
-	var apply_res: Dictionary = SaveManager.apply_loaded_state_to_world(world_view_ref, load_res["data"])
-	if apply_res.get("success", false):
-		var am = get_node_or_null("/root/AudioManager") if is_inside_tree() else null
-		if am: am.play_coin()
-		if save_status_label:
-			save_status_label.text = "✅ Đã tải thế giới thành công!"
-			save_status_label.modulate = Color(0.5, 1.0, 0.5)
-		_close_pause_menu()
-	else:
-		var am = get_node_or_null("/root/AudioManager") if is_inside_tree() else null
-		if am: am.play_error()
-		if save_status_label:
-			save_status_label.text = "❌ Lỗi áp dụng bản lưu: " + apply_res.get("error", "")
-			save_status_label.modulate = Color(1.0, 0.4, 0.4)
+	_begin_hud_save_apply(load_res["data"], false)
 
 func _on_restore_autosave_pressed() -> void:
 	if world_view_ref == null and get_parent() != null:
@@ -2818,19 +3175,73 @@ func _on_restore_autosave_pressed() -> void:
 			save_status_label.modulate = Color(1.0, 0.4, 0.4)
 		return
 
-	var apply_res: Dictionary = SaveManager.apply_loaded_state_to_world(world_view_ref, load_res["data"])
-	if apply_res.get("success", false):
-		var am = get_node_or_null("/root/AudioManager") if is_inside_tree() else null
-		if am: am.play_coin()
-		if save_status_label:
-			save_status_label.text = "✅ Đã nạp bản tự động lưu thành công!"
-			save_status_label.modulate = Color(0.5, 1.0, 0.5)
-		_close_pause_menu()
-	else:
+	_begin_hud_save_apply(load_res["data"], true)
+
+var _hud_compat_dialog: AcceptDialog = null
+var _hud_pending_save_data: Dictionary = {}
+var _hud_pending_is_autosave: bool = false
+
+func _begin_hud_save_apply(save_data: Dictionary, is_autosave: bool) -> void:
+	var val_res: Dictionary = SaveManager.validate_save_data(save_data)
+	if not val_res.get("valid", false):
 		var am = get_node_or_null("/root/AudioManager") if is_inside_tree() else null
 		if am: am.play_error()
 		if save_status_label:
-			save_status_label.text = "❌ Lỗi áp dụng bản tự động lưu: " + apply_res.get("error", "")
+			save_status_label.text = "❌ Lỗi dữ liệu bản lưu: " + val_res.get("error", "")
+			save_status_label.modulate = Color(1.0, 0.4, 0.4)
+		return
+	var gen_res: Dictionary = SaveManager.resolve_save_generator_version(save_data.get("metadata", {}))
+	var gen_status: int = int(gen_res.get("status", SaveManager.GeneratorVersionStatus.UNSUPPORTED))
+	if gen_status == SaveManager.GeneratorVersionStatus.AMBIGUOUS_MISSING:
+		_open_hud_compat_dialog(save_data, is_autosave)
+		return
+	if gen_status == SaveManager.GeneratorVersionStatus.UNSUPPORTED:
+		var am = get_node_or_null("/root/AudioManager") if is_inside_tree() else null
+		if am: am.play_error()
+		if save_status_label:
+			save_status_label.text = "❌ " + gen_res.get("error", "Phiên bản bộ tạo thế giới không được hỗ trợ.")
+			save_status_label.modulate = Color(1.0, 0.4, 0.4)
+		return
+	_finish_hud_save_apply(save_data, int(gen_res.get("version", -1)), is_autosave)
+
+func _open_hud_compat_dialog(save_data: Dictionary, is_autosave: bool) -> void:
+	_hud_pending_save_data = save_data
+	_hud_pending_is_autosave = is_autosave
+	if _hud_compat_dialog == null:
+		_hud_compat_dialog = AcceptDialog.new()
+		_hud_compat_dialog.title = "World Generator Compatibility"
+		_hud_compat_dialog.dialog_text = "Save này chưa lưu phiên bản tạo bản đồ. Hãy chọn phiên bản phù hợp với thế giới đã lưu.\n• V1: Pre-Batch 03 (Bản đồ cũ, chưa có Hills/Mountains.)\n• V2: Batch 03 (Bản đồ có Hills/Mountains theo thuật toán Batch 03 ban đầu.)"
+		_hud_compat_dialog.get_ok_button().visible = false
+		_hud_compat_dialog.add_button("V1: Pre-Batch 03", false, "v1")
+		_hud_compat_dialog.add_button("V2: Batch 03", false, "v2")
+		_hud_compat_dialog.add_cancel_button("Hủy")
+		_hud_compat_dialog.custom_action.connect(func(action_name: StringName):
+			if action_name == "v1" or action_name == "v2":
+				var ver: int = 1 if action_name == "v1" else 2
+				var sd: Dictionary = _hud_pending_save_data
+				var ia: bool = _hud_pending_is_autosave
+				_hud_pending_save_data = {}
+				_hud_compat_dialog.hide()
+				_finish_hud_save_apply(sd, ver, ia)
+		)
+		_hud_compat_dialog.canceled.connect(func(): _hud_pending_save_data = {})
+		add_child(_hud_compat_dialog)
+	_hud_compat_dialog.popup_centered()
+
+func _finish_hud_save_apply(save_data: Dictionary, gen_ver: int, is_autosave: bool) -> void:
+	var apply_res: Dictionary = SaveManager.apply_loaded_state_to_world(world_view_ref, save_data, false, gen_ver)
+	var am = get_node_or_null("/root/AudioManager") if is_inside_tree() else null
+	if apply_res.get("success", false):
+		if am: am.play_coin()
+		if save_status_label:
+			save_status_label.text = "✅ Đã nạp bản tự động lưu thành công!" if is_autosave else "✅ Đã tải thế giới thành công!"
+			save_status_label.modulate = Color(0.5, 1.0, 0.5)
+		_close_pause_menu()
+	else:
+		if am: am.play_error()
+		if save_status_label:
+			var prefix := "❌ Lỗi áp dụng bản tự động lưu: " if is_autosave else "❌ Lỗi áp dụng bản lưu: "
+			save_status_label.text = prefix + apply_res.get("error", "")
 			save_status_label.modulate = Color(1.0, 0.4, 0.4)
 
 func _on_speed_changed(new_speed: int) -> void:
@@ -2845,16 +3256,30 @@ func _update_speed_buttons(speed: int) -> void:
 func _on_hour_passed(_hour: int, _day: int) -> void:
 	_update_time_display()
 
+func _on_day_phase_changed(_new_phase: int, _old_phase: int) -> void:
+	_update_time_display()
+
 func _on_day_passed(_day: int, _season: String, _year: int) -> void:
 	_update_time_display()
 	if army_panel and army_panel.visible:
 		_refresh_army_panel()
+	if economy_panel and economy_panel.visible:
+		refresh_economy_panel()
 
 func _update_time_display() -> void:
 	if not is_inside_tree() or not get_node_or_null("/root/TimeManager"):
 		return
 	var tm = get_node("/root/TimeManager")
-	clock_label.text = tm.get_clock_string()
+	const PHASE_ICONS := {
+		0: "🌅",
+		1: "☀️",
+		2: "🌇",
+		3: "🌙"
+	}
+	var phase_idx: int = int(tm.get_day_phase()) if tm.has_method("get_day_phase") else 1
+	var phase_name: String = tm.get_day_phase_name() if tm.has_method("get_day_phase_name") else "Ban ngày"
+	var phase_icon: String = str(PHASE_ICONS.get(phase_idx, "☀️"))
+	clock_label.text = "%s %s (%s)" % [phase_icon, tm.get_clock_string(), phase_name]
 	date_label.text = tm.get_date_string()
 
 func _on_resource_changed(id: String, _avail: int, _total: int) -> void:
@@ -2876,9 +3301,19 @@ func _refresh_all_resources() -> void:
 	if tools_label != null:
 		tools_label.text = "🛠️ Công cụ: %d" % rm.get_available_stock("tools")
 	gold_label.text = "🪙 Vàng: %d" % rm.get_available_stock("gold")
+	if crystal_label != null:
+		crystal_label.text = "🔮 Pha lê: %d" % rm.get_available_stock("magic_crystal")
+	if herbs_label != null:
+		herbs_label.text = "🌿 Thảo dược: %d" % rm.get_available_stock("herbs")
+	if raw_meat_label != null:
+		raw_meat_label.text = "🥩 Thịt sống: %d" % rm.get_available_stock("raw_meat")
+	if meals_label != null:
+		meals_label.text = "🍲 Bữa nấu: %d/%d" % [rm.get_available_stock("hearty_meal"), rm.get_available_stock("herbal_broth")]
 	pop_label.text = "👥 Dân số: %d/%d" % [rm.active_population, total_housing_cap]
 	if army_panel and army_panel.visible:
 		_refresh_army_panel()
+	if economy_panel and economy_panel.visible:
+		refresh_economy_panel()
 
 func update_population_display(current_pop: int, max_pop: int) -> void:
 	total_housing_cap = max_pop
@@ -3003,10 +3438,19 @@ func _refresh_victory_claim_state(report: Dictionary = {}) -> void:
 		is_valid_wid = false
 
 	var is_claimable: bool = false
-	if vic_mgr != null and vic_mgr.has_method("is_reward_claimable"):
-		is_claimable = vic_mgr.is_reward_claimable()
-	elif not is_claimed and is_valid_wid and is_persisted:
-		is_claimable = true
+	var stab_val: float = -1.0
+	if report.has("stability"):
+		stab_val = float(report["stability"])
+	elif world_view_ref != null and world_view_ref.has_method("get_live_stability"):
+		stab_val = world_view_ref.get_live_stability()
+	if stab_val < 0.0:
+		stab_val = 85.0
+
+	if stab_val >= 80.0:
+		if vic_mgr != null and vic_mgr.has_method("is_reward_claimable"):
+			is_claimable = vic_mgr.is_reward_claimable()
+		elif not is_claimed and is_valid_wid and is_persisted:
+			is_claimable = true
 
 	# Treasury Conversion Status & Preview
 	var is_tc_done: bool = false
@@ -3017,7 +3461,10 @@ func _refresh_victory_claim_state(report: Dictionary = {}) -> void:
 
 	var tc: Dictionary = {}
 	var gold_val: int = report.get("treasury", 0)
-	var stab_val: float = report.get("stability", 85.0)
+	if world_view_ref != null:
+		var rm_node = world_view_ref.get("resource_mgr")
+		if rm_node != null and rm_node.has_method("get_available_stock"):
+			gold_val = rm_node.get_available_stock("gold")
 
 	if is_tc_done:
 		if vic_mgr != null and vic_mgr.has_method("get_active_treasury_conversion_record"):
@@ -3079,6 +3526,9 @@ func _refresh_victory_claim_state(report: Dictionary = {}) -> void:
 		elif not is_valid_wid:
 			claim_victory_btn.disabled = true
 			claim_victory_btn.text = "ID Thế Giới Không Hợp Lệ"
+		elif stab_val < 80.0:
+			claim_victory_btn.disabled = true
+			claim_victory_btn.text = "Chưa đủ điều kiện"
 		elif is_claimable:
 			claim_victory_btn.disabled = false
 			if total_settlement_points > 0:
@@ -3098,6 +3548,8 @@ func _refresh_victory_claim_state(report: Dictionary = {}) -> void:
 			legacy_status_label.text = "⚠️ Cần lưu thế giới trước khi thực hiện quyết toán Di Sản."
 		elif not is_valid_wid:
 			legacy_status_label.text = "⚠️ ID thế giới không hợp lệ. Không thể quyết toán Di Sản."
+		elif stab_val < 80.0:
+			legacy_status_label.text = "⚠️ Độ ổn định vương quốc hiện tại (%.1f%%) chưa đạt mức tối thiểu 80.0%% để quyết toán." % stab_val
 		elif is_claimable:
 			legacy_status_label.text = "Sẵn sàng quyết toán: +%d điểm Di Sản (+100 chiến thắng + %d thặng dư). (Số dư hiện tại: %d điểm)" % [total_settlement_points, (aw_legacy if not is_tc_done else 0), current_bal]
 		else:
@@ -3111,7 +3563,10 @@ func _on_claim_victory_btn_pressed() -> void:
 		var res: Dictionary = {}
 		if vic_mgr.has_method("finalize_victory_settlement"):
 			var rm = world_view_ref.get("resource_mgr") if world_view_ref else null
-			res = vic_mgr.finalize_victory_settlement(rm)
+			var live_stab: float = -1.0
+			if world_view_ref != null and world_view_ref.has_method("get_live_stability"):
+				live_stab = world_view_ref.get_live_stability()
+			res = vic_mgr.finalize_victory_settlement(rm, live_stab)
 		else:
 			var pts: int = vic_mgr.claim_legacy_reward()
 			res = {"success": pts > 0, "total_legacy_awarded": pts, "victory_points_awarded": pts, "treasury_points_awarded": 0}
@@ -3138,6 +3593,9 @@ func _on_claim_victory_btn_pressed() -> void:
 				show_event_banner("Lỗi Hồ Sơ Di Sản", "Không thể nhận thưởng: Hồ sơ di sản bị hỏng hoặc không thể ghi đĩa.", false, 4.0)
 			elif vic_mgr.has_method("is_reward_claimable") and not vic_mgr.is_reward_claimable():
 				show_event_banner("Không Thể Nhận", "Phần thưởng chiến thắng không hợp lệ hoặc thế giới chưa được lưu an toàn.", false, 4.0)
+			elif res.get("reason", "") == "stability_too_low":
+				var s_curr: float = float(res.get("stability", 0.0))
+				show_event_banner("Độ Ổn Định Chưa Đạt", "Độ ổn định hiện tại (%.1f%%) chưa đạt mức tối thiểu 80.0%% để quyết toán." % s_curr, false, 4.0)
 			else:
 				var err_reason: String = res.get("reason", "")
 				show_event_banner("Quyết Toán Thất Bại", "Không thể hoàn tất quyết toán: %s" % err_reason, false, 4.0)
@@ -3162,11 +3620,39 @@ func show_collapse_panel(report: Dictionary) -> void:
 	if am:
 		am.play_alarm()
 
-func set_tile_info(cell: Vector2i, terrain_name: String, building_name: String = "") -> void:
+func set_tile_info(cell: Vector2i, terrain_name: String, building_name: String = "", entity_name: String = "") -> void:
 	if building_name != "":
 		tile_info_label.text = "Ô: (%d, %d) | Địa hình: %s | Công trình: %s" % [cell.x, cell.y, terrain_name, building_name]
+	elif entity_name != "":
+		tile_info_label.text = "Ô: (%d, %d) | Địa hình: %s | %s" % [cell.x, cell.y, terrain_name, entity_name]
 	else:
 		tile_info_label.text = "Ô: (%d, %d) | Địa hình: %s" % [cell.x, cell.y, terrain_name]
+
+func get_minimap() -> PanelContainer:
+	return minimap_panel
+
+func initialize_minimap(world_view: Node) -> void:
+	if minimap_panel != null and is_instance_valid(minimap_panel):
+		minimap_panel.initialize_minimap(world_view)
+
+func update_minimap_cells(cells: Array[Vector2i]) -> void:
+	if minimap_panel != null and is_instance_valid(minimap_panel):
+		minimap_panel.update_dirty_cells(cells)
+
+func refresh_minimap_markers() -> void:
+	if minimap_panel != null and is_instance_valid(minimap_panel):
+		minimap_panel.refresh_markers()
+
+func set_minimap_debug_fog_disabled(disabled: bool) -> void:
+	if minimap_panel != null and is_instance_valid(minimap_panel) and minimap_panel.has_method("set_debug_fog_disabled"):
+		minimap_panel.call("set_debug_fog_disabled", disabled)
+	if has_meta("fog_debug_btn"):
+		var fb: Button = get_meta("fog_debug_btn")
+		if is_instance_valid(fb):
+			fb.text = "Fog: OFF" if disabled else "Fog: ON"
+
+func reset_fog_debug_toggle() -> void:
+	set_minimap_debug_fog_disabled(false)
 
 # -----------------------------------------------------------------------------
 # Player Field Guide (Package 2D)
@@ -3215,6 +3701,8 @@ func is_field_guide_open() -> bool:
 func show_building_inspector(b_data: Dictionary) -> void:
 	if citizen_panel != null:
 		citizen_panel.visible = false
+	close_entity_inspector()
+	close_rival_inspectors()
 	if b_data.is_empty():
 		close_building_inspector()
 		return
@@ -3243,6 +3731,11 @@ func refresh_building_inspector() -> void:
 	if inspected_building_id == "" or world_view_ref == null:
 		return
 	var b_data: Dictionary = inspected_building_data
+	if bool(b_data.get("is_debug_inspect", false)):
+		_render_debug_object_inspector(b_data)
+		return
+	if _phase9_action_btn != null and is_instance_valid(_phase9_action_btn):
+		_phase9_action_btn.visible = false
 	if world_view_ref.get("world_data") != null:
 		var fetched: Dictionary = BuildingSystem.get_building_by_id(inspected_building_id, world_view_ref.world_data)
 		if not fetched.is_empty():
@@ -3251,6 +3744,9 @@ func refresh_building_inspector() -> void:
 		close_building_inspector()
 		return
 	inspected_building_data = b_data
+	if building_health_bar != null:
+		building_health_bar.visible = true
+		building_health_bar.max_value = 100
 
 	var b_id: String = b_data.get("id", "")
 	var b_type: String = b_data.get("type", "")
@@ -3264,7 +3760,12 @@ func refresh_building_inspector() -> void:
 	if building_title_label != null:
 		building_title_label.text = title_str
 	if building_coords_label != null:
-		building_coords_label.text = "Tọa độ: (%d, %d) | Kích thước: %dx%d" % [origin.x, origin.y, size.x, size.y]
+		if b_type == "bridge":
+			var blen: int = int(b_data.get("length", size.x))
+			var bwid: int = int(b_data.get("width", size.y))
+			building_coords_label.text = "Tọa độ: (%d, %d) | Dài: %d | Rộng: %d (%d ô)" % [origin.x, origin.y, blen, bwid, blen * bwid]
+		else:
+			building_coords_label.text = "Tọa độ: (%d, %d) | Kích thước: %dx%d" % [origin.x, origin.y, size.x, size.y]
 
 	if building_health_bar != null:
 		building_health_bar.value = health
@@ -3358,6 +3859,80 @@ func refresh_building_inspector() -> void:
 		_refresh_repair_inspector(b_id, b_type, b_data)
 		_refresh_upgrade_inspector(b_id, b_type, b_data)
 		_refresh_garrison_inspector(b_id, b_type, b_data)
+		_refresh_cookhouse_inspector(b_id, b_type, b_data)
+
+var _phase9_action_btn: Button = null
+var _phase9_action_target_id: String = ""
+var _phase9_action_category: String = ""
+
+func _ensure_phase9_action_button() -> void:
+	if _phase9_action_btn != null and is_instance_valid(_phase9_action_btn):
+		return
+	if demolish_btn == null or demolish_btn.get_parent() == null:
+		return
+	_phase9_action_btn = Button.new()
+	_phase9_action_btn.name = "Phase9ActionBtn"
+	_phase9_action_btn.visible = false
+	demolish_btn.get_parent().add_child(_phase9_action_btn)
+	_phase9_action_btn.pressed.connect(func():
+		if world_view_ref == null:
+			return
+		if _phase9_action_category == "poi" and world_view_ref.has_method("claim_poi_with_military"):
+			var res: Dictionary = world_view_ref.call("claim_poi_with_military", _phase9_action_target_id)
+			if not bool(res.get("success", false)) and has_method("show_event_banner"):
+				show_event_banner("Khám Phá Thất Bại", str(res.get("reason", "Không thể thu thập")), false, 3.0)
+			_refresh_all_resources()
+		elif _phase9_action_category == "monster_nest":
+			var tm = world_view_ref.get("tactical_military_mgr")
+			var mm = world_view_ref.get("monster_mgr")
+			if tm != null and mm != null and mm.has_method("get_nest_actor"):
+				var na = mm.call("get_nest_actor", _phase9_action_target_id)
+				if na != null:
+					var atk_res: Dictionary = tm.call("issue_attack_order", na, world_view_ref.get("nav"))
+					if not bool(atk_res.get("success", false)) and has_method("show_event_banner"):
+						show_event_banner("Lệnh Tấn Công Thất Bại", str(atk_res.get("reason", "Hãy chọn đơn vị quân đội trước")), false, 3.0)
+	)
+
+func _render_debug_object_inspector(d_data: Dictionary) -> void:
+	_ensure_phase9_action_button()
+	if _phase9_action_btn != null:
+		_phase9_action_btn.visible = false
+	if cookhouse_section != null:
+		cookhouse_section.visible = false
+	if building_title_label != null:
+		building_title_label.text = str(d_data.get("title", d_data.get("label", "Debug Object")))
+	if building_coords_label != null:
+		building_coords_label.text = str(d_data.get("coords_text", ""))
+	if building_state_label != null:
+		building_state_label.text = str(d_data.get("state_text", "[DEBUG]"))
+		var col = d_data.get("state_color", Color(0.45, 0.85, 0.95, 1.0))
+		if col is Color:
+			building_state_label.add_theme_color_override("font_color", col)
+	if building_health_label != null:
+		building_health_label.text = str(d_data.get("detail_text", ""))
+	if building_health_bar != null:
+		var show_bar: bool = bool(d_data.get("show_bar", false))
+		building_health_bar.visible = show_bar
+		if show_bar:
+			building_health_bar.max_value = float(maxi(1, int(d_data.get("bar_max", 100))))
+			building_health_bar.value = float(int(d_data.get("bar_value", 0)))
+	for sec in [construction_section, workplace_section, civic_section, repair_section, upgrade_section, garrison_section, pause_resume_btn, demolish_btn]:
+		if sec != null:
+			sec.visible = false
+	if _phase9_action_btn != null and not bool(d_data.get("is_debug_inspect", false)):
+		var cat := str(d_data.get("category", ""))
+		if cat == "poi":
+			_phase9_action_category = "poi"
+			_phase9_action_target_id = str(d_data.get("poi_id", d_data.get("id", "")))
+			_phase9_action_btn.text = "Khám Phá / Thu Thập"
+			_phase9_action_btn.disabled = not bool(d_data.get("can_claim", false))
+			_phase9_action_btn.visible = true
+		elif cat == "monster_nest" and int(d_data.get("bar_value", 0)) > 0:
+			_phase9_action_category = "monster_nest"
+			_phase9_action_target_id = str(d_data.get("nest_id", d_data.get("id", "")))
+			_phase9_action_btn.text = "Tấn Công Ổ Quái"
+			_phase9_action_btn.disabled = false
+			_phase9_action_btn.visible = true
 
 func _refresh_workplace_inspector(b_id: String, b_type: String, _b_data: Dictionary) -> void:
 	if world_view_ref == null or world_view_ref.get("workplace_mgr") == null:
@@ -3513,7 +4088,7 @@ func _refresh_civic_inspector(_b_id: String, b_type: String, b_data: Dictionary)
 			var s_lvl: int = clampi(int(b_data.get("upgrade_level", 1)), 1, EconomyConfig.MAX_BUILDING_LEVEL)
 			var store_bonus: Dictionary = EconomyConfig.get_building_storage_bonus("storehouse", s_lvl)
 			var bonus_parts: Array[String] = []
-			for res_id in [EconomyConfig.RES_FOOD, EconomyConfig.RES_WOOD, EconomyConfig.RES_STONE, EconomyConfig.RES_ORE, EconomyConfig.RES_METAL]:
+			for res_id in EconomyConfig.ALL_RESOURCES:
 				if store_bonus.has(res_id):
 					var r_name: String = EconomyConfig.RESOURCE_NAMES_VI.get(res_id, res_id)
 					bonus_parts.append("%s +%d" % [r_name, int(store_bonus[res_id])])
@@ -3534,9 +4109,213 @@ func _refresh_civic_inspector(_b_id: String, b_type: String, b_data: Dictionary)
 		"research_hall":
 			civic_desc_label.text = "Viện hàn lâm nghiên cứu học thuật, mở khóa các tiến bộ khoa học kỹ thuật."
 			civic_stats_label.text = "• Mở khóa Menu Nghiên Cứu và các công nghệ tiến bộ\n• Nền tảng phát triển học thuật vương quốc"
+		"cookhouse":
+			civic_desc_label.text = "Nhà Bếp chế biến thịt sống và thảo mộc thành các bữa ăn bổ dưỡng tự động theo thời gian."
+			civic_stats_label.text = "• Xử lý tự động tối đa 5 mẻ trong hàng đợi\n• Bữa ăn lưu vào kho chung và cấp hiệu ứng tạm thời khi dân làng nghỉ ngơi tại nhà"
 		_:
 			civic_desc_label.text = "Công trình vương quốc."
 			civic_stats_label.text = "• Kích thước: %dx%d" % [b_data.get("size", Vector2i(1,1)).x, b_data.get("size", Vector2i(1,1)).y]
+
+func _ensure_cookhouse_section() -> void:
+	if cookhouse_section != null and is_instance_valid(cookhouse_section):
+		return
+	var content_vbox := get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox")
+	if content_vbox == null and civic_section != null:
+		content_vbox = civic_section.get_parent()
+	if content_vbox == null:
+		return
+
+	cookhouse_section = VBoxContainer.new()
+	cookhouse_section.name = "CookhouseSection"
+	cookhouse_section.add_theme_constant_override("separation", 6)
+	content_vbox.add_child(cookhouse_section)
+
+	var header := Label.new()
+	header.name = "HeaderLabel"
+	header.text = "🍲 Bếp Nấu & Hàng Đợi"
+	cookhouse_section.add_child(header)
+
+	var active_lbl := Label.new()
+	active_lbl.name = "ActiveLabel"
+	active_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	cookhouse_section.add_child(active_lbl)
+
+	var prog := ProgressBar.new()
+	prog.name = "ProgressBar"
+	prog.min_value = 0.0
+	prog.max_value = 100.0
+	prog.custom_minimum_size = Vector2(0, 18)
+	cookhouse_section.add_child(prog)
+
+	var pause_btn := Button.new()
+	pause_btn.name = "PauseBtn"
+	pause_btn.text = "Tạm dừng nấu"
+	pause_btn.pressed.connect(_on_cookhouse_toggle_pause)
+	cookhouse_section.add_child(pause_btn)
+
+	var recipe_box := VBoxContainer.new()
+	recipe_box.name = "RecipeButtons"
+	recipe_box.add_theme_constant_override("separation", 4)
+	cookhouse_section.add_child(recipe_box)
+
+	var stew_btn := Button.new()
+	stew_btn.name = "HeartyStewBtn"
+	stew_btn.text = "+ Thịt Hầm (2 Thịt, 1 Thảo mộc | 3h)"
+	stew_btn.pressed.connect(func(): _on_cookhouse_add_recipe("hearty_stew"))
+	recipe_box.add_child(stew_btn)
+
+	var broth_btn := Button.new()
+	broth_btn.name = "HerbalBrothBtn"
+	broth_btn.text = "+ Nước Thảo Mộc (1 Thịt, 2 Thảo mộc | 2h)"
+	broth_btn.pressed.connect(func(): _on_cookhouse_add_recipe("herbal_broth"))
+	recipe_box.add_child(broth_btn)
+
+	var feedback_lbl := Label.new()
+	feedback_lbl.name = "FeedbackLabel"
+	feedback_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	feedback_lbl.visible = false
+	cookhouse_section.add_child(feedback_lbl)
+
+	var pending_lbl := Label.new()
+	pending_lbl.name = "PendingHeaderLabel"
+	pending_lbl.text = "Hàng đợi chờ xử lý:"
+	cookhouse_section.add_child(pending_lbl)
+
+	var pending_box := VBoxContainer.new()
+	pending_box.name = "PendingQueueBox"
+	pending_box.add_theme_constant_override("separation", 4)
+	cookhouse_section.add_child(pending_box)
+
+func _refresh_cookhouse_inspector(b_id: String, b_type: String, b_data: Dictionary) -> void:
+	if b_type != "cookhouse" or str(b_data.get("state", "active")) == "under_construction":
+		if cookhouse_section != null:
+			cookhouse_section.visible = false
+		return
+
+	_ensure_cookhouse_section()
+	if cookhouse_section == null:
+		return
+	cookhouse_section.visible = true
+
+	var ck_mgr = world_view_ref.get("cookhouse_mgr") if world_view_ref != null else null
+	var ck_state: Dictionary = ck_mgr.get_cookhouse(b_id) if ck_mgr != null else {}
+	var active_id: String = str(ck_state.get("active_recipe_id", ""))
+	var progress_hours: float = float(ck_state.get("progress_hours", 0.0))
+	var queue: Array = ck_state.get("queue", [])
+	var total_count: int = ck_mgr.get_total_batch_count(b_id) if ck_mgr != null else queue.size()
+	var is_paused: bool = bool(ck_state.get("paused", false))
+	var waiting_ing: bool = bool(ck_state.get("waiting_ingredients", false))
+	var pending_out_res: String = str(ck_state.get("pending_output_resource", ""))
+	var pending_out_amt: int = int(ck_state.get("pending_output_amount", 0))
+
+	var active_lbl := cookhouse_section.get_node_or_null("ActiveLabel") as Label
+	var prog := cookhouse_section.get_node_or_null("ProgressBar") as ProgressBar
+	var pause_btn := cookhouse_section.get_node_or_null("PauseBtn") as Button
+	var stew_btn := cookhouse_section.get_node_or_null("RecipeButtons/HeartyStewBtn") as Button
+	var broth_btn := cookhouse_section.get_node_or_null("RecipeButtons/HerbalBrothBtn") as Button
+	var pending_hdr := cookhouse_section.get_node_or_null("PendingHeaderLabel") as Label
+	var pending_box := cookhouse_section.get_node_or_null("PendingQueueBox") as VBoxContainer
+
+	if pending_out_amt > 0 and pending_out_res != "":
+		var out_name: String = EconomyConfig.RESOURCE_NAMES_VI.get(pending_out_res, pending_out_res)
+		if active_lbl != null:
+			active_lbl.text = "Chờ kho trống để xuất: %dx %s (%d/%d mẻ)" % [pending_out_amt, out_name, total_count, CookhouseConfig.MAX_QUEUE_SIZE]
+		if prog != null:
+			prog.value = 100.0
+	elif active_id != "":
+		var rec: Dictionary = CookhouseConfig.get_recipe(active_id)
+		var rec_name: String = str(rec.get("name_vi", active_id))
+		var dur: float = maxf(0.001, float(rec.get("duration_hours", 1.0)))
+		var status_suffix := " [TẠM DỪNG]" if is_paused else ""
+		if active_lbl != null:
+			active_lbl.text = "Đang nấu: %s (%.1f/%.1fh)%s | Hàng đợi: %d/%d" % [rec_name, progress_hours, dur, status_suffix, total_count, CookhouseConfig.MAX_QUEUE_SIZE]
+		if prog != null:
+			prog.value = clampf((progress_hours / dur) * 100.0, 0.0, 100.0)
+	elif waiting_ing and not queue.is_empty():
+		var next_id: String = str(queue[0])
+		var rec: Dictionary = CookhouseConfig.get_recipe(next_id)
+		var rec_name: String = str(rec.get("name_vi", next_id))
+		if active_lbl != null:
+			active_lbl.text = "Chờ nguyên liệu: %s (%d/%d mẻ)" % [rec_name, total_count, CookhouseConfig.MAX_QUEUE_SIZE]
+		if prog != null:
+			prog.value = 0.0
+	else:
+		var status_suffix := " [TẠM DỪNG]" if is_paused else ""
+		if active_lbl != null:
+			active_lbl.text = "Trạng thái: Nhàn rỗi%s (%d/%d mẻ)" % [status_suffix, total_count, CookhouseConfig.MAX_QUEUE_SIZE]
+		if prog != null:
+			prog.value = 0.0
+
+	if pause_btn != null:
+		pause_btn.text = "Tiếp tục nấu" if is_paused else "Tạm dừng nấu"
+		pause_btn.disabled = total_count == 0 and pending_out_amt == 0
+
+	var queue_full: bool = total_count >= CookhouseConfig.MAX_QUEUE_SIZE
+	if stew_btn != null:
+		stew_btn.disabled = queue_full
+	if broth_btn != null:
+		broth_btn.disabled = queue_full
+
+	if pending_hdr != null:
+		pending_hdr.visible = not queue.is_empty()
+	if pending_box != null:
+		for c in pending_box.get_children():
+			pending_box.remove_child(c)
+			c.queue_free()
+		for i in range(queue.size()):
+			var r_id: String = str(queue[i])
+			var rec: Dictionary = CookhouseConfig.get_recipe(r_id)
+			var row := HBoxContainer.new()
+			var lbl := Label.new()
+			lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			lbl.text = "#%d: %s" % [i + 1, str(rec.get("name_vi", r_id))]
+			var cancel_btn := Button.new()
+			cancel_btn.text = "Hủy"
+			var idx := i
+			cancel_btn.pressed.connect(func(): _on_cookhouse_remove_pending(idx))
+			row.add_child(lbl)
+			row.add_child(cancel_btn)
+			pending_box.add_child(row)
+
+func _on_cookhouse_add_recipe(recipe_id: String) -> void:
+	if world_view_ref == null or inspected_building_id == "":
+		return
+	var ck_mgr = world_view_ref.get("cookhouse_mgr")
+	var rm = get_node_or_null("/root/ResourceManager")
+	if ck_mgr == null:
+		return
+	var res: Dictionary = ck_mgr.add_batch(inspected_building_id, recipe_id, rm)
+	if cookhouse_section != null:
+		var feedback_lbl := cookhouse_section.get_node_or_null("FeedbackLabel") as Label
+		if feedback_lbl != null:
+			if bool(res.get("success", false)):
+				feedback_lbl.visible = false
+				feedback_lbl.text = ""
+			else:
+				feedback_lbl.text = str(res.get("reason", "Không thể thêm mẻ."))
+				feedback_lbl.visible = true
+	_refresh_cookhouse_inspector(inspected_building_id, inspected_building_data.get("type", ""), inspected_building_data)
+	_refresh_all_resources()
+
+func _on_cookhouse_toggle_pause() -> void:
+	if world_view_ref == null or inspected_building_id == "":
+		return
+	var ck_mgr = world_view_ref.get("cookhouse_mgr")
+	if ck_mgr == null:
+		return
+	var ck_state: Dictionary = ck_mgr.get_cookhouse(inspected_building_id)
+	var cur_paused: bool = bool(ck_state.get("paused", false))
+	ck_mgr.set_paused(inspected_building_id, not cur_paused)
+	_refresh_cookhouse_inspector(inspected_building_id, inspected_building_data.get("type", ""), inspected_building_data)
+
+func _on_cookhouse_remove_pending(queue_index: int) -> void:
+	if world_view_ref == null or inspected_building_id == "":
+		return
+	var ck_mgr = world_view_ref.get("cookhouse_mgr")
+	if ck_mgr == null:
+		return
+	ck_mgr.remove_pending_batch(inspected_building_id, queue_index)
+	_refresh_cookhouse_inspector(inspected_building_id, inspected_building_data.get("type", ""), inspected_building_data)
 
 func _on_pause_resume_building_pressed() -> void:
 	if world_view_ref == null or inspected_building_id == "":
@@ -3643,9 +4422,10 @@ func _refresh_repair_inspector(b_id: String, b_type: String, b_data: Dictionary)
 	var health: int = int(b_data.get("health", 100))
 	var max_health: int = int(b_data.get("max_health", 100))
 	var is_repairing: bool = bool(b_data.get("is_repairing", false))
+	var is_townhall_restore: bool = (b_type == "townhall" and (state == "destroyed" or bool(b_data.get("is_restoring_townhall", false))))
 
-	# Only show repair section if building is damaged or actively repairing
-	if (state != "damaged" and health >= max_health and not is_repairing) or state == "under_construction" or state == "destroyed":
+	# Show repair section if building is damaged, actively repairing, or a destroyed/restoring Town Hall
+	if not is_townhall_restore and ((state != "damaged" and health >= max_health and not is_repairing) or state == "under_construction" or state == "destroyed"):
 		repair_section.visible = false
 		return
 
@@ -3666,7 +4446,10 @@ func _refresh_repair_inspector(b_id: String, b_type: String, b_data: Dictionary)
 		var pct: float = clampf((cur_prog / req_h) * 100.0 if req_h > 0.0 else 0.0, 0.0, 100.0)
 
 		if repair_progress_label != null:
-			repair_progress_label.text = "Tiến độ sửa chữa: %.1f / %.1f giờ (%.0f%%)" % [cur_prog, req_h, pct]
+			if is_townhall_restore:
+				repair_progress_label.text = "Tiến độ phục hồi Tòa Thị Chính: %.1f / %.1f giờ (%.0f%%)" % [cur_prog, req_h, pct]
+			else:
+				repair_progress_label.text = "Tiến độ sửa chữa: %.1f / %.1f giờ (%.0f%%)" % [cur_prog, req_h, pct]
 		if repair_progress_bar != null:
 			repair_progress_bar.value = pct
 
@@ -3677,13 +4460,17 @@ func _refresh_repair_inspector(b_id: String, b_type: String, b_data: Dictionary)
 				if is_instance_valid(cit) and cit.get("active_job") != null and JobManager.job_matches_building(cit.active_job, b_id):
 					builder_count += 1
 		if repair_builders_label != null:
-			repair_builders_label.text = "Thợ xây đang sửa chữa: %d / %d" % [builder_count, max_builders]
+			if is_townhall_restore:
+				repair_builders_label.text = "Thợ xây đang phục hồi: %d / %d" % [builder_count, max_builders]
+			else:
+				repair_builders_label.text = "Thợ xây đang sửa chữa: %d / %d" % [builder_count, max_builders]
 	else:
 		if repair_progress_box != null:
 			repair_progress_box.visible = false
 
 		var rm := get_node_or_null("/root/ResourceManager")
-		var check: Dictionary = BuildingSystem.can_repair_building(b_data, world_view_ref.world_data if world_view_ref else null, rm)
+		var check: Dictionary = BuildingSystem.can_restore_townhall(b_data, world_view_ref.world_data if world_view_ref else null, rm) if is_townhall_restore else BuildingSystem.can_repair_building(b_data, world_view_ref.world_data if world_view_ref else null, rm)
+		var can_act: bool = bool(check.get("can_restore", false)) if is_townhall_restore else bool(check.get("can_repair", false))
 		var cost: Dictionary = check.get("cost", {})
 		var cost_str := ""
 		for r in cost:
@@ -3694,28 +4481,33 @@ func _refresh_repair_inspector(b_id: String, b_type: String, b_data: Dictionary)
 
 		if repair_cost_label != null:
 			repair_cost_label.visible = true
-			repair_cost_label.text = "Chi phí sửa chữa: %s (Dự kiến: %.1fh)" % [cost_str, float(check.get("hours", 2.0))]
+			if is_townhall_restore:
+				repair_cost_label.text = "Chi phí phục hồi: %s(Dự kiến: %.1f giờ · Sau khi phục hồi sẽ trở về Cấp 1)" % [cost_str, float(check.get("hours", EconomyConfig.TOWNHALL_RESTORATION_HOURS))]
+			else:
+				repair_cost_label.text = "Chi phí sửa chữa: %s (Dự kiến: %.1fh)" % [cost_str, float(check.get("hours", 2.0))]
 
 		if repair_btn != null:
 			repair_btn.visible = true
-			repair_btn.disabled = not bool(check.get("can_repair", false))
-			repair_btn.text = "Tiến Hành Sửa Chữa"
+			repair_btn.disabled = not can_act
+			repair_btn.text = "Phục Hồi Tòa Thị Chính" if is_townhall_restore else "Tiến Hành Sửa Chữa"
 
 		if repair_reason_label != null:
-			if not bool(check.get("can_repair", false)):
+			if not can_act:
 				repair_reason_label.visible = true
-				repair_reason_label.text = check.get("reason", "Không thể sửa chữa")
+				repair_reason_label.text = check.get("reason", "Không thể phục hồi" if is_townhall_restore else "Không thể sửa chữa")
 			else:
 				repair_reason_label.visible = false
 
 func _on_start_repair_pressed() -> void:
 	if world_view_ref == null or inspected_building_id == "":
 		return
-	var res: Dictionary = world_view_ref.start_repair_building(inspected_building_id)
+	var b_data: Dictionary = BuildingSystem.get_building_by_id(inspected_building_id, world_view_ref.world_data)
+	var is_th_restore: bool = (str(b_data.get("type", "")) == "townhall" and str(b_data.get("state", "")) == "destroyed")
+	var res: Dictionary = world_view_ref.start_townhall_restoration(inspected_building_id) if is_th_restore else world_view_ref.start_repair_building(inspected_building_id)
 	if not res.get("success", false):
-		show_event_banner("Không Thể Sửa Chữa", res.get("reason", "Lỗi khởi động sửa chữa"), false, 3.5)
+		show_event_banner("Không Thể Phục Hồi" if is_th_restore else "Không Thể Sửa Chữa", res.get("reason", "Lỗi khởi động sửa chữa"), false, 3.5)
 	else:
-		show_event_banner("Bắt Đầu Sửa Chữa", "Đã tạo công việc sửa chữa cho thợ xây", true, 3.0)
+		show_event_banner("Bắt Đầu Phục Hồi Tòa Thị Chính" if is_th_restore else "Bắt Đầu Sửa Chữa", "Đã tạo công việc phục hồi cho thợ xây" if is_th_restore else "Đã tạo công việc sửa chữa cho thợ xây", true, 3.0)
 	refresh_building_inspector()
 
 func _on_cancel_repair_pressed() -> void:
@@ -3975,12 +4767,13 @@ func _on_reinforce_outpost_pressed() -> void:
 	if world_view_ref == null or inspected_building_id == "":
 		return
 	var army_mgr = world_view_ref.get("player_army_mgr")
-	if army_mgr != null and army_mgr.has_method("station_soldier"):
-		var res: Dictionary = army_mgr.call("station_soldier", inspected_building_id, 1)
+	if army_mgr != null and army_mgr.has_method("dispatch_reinforcements"):
+		var res: Dictionary = army_mgr.call("dispatch_reinforcements", inspected_building_id, 1)
 		if not bool(res.get("success", false)):
 			show_event_banner("Điều Binh Thất Bại", res.get("reason", "Không thể điều binh"), false, 3.0)
 		else:
-			show_event_banner("Điều Binh Thành Công", "Đã điều 1 binh sĩ đến đồn trú tại tiền đồn.", true, 2.5)
+			var travel_h: float = float(res.get("travel_hours", 1.0))
+			show_event_banner("Điều Binh Tiếp Viện", "Đã điều 1 binh sĩ tiếp viện (Dự kiến đến sau %.1f giờ)." % travel_h, true, 2.5)
 	refresh_building_inspector()
 
 func _on_recall_outpost_pressed() -> void:
@@ -3995,4 +4788,776 @@ func _on_recall_outpost_pressed() -> void:
 			show_event_banner("Rút Quân Thành Công", "Đã rút 1 binh sĩ về căn cứ trung tâm.", true, 2.5)
 	refresh_building_inspector()
 
+# -----------------------------------------------------------------------------
+# Economy Panel (Batch 02 — GDD §14.4)
+# -----------------------------------------------------------------------------
+
+const ECONOMY_PANEL_RESOURCE_ORDER: Array[Dictionary] = [
+	{"id": "food", "label": "🌾 Lương thực"},
+	{"id": "wood", "label": "🪵 Gỗ"},
+	{"id": "stone", "label": "🪨 Đá"},
+	{"id": "ore", "label": "⛏️ Quặng"},
+	{"id": "metal", "label": "⚔️ Kim loại"},
+	{"id": "tools", "label": "🛠️ Công cụ"},
+	{"id": "gold", "label": "🪙 Vàng"},
+	{"id": "magic_crystal", "label": "🔮 Pha lê"},
+	{"id": "herbs", "label": "🌿 Thảo dược"},
+]
+
+func _ensure_economy_panel() -> void:
+	if economy_panel != null and is_instance_valid(economy_panel):
+		return
+	var existing = get_node_or_null("EconomyPanel")
+	if existing is PanelContainer:
+		economy_panel = existing
+		return
+
+	economy_panel = PanelContainer.new()
+	economy_panel.name = "EconomyPanel"
+	economy_panel.visible = false
+	economy_panel.process_mode = Node.PROCESS_MODE_ALWAYS
+	economy_panel.set_anchors_preset(Control.PRESET_CENTER)
+	economy_panel.offset_left = -460.0
+	economy_panel.offset_top = -250.0
+	economy_panel.offset_right = 460.0
+	economy_panel.offset_bottom = 250.0
+	economy_panel.grow_horizontal = Control.GROW_DIRECTION_BOTH
+	economy_panel.grow_vertical = Control.GROW_DIRECTION_BOTH
+	add_child(economy_panel)
+
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 16)
+	margin.add_theme_constant_override("margin_top", 14)
+	margin.add_theme_constant_override("margin_right", 16)
+	margin.add_theme_constant_override("margin_bottom", 14)
+	economy_panel.add_child(margin)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 10)
+	margin.add_child(vbox)
+
+	var header := HBoxContainer.new()
+	vbox.add_child(header)
+
+	var title_lbl := Label.new()
+	title_lbl.name = "TitleLabel"
+	title_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	title_lbl.add_theme_font_size_override("font_size", 18)
+	title_lbl.add_theme_color_override("font_color", Color(0.95, 0.85, 0.45, 1))
+	title_lbl.text = "📊 Tổng Quan Kinh Tế Vương Quốc"
+	header.add_child(title_lbl)
+
+	var refresh_btn := Button.new()
+	refresh_btn.name = "RefreshEconomyBtn"
+	refresh_btn.text = "🔄 Làm mới"
+	refresh_btn.pressed.connect(refresh_economy_panel)
+	header.add_child(refresh_btn)
+
+	var close_btn := Button.new()
+	close_btn.name = "CloseEconomyBtn"
+	close_btn.text = "✖ Đóng"
+	close_btn.pressed.connect(func(): economy_panel.visible = false)
+	header.add_child(close_btn)
+
+	var sep := HSeparator.new()
+	vbox.add_child(sep)
+
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	vbox.add_child(scroll)
+
+	var grid := GridContainer.new()
+	grid.name = "EconomyTable"
+	grid.columns = 7
+	grid.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	grid.add_theme_constant_override("h_separation", 12)
+	grid.add_theme_constant_override("v_separation", 8)
+	scroll.add_child(grid)
+
+	var headers := [
+		"Tài nguyên",
+		"Tồn kho",
+		"Sản xuất (Hôm nay)",
+		"Tiêu thụ (Hôm nay)",
+		"Hôm qua (+/-)",
+		"Đang vận chuyển",
+		"Dự báo thiếu hụt",
+	]
+	for h_idx in range(headers.size()):
+		var h_lbl := Label.new()
+		h_lbl.text = headers[h_idx]
+		h_lbl.add_theme_font_size_override("font_size", 13)
+		h_lbl.add_theme_color_override("font_color", Color(0.85, 0.9, 1.0, 1))
+		if h_idx == 6:
+			h_lbl.tooltip_text = "Ước tính dựa trên tồn kho hiện tại và tỷ lệ ròng ngày hôm qua (24 giờ hoàn chỉnh)."
+		if h_idx == 0 or h_idx == 6:
+			h_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		else:
+			h_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		grid.add_child(h_lbl)
+
+	_economy_rows.clear()
+	for res_def in ECONOMY_PANEL_RESOURCE_ORDER:
+		var res_id: String = res_def["id"]
+		var name_lbl := Label.new()
+		name_lbl.name = "Row_%s_Name" % res_id
+		name_lbl.text = res_def["label"]
+		name_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		grid.add_child(name_lbl)
+
+		var stock_lbl := Label.new()
+		stock_lbl.name = "Row_%s_Stock" % res_id
+		stock_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		stock_lbl.custom_minimum_size = Vector2(65, 0)
+		grid.add_child(stock_lbl)
+
+		var prod_lbl := Label.new()
+		prod_lbl.name = "Row_%s_Prod" % res_id
+		prod_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		prod_lbl.custom_minimum_size = Vector2(95, 0)
+		grid.add_child(prod_lbl)
+
+		var cons_lbl := Label.new()
+		cons_lbl.name = "Row_%s_Cons" % res_id
+		cons_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		cons_lbl.custom_minimum_size = Vector2(95, 0)
+		grid.add_child(cons_lbl)
+
+		var yesterday_lbl := Label.new()
+		yesterday_lbl.name = "Row_%s_Yesterday" % res_id
+		yesterday_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		yesterday_lbl.custom_minimum_size = Vector2(95, 0)
+		grid.add_child(yesterday_lbl)
+
+		var transit_lbl := Label.new()
+		transit_lbl.name = "Row_%s_Transit" % res_id
+		transit_lbl.horizontal_alignment = HORIZONTAL_ALIGNMENT_RIGHT
+		transit_lbl.custom_minimum_size = Vector2(95, 0)
+		grid.add_child(transit_lbl)
+
+		var forecast_lbl := Label.new()
+		forecast_lbl.name = "Row_%s_Forecast" % res_id
+		forecast_lbl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		forecast_lbl.custom_minimum_size = Vector2(165, 0)
+		grid.add_child(forecast_lbl)
+
+		_economy_rows[res_id] = {
+			"name": name_lbl,
+			"stock": stock_lbl,
+			"prod": prod_lbl,
+			"cons": cons_lbl,
+			"yesterday": yesterday_lbl,
+			"transit": transit_lbl,
+			"forecast": forecast_lbl,
+		}
+
+func toggle_economy_panel() -> void:
+	_ensure_economy_panel()
+	if _army_move_targeting:
+		cancel_army_move_targeting()
+	economy_panel.visible = not economy_panel.visible
+	if economy_panel.visible:
+		build_menu_panel.visible = false
+		research_menu_panel.visible = false
+		if diplomacy_panel:
+			diplomacy_panel.visible = false
+		if army_panel:
+			army_panel.visible = false
+		if automation_editor:
+			automation_editor.visible = false
+		refresh_economy_panel()
+
+func _calculate_in_transit_totals() -> Dictionary:
+	var totals: Dictionary = {}
+	var wv = world_view_ref if world_view_ref != null else get_parent()
+	if wv == null:
+		return totals
+	var cits = wv.get("citizen_list")
+	if not (cits is Array):
+		return totals
+	for cit in cits:
+		if not is_instance_valid(cit) or cit.is_queued_for_deletion():
+			continue
+		var carry_res: String = String(cit.get("carrying_resource")) if cit.get("carrying_resource") != null else ""
+		var carry_amt: int = int(cit.get("carrying_amount")) if cit.get("carrying_amount") != null else 0
+		if carry_res != "" and carry_amt > 0:
+			totals[carry_res] = int(totals.get(carry_res, 0)) + carry_amt
+	return totals
+
+func _format_shortage_forecast(stock: int, prod: float, cons: float) -> Dictionary:
+	var safe_prod: float = maxf(0.0, prod)
+	var safe_cons: float = maxf(0.0, cons)
+	var net: float = safe_prod - safe_cons
+	if stock <= 0 and safe_cons > safe_prod:
+		return {"text": "Thiếu hụt ngay", "color": Color(1.0, 0.35, 0.35, 1)}
+	if is_zero_approx(safe_prod) and is_zero_approx(safe_cons):
+		return {"text": "Chưa đủ dữ liệu", "color": Color(0.7, 0.72, 0.78, 1)}
+	if net >= 0.0:
+		return {"text": "Ổn định (Không thiếu)", "color": Color(0.45, 0.95, 0.55, 1)}
+	var days_left: float = float(stock) / (-net)
+	if days_left < 1.0:
+		return {"text": "Thiếu sau <1 ngày", "color": Color(1.0, 0.55, 0.3, 1)}
+	return {"text": "Thiếu sau ~%d ngày" % int(floor(days_left)), "color": Color(1.0, 0.8, 0.3, 1)}
+
+func refresh_economy_panel() -> void:
+	_ensure_economy_panel()
+	var rm = get_node_or_null("/root/ResourceManager")
+	if rm == null:
+		return
+	var in_transit: Dictionary = _calculate_in_transit_totals()
+	for res_def in ECONOMY_PANEL_RESOURCE_ORDER:
+		var res_id: String = res_def["id"]
+		if not _economy_rows.has(res_id):
+			continue
+		var row: Dictionary = _economy_rows[res_id]
+		var stock: int = int(rm.get_available_stock(res_id))
+		var today_prod: float = float(rm.get_daily_production_tally(res_id))
+		var today_cons: float = float(rm.get_daily_consumption_tally(res_id))
+		var last_prod: float = float(rm.get_last_day_production(res_id))
+		var last_cons: float = float(rm.get_last_day_consumption(res_id))
+		var transit: int = int(in_transit.get(res_id, 0))
+		var forecast: Dictionary = _format_shortage_forecast(stock, last_prod, last_cons)
+
+		row["stock"].text = "%d" % stock
+		row["prod"].text = "+%.1f" % today_prod
+		row["prod"].add_theme_color_override("font_color", Color(0.5, 0.95, 0.55, 1) if today_prod > 0.0 else Color(0.7, 0.72, 0.78, 1))
+		row["cons"].text = "-%.1f" % today_cons
+		row["cons"].add_theme_color_override("font_color", Color(1.0, 0.6, 0.45, 1) if today_cons > 0.0 else Color(0.7, 0.72, 0.78, 1))
+		if row.has("yesterday"):
+			if is_zero_approx(last_prod) and is_zero_approx(last_cons):
+				row["yesterday"].text = "—"
+				row["yesterday"].add_theme_color_override("font_color", Color(0.7, 0.72, 0.78, 1))
+			else:
+				row["yesterday"].text = "+%.0f / -%.0f" % [last_prod, last_cons]
+				row["yesterday"].add_theme_color_override("font_color", Color(0.82, 0.86, 0.92, 1))
+		row["transit"].text = "%d" % transit
+		row["transit"].add_theme_color_override("font_color", Color(0.5, 0.85, 1.0, 1) if transit > 0 else Color(0.7, 0.72, 0.78, 1))
+		row["forecast"].text = forecast["text"]
+		row["forecast"].add_theme_color_override("font_color", forecast["color"])
+
+func _setup_bridge_placement_panel() -> void:
+	if _bridge_placement_panel != null:
+		return
+	_bridge_placement_panel = PanelContainer.new()
+	_bridge_placement_panel.name = "BridgePlacementPanel"
+	_bridge_placement_panel.visible = false
+	_bridge_placement_panel.set_anchors_preset(Control.PRESET_CENTER_BOTTOM)
+	_bridge_placement_panel.offset_left = -220
+	_bridge_placement_panel.offset_right = 220
+	_bridge_placement_panel.offset_top = -170
+	_bridge_placement_panel.offset_bottom = -56
+
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.08, 0.10, 0.14, 0.94)
+	style.border_color = Color(0.45, 0.55, 0.72, 0.95)
+	style.set_border_width_all(1)
+	style.set_corner_radius_all(6)
+	style.set_content_margin_all(8)
+	_bridge_placement_panel.add_theme_stylebox_override("panel", style)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 4)
+	_bridge_placement_panel.add_child(vbox)
+
+	var top_hbox := HBoxContainer.new()
+	top_hbox.add_theme_constant_override("separation", 6)
+	vbox.add_child(top_hbox)
+
+	var title := Label.new()
+	title.text = "🌉 Đặt Cầu Vượt Sông | Rộng:"
+	title.add_theme_font_size_override("font_size", 12)
+	top_hbox.add_child(title)
+
+	_bridge_width_btns.clear()
+	for w in range(1, 4):
+		var wb := Button.new()
+		wb.text = "%d ô" % w
+		wb.toggle_mode = true
+		wb.button_pressed = (w == 1)
+		var width_val: int = w
+		wb.pressed.connect(func():
+			if world_view_ref != null and world_view_ref.has_method("set_bridge_width"):
+				world_view_ref.call("set_bridge_width", width_val)
+			_update_bridge_width_buttons(width_val)
+		)
+		top_hbox.add_child(wb)
+		_bridge_width_btns.append(wb)
+
+	var cancel_btn := Button.new()
+	cancel_btn.text = "Hủy (Esc)"
+	cancel_btn.pressed.connect(func():
+		if world_view_ref != null and world_view_ref.has_method("_cancel_placement"):
+			world_view_ref.call("_cancel_placement")
+	)
+	top_hbox.add_child(cancel_btn)
+
+	_bridge_info_label = Label.new()
+	_bridge_info_label.add_theme_font_size_override("font_size", 11)
+	_bridge_info_label.text = "Bước 1: Chọn bờ đất thuộc lãnh thổ"
+	vbox.add_child(_bridge_info_label)
+
+	_bridge_status_label = Label.new()
+	_bridge_status_label.add_theme_font_size_override("font_size", 11)
+	_bridge_status_label.text = ""
+	vbox.add_child(_bridge_status_label)
+
+	add_child(_bridge_placement_panel)
+
+func _update_bridge_width_buttons(active_width: int) -> void:
+	for i in range(_bridge_width_btns.size()):
+		if is_instance_valid(_bridge_width_btns[i]):
+			_bridge_width_btns[i].button_pressed = ((i + 1) == active_width)
+
+func show_bridge_placement_ui(visible_flag: bool, width: int = 1, preview_info: Dictionary = {}) -> void:
+	if _bridge_placement_panel == null:
+		_setup_bridge_placement_panel()
+	if _bridge_placement_panel != null:
+		_bridge_placement_panel.visible = visible_flag
+	_update_bridge_width_buttons(width)
+	if visible_flag:
+		update_bridge_preview_ui(preview_info)
+
+func update_bridge_preview_ui(preview_info: Dictionary) -> void:
+	if _bridge_placement_panel == null or not _bridge_placement_panel.visible:
+		return
+	var w: int = int(preview_info.get("width", 1))
+	_update_bridge_width_buttons(w)
+	var step: String = str(preview_info.get("step", "select_start"))
+	if step == "select_start" or not preview_info.has("length"):
+		if _bridge_info_label != null:
+			_bridge_info_label.text = "Bước 1: Nhấn vào bờ đất thuộc lãnh thổ | Rộng: %d ô" % w
+		if _bridge_status_label != null:
+			var ok_s: bool = bool(preview_info.get("valid", false))
+			_bridge_status_label.text = "Bờ xuất phát hợp lệ — Nhấn để chọn" if ok_s else str(preview_info.get("reason", "Chọn bờ xuất phát"))
+			_bridge_status_label.add_theme_color_override("font_color", Color(0.4, 0.95, 0.45, 1) if ok_s else Color(0.95, 0.45, 0.4, 1))
+		return
+
+	var blen: int = int(preview_info.get("length", 0))
+	var area: int = blen * w
+	var cost: Dictionary = preview_info.get("cost", {})
+	var req_wood: int = int(cost.get(EconomyConfig.RES_WOOD, 0))
+	var req_stone: int = int(cost.get(EconomyConfig.RES_STONE, 0))
+	if _bridge_info_label != null:
+		_bridge_info_label.text = "Dài: %d | Rộng: %d | Diện tích: %d ô | Gỗ: %d | Đá: %d" % [blen, w, area, req_wood, req_stone]
+	if _bridge_status_label != null:
+		var ok: bool = bool(preview_info.get("valid", false))
+		_bridge_status_label.text = "Hợp lệ — Nhấn bờ bên kia để xây cầu" if ok else str(preview_info.get("reason", "Vị trí không hợp lệ"))
+		_bridge_status_label.add_theme_color_override("font_color", Color(0.4, 0.95, 0.45, 1) if ok else Color(0.95, 0.4, 0.35, 1))
+
+# -----------------------------------------------------------------------------
+# Phase 7: Read-Only Rival Settlement & Villager Inspection UI
+# -----------------------------------------------------------------------------
+func _get_rival_inspection_query() -> RefCounted:
+	if world_view_ref == null:
+		return null
+	if world_view_ref.has_method("get_rival_inspection_query"):
+		return world_view_ref.call("get_rival_inspection_query")
+	return RivalInspectionQueryScript.new(
+		world_view_ref.get("settlement_simulation_manager"),
+		world_view_ref.get("world_data"),
+		world_view_ref.get("fog_of_war"),
+		world_view_ref.get("rival_presentation_controller"),
+		bool(world_view_ref.get("debug_fog_disabled"))
+	)
+
+func show_rival_settlement_inspector(settlement_id: String) -> void:
+	if settlement_id.is_empty():
+		close_rival_inspectors()
+		return
+	if citizen_panel != null:
+		citizen_panel.visible = false
+	inspected_citizen = null
+	if building_inspect_panel != null:
+		building_inspect_panel.visible = false
+	close_entity_inspector()
+	if rival_villager_panel != null:
+		rival_villager_panel.visible = false
+	inspected_rival_villager_id = ""
+	_rival_villager_opened_from_settlement = false
+	inspected_rival_settlement_id = settlement_id
+	_rival_inspect_refresh_timer = 0.0
+	if not refresh_rival_settlement_inspector():
+		close_rival_inspectors()
+		return
+	if rival_settlement_panel != null:
+		rival_settlement_panel.visible = true
+
+func show_rival_villager_inspector(settlement_id: String, villager_id: String, from_settlement: bool = false) -> void:
+	if settlement_id.is_empty() or villager_id.is_empty():
+		close_rival_inspectors()
+		return
+	if citizen_panel != null:
+		citizen_panel.visible = false
+	inspected_citizen = null
+	if building_inspect_panel != null:
+		building_inspect_panel.visible = false
+	close_entity_inspector()
+	if rival_settlement_panel != null:
+		rival_settlement_panel.visible = false
+	inspected_rival_settlement_id = settlement_id
+	inspected_rival_villager_id = villager_id
+	_rival_villager_opened_from_settlement = from_settlement
+	_rival_inspect_refresh_timer = 0.0
+	if back_to_settlement_btn != null:
+		back_to_settlement_btn.visible = from_settlement
+	if not refresh_rival_villager_inspector():
+		close_rival_villager_inspector()
+		return
+	if rival_villager_panel != null:
+		rival_villager_panel.visible = true
+
+func close_rival_villager_inspector() -> void:
+	if rival_villager_panel != null:
+		rival_villager_panel.visible = false
+	inspected_rival_villager_id = ""
+	if _rival_villager_opened_from_settlement and not inspected_rival_settlement_id.is_empty():
+		_rival_villager_opened_from_settlement = false
+		if refresh_rival_settlement_inspector():
+			if rival_settlement_panel != null:
+				rival_settlement_panel.visible = true
+			return
+	_rival_villager_opened_from_settlement = false
+	inspected_rival_settlement_id = ""
+	if world_view_ref != null and world_view_ref.has_method("clear_rival_selection_highlight"):
+		world_view_ref.call("clear_rival_selection_highlight")
+
+func close_rival_inspectors() -> void:
+	if rival_settlement_panel != null:
+		rival_settlement_panel.visible = false
+	if rival_villager_panel != null:
+		rival_villager_panel.visible = false
+	inspected_rival_settlement_id = ""
+	inspected_rival_villager_id = ""
+	_rival_villager_opened_from_settlement = false
+	if world_view_ref != null and world_view_ref.has_method("clear_rival_selection_highlight"):
+		world_view_ref.call("clear_rival_selection_highlight")
+
+func _on_back_to_rival_settlement_pressed() -> void:
+	if not inspected_rival_settlement_id.is_empty():
+		show_rival_settlement_inspector(inspected_rival_settlement_id)
+	else:
+		close_rival_inspectors()
+
+func refresh_rival_inspector() -> void:
+	if rival_villager_panel != null and rival_villager_panel.visible:
+		if not refresh_rival_villager_inspector():
+			close_rival_villager_inspector()
+	elif rival_settlement_panel != null and rival_settlement_panel.visible:
+		if not refresh_rival_settlement_inspector():
+			close_rival_inspectors()
+
+func refresh_rival_settlement_inspector() -> bool:
+	if inspected_rival_settlement_id.is_empty():
+		return false
+	var query := _get_rival_inspection_query()
+	if query == null:
+		return false
+	var vm: Dictionary = query.call("build_settlement_view_model", inspected_rival_settlement_id)
+	if not bool(vm.get("allowed", false)):
+		return false
+
+	if rival_settlement_title_label != null:
+		rival_settlement_title_label.text = String(vm.get("display_name", "Khu Định Cư"))
+	if rival_settlement_subtitle_label != null:
+		var tier_txt: String = "Đầy đủ" if String(vm.get("layout_tier", "full")) == "full" else "Thu gọn"
+		rival_settlement_subtitle_label.text = "%s | Quy mô: %s" % [String(vm.get("faction_label", "")), tier_txt]
+
+	var is_live: bool = bool(vm.get("is_live_visible", false))
+	if not is_live:
+		if rival_settlement_status_label != null:
+			rival_settlement_status_label.text = "Trạng thái: Đã khám phá (ngoài tầm nhìn)"
+			rival_settlement_status_label.add_theme_color_override("font_color", Color(0.85, 0.75, 0.45, 1))
+		if rival_settlement_notice_label != null:
+			rival_settlement_notice_label.visible = true
+			rival_settlement_notice_label.text = String(vm.get("hidden_notice", ""))
+		if rival_pop_section_label != null:
+			rival_pop_section_label.visible = false
+		if rival_pop_details_label != null:
+			rival_pop_details_label.visible = false
+		if rival_economy_section_label != null:
+			rival_economy_section_label.visible = false
+		if rival_economy_details_label != null:
+			rival_economy_details_label.visible = false
+		if rival_residents_section_label != null:
+			rival_residents_section_label.visible = false
+		if rival_residents_vbox != null:
+			rival_residents_vbox.visible = false
+			for ch in rival_residents_vbox.get_children():
+				ch.queue_free()
+		if rival_buildings_section_label != null:
+			rival_buildings_section_label.visible = true
+		if rival_buildings_details_label != null:
+			rival_buildings_details_label.visible = true
+			var exp_counts: Dictionary = vm.get("explored_building_type_counts", {})
+			var b_parts: Array[String] = []
+			for bt in exp_counts.keys():
+				b_parts.append("%s: %d" % [RivalInspectionQueryScript.format_building_label(String(bt)), int(exp_counts[bt])])
+			rival_buildings_details_label.text = "Công trình đã khám phá (%d): %s" % [
+				int(vm.get("explored_building_count", 0)),
+				", ".join(b_parts) if not b_parts.is_empty() else "Không có"
+			]
+		return true
+
+	# VISIBLE: Full read-only settlement overview
+	if rival_settlement_notice_label != null:
+		rival_settlement_notice_label.visible = false
+	if rival_settlement_status_label != null:
+		var surv_lbl := String(vm.get("survival_label", "Ổn định"))
+		var shortfall_txt := " | ⚠️ Thiếu lương thực!" if bool(vm.get("ration_shortfall", false)) else ""
+		rival_settlement_status_label.text = "Trạng thái: %s | Sinh tồn: %s%s" % [
+			String(vm.get("status", "active")).capitalize(),
+			surv_lbl,
+			shortfall_txt
+		]
+		rival_settlement_status_label.add_theme_color_override(
+			"font_color",
+			Color(1.0, 0.45, 0.35, 1) if bool(vm.get("ration_shortfall", false)) else Color(0.55, 0.92, 0.65, 1)
+		)
+
+	if rival_pop_section_label != null:
+		rival_pop_section_label.visible = true
+	if rival_pop_details_label != null:
+		rival_pop_details_label.visible = true
+		var rc: Dictionary = vm.get("role_counts", {})
+		var role_parts: Array[String] = []
+		for r_key in rc.keys():
+			role_parts.append("%s: %d" % [RivalInspectionQueryScript.format_role_label(String(r_key)), int(rc[r_key])])
+		rival_pop_details_label.text = "Cư dân sống: %d (Đang làm: %d | Nghỉ: %d | Rảnh: %d)\nNhà ở: %d / %d (Trống: %d)\nVai trò: %s" % [
+			int(vm.get("living_count", 0)),
+			int(vm.get("working_count", 0)),
+			int(vm.get("resting_count", 0)),
+			int(vm.get("idle_count", 0)),
+			int(vm.get("housing_occupied", 0)),
+			int(vm.get("housing_capacity", 0)),
+			int(vm.get("housing_available", 0)),
+			", ".join(role_parts) if not role_parts.is_empty() else "Không có"
+		]
+
+	if rival_buildings_section_label != null:
+		rival_buildings_section_label.visible = true
+	if rival_buildings_details_label != null:
+		rival_buildings_details_label.visible = true
+		var b_lines: Array[String] = []
+		for b_item in vm.get("buildings", []):
+			var line := "• %s" % String(b_item.get("type_label", ""))
+			if b_item.has("workplace"):
+				var wp_d: Dictionary = b_item["workplace"]
+				var wp_state := "Tạm dừng" if bool(wp_d.get("is_paused", false)) else ("Hoạt động" if bool(wp_d.get("is_active", true)) else "Ngưng")
+				line += " — Nhân công: %d/%d (%s)" % [int(wp_d.get("assigned_count", 0)), int(wp_d.get("worker_quota", 0)), wp_state]
+			b_lines.append(line)
+		rival_buildings_details_label.text = "\n".join(b_lines) if not b_lines.is_empty() else "Không có công trình"
+
+	if rival_economy_section_label != null:
+		rival_economy_section_label.visible = true
+	if rival_economy_details_label != null:
+		rival_economy_details_label.visible = true
+		var res_lines: Array[String] = [
+			"• Vàng: %d / %d" % [int(vm.get("gold", 0)), int(vm.get("gold_capacity", 0))]
+		]
+		for r_item in vm.get("resources", []):
+			res_lines.append("• %s: %d / %d" % [String(r_item.get("label", "")), int(r_item.get("amount", 0)), int(r_item.get("capacity", 0))])
+		rival_economy_details_label.text = "\n".join(res_lines)
+
+	if rival_residents_section_label != null:
+		rival_residents_section_label.visible = true
+	if rival_residents_vbox != null:
+		rival_residents_vbox.visible = true
+		for ch in rival_residents_vbox.get_children():
+			ch.queue_free()
+		var vis_res: Array = vm.get("visible_residents", [])
+		if vis_res.is_empty():
+			var empty_lbl := Label.new()
+			empty_lbl.text = "Không có cư dân nào ngoài trời trong tầm nhìn."
+			empty_lbl.add_theme_font_size_override("font_size", 11)
+			empty_lbl.add_theme_color_override("font_color", Color(0.65, 0.7, 0.78, 1))
+			rival_residents_vbox.add_child(empty_lbl)
+		else:
+			for r_entry in vis_res:
+				var btn := Button.new()
+				btn.alignment = HORIZONTAL_ALIGNMENT_LEFT
+				btn.custom_minimum_size = Vector2(0, 26)
+				btn.add_theme_font_size_override("font_size", 11)
+				btn.text = "%s — %s" % [String(r_entry.get("display_name", "")), String(r_entry.get("task_label", ""))]
+				var target_sid: String = String(r_entry.get("settlement_id", ""))
+				var target_vid: String = String(r_entry.get("villager_id", ""))
+				btn.pressed.connect(func(): show_rival_villager_inspector(target_sid, target_vid, true))
+				rival_residents_vbox.add_child(btn)
+	return true
+
+func refresh_rival_villager_inspector() -> bool:
+	if inspected_rival_settlement_id.is_empty() or inspected_rival_villager_id.is_empty():
+		return false
+	var query := _get_rival_inspection_query()
+	if query == null:
+		return false
+	var vm: Dictionary = query.call("build_villager_view_model", inspected_rival_settlement_id, inspected_rival_villager_id)
+	if not bool(vm.get("allowed", false)):
+		return false
+
+	if rival_villager_name_label != null:
+		rival_villager_name_label.text = String(vm.get("display_name", "Cư dân"))
+	if rival_villager_meta_label != null:
+		rival_villager_meta_label.text = "%s | %s" % [String(vm.get("faction_label", "")), String(vm.get("settlement_display_name", ""))]
+	if rival_villager_activity_label != null:
+		rival_villager_activity_label.text = "Vai trò: %s | Tình trạng: %s\nHoạt động: %s | %s" % [
+			String(vm.get("role_label", "")),
+			String(vm.get("life_label", "")),
+			String(vm.get("task_label", "")),
+			String(vm.get("rest_label", ""))
+		]
+	if rival_villager_housing_work_label != null:
+		rival_villager_housing_work_label.text = "Nhà ở: %s | Nơi làm việc: %s" % [
+			String(vm.get("home_label", "Chưa có")),
+			String(vm.get("workplace_label", "Không có"))
+		]
+	if rival_villager_location_label != null:
+		var c_pos: Vector2i = vm.get("cell", Vector2i.ZERO)
+		var loc_txt := "Vị trí chuẩn: (%d, %d)" % [c_pos.x, c_pos.y]
+		if bool(vm.get("has_presentation_nav", false)):
+			loc_txt += " | %s" % String(vm.get("presentation_state_label", ""))
+		rival_villager_location_label.text = loc_txt
+
+	if rival_hunger_bar != null:
+		rival_hunger_bar.value = float(vm.get("hunger", 0.0))
+	if rival_fatigue_bar != null:
+		rival_fatigue_bar.value = float(vm.get("fatigue", 0.0))
+	if rival_health_bar != null:
+		rival_health_bar.value = float(vm.get("health", 100.0))
+	if rival_morale_bar != null:
+		rival_morale_bar.value = float(vm.get("morale", 70.0))
+	return true
+
+# ==============================================================================
+# M6-1: UNIFIED ENTITY INSPECTION SYSTEM & HOVER TOOLTIP
+# ==============================================================================
+
+var _last_hover_summary: Dictionary = {}
+
+func _ensure_entity_inspection_ui() -> void:
+	if entity_inspection_query == null:
+		entity_inspection_query = EntityInspectionQueryScript.new()
+	if world_view_ref != null:
+		entity_inspection_query.setup(world_view_ref)
+	if entity_inspect_panel == null or not is_instance_valid(entity_inspect_panel):
+		entity_inspect_panel = EntityInspectPanelScript.new()
+		add_child(entity_inspect_panel)
+		entity_inspect_panel.close_requested.connect(close_entity_inspector)
+		entity_inspect_panel.action_requested.connect(_on_entity_action_requested)
+	if entity_hover_tooltip == null or not is_instance_valid(entity_hover_tooltip):
+		entity_hover_tooltip = EntityHoverTooltipScript.new()
+		add_child(entity_hover_tooltip)
+
+func _get_entity_inspection_query() -> RefCounted:
+	_ensure_entity_inspection_ui()
+	return entity_inspection_query
+
+func show_entity_inspector(category: String, entity_id: String) -> void:
+	if category.is_empty() or entity_id.is_empty():
+		close_entity_inspector()
+		return
+	_ensure_entity_inspection_ui()
+	if citizen_panel != null:
+		citizen_panel.visible = false
+	inspected_citizen = null
+	if building_inspect_panel != null:
+		building_inspect_panel.visible = false
+	inspected_building_id = ""
+	inspected_building_data = {}
+	if world_view_ref != null and world_view_ref.get("selected_building_id") != "":
+		world_view_ref.set("selected_building_id", "")
+	close_rival_inspectors()
+
+	inspected_entity_category = category
+	inspected_entity_id = entity_id
+	_entity_inspect_refresh_timer = 0.0
+	if not refresh_entity_inspector():
+		close_entity_inspector()
+
+func close_entity_inspector() -> void:
+	if entity_inspect_panel != null and is_instance_valid(entity_inspect_panel):
+		entity_inspect_panel.clear_and_hide()
+	inspected_entity_category = ""
+	inspected_entity_id = ""
+	if world_view_ref != null and world_view_ref.get("building_highlight") != null and world_view_ref.get("selected_building_id") == "":
+		world_view_ref.building_highlight.clear_highlight()
+
+func refresh_entity_inspector() -> bool:
+	if inspected_entity_category.is_empty() or inspected_entity_id.is_empty():
+		return false
+	var query := _get_entity_inspection_query()
+	if query == null:
+		return false
+	var vm: Dictionary = query.call("build_view_model", inspected_entity_category, inspected_entity_id)
+	if not bool(vm.get("valid", false)):
+		close_entity_inspector()
+		return false
+	var icon_tex: Texture2D = query.call("get_placeholder_icon", str(vm.get("icon_key", "")))
+	entity_inspect_panel.render_view_model(vm, icon_tex)
+	if world_view_ref != null and world_view_ref.get("building_highlight") != null:
+		var cell_pos = vm.get("cell", Vector2i(-1, -1))
+		if cell_pos is Vector2i and IsoMath.is_in_bounds(cell_pos):
+			world_view_ref.building_highlight.set_footprint(cell_pos, Vector2i(1, 1))
+	return true
+
+func _on_entity_action_requested(action_id: String, target_id: String) -> void:
+	if world_view_ref == null:
+		return
+	if action_id == "claim_poi":
+		if world_view_ref.has_method("claim_poi_with_military"):
+			var res: Dictionary = world_view_ref.call("claim_poi_with_military", target_id)
+			if not bool(res.get("success", false)) and has_method("show_event_banner"):
+				show_event_banner("Khám Phá Thất Bại", str(res.get("reason", "Không thể thu thập")), false, 3.0)
+			_refresh_all_resources()
+			refresh_entity_inspector()
+	elif action_id == "attack_nest":
+		var tm = world_view_ref.get("tactical_military_mgr")
+		var mm = world_view_ref.get("monster_mgr")
+		if tm != null and mm != null and mm.has_method("get_nest_actor"):
+			var na = mm.call("get_nest_actor", target_id)
+			if na != null:
+				var atk_res: Dictionary = tm.call("issue_attack_order", na, world_view_ref.get("nav"))
+				if not bool(atk_res.get("success", false)) and has_method("show_event_banner"):
+					show_event_banner("Lệnh Tấn Công Thất Bại", str(atk_res.get("reason", "Hãy chọn đơn vị quân đội trước")), false, 3.0)
+	elif action_id == "attack_monster":
+		var tm_m = world_view_ref.get("tactical_military_mgr")
+		var mm_m = world_view_ref.get("monster_mgr")
+		if tm_m != null and mm_m != null and mm_m.has_method("get_monster_actor"):
+			var ma = mm_m.call("get_monster_actor", target_id)
+			if ma != null:
+				var m_res: Dictionary = tm_m.call("issue_attack_order", ma, world_view_ref.get("nav"))
+				if not bool(m_res.get("success", false)) and has_method("show_event_banner"):
+					show_event_banner("Lệnh Tấn Công Thất Bại", str(m_res.get("reason", "Hãy chọn đơn vị quân đội trước")), false, 3.0)
+
+func update_world_hover(cell: Vector2i, screen_pos: Vector2, is_blocked: bool = false) -> String:
+	_ensure_entity_inspection_ui()
+	if is_blocked or not IsoMath.is_in_bounds(cell):
+		hide_entity_hover_tooltip()
+		return ""
+	if is_inside_tree():
+		var hovered_ctrl: Control = get_viewport().gui_get_hovered_control()
+		if hovered_ctrl != null and hovered_ctrl.mouse_filter != Control.MOUSE_FILTER_IGNORE:
+			hide_entity_hover_tooltip()
+			return ""
+
+	var cell_changed := (cell != _hover_last_cell)
+	if cell_changed or _hover_refresh_timer >= 0.30:
+		_hover_last_cell = cell
+		_hover_refresh_timer = 0.0
+		var query := _get_entity_inspection_query()
+		_last_hover_summary = query.call("find_hover_entity_summary", cell) if query != null else {"valid": false}
+
+	if _last_hover_summary.is_empty() or not bool(_last_hover_summary.get("valid", false)):
+		hide_entity_hover_tooltip()
+		return ""
+
+	var vp_size: Vector2 = get_viewport().get_visible_rect().size if (is_inside_tree() and get_viewport() != null) else Vector2(1280, 720)
+	var icon_tex: Texture2D = entity_inspection_query.call("get_placeholder_icon", str(_last_hover_summary.get("icon_key", "")))
+	entity_hover_tooltip.update_tooltip(_last_hover_summary, screen_pos, vp_size, icon_tex)
+	return str(_last_hover_summary.get("title", ""))
+
+func hide_entity_hover_tooltip() -> void:
+	_hover_last_cell = Vector2i(-999, -999)
+	_last_hover_summary = {}
+	if entity_hover_tooltip != null and is_instance_valid(entity_hover_tooltip):
+		entity_hover_tooltip.hide_tooltip()
 

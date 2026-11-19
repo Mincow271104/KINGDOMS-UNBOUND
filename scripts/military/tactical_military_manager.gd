@@ -594,7 +594,7 @@ func _find_distinct_walkable_cells(center: Vector2i, count: int, nav: GridNaviga
 	if res.size() >= count:
 		return res
 
-	var max_radius: int = IsoMath.MAP_SIZE
+	var max_radius: int = maxi(IsoMath.get_active_map_width(), IsoMath.get_active_map_height())
 	for r in range(1, max_radius):
 		for dy in range(-r, r + 1):
 			for dx in range(-r, r + 1):
@@ -710,7 +710,7 @@ func issue_attack_order(target: Node, nav: GridNavigation = null) -> Dictionary:
 	var fm = null
 	if is_instance_valid(world_view) and world_view.get("faction_manager") != null:
 		fm = world_view.get("faction_manager")
-	if fm != null and not tgt_faction_str.is_empty():
+	if fm != null and not tgt_faction_str.is_empty() and tgt_faction_str != "hostile_monsters":
 		var at_war: bool = false
 		if fm.has_method("get_faction"):
 			var f = fm.get_faction(tgt_faction_str)

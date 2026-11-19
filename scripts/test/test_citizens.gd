@@ -10,24 +10,28 @@ func _init() -> void:
 	print("--- Running TestCitizens (TC-3.1 & TC-3.2) ---")
 	var failures: int = 0
 	
-	var world_data = WorldGenerator.generate(12345)
+	# Generate world using LEGACY_GENERATOR_VERSION to match hardcoded MVP test coordinates (open grass at (25, 25)-(35, 25) and farm_1 at (35, 35))
+	var world_data = WorldGenerator.generate(12345, WorldGenerator.LEGACY_GENERATOR_VERSION)
 	var nav = GridNavigation.new(world_data)
 	var job_mgr = JobManager.new()
 	
-	# Test 1: Starter Job Distribution (Mandatory GDD / Master Prompt Item 1)
-	# 5 Farmers, 4 Woodcutters, 3 Builders, 3 Haulers, 9 Idle = 24 total
+	# Test 1: Starter Job Distribution (GDD §6.4: 24 citizens)
+	# 5 Farmers, 4 Woodcutters, 2 Miners, 3 Builders, 3 Haulers, 2 Researchers, 2 Guards, 3 Idle = 24 total
 	var starter_roles: Array[String] = []
 	for i in range(5): starter_roles.append("farmer")
 	for i in range(4): starter_roles.append("woodcutter")
+	for i in range(2): starter_roles.append("miner")
 	for i in range(3): starter_roles.append("builder")
 	for i in range(3): starter_roles.append("hauler")
-	for i in range(9): starter_roles.append("idle")
+	for i in range(2): starter_roles.append("researcher")
+	for i in range(2): starter_roles.append("guard")
+	for i in range(3): starter_roles.append("idle")
 	
 	if starter_roles.size() != 24:
 		printerr("FAIL: Expected 24 starter roles, got %d" % starter_roles.size())
 		failures += 1
 	else:
-		print("PASS: Exactly 24 starter citizens configured (5 Farmers, 4 Woodcutters, 3 Builders, 3 Haulers, 9 Idle)")
+		print("PASS: Exactly 24 starter citizens configured (5 Farmers, 4 Woodcutters, 2 Miners, 3 Builders, 3 Haulers, 2 Researchers, 2 Guards, 3 Idle)")
 
 	# Spawn citizens and verify uniqueness of IDs
 	var citizens: Array[Node] = []

@@ -796,28 +796,28 @@ func _test_tc_con_3_builder_work_loop_and_time_scaling() -> bool:
 	else:
 		print("  [PASS] Real TimeManager pause (0x) safely halts construction progress.")
 
-	# 3. TimeManager 1x Normal Speed: progress increases by expected delta (0.5 * 1.0 = 0.5)
+	# 3. TimeManager 1x Normal Speed: progress increases by expected delta (0.5h = 3.75s at 7.5s/h)
 	tm.resume()
 	tm.set_speed(1)
-	b1._process(0.5)
+	b1._process(3.75)
 	if absf(b_farm["construction_progress"] - 0.5) > 0.01:
 		printerr("  [FAIL] At 1x speed, expected progress 0.5, got %f" % b_farm["construction_progress"])
 		failures += 1
 	else:
 		print("  [PASS] At 1x speed, progress advanced by expected 0.5 hours.")
 
-	# 4. TimeManager 2x Fast Speed: progress increases by delta * 2.0 (0.5 * 2.0 = 1.0, total 1.5)
+	# 4. TimeManager 2x Fast Speed: progress increases by delta * 2.0 (1.0h, total 1.5h)
 	tm.set_speed(2)
-	b1._process(0.5)
+	b1._process(3.75)
 	if absf(b_farm["construction_progress"] - 1.5) > 0.01:
 		printerr("  [FAIL] At 2x speed, expected progress 1.5, got %f" % b_farm["construction_progress"])
 		failures += 1
 	else:
 		print("  [PASS] At 2x speed, progress followed simulation speed (added 1.0h, total 1.5h).")
 
-	# 5. TimeManager 3x Very Fast Speed: progress increases by delta * 3.0 (0.5 * 3.0 = 1.5, total 3.0)
+	# 5. TimeManager 3x Very Fast Speed: progress increases by delta * 3.0 (1.5h, total 3.0h)
 	tm.set_speed(3)
-	b1._process(0.5)
+	b1._process(3.75)
 	if absf(b_farm["construction_progress"] - 3.0) > 0.01:
 		printerr("  [FAIL] At 3x speed, expected progress 3.0, got %f" % b_farm["construction_progress"])
 		failures += 1

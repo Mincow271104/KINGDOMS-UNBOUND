@@ -12,11 +12,15 @@ const RES_METAL: String = "metal"
 const RES_TOOLS: String = "tools"
 const RES_CRYSTAL: String = "crystal"
 const RES_HERBS: String = "herbs"
+const RES_RAW_MEAT: String = "raw_meat"
+const RES_HEARTY_MEAL: String = "hearty_meal"
+const RES_HERBAL_BROTH: String = "herbal_broth"
 const RES_GOLD: String = "gold"
 
 const ALL_RESOURCES: Array[String] = [
 	RES_FOOD, RES_WOOD, RES_STONE, RES_ORE, RES_METAL,
-	RES_TOOLS, RES_CRYSTAL, RES_HERBS, RES_GOLD
+	RES_TOOLS, RES_CRYSTAL, RES_HERBS, RES_RAW_MEAT,
+	RES_HEARTY_MEAL, RES_HERBAL_BROTH, RES_GOLD
 ]
 
 const RESOURCE_NAMES_VI: Dictionary = {
@@ -28,20 +32,26 @@ const RESOURCE_NAMES_VI: Dictionary = {
 	RES_TOOLS: "Công cụ",
 	RES_CRYSTAL: "Pha lê ma thuật",
 	RES_HERBS: "Thảo mộc",
+	RES_RAW_MEAT: "Thịt sống",
+	RES_HEARTY_MEAL: "Thịt hầm bổ dưỡng",
+	RES_HERBAL_BROTH: "Canh thảo mộc",
 	RES_GOLD: "Vàng"
 }
 
 # Post-Settlement Starting Quantities (from Master Prompt & GDD)
 const STARTING_RESOURCES: Dictionary = {
-	RES_FOOD: 150,
+	RES_FOOD: 120,
 	RES_WOOD: 120,
-	RES_STONE: 60,
-	RES_ORE: 0,
-	RES_METAL: 20,
-	RES_TOOLS: 15,
-	RES_CRYSTAL: 5,
+	RES_STONE: 70,
+	RES_ORE: 20,
+	RES_METAL: 5,
+	RES_TOOLS: 12,
+	RES_CRYSTAL: 0,
 	RES_HERBS: 10,
-	RES_GOLD: 200
+	RES_RAW_MEAT: 0,
+	RES_HEARTY_MEAL: 0,
+	RES_HERBAL_BROTH: 0,
+	RES_GOLD: 250
 }
 
 # Base Storage Capacities (prior to buildings)
@@ -54,6 +64,9 @@ const BASE_CAPACITIES: Dictionary = {
 	RES_TOOLS: 200,
 	RES_CRYSTAL: 100,
 	RES_HERBS: 200,
+	RES_RAW_MEAT: 300,
+	RES_HEARTY_MEAL: 200,
+	RES_HERBAL_BROTH: 200,
 	RES_GOLD: 999999 # Treasury has high unbounded capacity
 }
 
@@ -79,7 +92,7 @@ const BLUEPRINTS: Dictionary = {
 		"housing_capacity": 0,
 		"storage_bonus": {
 			RES_FOOD: 500, RES_WOOD: 500, RES_STONE: 500,
-			RES_ORE: 300, RES_METAL: 300
+			RES_ORE: 300, RES_METAL: 300, RES_RAW_MEAT: 300
 		},
 		"max_workers": 2,
 		"job_type": "hauler"
@@ -241,8 +254,42 @@ const BLUEPRINTS: Dictionary = {
 		"storage_bonus": {},
 		"max_workers": 0,
 		"job_type": ""
+	},
+	"cookhouse": {
+		"id": "cookhouse",
+		"name_vi": "Nhà Bếp",
+		"footprint": Vector2i(2, 2),
+		"cost": {RES_WOOD: 35, RES_STONE: 20},
+		"construction_hours": 8.0,
+		"housing_capacity": 0,
+		"storage_bonus": {},
+		"max_workers": 0,
+		"job_type": ""
+	},
+	"bridge": {
+		"id": "bridge",
+		"name_vi": "Cầu Vượt Sông",
+		"footprint": Vector2i(1, 1),
+		"cost": {RES_WOOD: 10, RES_STONE: 8},
+		"construction_hours": 4.0,
+		"housing_capacity": 0,
+		"storage_bonus": {},
+		"max_workers": 2,
+		"job_type": ""
 	}
 }
+
+# -----------------------------------------------------------------------------
+# Bridge Construction Configuration (Phase 4)
+# -----------------------------------------------------------------------------
+const BRIDGE_FOUNDATION_WOOD: int = 10
+const BRIDGE_FOUNDATION_STONE: int = 8
+const BRIDGE_WOOD_PER_CELL: int = 4
+const BRIDGE_STONE_PER_CELL: int = 2
+const BRIDGE_BASE_CONSTRUCTION_HOURS: float = 4.0
+const BRIDGE_HOURS_PER_CELL: float = 0.75
+const BRIDGE_MIN_WIDTH: int = 1
+const BRIDGE_MAX_WIDTH: int = 3
 
 # -----------------------------------------------------------------------------
 # Military & Player Army Configuration (Package 1L)
@@ -308,9 +355,28 @@ static func get_army_equipment_name(tier: int) -> String:
 # -----------------------------------------------------------------------------
 # Settlement Building Upgrades Configuration (Package 2I)
 # -----------------------------------------------------------------------------
-const UPGRADEABLE_BUILDINGS: Array[String] = ["house", "farm", "storehouse"]
+const UPGRADEABLE_BUILDINGS: Array[String] = ["house", "farm", "storehouse", "townhall"]
 const MAX_BUILDING_LEVEL: int = 3
 const MIN_UPGRADE_DURATION_HOURS: float = 2.0
+
+# Town Hall Level-to-Territory Manhattan Radius Configuration
+const TERRITORY_RADIUS_BY_LEVEL: Dictionary = {
+	1: 13,
+	2: 18,
+	3: 24
+}
+
+# Approved Town Hall Restoration & Emergency Rebuild Constants (KU-POST-MVP-TOWN-HALL-RESTORATION-07)
+const TOWNHALL_RESTORATION_COST: Dictionary = {
+	RES_WOOD: 50,
+	RES_STONE: 40,
+	RES_GOLD: 75
+}
+const TOWNHALL_RESTORATION_HOURS: float = 12.0
+
+static func get_territory_radius(level: int) -> int:
+	var lvl: int = clampi(level, 1, MAX_BUILDING_LEVEL)
+	return int(TERRITORY_RADIUS_BY_LEVEL.get(lvl, 13))
 
 const UPGRADE_TIERS: Dictionary = {
 	2: {
@@ -374,6 +440,17 @@ static func get_storehouse_multiplier(level: int) -> float:
 	var mults: Dictionary = UPGRADE_PROFILES["storehouse"]["multipliers"]
 	return float(mults.get(lvl, 1.00))
 
+static func calculate_bridge_cost(length: int, width: int) -> Dictionary:
+	var area: int = maxi(1, length) * clampi(width, BRIDGE_MIN_WIDTH, BRIDGE_MAX_WIDTH)
+	return {
+		RES_WOOD: BRIDGE_FOUNDATION_WOOD + area * BRIDGE_WOOD_PER_CELL,
+		RES_STONE: BRIDGE_FOUNDATION_STONE + area * BRIDGE_STONE_PER_CELL
+	}
+
+static func calculate_bridge_construction_hours(length: int, width: int) -> float:
+	var area: int = maxi(1, length) * clampi(width, BRIDGE_MIN_WIDTH, BRIDGE_MAX_WIDTH)
+	return BRIDGE_BASE_CONSTRUCTION_HOURS + float(area) * BRIDGE_HOURS_PER_CELL
+
 static func get_storehouse_bonus(level: int) -> Dictionary:
 	var lvl: int = clampi(level, 1, MAX_BUILDING_LEVEL)
 	var mult: float = get_storehouse_multiplier(lvl)
@@ -399,3 +476,82 @@ static func get_building_storage_bonus(type: String, level: int = 1) -> Dictiona
 		return get_storehouse_bonus(level)
 	var bp: Dictionary = BLUEPRINTS.get(type, {})
 	return bp.get("storage_bonus", {}).duplicate()
+
+# -----------------------------------------------------------------------------
+# Land Clearing & Resource Recovery Configuration (KU-POST-MVP-LAND-CLEARING-01)
+# -----------------------------------------------------------------------------
+const LAND_CLEARING_CONFIG: Dictionary = {
+	"tree": {
+		"required_role": "woodcutter",
+		"required_role_vn": "Thợ Đốn Gỗ",
+		"skill": "woodcutting",
+		"work_hours": 4.0,
+		"reward_resource": RES_WOOD,
+		"reward_amount": 3,
+		"label": "Cây cối"
+	},
+	"rock": {
+		"required_role": "miner",
+		"required_role_vn": "Thợ Mỏ",
+		"skill": "mining",
+		"work_hours": 8.0,
+		"reward_resource": RES_STONE,
+		"reward_amount": 3,
+		"label": "Đá tảng"
+	}
+}
+
+static func get_land_clearing_spec(prop_type: String) -> Dictionary:
+	return LAND_CLEARING_CONFIG.get(prop_type, {}).duplicate()
+
+# -----------------------------------------------------------------------------
+# Phase 5 Natural Resource Objects Configuration (KU-WORLD-EXPANSION-PHASE-5)
+# -----------------------------------------------------------------------------
+const NATURAL_RESOURCE_DEFS: Dictionary = {
+	"ore_deposit": {
+		"type": "ore_deposit",
+		"label": "Mỏ Quặng Thô",
+		"resource": RES_ORE,
+		"max_qty": 40,
+		"yield_per_cycle": 4,
+		"work_hours": 2.0,
+		"required_role": "miner",
+		"skill": "mining"
+	},
+	"crystal_vein": {
+		"type": "crystal_vein",
+		"label": "Mạch Pha Lê",
+		"resource": RES_CRYSTAL,
+		"max_qty": 20,
+		"yield_per_cycle": 2,
+		"work_hours": 3.0,
+		"required_role": "miner",
+		"skill": "mining"
+	},
+	"herb_patch": {
+		"type": "herb_patch",
+		"label": "Bụi Thảo Mộc",
+		"resource": RES_HERBS,
+		"max_qty": 24,
+		"yield_per_cycle": 3,
+		"work_hours": 1.5,
+		"required_role": "farmer",
+		"skill": "farming"
+	},
+	"berry_bush": {
+		"type": "berry_bush",
+		"label": "Bụi Quả Dại",
+		"resource": RES_FOOD,
+		"max_qty": 30,
+		"yield_per_cycle": 4,
+		"work_hours": 1.2,
+		"required_role": "farmer",
+		"skill": "farming"
+	}
+}
+
+static func is_natural_resource_type(prop_type: String) -> bool:
+	return NATURAL_RESOURCE_DEFS.has(prop_type)
+
+static func get_natural_resource_spec(prop_type: String) -> Dictionary:
+	return NATURAL_RESOURCE_DEFS.get(prop_type, {}).duplicate()

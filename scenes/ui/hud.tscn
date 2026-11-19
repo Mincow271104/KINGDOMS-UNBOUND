@@ -89,41 +89,61 @@ text = "3x"
 
 [node name="Resources" type="HBoxContainer" parent="TopBar/PanelContainer/MarginContainer/HBoxContainer"]
 layout_mode = 2
-theme_override_constants/separation = 10
+theme_override_constants/separation = 5
 
 [node name="FoodLabel" type="Label" parent="TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources"]
 layout_mode = 2
+theme_override_font_sizes/font_size = 13
 text = "🌾 Lương thực: 150"
 
 [node name="WoodLabel" type="Label" parent="TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources"]
 layout_mode = 2
+theme_override_font_sizes/font_size = 13
 text = "🪵 Gỗ: 120"
 
 [node name="StoneLabel" type="Label" parent="TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources"]
 layout_mode = 2
+theme_override_font_sizes/font_size = 13
 text = "🪨 Đá: 60"
 
 [node name="OreLabel" type="Label" parent="TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources"]
 layout_mode = 2
+theme_override_font_sizes/font_size = 13
 text = "⛏️ Quặng: 0"
 
 [node name="MetalLabel" type="Label" parent="TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources"]
 layout_mode = 2
+theme_override_font_sizes/font_size = 13
 text = "⚔️ Kim loại: 20"
 
 [node name="ToolsLabel" type="Label" parent="TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources"]
 layout_mode = 2
+theme_override_font_sizes/font_size = 13
 text = "🛠️ Công cụ: 15"
 
 [node name="GoldLabel" type="Label" parent="TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources"]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.9, 0.8, 0.3, 1)
+theme_override_font_sizes/font_size = 13
 text = "🪙 Vàng: 200"
+
+[node name="CrystalLabel" type="Label" parent="TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.7, 0.55, 1, 1)
+theme_override_font_sizes/font_size = 13
+text = "🔮 Pha lê: 0"
+
+[node name="HerbsLabel" type="Label" parent="TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.45, 0.9, 0.55, 1)
+theme_override_font_sizes/font_size = 13
+text = "🌿 Thảo dược: 0"
 
 [node name="PopLabel" type="Label" parent="TopBar/PanelContainer/MarginContainer/HBoxContainer/Resources"]
 layout_mode = 2
 mouse_filter = 0
 mouse_default_cursor_shape = 2
+theme_override_font_sizes/font_size = 13
 text = "👥 Dân số: 24/24"
 
 [node name="BottomBar" type="Control" parent="."]
@@ -153,7 +173,7 @@ theme_override_constants/margin_bottom = 6
 
 [node name="HBoxContainer" type="HBoxContainer" parent="BottomBar/PanelContainer/MarginContainer"]
 layout_mode = 2
-theme_override_constants/separation = 8
+theme_override_constants/separation = 4
 
 [node name="TileInfoLabel" type="Label" parent="BottomBar/PanelContainer/MarginContainer/HBoxContainer"]
 layout_mode = 2
@@ -162,34 +182,46 @@ text = "Ô: (32, 32) | Khu vực quảng trường định cư"
 text_overrun_behavior = 3
 
 [node name="BuildBtn" type="Button" parent="BottomBar/PanelContainer/MarginContainer/HBoxContainer"]
-custom_minimum_size = Vector2(115, 34)
+custom_minimum_size = Vector2(0, 34)
 layout_mode = 2
 theme_override_colors/font_color = Color(0.9, 0.8, 0.3, 1)
+theme_override_font_sizes/font_size = 12
 text = "🏗️ Xây Dựng (B)"
 
 [node name="ResearchBtn" type="Button" parent="BottomBar/PanelContainer/MarginContainer/HBoxContainer"]
-custom_minimum_size = Vector2(120, 34)
+custom_minimum_size = Vector2(0, 34)
 layout_mode = 2
 theme_override_colors/font_color = Color(0.4, 0.8, 1, 1)
+theme_override_font_sizes/font_size = 12
 text = "🔬 Nghiên Cứu (T)"
 
 [node name="DiplomacyBtn" type="Button" parent="BottomBar/PanelContainer/MarginContainer/HBoxContainer"]
-custom_minimum_size = Vector2(120, 34)
+custom_minimum_size = Vector2(0, 34)
 layout_mode = 2
 theme_override_colors/font_color = Color(1, 0.75, 0.35, 1)
+theme_override_font_sizes/font_size = 12
 text = "👑 Ngoại Giao (Y)"
 
 [node name="MilitaryBtn" type="Button" parent="BottomBar/PanelContainer/MarginContainer/HBoxContainer"]
-custom_minimum_size = Vector2(115, 34)
+custom_minimum_size = Vector2(0, 34)
 layout_mode = 2
 theme_override_colors/font_color = Color(1, 0.5, 0.5, 1)
+theme_override_font_sizes/font_size = 12
 text = "⚔️ Quân Đội (U)"
 
 [node name="AutomationBtn" type="Button" parent="BottomBar/PanelContainer/MarginContainer/HBoxContainer"]
-custom_minimum_size = Vector2(115, 34)
+custom_minimum_size = Vector2(0, 34)
 layout_mode = 2
 theme_override_colors/font_color = Color(0.4, 0.9, 0.6, 1)
+theme_override_font_sizes/font_size = 12
 text = "⚙️ Tự Động (G)"
+
+[node name="EconomyBtn" type="Button" parent="BottomBar/PanelContainer/MarginContainer/HBoxContainer"]
+custom_minimum_size = Vector2(0, 34)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.95, 0.85, 0.45, 1)
+theme_override_font_sizes/font_size = 12
+text = "📊 Kinh Tế (K)"
 
 [node name="BuildMenuPanel" type="PanelContainer" parent="."]
 visible = false
@@ -287,6 +319,11 @@ text = "🪵 Tường Rào (4 Gỗ, 2 Đá)"
 custom_minimum_size = Vector2(250, 40)
 layout_mode = 2
 text = "⚖️ Chợ (25 Gỗ, 10 Đá)"
+
+[node name="ClearLandBtn" type="Button" parent="BuildMenuPanel/MarginContainer/VBoxContainer"]
+custom_minimum_size = Vector2(0, 34)
+layout_mode = 2
+text = "🧹 Dọn Mặt Bằng (X) — Cây & Đá"
 
 [node name="CloseBuildBtn" type="Button" parent="BuildMenuPanel/MarginContainer/VBoxContainer"]
 custom_minimum_size = Vector2(0, 30)
@@ -1643,3 +1680,269 @@ text = "💡 Nhấp vào tên dân để chọn & xem chi tiết. Phím [C] mở
 custom_minimum_size = Vector2(100, 26)
 layout_mode = 2
 text = "🔄 Làm Mới"
+
+[node name="RivalSettlementInspectPanel" type="PanelContainer" parent="."]
+visible = false
+anchors_preset = 2
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 16.0
+offset_top = -500.0
+offset_right = 426.0
+offset_bottom = -56.0
+grow_vertical = 0
+mouse_filter = 0
+
+[node name="MarginContainer" type="MarginContainer" parent="RivalSettlementInspectPanel"]
+layout_mode = 2
+mouse_filter = 0
+theme_override_constants/margin_left = 14
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 14
+theme_override_constants/margin_bottom = 10
+
+[node name="VBoxContainer" type="VBoxContainer" parent="RivalSettlementInspectPanel/MarginContainer"]
+layout_mode = 2
+mouse_filter = 0
+theme_override_constants/separation = 6
+
+[node name="HeaderHBox" type="HBoxContainer" parent="RivalSettlementInspectPanel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+mouse_filter = 0
+theme_override_constants/separation = 8
+
+[node name="TitlesVBox" type="VBoxContainer" parent="RivalSettlementInspectPanel/MarginContainer/VBoxContainer/HeaderHBox"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 2
+
+[node name="SettlementTitleLabel" type="Label" parent="RivalSettlementInspectPanel/MarginContainer/VBoxContainer/HeaderHBox/TitlesVBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.95, 0.78, 0.35, 1)
+theme_override_font_sizes/font_size = 14
+text = "Khu Định Cư"
+
+[node name="SettlementSubtitleLabel" type="Label" parent="RivalSettlementInspectPanel/MarginContainer/VBoxContainer/HeaderHBox/TitlesVBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.75, 0.78, 0.85, 1)
+theme_override_font_sizes/font_size = 11
+text = "Phe phái | Quy mô"
+
+[node name="CloseRivalSettlementBtn" type="Button" parent="RivalSettlementInspectPanel/MarginContainer/VBoxContainer/HeaderHBox"]
+custom_minimum_size = Vector2(28, 28)
+layout_mode = 2
+text = "✕"
+
+[node name="StatusLabel" type="Label" parent="RivalSettlementInspectPanel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 11
+text = "Trạng thái: Ổn định"
+autowrap_mode = 2
+
+[node name="HSeparator1" type="HSeparator" parent="RivalSettlementInspectPanel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+
+[node name="ScrollContainer" type="ScrollContainer" parent="RivalSettlementInspectPanel/MarginContainer/VBoxContainer"]
+custom_minimum_size = Vector2(0, 310)
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="ContentVBox" type="VBoxContainer" parent="RivalSettlementInspectPanel/MarginContainer/VBoxContainer/ScrollContainer"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 6
+
+[node name="NoticeLabel" type="Label" parent="RivalSettlementInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox"]
+visible = false
+layout_mode = 2
+theme_override_colors/font_color = Color(0.85, 0.75, 0.45, 1)
+theme_override_font_sizes/font_size = 11
+text = "Ngoài tầm nhìn trực tiếp."
+autowrap_mode = 2
+
+[node name="PopSectionLabel" type="Label" parent="RivalSettlementInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.55, 0.85, 1, 1)
+theme_override_font_sizes/font_size = 12
+text = "👥 DÂN SỐ & NHÀ Ở"
+
+[node name="PopDetailsLabel" type="Label" parent="RivalSettlementInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 11
+text = "Cư dân: 0"
+autowrap_mode = 2
+
+[node name="BuildingsSectionLabel" type="Label" parent="RivalSettlementInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.9, 0.8, 0.45, 1)
+theme_override_font_sizes/font_size = 12
+text = "🏘 CÔNG TRÌNH & NƠI LÀM VIỆC"
+
+[node name="BuildingsDetailsLabel" type="Label" parent="RivalSettlementInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 11
+text = "Không có dữ liệu"
+autowrap_mode = 2
+
+[node name="EconomySectionLabel" type="Label" parent="RivalSettlementInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.55, 0.92, 0.65, 1)
+theme_override_font_sizes/font_size = 12
+text = "📦 KHO TÀNG & TÀI NGUYÊN"
+
+[node name="EconomyDetailsLabel" type="Label" parent="RivalSettlementInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 11
+text = "Vàng: 0"
+autowrap_mode = 2
+
+[node name="ResidentsSectionLabel" type="Label" parent="RivalSettlementInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.75, 0.85, 1, 1)
+theme_override_font_sizes/font_size = 12
+text = "👁 CƯ DÂN TRONG TẦM NHÌN"
+
+[node name="VisibleResidentsVBox" type="VBoxContainer" parent="RivalSettlementInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox"]
+layout_mode = 2
+theme_override_constants/separation = 3
+
+[node name="RivalVillagerInspectPanel" type="PanelContainer" parent="."]
+visible = false
+anchors_preset = 2
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 16.0
+offset_top = -430.0
+offset_right = 386.0
+offset_bottom = -56.0
+grow_vertical = 0
+mouse_filter = 0
+
+[node name="MarginContainer" type="MarginContainer" parent="RivalVillagerInspectPanel"]
+layout_mode = 2
+mouse_filter = 0
+theme_override_constants/margin_left = 14
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 14
+theme_override_constants/margin_bottom = 10
+
+[node name="VBoxContainer" type="VBoxContainer" parent="RivalVillagerInspectPanel/MarginContainer"]
+layout_mode = 2
+mouse_filter = 0
+theme_override_constants/separation = 6
+
+[node name="HeaderHBox" type="HBoxContainer" parent="RivalVillagerInspectPanel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+mouse_filter = 0
+theme_override_constants/separation = 6
+
+[node name="BackToSettlementBtn" type="Button" parent="RivalVillagerInspectPanel/MarginContainer/VBoxContainer/HeaderHBox"]
+visible = false
+custom_minimum_size = Vector2(72, 28)
+layout_mode = 2
+theme_override_font_sizes/font_size = 11
+text = "← Khu"
+
+[node name="VillagerNameLabel" type="Label" parent="RivalVillagerInspectPanel/MarginContainer/VBoxContainer/HeaderHBox"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.95, 0.82, 0.35, 1)
+theme_override_font_sizes/font_size = 14
+text = "Cư dân #1"
+
+[node name="CloseRivalVillagerBtn" type="Button" parent="RivalVillagerInspectPanel/MarginContainer/VBoxContainer/HeaderHBox"]
+custom_minimum_size = Vector2(28, 28)
+layout_mode = 2
+text = "✕"
+
+[node name="VillagerMetaLabel" type="Label" parent="RivalVillagerInspectPanel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.75, 0.8, 0.88, 1)
+theme_override_font_sizes/font_size = 11
+text = "Phe phái | Khu định cư"
+autowrap_mode = 2
+
+[node name="VillagerActivityLabel" type="Label" parent="RivalVillagerInspectPanel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 11
+text = "Vai trò | Hoạt động"
+autowrap_mode = 2
+
+[node name="VillagerHousingWorkLabel" type="Label" parent="RivalVillagerInspectPanel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 11
+text = "Nhà ở | Nơi làm việc"
+autowrap_mode = 2
+
+[node name="VillagerLocationLabel" type="Label" parent="RivalVillagerInspectPanel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.68, 0.78, 0.85, 1)
+theme_override_font_sizes/font_size = 11
+text = "Vị trí"
+autowrap_mode = 2
+
+[node name="HSeparatorNeeds" type="HSeparator" parent="RivalVillagerInspectPanel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+
+[node name="NeedsGrid" type="GridContainer" parent="RivalVillagerInspectPanel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+columns = 2
+theme_override_constants/h_separation = 8
+theme_override_constants/v_separation = 4
+
+[node name="HungerLabel" type="Label" parent="RivalVillagerInspectPanel/MarginContainer/VBoxContainer/NeedsGrid"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 11
+text = "Độ đói"
+
+[node name="HungerBar" type="ProgressBar" parent="RivalVillagerInspectPanel/MarginContainer/VBoxContainer/NeedsGrid"]
+custom_minimum_size = Vector2(160, 14)
+layout_mode = 2
+size_flags_horizontal = 3
+max_value = 100.0
+show_percentage = false
+
+[node name="FatigueLabel" type="Label" parent="RivalVillagerInspectPanel/MarginContainer/VBoxContainer/NeedsGrid"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 11
+text = "Mệt mỏi"
+
+[node name="FatigueBar" type="ProgressBar" parent="RivalVillagerInspectPanel/MarginContainer/VBoxContainer/NeedsGrid"]
+custom_minimum_size = Vector2(160, 14)
+layout_mode = 2
+size_flags_horizontal = 3
+max_value = 100.0
+show_percentage = false
+
+[node name="HealthLabel" type="Label" parent="RivalVillagerInspectPanel/MarginContainer/VBoxContainer/NeedsGrid"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 11
+text = "Sức khỏe"
+
+[node name="HealthBar" type="ProgressBar" parent="RivalVillagerInspectPanel/MarginContainer/VBoxContainer/NeedsGrid"]
+custom_minimum_size = Vector2(160, 14)
+layout_mode = 2
+size_flags_horizontal = 3
+max_value = 100.0
+show_percentage = false
+
+[node name="MoraleLabel" type="Label" parent="RivalVillagerInspectPanel/MarginContainer/VBoxContainer/NeedsGrid"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 11
+text = "Tinh thần"
+
+[node name="MoraleBar" type="ProgressBar" parent="RivalVillagerInspectPanel/MarginContainer/VBoxContainer/NeedsGrid"]
+custom_minimum_size = Vector2(160, 14)
+layout_mode = 2
+size_flags_horizontal = 3
+max_value = 100.0
+show_percentage = false
+
+[node name="ReadOnlyBadgeLabel" type="Label" parent="RivalVillagerInspectPanel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.65, 0.72, 0.8, 1)
+theme_override_font_sizes/font_size = 10
+text = "👁 Chế độ chỉ xem — không thể điều khiển cư dân đối phương"
+horizontal_alignment = 1
+autowrap_mode = 2

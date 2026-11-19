@@ -187,6 +187,9 @@ static func resolve_settlement_battle(
 
 	# Automatically enforce authoritative fortification level onto defender force
 	def_copy["fortification_level"] = fort_level
+	if has_valid_context and defender_world_data.terrain != null:
+		var terrain_bonus: float = calculate_settlement_terrain_multiplier(defender_world_data)
+		def_copy["terrain_multiplier"] = maxf(float(def_copy.get("terrain_multiplier", 1.0)), terrain_bonus)
 
 	var report: BattleReport = resolve_battle(atk_copy, def_copy, seed_val)
 
@@ -195,6 +198,25 @@ static func resolve_settlement_battle(
 	report.details["fortification_level"] = fort_level
 
 	return report
+
+## Derives defensive terrain bonus (1.0..1.15) when active defensive buildings leverage Water chokepoints.
+static func calculate_settlement_terrain_multiplier(world_data: WorldGenerator.WorldData) -> float:
+	if world_data == null or world_data.terrain == null or world_data.buildings == null:
+		return 1.0
+	for bld in world_data.buildings:
+		var b_type: String = String(bld.get("type", ""))
+		if not (b_type in ["townhall", "watchtower", "barracks", "palisade"]):
+			continue
+		var origin: Vector2i = bld.get("cell", Vector2i.ZERO)
+		var size: Vector2i = bld.get("size", Vector2i(1, 1))
+		for ox in range(-1, size.x + 1):
+			for oy in range(-1, size.y + 1):
+				var c := origin + Vector2i(ox, oy)
+				if IsoMath.is_in_bounds(c):
+					var t: int = int(world_data.terrain[c.x][c.y])
+					if t == WorldGenerator.TerrainType.WATER:
+						return 1.15
+	return 1.0
 
 ## Calculates the settlement fortification level (0..3) from active Palisade fortifications.
 static func calculate_settlement_fortification_level(world_data: WorldGenerator.WorldData) -> int:

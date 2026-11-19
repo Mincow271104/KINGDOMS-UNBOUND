@@ -122,12 +122,31 @@ static func serialize_world_state(world_view: Node) -> Dictionary:
 			initial_victory_manager.set("world_id", wid_str)
 			initial_victory_manager.set("is_world_id_persisted", false)
 
+	var wd_for_meta = world_view.get("world_data")
+	var gen_ver_for_meta: int = WorldGenerator.LATEST_GENERATOR_VERSION
+	if wd_for_meta != null and wd_for_meta.get("generator_version") != null:
+		gen_ver_for_meta = int(wd_for_meta.get("generator_version"))
+	elif world_view.get("world_generator_version") != null:
+		gen_ver_for_meta = int(world_view.get("world_generator_version"))
+
+	var th_anchor_for_meta: Vector2i = Vector2i(-1, -1)
+	if wd_for_meta != null and wd_for_meta.get("townhall_anchor") is Vector2i:
+		th_anchor_for_meta = wd_for_meta.get("townhall_anchor")
+
+	var map_w_for_meta: int = int(wd_for_meta.get("map_width")) if (wd_for_meta != null and wd_for_meta.get("map_width") != null) else IsoMath.get_active_map_width()
+	var map_h_for_meta: int = int(wd_for_meta.get("map_height")) if (wd_for_meta != null and wd_for_meta.get("map_height") != null) else IsoMath.get_active_map_height()
+
 	data["metadata"] = {
 		"world_seed": world_view.get("world_seed"),
+		"world_generator_version": gen_ver_for_meta,
+		"map_width": map_w_for_meta,
+		"map_height": map_h_for_meta,
 		"world_id": wid_str,
 		"difficulty": world_view.get("difficulty") if world_view.get("difficulty") != null else "normal",
 		"active_perks": world_view.get("active_perks") if world_view.get("active_perks") != null else [],
-		"world_modifiers": world_view.get("world_modifiers") if world_view.get("world_modifiers") != null else []
+		"world_modifiers": world_view.get("world_modifiers") if world_view.get("world_modifiers") != null else [],
+		"townhall_anchor_x": th_anchor_for_meta.x,
+		"townhall_anchor_y": th_anchor_for_meta.y
 	}
 	
 	# 2. Game Clock
@@ -208,12 +227,28 @@ static func serialize_world_state(world_view: Node) -> Dictionary:
 				b_rec["upgrade_cost"] = b.get("upgrade_cost", {}).duplicate()
 			if bool(b.get("is_repairing", false)):
 				b_rec["is_repairing"] = true
+				if bool(b.get("is_restoring_townhall", false)):
+					b_rec["is_restoring_townhall"] = true
 				b_rec["repair_progress"] = float(b.get("repair_progress", 0.0))
 				b_rec["repair_hours_required"] = float(b.get("repair_hours_required", 2.0))
 				b_rec["repair_cost"] = b.get("repair_cost", {}).duplicate()
 				b_rec["repair_reserved"] = bool(b.get("repair_reserved", false))
 				b_rec["repair_ticket_id"] = str(b.get("repair_ticket_id", "repair_" + b.get("id", "")))
 				b_rec["damage_initial_health"] = int(b.get("damage_initial_health", 50))
+			if bool(b.get("is_emergency_rebuild", false)):
+				b_rec["is_emergency_rebuild"] = true
+			if b_type == "bridge":
+				b_rec["axis"] = str(b.get("axis", "x"))
+				var sb: Vector2i = b.get("start_bank", Vector2i.ZERO)
+				var eb: Vector2i = b.get("end_bank", Vector2i.ZERO)
+				b_rec["start_bank_x"] = sb.x
+				b_rec["start_bank_y"] = sb.y
+				b_rec["end_bank_x"] = eb.x
+				b_rec["end_bank_y"] = eb.y
+				b_rec["length"] = int(b.get("length", 1))
+				b_rec["width"] = int(b.get("width", 1))
+				b_rec["width_offset"] = int(b.get("width_offset", 0))
+				b_rec["cost"] = b.get("cost", {}).duplicate()
 			b_list.append(b_rec)
 		data["buildings"] = b_list
 
@@ -236,10 +271,44 @@ static func serialize_world_state(world_view: Node) -> Dictionary:
 					"carrying_resource": cit.get("carrying_resource"),
 					"carrying_amount": cit.get("carrying_amount"),
 					"carrying_source_workplace_id": cit.get("carrying_source_workplace_id") if cit.get("carrying_source_workplace_id") != null else "",
+					"carrying_dest_cell_x": cit.get("carrying_dest_cell").x if cit.get("carrying_dest_cell") is Vector2i else -1,
+					"carrying_dest_cell_y": cit.get("carrying_dest_cell").y if cit.get("carrying_dest_cell") is Vector2i else -1,
 					"skills": cit.call("serialize_skills") if cit.has_method("serialize_skills") else {},
-					"manual_command": cit.call("serialize_manual_command") if cit.has_method("serialize_manual_command") else {}
+					"manual_command": cit.call("serialize_manual_command") if cit.has_method("serialize_manual_command") else {},
+					"active_clearing_order_id": str(cit.get("active_clearing_order_id")) if cit.get("active_clearing_order_id") != null else "",
+					"pos_x": cit.position.x,
+					"pos_y": cit.position.y,
+					"facing_dir": int(cit.get("facing_dir")) if cit.get("facing_dir") != null else 0,
+					"roaming": cit.call("serialize_roaming") if cit.has_method("serialize_roaming") else {},
+					"home_building_id": str(cit.get("home_building_id")) if cit.get("home_building_id") != null else "",
+					"current_state": int(cit.get("current_state")) if cit.get("current_state") != null else 0,
+					"rest_phase": int(cit.get("rest_phase")) if cit.get("rest_phase") != null else 0,
+					"rest_house_id": str(cit.get("rest_house_id")) if cit.get("rest_house_id") != null else "",
+					"rest_entry_cell_x": int(cit.get("rest_entry_cell").x) if cit.get("rest_entry_cell") is Vector2i else -1,
+					"rest_entry_cell_y": int(cit.get("rest_entry_cell").y) if cit.get("rest_entry_cell") is Vector2i else -1,
+					"meal_buff": cit.call("serialize_meal_buff") if cit.has_method("serialize_meal_buff") else {}
 				})
 		data["citizens"] = c_data_list
+
+	var lc_mgr = world_view.get("land_clearing_mgr")
+	if lc_mgr != null and lc_mgr.has_method("serialize"):
+		data["land_clearing"] = lc_mgr.call("serialize")
+
+	var nr_mgr = world_view.get("natural_resource_mgr")
+	if nr_mgr != null and nr_mgr.has_method("serialize"):
+		data["natural_resources"] = nr_mgr.call("serialize")
+
+	var wl_mgr = world_view.get("wildlife_mgr")
+	if wl_mgr != null and wl_mgr.has_method("serialize"):
+		data["wildlife"] = wl_mgr.call("serialize")
+
+	var ck_mgr = world_view.get("cookhouse_mgr")
+	if ck_mgr != null and ck_mgr.has_method("serialize"):
+		data["cookhouses"] = ck_mgr.call("serialize")
+
+	var mon_mgr = world_view.get("monster_mgr")
+	if mon_mgr != null and mon_mgr.has_method("serialize"):
+		data["monsters_state"] = mon_mgr.call("serialize")
 
 	# 6. Research
 	var res_mgr = world_view.get("research_mgr")
@@ -292,11 +361,14 @@ static func serialize_world_state(world_view: Node) -> Dictionary:
 		for p in poi_mgr.call("get_all_pois"):
 			p_list.append({
 				"id": p.id,
+				"type": p.type,
 				"name": p.name,
 				"cell_x": p.cell.x,
 				"cell_y": p.cell.y,
 				"state": p.state,
-				"reward": p.rewards
+				"reward": p.rewards.duplicate(),
+				"pending_rewards": p.pending_rewards.duplicate(),
+				"reward_claim_initiated": bool(p.reward_claim_initiated)
 			})
 		data["pois"] = p_list
 
@@ -325,8 +397,10 @@ static func serialize_world_state(world_view: Node) -> Dictionary:
 	var fow = world_view.get("fog_of_war")
 	if fow != null:
 		var revealed: Array = []
-		for x in range(fow.map_size):
-			for y in range(fow.map_size):
+		var fow_w: int = int(fow.get("map_width")) if fow.get("map_width") != null else int(fow.map_size)
+		var fow_h: int = int(fow.get("map_height")) if fow.get("map_height") != null else int(fow.map_size)
+		for x in range(fow_w):
+			for y in range(fow_h):
 				if fow.is_explored(Vector2i(x, y)):
 					revealed.append([x, y])
 		data["fog_of_war"] = revealed
@@ -372,7 +446,9 @@ static func serialize_world_state(world_view: Node) -> Dictionary:
 	# 17. Tactical Military (Package 1W)
 	var tac_mgr = world_view.get("tactical_military_mgr")
 	if tac_mgr != null and tac_mgr.has_method("sync_with_player_army"):
-		tac_mgr.call("sync_with_player_army")
+		var sync_res = tac_mgr.call("sync_with_player_army")
+		if sync_res is Dictionary and not bool(sync_res.get("success", true)):
+			data["_tactical_sync_error"] = str(sync_res.get("reason", "Đồng bộ hóa quân sự chiến thuật thất bại."))
 	if tac_mgr != null and tac_mgr.has_method("serialize"):
 		data["tactical_military"] = tac_mgr.call("serialize")
 
@@ -399,6 +475,25 @@ static func serialize_world_state(world_view: Node) -> Dictionary:
 		data["crisis_manager"] = cr_mgr.call("serialize")
 	else:
 		data["crisis_manager"] = {}
+
+	# 22. Procedural Settlements (C1.10 M4, V8+)
+	if world_data != null and gen_ver_for_meta >= WorldGenerator.RIVAL_SETTLEMENTS_GENERATOR_VERSION:
+		var stl_items: Array = []
+		var raw_stls = world_data.get("settlements")
+		if raw_stls is Array:
+			for stl in raw_stls:
+				if stl != null and stl.has_method("serialize"):
+					stl_items.append(stl.serialize())
+		var skip_copy: Dictionary = {}
+		var raw_skips = world_data.get("settlement_skip_reasons")
+		if raw_skips is Dictionary:
+			for fk in raw_skips.keys():
+				skip_copy[str(fk)] = str(raw_skips[fk])
+		data["settlements"] = {
+			"schema_version": 1,
+			"items": stl_items,
+			"skip_reasons": skip_copy
+		}
 
 	return data
 
@@ -652,6 +747,11 @@ static func save_to_file(world_view: Node, filepath: String = DEFAULT_SAVE_PATH)
 	filepath = _resolve_filepath(filepath)
 	ensure_save_directory()
 	var state_dict := serialize_world_state(world_view)
+	if state_dict.has("_tactical_sync_error"):
+		return {
+			"success": false,
+			"error": "Lưu game thất bại do đồng bộ hóa quân đội chiến thuật không thành công: " + str(state_dict["_tactical_sync_error"])
+		}
 	var save_ok := save_dict_to_file(state_dict, filepath)
 	if not save_ok:
 		return {"success": false, "error": "Không thể ghi bản lưu vào tệp: %s" % filepath}
@@ -691,7 +791,68 @@ static func _is_valid_coord_arr(arr: Variant) -> bool:
 static func _is_cardinal_adjacent(a: Vector2i, b: Vector2i) -> bool:
 	return abs(a.x - b.x) + abs(a.y - b.y) == 1
 
+enum GeneratorVersionStatus {
+	EXPLICIT_SUPPORTED = 0,
+	AMBIGUOUS_MISSING = 1,
+	UNSUPPORTED = 2
+}
+
+static func resolve_save_generator_version(meta_data: Variant) -> Dictionary:
+	if not (meta_data is Dictionary):
+		return {
+			"status": GeneratorVersionStatus.UNSUPPORTED,
+			"status_name": "UNSUPPORTED",
+			"version": -1,
+			"error": "Mục 'metadata' phải là từ điển (Dictionary)."
+		}
+	if not meta_data.has("world_generator_version"):
+		return {
+			"status": GeneratorVersionStatus.AMBIGUOUS_MISSING,
+			"status_name": "AMBIGUOUS",
+			"version": -1,
+			"error": ""
+		}
+	var raw_gen_ver = meta_data.get("world_generator_version")
+	if not _is_valid_integer_val(raw_gen_ver):
+		return {
+			"status": GeneratorVersionStatus.UNSUPPORTED,
+			"status_name": "UNSUPPORTED",
+			"version": -1,
+			"error": "Trường 'world_generator_version' trong metadata phải là số nguyên hợp lệ."
+		}
+	var parsed_gen_ver: int = int(raw_gen_ver)
+	if not WorldGenerator.is_supported_generator_version(parsed_gen_ver):
+		return {
+			"status": GeneratorVersionStatus.UNSUPPORTED,
+			"status_name": "UNSUPPORTED",
+			"version": parsed_gen_ver,
+			"error": "Phiên bản bộ tạo thế giới không được hỗ trợ (%d). Phiên bản hỗ trợ: %d..%d." % [parsed_gen_ver, WorldGenerator.MIN_SUPPORTED_GENERATOR_VERSION, WorldGenerator.MAX_SUPPORTED_GENERATOR_VERSION]
+		}
+	return {
+		"status": GeneratorVersionStatus.EXPLICIT_SUPPORTED,
+		"status_name": "EXPLICIT",
+		"version": parsed_gen_ver,
+		"error": ""
+	}
+
 static func validate_save_data(json_dict: Variant) -> Dictionary:
+	var prev_w: int = IsoMath.get_active_map_width()
+	var prev_h: int = IsoMath.get_active_map_height()
+	if json_dict is Dictionary and json_dict.get("metadata") is Dictionary:
+		var meta_sec: Dictionary = json_dict.get("metadata")
+		var gen_ver_res := resolve_save_generator_version(meta_sec)
+		var gen_ver: int = int(gen_ver_res.get("version", WorldGenerator.LEGACY_GENERATOR_VERSION))
+		var def_dim: int = WorldGenerator.DEFAULT_NEW_MAP_SIZE if gen_ver >= WorldGenerator.EXPANDED_GENERATOR_VERSION else WorldGenerator.LEGACY_MAP_SIZE
+		var save_w: int = int(meta_sec.get("map_width", def_dim))
+		var save_h: int = int(meta_sec.get("map_height", def_dim))
+		if save_w <= 0 or save_h <= 0:
+			return {"valid": false, "error": "Kích thước bản đồ lưu không hợp lệ: %dx%d." % [save_w, save_h]}
+		IsoMath.set_active_map_dimensions(save_w, save_h)
+	var result := _validate_save_data_with_active_bounds(json_dict)
+	IsoMath.set_active_map_dimensions(prev_w, prev_h)
+	return result
+
+static func _validate_save_data_with_active_bounds(json_dict: Variant) -> Dictionary:
 	if not (json_dict is Dictionary):
 		return {"valid": false, "error": "Dữ liệu JSON không đúng định dạng Dictionary gốc."}
 		
@@ -709,6 +870,16 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 		return {"valid": false, "error": "Mục 'metadata' phải là từ điển (Dictionary)."}
 	if meta_sec.has("world_id") and not (meta_sec.get("world_id") is String):
 		return {"valid": false, "error": "Trường 'world_id' trong metadata phải là chuỗi (String)."}
+	var gen_ver_res := resolve_save_generator_version(meta_sec)
+	if int(gen_ver_res.get("status", GeneratorVersionStatus.UNSUPPORTED)) == GeneratorVersionStatus.UNSUPPORTED:
+		return {"valid": false, "error": gen_ver_res.get("error", "Phiên bản bộ tạo thế giới không hợp lệ.")}
+	if meta_sec.has("world_modifiers"):
+		var wm_meta = meta_sec.get("world_modifiers")
+		if wm_meta == null or not (wm_meta is Array):
+			return {"valid": false, "error": "world_modifiers trong metadata phải là Array."}
+		for m in wm_meta:
+			if not (m is String):
+				return {"valid": false, "error": "Mỗi phần tử trong world_modifiers của metadata phải là String."}
 
 	var res_sec = json_dict.get("resources")
 	if not (res_sec is Dictionary):
@@ -735,6 +906,7 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 	if not (buildings_sec is Array):
 		return {"valid": false, "error": "Mục 'buildings' phải là một danh sách (Array)."}
 
+	var seen_canonical_b_ids: Dictionary = {}
 	for b in buildings_sec:
 		if not (b is Dictionary):
 			return {"valid": false, "error": "Bản ghi công trình không đúng định dạng Dictionary."}
@@ -761,14 +933,20 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 		if size_x != null:
 			if not _is_valid_integer_val(size_x):
 				return {"valid": false, "error": "Kích thước size_x của công trình '%s' phải là số nguyên hợp lệ: %s." % [b_type, str(size_x)]}
-			if int(size_x) != expected_size.x:
+			if str(b_type) == "bridge":
+				if int(size_x) < 1:
+					return {"valid": false, "error": "Kích thước size_x của cầu phải >= 1."}
+			elif int(size_x) != expected_size.x:
 				return {"valid": false, "error": "Kích thước size_x của công trình '%s' (%d) không khớp blueprint (%d)." % [b_type, int(size_x), expected_size.x]}
 			resolved_size_x = int(size_x)
 
 		if size_y != null:
 			if not _is_valid_integer_val(size_y):
 				return {"valid": false, "error": "Kích thước size_y của công trình '%s' phải là số nguyên hợp lệ: %s." % [b_type, str(size_y)]}
-			if int(size_y) != expected_size.y:
+			if str(b_type) == "bridge":
+				if int(size_y) < 1:
+					return {"valid": false, "error": "Kích thước size_y của cầu phải >= 1."}
+			elif int(size_y) != expected_size.y:
 				return {"valid": false, "error": "Kích thước size_y của công trình '%s' (%d) không khớp blueprint (%d)." % [b_type, int(size_y), expected_size.y]}
 			resolved_size_y = int(size_y)
 
@@ -776,6 +954,20 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 		var size := Vector2i(resolved_size_x, resolved_size_y)
 		if not IsoMath.is_in_bounds(origin) or not IsoMath.is_in_bounds(origin + size - Vector2i(1, 1)):
 			return {"valid": false, "error": "Vị trí hoặc kích thước công trình '%s' vượt quá giới hạn bản đồ: %s (%s)." % [b_type, origin, size]}
+
+		var raw_b_id: Variant = b.get("id", "")
+		var b_id: String = str(raw_b_id) if raw_b_id is String else ""
+		if not b_id.is_empty():
+			var id_compat: Dictionary = BuildingSystem.validate_building_id_type_compatibility(b_id, str(b_type))
+			if not bool(id_compat.get("valid", true)):
+				return id_compat
+
+		var canonical_id: String = BuildingSystem.resolve_building_canonical_id(b)
+		if canonical_id.is_empty():
+			return {"valid": false, "error": "Không thể xác định canonical ID cho công trình '%s' tại (%d, %d)." % [b_type, origin.x, origin.y]}
+		if seen_canonical_b_ids.has(canonical_id):
+			return {"valid": false, "error": "Phát hiện trùng lặp canonical ID công trình: '%s'." % canonical_id}
+		seen_canonical_b_ids[canonical_id] = true
 
 		var b_state: Variant = b.get("state", "active")
 		if not (b_state is String):
@@ -1622,6 +1814,12 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 				if not (h_sid is String) or String(h_sid).strip_edges().is_empty():
 					return {"valid": false, "error": "siege_id trong resolved_sieges_history không hợp lệ."}
 
+	# Validate optional settlements section (C1.10 M4)
+	if json_dict.has("settlements"):
+		var stl_val_res := _validate_settlements_section(json_dict)
+		if not bool(stl_val_res.get("valid", false)):
+			return stl_val_res
+
 	# Validate optional victory section (CANON-006)
 	if json_dict.has("victory"):
 		var vic_val = json_dict.get("victory")
@@ -1665,10 +1863,53 @@ static func validate_save_data(json_dict: Variant) -> Dictionary:
 			if car_val.has("is_origin_at_war") and not (car_val.get("is_origin_at_war") is bool):
 				return {"valid": false, "error": "is_origin_at_war trong active_caravan phải là bool."}
 
-	if json_dict.has("crisis_manager") and not json_dict.get("crisis_manager").is_empty():
+	if json_dict.has("crisis_manager"):
 		var cr_val = json_dict.get("crisis_manager")
-		if not (cr_val is Dictionary):
+		if cr_val == null or not (cr_val is Dictionary):
 			return {"valid": false, "error": "Dữ liệu khủng hoảng 'crisis_manager' phải là Dictionary."}
+		if not cr_val.is_empty():
+			if cr_val.has("active_crisis_data"):
+				var acd = cr_val.get("active_crisis_data")
+				if acd == null or not (acd is Dictionary):
+					return {"valid": false, "error": "active_crisis_data trong crisis_manager phải là Dictionary."}
+			if cr_val.has("last_raid_result"):
+				var lrr = cr_val.get("last_raid_result")
+				if lrr == null or not (lrr is Dictionary):
+					return {"valid": false, "error": "last_raid_result trong crisis_manager phải là Dictionary."}
+			if cr_val.has("current_stage"):
+				var cs = cr_val.get("current_stage")
+				if not (cs is String) or not (cs in ["inactive", "warning", "active", "recovery"]):
+					return {"valid": false, "error": "current_stage trong crisis_manager không hợp lệ: %s" % str(cs)}
+			if cr_val.has("current_crisis_type"):
+				var ct = cr_val.get("current_crisis_type")
+				if not (ct is String) or not (ct in ["none", "drought", "blizzard", "bandit_horde"]):
+					return {"valid": false, "error": "current_crisis_type trong crisis_manager không hợp lệ: %s" % str(ct)}
+			if cr_val.has("world_modifiers"):
+				var wm = cr_val.get("world_modifiers")
+				if wm == null or not (wm is Array):
+					return {"valid": false, "error": "world_modifiers trong crisis_manager phải là Array."}
+				for m in wm:
+					if not (m is String):
+						return {"valid": false, "error": "Mỗi phần tử trong world_modifiers của crisis_manager phải là String."}
+			if cr_val.has("warning_hours_remaining") and not ((cr_val.get("warning_hours_remaining") is float) or (cr_val.get("warning_hours_remaining") is int)):
+				return {"valid": false, "error": "warning_hours_remaining trong crisis_manager phải là số."}
+			if cr_val.has("active_hours_remaining") and not ((cr_val.get("active_hours_remaining") is float) or (cr_val.get("active_hours_remaining") is int)):
+				return {"valid": false, "error": "active_hours_remaining trong crisis_manager phải là số."}
+			if cr_val.has("recovery_hours_remaining") and not ((cr_val.get("recovery_hours_remaining") is float) or (cr_val.get("recovery_hours_remaining") is int)):
+				return {"valid": false, "error": "recovery_hours_remaining trong crisis_manager phải là số."}
+			if cr_val.has("cooldown_hours_remaining") and not ((cr_val.get("cooldown_hours_remaining") is float) or (cr_val.get("cooldown_hours_remaining") is int)):
+				return {"valid": false, "error": "cooldown_hours_remaining trong crisis_manager phải là số."}
+			if cr_val.has("cold_hypothermia_active") and not (cr_val.get("cold_hypothermia_active") is bool):
+				return {"valid": false, "error": "cold_hypothermia_active trong crisis_manager phải là bool."}
+
+	# AUD-3B-02: Validate optional fog_of_war section if present
+	if json_dict.has("fog_of_war"):
+		var fow_val = json_dict.get("fog_of_war")
+		if fow_val == null or not (fow_val is Array):
+			return {"valid": false, "error": "Dữ liệu sương mù 'fog_of_war' phải là danh sách (Array)."}
+		for elem in fow_val:
+			if not _is_valid_coord_arr(elem):
+				return {"valid": false, "error": "Phần tử trong 'fog_of_war' không phải tọa độ [x, y] hợp lệ trong bản đồ: %s." % str(elem)}
 
 	return {"valid": true, "error": ""}
 
@@ -1783,47 +2024,287 @@ static func load_from_file(filepath: String = DEFAULT_SAVE_PATH) -> Dictionary:
 
 	return {"success": true, "data": data, "path": canonical_path, "source_path": source_path, "recovered_from_backup": recovered_from_backup}
 
+static func _is_valid_settlement_vec2i_field(val: Variant) -> bool:
+	if val is Vector2i:
+		return true
+	if val is Dictionary:
+		return val.has("x") and val.has("y") and _is_valid_integer_val(val.get("x")) and _is_valid_integer_val(val.get("y"))
+	if val is Array and val.size() >= 2:
+		return _is_valid_integer_val(val[0]) and _is_valid_integer_val(val[1])
+	return false
+
+static func _is_valid_settlement_building_type(b_type: String) -> bool:
+	if b_type.is_empty():
+		return false
+	if EconomyConfig.BLUEPRINTS.has(b_type):
+		return true
+	return b_type in ["barracks", "market", "townhall", "storehouse", "house", "watchtower", "palisade", "workshop", "woodcutter", "farm"]
+
+static func _validate_settlements_section(json_dict: Dictionary) -> Dictionary:
+	if not ResourceLoader.exists("res://scripts/world/settlement_data.gd") or not ResourceLoader.exists("res://scripts/world/settlement_generator.gd"):
+		return {"valid": true}
+	var SettlementDataScript = load("res://scripts/world/settlement_data.gd")
+	var SettlementGeneratorScript = load("res://scripts/world/settlement_generator.gd")
+
+	var stl_sec = json_dict.get("settlements")
+	if not (stl_sec is Dictionary):
+		return {"valid": false, "error": "Mục 'settlements' phải là Dictionary."}
+
+	var s_ver = stl_sec.get("schema_version", null)
+	if not _is_valid_integer_val(s_ver) or int(s_ver) != 1:
+		return {"valid": false, "error": "Phiên bản schema_version của 'settlements' không được hỗ trợ (%s)." % str(s_ver)}
+
+	var raw_items = stl_sec.get("items", null)
+	if not (raw_items is Array):
+		return {"valid": false, "error": "settlements.items phải là Array."}
+
+	var raw_skips = stl_sec.get("skip_reasons", {})
+	if not (raw_skips is Dictionary):
+		return {"valid": false, "error": "settlements.skip_reasons phải là Dictionary."}
+
+	var expected_factions: Array[String] = []
+	for spec in SettlementGeneratorScript.FACTION_SPECS:
+		expected_factions.append(str(spec["faction_id"]))
+
+	var allowed_reasons := ["map_constraints", "legacy_player_building_conflict"]
+	var skip_factions: Dictionary = {}
+	for fk in raw_skips.keys():
+		if not (fk is String) or not (String(fk) in expected_factions):
+			return {"valid": false, "error": "Phát hiện faction không hợp lệ trong settlements.skip_reasons: %s." % str(fk)}
+		var r_val = raw_skips[fk]
+		if not (r_val is String) or not (String(r_val) in allowed_reasons):
+			return {"valid": false, "error": "Lý do skip_reasons không hợp lệ cho '%s': %s." % [str(fk), str(r_val)]}
+		skip_factions[String(fk)] = String(r_val)
+
+	var seen_sids: Dictionary = {}
+	var seen_fids: Dictionary = {}
+	var seen_oids: Dictionary = {}
+	var solid_cells: Dictionary = {}
+	var valid_roles := [SettlementDataScript.ROLE_CAPITAL, SettlementDataScript.ROLE_VILLAGE, SettlementDataScript.ROLE_OUTPOST]
+	var valid_statuses := [SettlementDataScript.STATUS_ACTIVE, SettlementDataScript.STATUS_CAPTURED, SettlementDataScript.STATUS_ABANDONED, SettlementDataScript.STATUS_DESTROYED]
+
+	for item in raw_items:
+		if not (item is Dictionary):
+			return {"valid": false, "error": "Mỗi phần tử trong settlements.items phải là Dictionary."}
+		var sid_raw = item.get("settlement_id")
+		var ofid_raw = item.get("origin_faction_id")
+		if not (sid_raw is String) or String(sid_raw).strip_edges().is_empty():
+			return {"valid": false, "error": "settlement_id không hợp lệ."}
+		if not (ofid_raw is String) or not (String(ofid_raw) in expected_factions):
+			return {"valid": false, "error": "origin_faction_id không hợp lệ trong settlements.items: %s." % str(ofid_raw)}
+
+		var owner_raw = item.get("owner_faction_id", "")
+		if not (owner_raw is String) or String(owner_raw).strip_edges().is_empty():
+			return {"valid": false, "error": "owner_faction_id không hợp lệ cho settlement %s." % str(sid_raw)}
+
+		var role_str: String = str(item.get("role", ""))
+		if not (role_str in valid_roles):
+			return {"valid": false, "error": "role không hợp lệ cho settlement %s: %s." % [str(sid_raw), role_str]}
+		var status_str: String = str(item.get("status", ""))
+		if not (status_str in valid_statuses):
+			return {"valid": false, "error": "status không hợp lệ cho settlement %s: %s." % [str(sid_raw), status_str]}
+		var l_ver = item.get("layout_version", null)
+		if not _is_valid_integer_val(l_ver) or int(l_ver) != SettlementDataScript.LAYOUT_VERSION:
+			return {"valid": false, "error": "layout_version không hợp lệ cho settlement %s." % str(sid_raw)}
+		var l_tier: String = str(item.get("layout_tier", ""))
+		if l_tier != "full" and l_tier != "compact":
+			return {"valid": false, "error": "layout_tier không hợp lệ cho settlement %s: %s." % [str(sid_raw), l_tier]}
+
+		if not _is_valid_settlement_vec2i_field(item.get("anchor_cell", null)):
+			return {"valid": false, "error": "anchor_cell không hợp lệ cho settlement %s." % str(sid_raw)}
+
+		var stl = SettlementDataScript.deserialize(item)
+		if stl == null:
+			return {"valid": false, "error": "Không thể giải tuần tự settlement %s." % str(sid_raw)}
+		if seen_sids.has(stl.settlement_id):
+			return {"valid": false, "error": "Phát hiện settlement_id trùng lặp: %s." % stl.settlement_id}
+		if seen_fids.has(stl.origin_faction_id):
+			return {"valid": false, "error": "Phát hiện trùng lặp settlement cho faction: %s." % stl.origin_faction_id}
+		if skip_factions.has(stl.origin_faction_id):
+			return {"valid": false, "error": "Faction '%s' vừa có settlement vừa có skip_reason." % stl.origin_faction_id}
+		if stl.linked_objective_id.strip_edges().is_empty():
+			return {"valid": false, "error": "Settlement '%s' thiếu linked_objective_id." % stl.settlement_id}
+		if seen_oids.has(stl.linked_objective_id):
+			return {"valid": false, "error": "Phát hiện linked_objective_id trùng lặp: %s." % stl.linked_objective_id}
+		if not IsoMath.is_in_bounds(stl.anchor_cell):
+			return {"valid": false, "error": "anchor_cell của settlement '%s' nằm ngoài bản đồ." % stl.settlement_id}
+
+		var has_hq := false
+		var stl_solid: Dictionary = {}
+		var b_arr = item.get("buildings", null)
+		if not (b_arr is Array) or b_arr.is_empty():
+			return {"valid": false, "error": "Settlement '%s' thiếu danh sách buildings." % stl.settlement_id}
+		for b_raw in b_arr:
+			if not (b_raw is Dictionary):
+				return {"valid": false, "error": "Mô tả công trình trong settlement '%s' không hợp lệ." % stl.settlement_id}
+			if not _is_valid_settlement_vec2i_field(b_raw.get("cell", null)) or not _is_valid_settlement_vec2i_field(b_raw.get("size", null)):
+				return {"valid": false, "error": "Tọa độ/kích thước công trình trong settlement '%s' không hợp lệ." % stl.settlement_id}
+			var b_type: String = str(b_raw.get("type", ""))
+			if not _is_valid_settlement_building_type(b_type):
+				return {"valid": false, "error": "Loại công trình không hợp lệ '%s' trong settlement '%s'." % [b_type, stl.settlement_id]}
+			if str(b_raw.get("role", "")) == "hq":
+				has_hq = true
+		if not has_hq:
+			return {"valid": false, "error": "Settlement '%s' thiếu HQ descriptor." % stl.settlement_id}
+
+		for b in stl.buildings:
+			var org: Vector2i = b["cell"]
+			var sz: Vector2i = b["size"]
+			if sz.x <= 0 or sz.y <= 0:
+				return {"valid": false, "error": "Kích thước công trình không hợp lệ trong settlement '%s'." % stl.settlement_id}
+			for ox in range(sz.x):
+				for oy in range(sz.y):
+					var fc := org + Vector2i(ox, oy)
+					if not IsoMath.is_in_bounds(fc):
+						return {"valid": false, "error": "Công trình của settlement '%s' vượt ranh giới bản đồ tại %s." % [stl.settlement_id, str(fc)]}
+					if stl_solid.has(fc) or solid_cells.has(fc):
+						return {"valid": false, "error": "Phát hiện chồng lấn công trình settlement tại %s." % str(fc)}
+					stl_solid[fc] = true
+					solid_cells[fc] = true
+		if stl_solid.has(stl.anchor_cell):
+			return {"valid": false, "error": "anchor_cell của settlement '%s' nằm trên ô công trình rắn." % stl.settlement_id}
+
+		var r_arr = item.get("roads", null)
+		if not (r_arr is Array):
+			return {"valid": false, "error": "roads của settlement '%s' phải là Array." % stl.settlement_id}
+		for r in stl.roads:
+			if not IsoMath.is_in_bounds(r):
+				return {"valid": false, "error": "Ô đường của settlement '%s' vượt ranh giới bản đồ: %s." % [stl.settlement_id, str(r)]}
+			if stl_solid.has(r):
+				return {"valid": false, "error": "Ô đường của settlement '%s' đè lên công trình rắn tại %s." % [stl.settlement_id, str(r)]}
+
+		var d_arr = item.get("decorations", [])
+		if not (d_arr is Array):
+			return {"valid": false, "error": "decorations của settlement '%s' phải là Array." % stl.settlement_id}
+		for dec in stl.decorations:
+			var dc: Vector2i = dec.get("cell", Vector2i.ZERO)
+			if not IsoMath.is_in_bounds(dc):
+				return {"valid": false, "error": "Trang trí của settlement '%s' vượt ranh giới bản đồ: %s." % [stl.settlement_id, str(dc)]}
+
+		seen_sids[stl.settlement_id] = stl
+		seen_fids[stl.origin_faction_id] = stl
+		seen_oids[stl.linked_objective_id] = stl
+
+	for fid in expected_factions:
+		var has_stl: bool = seen_fids.has(fid)
+		var has_skip: bool = skip_factions.has(fid)
+		if not has_stl and not has_skip:
+			return {"valid": false, "error": "Thiếu thông tin settlement hoặc skip_reason cho faction '%s'." % fid}
+
+	# Validate objective cardinality when field_siege is present in the same save
+	if json_dict.has("field_siege") and json_dict.get("field_siege") is Dictionary:
+		var siege_dict: Dictionary = json_dict.get("field_siege")
+		var obj_arr = siege_dict.get("objectives", [])
+		if obj_arr is Array:
+			var objs_by_id: Dictionary = {}
+			var objs_by_linked_sid: Dictionary = {}
+			var objs_by_orig_fid: Dictionary = {}
+			for o in obj_arr:
+				if not (o is Dictionary):
+					continue
+				var oid: String = str(o.get("objective_id", "")).strip_edges()
+				var lsid: String = str(o.get("linked_settlement_id", "")).strip_edges()
+				var orig_f: String = str(o.get("original_owner_id", "")).strip_edges()
+				if orig_f.is_empty():
+					orig_f = str(o.get("owning_faction_id", "")).strip_edges()
+				objs_by_id[oid] = o
+				if not lsid.is_empty():
+					if objs_by_linked_sid.has(lsid):
+						return {"valid": false, "error": "Phát hiện linked_settlement_id trùng lặp trong field_siege: %s." % lsid}
+					objs_by_linked_sid[lsid] = o
+				if not orig_f.is_empty():
+					if not objs_by_orig_fid.has(orig_f):
+						objs_by_orig_fid[orig_f] = []
+					objs_by_orig_fid[orig_f].append(o)
+
+			for fid in expected_factions:
+				if seen_fids.has(fid):
+					var stl = seen_fids[fid]
+					var matching_o = objs_by_id.get(stl.linked_objective_id, null)
+					if matching_o == null:
+						return {"valid": false, "error": "Settlement '%s' thiếu objective đối ứng '%s'." % [stl.settlement_id, stl.linked_objective_id]}
+					if str(matching_o.get("linked_settlement_id", "")) != stl.settlement_id:
+						return {"valid": false, "error": "Objective '%s' có linked_settlement_id không khớp với settlement '%s'." % [stl.linked_objective_id, stl.settlement_id]}
+				else:
+					var reason: String = skip_factions.get(fid, "")
+					var fac_objs: Array = objs_by_orig_fid.get(fid, [])
+					var expected_oid := "outpost_%s" % fid
+					if reason == "map_constraints":
+						if not fac_objs.is_empty() or objs_by_id.has(expected_oid):
+							return {"valid": false, "error": "Faction '%s' có skip_reason='map_constraints' nhưng vẫn tồn tại objective." % fid}
+					elif reason == "legacy_player_building_conflict":
+						if fac_objs.size() > 1:
+							return {"valid": false, "error": "Faction '%s' có nhiều hơn 1 objective khi bị skip do legacy_player_building_conflict." % fid}
+						for fo in fac_objs:
+							if not str(fo.get("linked_settlement_id", "")).strip_edges().is_empty():
+								return {"valid": false, "error": "Objective của faction bị skip '%s' vẫn giữ linked_settlement_id không rỗng." % fid}
+
+			for lsid in objs_by_linked_sid.keys():
+				if not seen_sids.has(lsid):
+					return {"valid": false, "error": "Objective tham chiếu settlement không tồn tại: %s." % lsid}
+
+	return {"valid": true, "error": ""}
+
 static func _preflight_validate_military_subsystems(loaded_data: Dictionary) -> Dictionary:
 	var TacticalMilitaryManagerScript = preload("res://scripts/military/tactical_military_manager.gd")
 	var EnemyMilitaryManagerScript = preload("res://scripts/military/enemy_military_manager.gd")
 	var FieldSiegeManagerScript = preload("res://scripts/combat/field_siege_manager.gd")
 
+	var prev_w: int = IsoMath.get_active_map_width()
+	var prev_h: int = IsoMath.get_active_map_height()
+	if loaded_data.get("metadata") is Dictionary:
+		var meta_sec: Dictionary = loaded_data.get("metadata")
+		var gen_ver_res := resolve_save_generator_version(meta_sec)
+		var gen_ver: int = int(gen_ver_res.get("version", WorldGenerator.LEGACY_GENERATOR_VERSION))
+		var def_dim: int = WorldGenerator.DEFAULT_NEW_MAP_SIZE if gen_ver >= WorldGenerator.EXPANDED_GENERATOR_VERSION else WorldGenerator.LEGACY_MAP_SIZE
+		var save_w: int = int(meta_sec.get("map_width", def_dim))
+		var save_h: int = int(meta_sec.get("map_height", def_dim))
+		if save_w > 0 and save_h > 0:
+			IsoMath.set_active_map_dimensions(save_w, save_h)
+
 	if loaded_data.has("tactical_military"):
 		var tac_data = loaded_data.get("tactical_military")
 		if not (tac_data is Dictionary):
+			IsoMath.set_active_map_dimensions(prev_w, prev_h)
 			return {"valid": false, "error": "Dữ liệu tactical_military không hợp lệ (không phải Dictionary)."}
 		if not tac_data.is_empty():
 			var probe_tac = TacticalMilitaryManagerScript.new()
 			var ok_tac: bool = probe_tac.deserialize(tac_data)
 			probe_tac.clear_all_units()
 			if not ok_tac:
+				IsoMath.set_active_map_dimensions(prev_w, prev_h)
 				return {"valid": false, "error": "Khôi phục trạng thái quân sự chiến thuật (tactical_military) thất bại."}
 
 	if loaded_data.has("enemy_military"):
 		var enemy_data = loaded_data.get("enemy_military")
 		if not (enemy_data is Dictionary):
+			IsoMath.set_active_map_dimensions(prev_w, prev_h)
 			return {"valid": false, "error": "Dữ liệu quân sự địch 'enemy_military' phải là Dictionary."}
 		if not enemy_data.is_empty():
 			var probe_em = EnemyMilitaryManagerScript.new()
 			var ok_em: bool = probe_em.deserialize(enemy_data)
 			probe_em.clear_all_enemies()
 			if not ok_em:
+				IsoMath.set_active_map_dimensions(prev_w, prev_h)
 				return {"valid": false, "error": "Khôi phục dữ liệu quân sự địch 'enemy_military' thất bại."}
 
 	if loaded_data.has("field_siege"):
 		var siege_data = loaded_data.get("field_siege")
 		if not (siege_data is Dictionary):
+			IsoMath.set_active_map_dimensions(prev_w, prev_h)
 			return {"valid": false, "error": "Dữ liệu công thành 'field_siege' phải là Dictionary."}
 		if not siege_data.is_empty():
 			var probe_fs = FieldSiegeManagerScript.new()
 			var ok_fs: bool = probe_fs.deserialize(siege_data)
 			probe_fs.clear_all_objectives()
 			if not ok_fs:
+				IsoMath.set_active_map_dimensions(prev_w, prev_h)
 				return {"valid": false, "error": "Khôi phục dữ liệu công thành 'field_siege' thất bại."}
 
+	IsoMath.set_active_map_dimensions(prev_w, prev_h)
 	return {"valid": true, "error": ""}
 
-static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionary, _is_rollback: bool = false) -> Dictionary:
+static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionary, _is_rollback: bool = false, resolved_generator_version: int = -1) -> Dictionary:
 	if world_view == null or loaded_data.is_empty():
 		return {"success": false, "error": "WorldView hoặc dữ liệu bản lưu rỗng"}
 
@@ -1831,6 +2312,26 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 	var val_res := validate_save_data(loaded_data)
 	if not val_res.get("valid", false):
 		return {"success": false, "error": val_res.get("error", "Dữ liệu bản lưu không hợp lệ")}
+
+	# Resolve generator version before any snapshot or world mutation
+	var meta_data: Dictionary = loaded_data.get("metadata", {})
+	var gen_res := resolve_save_generator_version(meta_data)
+	var gen_status: int = int(gen_res.get("status", GeneratorVersionStatus.UNSUPPORTED))
+	var target_gen_ver: int = -1
+	if gen_status == GeneratorVersionStatus.EXPLICIT_SUPPORTED:
+		target_gen_ver = int(gen_res.get("version", -1))
+		if resolved_generator_version != -1 and resolved_generator_version != target_gen_ver:
+			return {"success": false, "error": "Phiên bản bộ tạo thế giới đã chọn (%d) không khớp bản lưu (%d)." % [resolved_generator_version, target_gen_ver]}
+	elif gen_status == GeneratorVersionStatus.AMBIGUOUS_MISSING:
+		if not (resolved_generator_version in [WorldGenerator.LEGACY_GENERATOR_VERSION, WorldGenerator.BATCH03_GENERATOR_VERSION]):
+			return {
+				"success": false,
+				"requires_generator_resolution": true,
+				"error": "Save này chưa lưu phiên bản tạo bản đồ. Hãy chọn V1 hoặc V2 trước khi tải."
+			}
+		target_gen_ver = resolved_generator_version
+	else:
+		return {"success": false, "error": gen_res.get("error", "Phiên bản bộ tạo thế giới không được hỗ trợ.")}
 
 	# Preflight probe all military/siege subsystems so no mid-restore failure can occur
 	var preflight_res := _preflight_validate_military_subsystems(loaded_data)
@@ -1846,8 +2347,62 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 	var CitizenControllerScript = preload("res://scripts/entities/citizen_controller.gd")
 	var citizen_tex = load("res://assets/entities/citizen.png")
 
-	# 0. Restore Metadata (world_id)
-	var meta_data: Dictionary = loaded_data.get("metadata", {})
+	# 0. Restore Metadata (world_id, world_seed, world_generator_version, map dimensions)
+	var fallback_seed: int = int(world_view.get("world_seed")) if world_view.get("world_seed") != null else 12345
+	var target_seed: int = int(meta_data.get("world_seed", fallback_seed))
+	var default_dim_for_ver: int = WorldGenerator.DEFAULT_NEW_MAP_SIZE if target_gen_ver >= WorldGenerator.EXPANDED_GENERATOR_VERSION else WorldGenerator.LEGACY_MAP_SIZE
+	var target_width: int = int(meta_data.get("map_width", default_dim_for_ver))
+	var target_height: int = int(meta_data.get("map_height", default_dim_for_ver))
+	if target_gen_ver < WorldGenerator.EXPANDED_GENERATOR_VERSION and not meta_data.has("map_width"):
+		target_width = WorldGenerator.LEGACY_MAP_SIZE
+		target_height = WorldGenerator.LEGACY_MAP_SIZE
+	var stage_e_snapshot: Variant = null
+	var scratch_stl_items: Array = []
+	var scratch_stl_skips: Dictionary = {}
+	if target_gen_ver >= WorldGenerator.RIVAL_SETTLEMENTS_GENERATOR_VERSION and loaded_data.has("settlements"):
+		var stl_sec: Dictionary = loaded_data.get("settlements", {})
+		var parsed := _deserialize_settlements_scratch(stl_sec)
+		scratch_stl_items = parsed["items"]
+		scratch_stl_skips = parsed["skip_reasons"]
+		stage_e_snapshot = scratch_stl_items
+
+	var existing_wd = world_view.get("world_data")
+	var needs_terrain_rebuild: bool = (
+		existing_wd == null or
+		int(existing_wd.get("seed_value")) != target_seed or
+		int(existing_wd.get("generator_version")) != target_gen_ver or
+		int(existing_wd.get("map_width")) != target_width or
+		int(existing_wd.get("map_height")) != target_height
+	)
+	if not needs_terrain_rebuild and _is_rollback and target_gen_ver >= WorldGenerator.RIVAL_SETTLEMENTS_GENERATOR_VERSION:
+		needs_terrain_rebuild = true
+	if not needs_terrain_rebuild and stage_e_snapshot is Array:
+		if not _settlements_geometry_matches(existing_wd.get("settlements"), scratch_stl_items):
+			needs_terrain_rebuild = true
+
+	if needs_terrain_rebuild:
+		if world_view.has_method("rebuild_world_terrain_for_load"):
+			var rebuild_ok: bool = bool(world_view.call("rebuild_world_terrain_for_load", target_seed, target_gen_ver, target_width, target_height, stage_e_snapshot))
+			if not rebuild_ok:
+				return {"success": false, "error": "Không thể tái tạo địa hình cho world_generator_version=%d" % target_gen_ver}
+		else:
+			var rebuilt_wd := WorldGenerator.generate(target_seed, target_gen_ver, target_width, target_height, stage_e_snapshot)
+			if rebuilt_wd == null:
+				return {"success": false, "error": "Không thể tái tạo địa hình cho world_generator_version=%d" % target_gen_ver}
+			world_view.set("world_seed", target_seed)
+			world_view.set("world_generator_version", target_gen_ver)
+			world_view.set("world_data", rebuilt_wd)
+			world_view.set("nav", GridNavigation.new(rebuilt_wd))
+			IsoMath.set_active_map_dimensions(rebuilt_wd.map_width, rebuilt_wd.map_height)
+	else:
+		world_view.set("world_generator_version", target_gen_ver)
+		IsoMath.set_active_map_dimensions(target_width, target_height)
+		var cam = world_view.get("camera")
+		if cam != null and cam.has_method("set_map_dimensions"):
+			cam.call("set_map_dimensions", target_width, target_height)
+	var loaded_fow = world_view.get("fog_of_war")
+	if loaded_fow == null or int(loaded_fow.get("map_width")) != target_width or int(loaded_fow.get("map_height")) != target_height:
+		world_view.set("fog_of_war", FogOfWar.new(target_width, target_height))
 	var restored_world_id: String = ""
 	if meta_data.has("world_id") and not str(meta_data["world_id"]).strip_edges().is_empty():
 		restored_world_id = str(meta_data["world_id"]).strip_edges()
@@ -1869,15 +2424,19 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 
 	if meta_data.has("active_perks") and meta_data["active_perks"] is Array:
 		world_view.set("active_perks", meta_data["active_perks"].duplicate())
+	var raw_mods: Array = []
 	if meta_data.has("world_modifiers") and meta_data["world_modifiers"] is Array:
-		var mods = meta_data["world_modifiers"].duplicate()
-		world_view.set("world_modifiers", mods)
-		var c_mgr = world_view.get("crisis_mgr")
-		if c_mgr != null and c_mgr.has_method("set_world_modifiers"):
-			c_mgr.call("set_world_modifiers", mods)
-		var ev_sys = world_view.get("event_system")
-		if ev_sys != null and ev_sys.has_method("set_world_modifiers"):
-			ev_sys.call("set_world_modifiers", mods)
+		raw_mods = meta_data["world_modifiers"]
+	var mods: Array[String] = []
+	for m in raw_mods:
+		mods.append(str(m))
+	world_view.set("world_modifiers", mods)
+	var c_mgr = world_view.get("crisis_mgr")
+	if c_mgr != null and c_mgr.has_method("set_world_modifiers"):
+		c_mgr.call("set_world_modifiers", mods)
+	var ev_sys_meta = world_view.get("event_system")
+	if ev_sys_meta != null and ev_sys_meta.has_method("set_world_modifiers"):
+		ev_sys_meta.call("set_world_modifiers", mods)
 	if meta_data.has("difficulty"):
 		world_view.set("difficulty", meta_data.get("difficulty", "normal"))
 	world_view.set("is_perks_and_modifiers_applied", true)
@@ -1971,22 +2530,62 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 	
 	if world_data != null:
 		world_data.buildings.clear()
-		# Reset occupancy grid to false, then fill from loaded buildings & props
-		for x in range(IsoMath.MAP_SIZE):
-			for y in range(IsoMath.MAP_SIZE):
-				world_data.occupancy[x][y] = false
+		var lc_mgr_load = world_view.get("land_clearing_mgr")
+		if lc_mgr_load != null and lc_mgr_load.has_method("deserialize"):
+			var lc_data = loaded_data.get("land_clearing", {})
+			if not (lc_data is Dictionary):
+				lc_data = {}
+			lc_mgr_load.call("deserialize", lc_data)
+			var w_seed_load: int = int(world_view.get("world_seed")) if world_view.get("world_seed") != null else 0
+			var g_ver_load: int = int(world_data.generator_version)
+			lc_mgr_load.call("apply_cleared_props_to_world_data", world_data, w_seed_load, g_ver_load)
+			var nr_mgr_load = world_view.get("natural_resource_mgr")
+			if nr_mgr_load != null:
+				if g_ver_load >= WorldGenerator.NATURAL_RESOURCES_GENERATOR_VERSION and nr_mgr_load.has_method("apply_deltas_to_world_data"):
+					var nr_data = loaded_data.get("natural_resources", {})
+					if not (nr_data is Dictionary):
+						nr_data = {}
+					nr_mgr_load.call("apply_deltas_to_world_data", world_data, nr_data)
+				elif nr_mgr_load.has_method("clear_all"):
+					nr_mgr_load.call("clear_all")
+			if world_view.has_method("sync_props_from_world_data"):
+				world_view.call("sync_props_from_world_data")
+			if world_view.has_method("set_debug_fog_disabled"):
+				world_view.call("set_debug_fog_disabled", false)
+		# Reset occupancy grid preserving impassable terrain, then fill from loaded buildings & props
+		for x in range(world_data.map_width):
+			for y in range(world_data.map_height):
+				var t_type: int = world_data.terrain[x][y]
+				var is_terrain_blocked: bool = (t_type == WorldGenerator.TerrainType.WATER) or (world_data.generator_version == WorldGenerator.BATCH03_GENERATOR_VERSION and t_type == WorldGenerator.TerrainType.MOUNTAINS)
+				world_data.occupancy[x][y] = is_terrain_blocked
 				
 		for p in world_data.props:
 			world_data.occupancy[p["cell"].x][p["cell"].y] = true
+		var wl_mgr_load = world_view.get("wildlife_mgr")
+		if wl_mgr_load != null and wl_mgr_load.has_method("deserialize_or_init"):
+			var wl_data = loaded_data.get("wildlife", null)
+			wl_mgr_load.call("deserialize_or_init", wl_data, world_data, world_view.get("nav"))
+			if wl_mgr_load.has_method("refresh_visibility"):
+				wl_mgr_load.call("refresh_visibility", world_view.get("fog_of_war"), bool(world_view.get("debug_fog_disabled")))
 
 		var saved_buildings: Array = loaded_data.get("buildings", [])
+		var restored_b_ids: Dictionary = {}
 		for b in saved_buildings:
 			var b_type: String = b["type"]
 			var bp: Dictionary = EconomyConfig.BLUEPRINTS.get(b_type, {})
 			var default_size: Vector2i = bp.get("footprint", Vector2i(1, 1))
 			var b_origin := Vector2i(int(b["cell_x"]), int(b["cell_y"]))
 			var b_size := Vector2i(int(b.get("size_x", default_size.x)), int(b.get("size_y", default_size.y)))
-			var b_id: String = b["id"]
+			var raw_b_id: Variant = b.get("id", "")
+			var b_id: String = str(raw_b_id) if raw_b_id is String else ""
+			if not b_id.is_empty():
+				var id_compat: Dictionary = BuildingSystem.validate_building_id_type_compatibility(b_id, str(b_type))
+				if not bool(id_compat.get("valid", true)):
+					if not _is_rollback and not pre_load_snapshot.is_empty():
+						apply_loaded_state_to_world(world_view, pre_load_snapshot, true)
+						world_view.set("is_world_id_persisted", pre_load_persisted)
+					return {"success": false, "error": id_compat.get("error", "ID công trình không tương thích")}
+
 			var b_state: String = b.get("state", "active")
 			var default_hours: float = float(bp.get("construction_hours", 12.0))
 			var b_hours: float = float(b.get("construction_hours", default_hours))
@@ -2005,6 +2604,21 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 				"construction_progress": b_prog,
 				"construction_hours": b_hours
 			}
+
+			var canonical_id: String = BuildingSystem.resolve_building_canonical_id(b_dict)
+			if canonical_id.is_empty():
+				if not _is_rollback and not pre_load_snapshot.is_empty():
+					apply_loaded_state_to_world(world_view, pre_load_snapshot, true)
+					world_view.set("is_world_id_persisted", pre_load_persisted)
+				return {"success": false, "error": "Không thể xác định canonical ID cho công trình '%s' tại (%d, %d)." % [b_type, b_origin.x, b_origin.y]}
+			if restored_b_ids.has(canonical_id):
+				if not _is_rollback and not pre_load_snapshot.is_empty():
+					apply_loaded_state_to_world(world_view, pre_load_snapshot, true)
+					world_view.set("is_world_id_persisted", pre_load_persisted)
+				return {"success": false, "error": "Phát hiện trùng lặp canonical ID công trình: '%s'." % canonical_id}
+			restored_b_ids[canonical_id] = true
+			b_dict["id"] = canonical_id
+
 			if bool(b.get("is_upgrading", false)):
 				b_dict["is_upgrading"] = true
 				b_dict["upgrade_target_level"] = int(b.get("upgrade_target_level", int(b_dict["upgrade_level"]) + 1))
@@ -2013,6 +2627,8 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 				b_dict["upgrade_cost"] = b.get("upgrade_cost", {}).duplicate()
 			if bool(b.get("is_repairing", false)):
 				b_dict["is_repairing"] = true
+				if bool(b.get("is_restoring_townhall", false)):
+					b_dict["is_restoring_townhall"] = true
 				b_dict["repair_progress"] = float(b.get("repair_progress", 0.0))
 				b_dict["repair_hours_required"] = float(b.get("repair_hours_required", 2.0))
 				var r_cost: Dictionary = b.get("repair_cost", {}).duplicate()
@@ -2020,9 +2636,9 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 				b_dict["damage_initial_health"] = int(b.get("damage_initial_health", 50))
 				
 				var should_reserve: bool = bool(b.get("repair_reserved", false))
-				var ticket_id: String = str(b.get("repair_ticket_id", "repair_" + b_id))
+				var ticket_id: String = str(b.get("repair_ticket_id", "repair_" + b_dict["id"]))
 				if ticket_id.is_empty():
-					ticket_id = "repair_" + b_id
+					ticket_id = "repair_" + b_dict["id"]
 
 				if should_reserve and not r_cost.is_empty():
 					var rm_node = world_view.get_node_or_null("/root/ResourceManager") if world_view.is_inside_tree() else null
@@ -2036,6 +2652,7 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 						else:
 							# Fails closed on deficit or invalid reservation!
 							b_dict["is_repairing"] = false
+							b_dict["is_restoring_townhall"] = false
 							b_dict["repair_reserved"] = false
 							b_dict["repair_ticket_id"] = ""
 							b_dict["repair_progress"] = 0.0
@@ -2049,6 +2666,20 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 				else:
 					b_dict["repair_reserved"] = false
 					b_dict["repair_ticket_id"] = ""
+			if bool(b.get("is_emergency_rebuild", false)):
+				b_dict["is_emergency_rebuild"] = true
+			if b_type == "bridge":
+				b_dict["axis"] = str(b.get("axis", "x"))
+				b_dict["start_bank"] = Vector2i(int(b.get("start_bank_x", b_origin.x)), int(b.get("start_bank_y", b_origin.y)))
+				b_dict["end_bank"] = Vector2i(int(b.get("end_bank_x", b_origin.x)), int(b.get("end_bank_y", b_origin.y)))
+				b_dict["length"] = int(b.get("length", b_size.x))
+				b_dict["width"] = int(b.get("width", b_size.y))
+				b_dict["width_offset"] = int(b.get("width_offset", 0))
+				var bc: Variant = b.get("cost", {})
+				if bc is Dictionary and not bc.is_empty():
+					b_dict["cost"] = bc.duplicate()
+				else:
+					b_dict["cost"] = EconomyConfig.calculate_bridge_cost(int(b_dict["length"]), int(b_dict["width"]))
 			world_data.buildings.append(b_dict)
 			
 			# Occupancy
@@ -2056,18 +2687,109 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 				for oy in range(b_size.y):
 					var cx: int = b_origin.x + ox
 					var cy: int = b_origin.y + oy
-					if cx >= 0 and cx < IsoMath.MAP_SIZE and cy >= 0 and cy < IsoMath.MAP_SIZE:
+					if world_data.is_in_bounds(Vector2i(cx, cy)):
 						world_data.occupancy[cx][cy] = true
 						world_view.get("buildings_by_cell")[Vector2i(cx, cy)] = b_type
 						
-			world_view.call("_instantiate_building_node", b_type, b_origin, b_size, b_state)
+			if b_type == "bridge" and world_view.has_method("_instantiate_bridge_node"):
+				world_view.call("_instantiate_bridge_node", b_dict)
+			else:
+				world_view.call("_instantiate_building_node", b_type, b_origin, b_size, b_state)
 			if bool(b_dict.get("is_repairing", false)) and world_view.has_method("register_construction_jobs"):
 				world_view.call("register_construction_jobs", b_dict)
+
+		BridgeSystem.rebuild_bridge_walkability(world_data)
+		var tm_bridge = world_view.get("territory_mgr")
+		if tm_bridge != null and tm_bridge.has_method("invalidate_walkable_cache"):
+			tm_bridge.call("invalidate_walkable_cache")
 
 	# 3b. Sync Workplaces & Logistics Buffers
 	if world_view.has_method("sync_workplaces_after_load"):
 		var saved_wp_dict: Dictionary = loaded_data.get("workplaces", {})
 		world_view.call("sync_workplaces_after_load", saved_wp_dict)
+
+	# 3b2. Restore or migrate Town Hall anchor
+	if world_data != null:
+		var meta_dict: Dictionary = loaded_data.get("metadata", {})
+		var ax: int = int(meta_dict.get("townhall_anchor_x", -1))
+		var ay: int = int(meta_dict.get("townhall_anchor_y", -1))
+		if ax >= 0 and ay >= 0 and IsoMath.is_in_bounds(Vector2i(ax, ay)):
+			world_data.townhall_anchor = Vector2i(ax, ay)
+		else:
+			var resolved_anchor := Vector2i(-1, -1)
+			for b_entry in world_data.buildings:
+				if str(b_entry.get("type", "")) == "townhall":
+					resolved_anchor = b_entry.get("cell", Vector2i(-1, -1))
+					break
+			if resolved_anchor.x < 0:
+				var starter_anchor := Vector2i(31, 30)
+				var starter_clear := true
+				for ox in range(3):
+					for oy in range(3):
+						var cc := starter_anchor + Vector2i(ox, oy)
+						if not IsoMath.is_in_bounds(cc) or world_data.occupancy[cc.x][cc.y]:
+							starter_clear = false
+							break
+					if not starter_clear:
+						break
+				if starter_clear:
+					resolved_anchor = starter_anchor
+			world_data.townhall_anchor = resolved_anchor
+
+	# 3c. Recalculate Kingdom Territory from restored Town Hall level(s) before citizens restore
+	var t_mgr = world_view.get("territory_mgr")
+	if t_mgr != null and t_mgr.has_method("recalculate_territory"):
+		t_mgr.call("recalculate_territory")
+
+	# 3d & 3e. Restore or Migrate Procedural Settlements, Roads, Reservations, Solid Occupancy & Visuals (C1.10 M4)
+	if world_data != null:
+		if target_gen_ver < WorldGenerator.RIVAL_SETTLEMENTS_GENERATOR_VERSION:
+			world_data.settlements.clear()
+			world_data.settlement_reserved_cells.clear()
+			world_data.settlement_skip_reasons.clear()
+			if world_view.has_method("sync_rival_settlements_visuals"):
+				world_view.call("sync_rival_settlements_visuals")
+		else:
+			var player_cells: Dictionary = world_view.get("buildings_by_cell") if world_view.get("buildings_by_cell") is Dictionary else {}
+			var prop_cells: Dictionary = {}
+			if world_data.get("props") is Array:
+				for pr in world_data.props:
+					if pr is Dictionary and pr.has("cell"):
+						prop_cells[pr["cell"]] = true
+
+			if loaded_data.has("settlements"):
+				var conflict_err := _validate_m4_settlements_against_world(world_data, scratch_stl_items, player_cells, prop_cells)
+				if not conflict_err.is_empty():
+					if not _is_rollback and not pre_load_snapshot.is_empty():
+						apply_loaded_state_to_world(world_view, pre_load_snapshot, true)
+						world_view.set("is_world_id_persisted", pre_load_persisted)
+					return {"success": false, "error": conflict_err}
+				world_data.settlements = scratch_stl_items
+				world_data.settlement_skip_reasons = scratch_stl_skips
+				if world_view.has_method("apply_settlement_overlays_from_world_data"):
+					world_view.call("apply_settlement_overlays_from_world_data", {})
+			else:
+				# Pre-M4 V8 migration: obtain pre-player-building historical V8 layout
+				var cand_stls: Array = []
+				var cand_skips: Dictionary = {}
+				if needs_terrain_rebuild:
+					cand_stls = world_data.settlements.duplicate()
+					cand_skips = world_data.settlement_skip_reasons.duplicate(true)
+				else:
+					var staging_wd := WorldGenerator.generate(target_seed, target_gen_ver, target_width, target_height)
+					if staging_wd != null:
+						cand_stls = staging_wd.settlements
+						cand_skips = staging_wd.settlement_skip_reasons
+
+				var mig_res := _filter_legacy_v8_settlements_for_player_conflicts(world_data, cand_stls, cand_skips, player_cells)
+				world_data.settlements = mig_res["settlements"]
+				world_data.settlement_skip_reasons = mig_res["skip_reasons"]
+				if world_view.has_method("apply_settlement_overlays_from_world_data"):
+					world_view.call("apply_settlement_overlays_from_world_data", mig_res["excluded_cells"])
+
+	var ck_mgr_load = world_view.get("cookhouse_mgr")
+	if ck_mgr_load != null and ck_mgr_load.has_method("deserialize"):
+		ck_mgr_load.call("deserialize", loaded_data.get("cookhouses", null), world_data)
 
 	# 4. Clean and Reconstruct Citizens (Zero Node Duplication)
 	var citizens_container = world_view.get("citizens_container")
@@ -2089,6 +2811,10 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 	var workplace_mgr = world_view.get("workplace_mgr")
 	var saved_citizens: Array = loaded_data.get("citizens", [])
 
+	var h_occ = world_view.get("house_indoor_occupants")
+	if h_occ is Dictionary:
+		h_occ.clear()
+
 	for c in saved_citizens:
 		var cid: String = c["id"]
 		var cname: String = c["name"]
@@ -2106,6 +2832,9 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 		cit.add_child(spr)
 
 		cit.init_citizen(cid, cname, crole, c_cell, nav, job_mgr, workplace_mgr)
+		cit.set("land_clearing_mgr", world_view.get("land_clearing_mgr"))
+		cit.set("natural_resource_mgr", world_view.get("natural_resource_mgr"))
+		cit.set("active_clearing_order_id", str(c.get("active_clearing_order_id", "")))
 		if world_data != null and cit.has_method("set_barracks_checker"):
 			cit.call("set_barracks_checker", func(b_id: String = ""): return BuildingSystem.is_barracks_active(world_data, b_id))
 		if world_data != null and cit.has_method("set_construction_checker"):
@@ -2119,15 +2848,112 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 		cit.set("carrying_resource", c.get("carrying_resource", ""))
 		cit.set("carrying_amount", c.get("carrying_amount", 0))
 		cit.set("carrying_source_workplace_id", c.get("carrying_source_workplace_id", ""))
+		cit.set("carrying_dest_cell", Vector2i(int(c.get("carrying_dest_cell_x", -1)), int(c.get("carrying_dest_cell_y", -1))))
 		if cit.has_method("deserialize_skills"):
 			cit.call("deserialize_skills", c.get("skills", {}))
 		if c.has("manual_command") and c["manual_command"] is Dictionary and cit.has_method("restore_manual_command"):
 			cit.call("restore_manual_command", c["manual_command"])
+		if c.has("roaming") and c["roaming"] is Dictionary and cit.has_method("restore_roaming"):
+			cit.call("restore_roaming", c["roaming"])
+		if cit.has_method("deserialize_meal_buff"):
+			cit.call("deserialize_meal_buff", c.get("meal_buff", null))
 
 		citizens_container.add_child(cit)
+		if c.has("pos_x") and c.has("pos_y"):
+			var loaded_pos := Vector2(float(c.get("pos_x", 0.0)), float(c.get("pos_y", 0.0)))
+			var loaded_cell := IsoMath.local_to_map(loaded_pos)
+			if IsoMath.is_in_bounds(loaded_cell) and (nav == null or nav.is_cell_walkable(loaded_cell) or loaded_cell == c_cell):
+				cit.position = loaded_pos
+		if c.has("facing_dir"):
+			var f_dir := clampi(int(c.get("facing_dir", 0)), 0, 7)
+			cit.set("facing_dir", f_dir)
+			cit.set("facing_name", ContinuousPathFollower.dir_to_name(f_dir))
+			spr.flip_h = ContinuousPathFollower.should_flip_h(f_dir, false)
 		world_view.get("citizens_by_id")[cid] = cit
 		world_view.get("citizen_list").append(cit)
 		cit.citizen_died.connect(func(died_id: String): world_view.call("_on_citizen_died", died_id))
+
+		# Restore Home & Indoor Rest State (KU-POST-MVP-CITIZEN-HOME-REST-02, legacy-safe)
+		var saved_home_id: String = str(c.get("home_building_id", ""))
+		if saved_home_id != "" and world_data != null:
+			var hb: Dictionary = BuildingSystem.get_building_by_id(saved_home_id, world_data)
+			if not hb.is_empty() and str(hb.get("type", "")) == "house" and str(hb.get("state", "active")) == "active":
+				cit.set("home_building_id", saved_home_id)
+			else:
+				cit.set("home_building_id", "")
+		else:
+			cit.set("home_building_id", "")
+
+		var saved_cstate: int = int(c.get("current_state", 0))
+		var saved_rphase: int = int(c.get("rest_phase", 0))
+		var saved_rhouse: String = str(c.get("rest_house_id", ""))
+		var saved_rentry := Vector2i(int(c.get("rest_entry_cell_x", -1)), int(c.get("rest_entry_cell_y", -1)))
+		if saved_cstate == CitizenControllerScript.State.RESTING:
+			if saved_rphase == CitizenControllerScript.RestPhase.ENTERING_HOME or saved_rphase == CitizenControllerScript.RestPhase.RESTING_INSIDE:
+				var house_ok: bool = bool(world_view.call("is_house_active_and_owned", saved_rhouse)) if world_view.has_method("is_house_active_and_owned") else bool(cit.call("_is_house_active_and_owned", saved_rhouse))
+				var valid_entry := Vector2i(-1, -1)
+				if house_ok:
+					valid_entry = cit.call("_find_house_perimeter_access", saved_rhouse, saved_rentry)
+					if valid_entry == Vector2i(-1, -1):
+						house_ok = false
+				if house_ok:
+					var registered: bool = bool(world_view.call("register_house_occupant", saved_rhouse, cid)) if world_view.has_method("register_house_occupant") else false
+					if registered:
+						cit.set("current_state", CitizenControllerScript.State.RESTING)
+						cit.set("rest_phase", CitizenControllerScript.RestPhase.RESTING_INSIDE)
+						cit.set("rest_house_id", saved_rhouse)
+						cit.set("rest_entry_cell", valid_entry)
+						cit.set("current_cell", valid_entry)
+						cit.position = IsoMath.map_to_local(valid_entry)
+						cit.visible = false
+						cit.modulate.a = 1.0
+						cit.scale = Vector2.ONE
+						cit.set("status_reason", "Đang nghỉ ngơi trong nhà")
+					else:
+						house_ok = false
+				if not house_ok:
+					if world_view.has_method("unregister_house_occupant"):
+						world_view.call("unregister_house_occupant", cid, saved_rhouse)
+					var out_cell: Vector2i = cit.call("_resolve_valid_exit_cell", saved_rhouse) if saved_rhouse != "" else c_cell
+					if out_cell != Vector2i(-1, -1):
+						cit.set("current_cell", out_cell)
+						cit.position = IsoMath.map_to_local(out_cell)
+					cit.visible = true
+					cit.modulate.a = 1.0
+					cit.scale = Vector2.ONE
+					cit.set("_rest_transition_timer", 0.0)
+					cit.set("_rest_pending_interrupt", "")
+					cit.set("rest_phase", CitizenControllerScript.RestPhase.NONE)
+					cit.set("rest_house_id", "")
+					cit.set("rest_entry_cell", Vector2i(-1, -1))
+					cit.set("current_state", CitizenControllerScript.State.IDLE)
+			elif saved_rphase == CitizenControllerScript.RestPhase.EXITING_HOME:
+				var exit_c: Vector2i = cit.call("_find_house_perimeter_access", saved_rhouse, saved_rentry)
+				if exit_c != Vector2i(-1, -1):
+					cit.set("current_cell", exit_c)
+					cit.position = IsoMath.map_to_local(exit_c)
+				cit.visible = true
+				cit.set("rest_phase", CitizenControllerScript.RestPhase.NONE)
+				cit.set("rest_house_id", "")
+				cit.set("rest_entry_cell", Vector2i(-1, -1))
+				cit.set("current_state", CitizenControllerScript.State.IDLE)
+			elif saved_rphase == CitizenControllerScript.RestPhase.RETURNING_HOME:
+				if bool(cit.call("_is_house_active_and_owned", saved_rhouse)):
+					var acc_c: Vector2i = cit.call("_find_house_perimeter_access", saved_rhouse, saved_rentry)
+					if acc_c != Vector2i(-1, -1):
+						var cur_c: Vector2i = cit.get("current_cell")
+						var r_path: Array[Vector2i] = cit.call("_find_civilian_path", cur_c, acc_c)
+						if not r_path.is_empty() or cur_c == acc_c:
+							cit.set("current_state", CitizenControllerScript.State.RESTING)
+							cit.set("rest_phase", CitizenControllerScript.RestPhase.RETURNING_HOME)
+							cit.set("rest_house_id", saved_rhouse)
+							cit.set("rest_entry_cell", acc_c)
+							cit.set("current_path", r_path)
+							cit.set("status_reason", "Đang trở về nhà nghỉ")
+			else:
+				cit.set("current_state", CitizenControllerScript.State.RESTING)
+				cit.set("rest_phase", CitizenControllerScript.RestPhase.NONE)
+				cit.visible = true
 
 	# 4b. Restore Immigration Manager state & ensure next_citizen_index never collides (DEBT-03)
 	var imm_mgr = world_view.get("immigration_mgr")
@@ -2144,6 +2970,12 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 		if not (ev_data is Dictionary):
 			ev_data = {}
 		ev_sys.call("deserialize", ev_data, restored_clock_day)
+		# MBL-SAV-02: If world_events lacked world_modifiers, restore metadata-derived modifiers to event_system
+		var current_world_mods = world_view.get("world_modifiers")
+		if current_world_mods is Array and not current_world_mods.is_empty():
+			if not ev_data.has("world_modifiers") or (ev_data.get("world_modifiers") is Array and ev_data["world_modifiers"].is_empty()):
+				if ev_sys.has_method("set_world_modifiers"):
+					ev_sys.call("set_world_modifiers", current_world_mods)
 
 	# 5. Restore Research
 	var res_data_dict: Dictionary = loaded_data.get("research", {})
@@ -2163,6 +2995,7 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 	var vic_data: Dictionary = loaded_data.get("victory", {}) if loaded_data.get("victory") is Dictionary else {}
 	var vic_mgr = world_view.get("victory_mgr")
 	if vic_mgr != null:
+		vic_mgr.set("world_view", world_view)
 		var active_inst = null
 		var LegacyProfileManagerScript = load("res://scripts/legacy/legacy_profile_manager.gd")
 		if LegacyProfileManagerScript != null and LegacyProfileManagerScript.has_method("get_instance"):
@@ -2288,33 +3121,48 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 	var poi_mgr = world_view.get("poi_mgr")
 	var saved_pois: Array = loaded_data.get("pois", [])
 	if poi_mgr != null and not saved_pois.is_empty():
-		var saved_poi_ids := {}
+		poi_mgr._pois.clear()
 		for p_data in saved_pois:
-			saved_poi_ids[p_data["id"]] = true
-			var p_obj = poi_mgr.call("get_poi", p_data["id"])
-			if p_obj == null:
-				p_obj = POIManager.POIData.new()
-				p_obj.id = p_data["id"]
-				p_obj.name = p_data.get("name", "")
-				p_obj.cell = Vector2i(p_data.get("cell_x", 0), p_data.get("cell_y", 0))
-				p_obj.rewards = p_data.get("reward", {}).duplicate()
-				poi_mgr._pois[p_obj.id] = p_obj
+			var p_obj := POIManager.POIData.new()
+			p_obj.id = str(p_data["id"])
+			p_obj.type = str(p_data.get("type", p_obj.id))
+			p_obj.name = str(p_data.get("name", ""))
+			p_obj.cell = Vector2i(int(p_data.get("cell_x", 0)), int(p_data.get("cell_y", 0)))
+			var raw_rew = p_data.get("reward", {})
+			p_obj.rewards = raw_rew.duplicate() if raw_rew is Dictionary else {}
+			var raw_pend = p_data.get("pending_rewards", {})
+			p_obj.pending_rewards = raw_pend.duplicate() if raw_pend is Dictionary else {}
+			p_obj.reward_claim_initiated = bool(p_data.get("reward_claim_initiated", false))
 			p_obj.state = int(p_data.get("state", 0))
-		for poi in poi_mgr.call("get_all_pois"):
-			if not saved_poi_ids.has(poi.id):
-				poi.state = 0 # POIState.UNDISCOVERED
+			poi_mgr._pois[p_obj.id] = p_obj
+
+	# 8.5 Restore Phase 9 Monsters & Nests (or deterministic legacy-save init for V5-V7)
+	var mon_mgr_load = world_view.get("monster_mgr")
+	if mon_mgr_load != null:
+		if loaded_data.has("monsters_state") and mon_mgr_load.has_method("deserialize"):
+			mon_mgr_load.call("deserialize", loaded_data.get("monsters_state"))
+		elif mon_mgr_load.has_method("generate_initial_world"):
+			mon_mgr_load.call("generate_initial_world", world_data, world_view.get("nav"), world_view.get("territory_mgr"), poi_mgr, world_view.get("natural_resource_mgr"))
+		if mon_mgr_load.has_method("refresh_visibility"):
+			mon_mgr_load.call("refresh_visibility", world_view.get("fog_of_war"), bool(world_view.get("debug_fog_disabled")))
 
 	# 9. Restore Fog of War (CANON-011: restore saved coordinates as EXPLORED, then recompute active VISIBLE sightlines)
+	# AUD-3B-02: Safely extract and validate raw Variant payload before typed array assignment or iteration.
 	var fow = world_view.get("fog_of_war")
-	var saved_fow: Array = loaded_data.get("fog_of_war", [])
+	var raw_fow = loaded_data.get("fog_of_war")
+	var saved_fow: Array = []
+	if raw_fow is Array:
+		saved_fow = raw_fow
+	elif raw_fow != null:
+		push_warning("[SaveManager] Malformed 'fog_of_war' payload in save (expected Array, got %s); defaulting to empty explored fog." % type_string(typeof(raw_fow)))
+
 	if fow != null:
 		fow.reset_fog()
 		for coord in saved_fow:
-			if coord is Array and coord.size() >= 2:
+			if _is_valid_coord_arr(coord):
 				var cx: int = int(coord[0])
 				var cy: int = int(coord[1])
-				if IsoMath.is_in_bounds(Vector2i(cx, cy)):
-					fow._grid[cx][cy] = FogOfWar.State.EXPLORED
+				fow._grid[cx][cy] = FogOfWar.State.EXPLORED
 
 	# Refresh POI visibility based on restored discovery states
 	if world_view.has_method("refresh_poi_visibility"):
@@ -2352,6 +3200,10 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 
 	if hud and hud.has_method("_refresh_army_panel"):
 		hud.call("_refresh_army_panel")
+	if world_view.has_method("sync_day_night_visuals"):
+		world_view.call("sync_day_night_visuals")
+	if hud and hud.has_method("_update_time_display"):
+		hud.call("_update_time_display")
 
 	# 16. Restore Automation Graph Programs & Logs
 	var auto_mgr = world_view.get("automation_mgr")
@@ -2384,7 +3236,12 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 		else:
 			# Pure legacy save without tactical_military field:
 			# Reconstruct roster from authoritative player army
-			tac_mgr.call("deserialize_legacy", s_count, r_cell, nav_obj)
+			var leg_ok: bool = bool(tac_mgr.call("deserialize_legacy", s_count, r_cell, nav_obj))
+			if not leg_ok:
+				if not _is_rollback and not pre_load_snapshot.is_empty():
+					apply_loaded_state_to_world(world_view, pre_load_snapshot, true)
+					world_view.set("is_world_id_persisted", pre_load_persisted)
+				return {"success": false, "error": "Khôi phục dữ liệu quân sự kế thừa (legacy tactical roster) thất bại."}
 
 	# 18. Restore Enemy Military (Package 1X)
 	var enemy_mgr = world_view.get("enemy_military_mgr")
@@ -2420,6 +3277,17 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 			if world_view.has_method("_setup_default_siege_objectives"):
 				world_view.call("_setup_default_siege_objectives")
 
+		# 19a. Reconcile Settlement <-> SiegeObjective 1:1 relationships & Option C overlap flags (C1.10 M4)
+		if target_gen_ver >= WorldGenerator.RIVAL_SETTLEMENTS_GENERATOR_VERSION and world_data != null:
+			var rec_err := _reconcile_settlement_objectives(world_data, siege_mgr, loaded_data.has("settlements"))
+			if not rec_err.is_empty():
+				if not _is_rollback and not pre_load_snapshot.is_empty():
+					apply_loaded_state_to_world(world_view, pre_load_snapshot, true)
+					world_view.set("is_world_id_persisted", pre_load_persisted)
+				return {"success": false, "error": rec_err}
+		if world_view.has_method("_refresh_objective_building_overlaps"):
+			world_view.call("_refresh_objective_building_overlaps")
+
 	# 19b. Resolve combat targets only AFTER player units, enemy units, and siege objectives are all restored (CANON-001)
 	if tac_mgr != null and tac_mgr.has_method("resolve_all_combat_targets"):
 		tac_mgr.call("resolve_all_combat_targets")
@@ -2431,6 +3299,8 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 	# 19c. Recompute active Fog of War vision from restored buildings, citizens, and tactical units (CANON-011)
 	if world_view.has_method("refresh_world_vision"):
 		world_view.call("refresh_world_vision")
+	if world_view.has_method("_sync_full_fog_and_minimap"):
+		world_view.call("_sync_full_fog_and_minimap")
 	if world_view.has_method("refresh_poi_visibility"):
 		world_view.call("refresh_poi_visibility")
 
@@ -2455,8 +3325,275 @@ static func apply_loaded_state_to_world(world_view: Node, loaded_data: Dictionar
 		if not (cr_data is Dictionary):
 			cr_data = {}
 		cr_mgr.call("deserialize", cr_data)
+		# MBL-SAV-02: If crisis payload explicitly contains valid world_modifiers, synchronize to world_view and event_system
+		if cr_data.has("world_modifiers") and cr_data["world_modifiers"] is Array:
+			var cr_mods: Array[String] = []
+			for m in cr_data["world_modifiers"]:
+				cr_mods.append(str(m))
+			world_view.set("world_modifiers", cr_mods)
+			var ev_sys_cr = world_view.get("event_system")
+			if ev_sys_cr != null and ev_sys_cr.has_method("set_world_modifiers"):
+				ev_sys_cr.call("set_world_modifiers", cr_mods)
+			if world_view.has_method("refresh_caravan_route_risk"):
+				world_view.call("refresh_caravan_route_risk")
 
 	var cit_count: int = world_view.get("citizen_list").size() if world_view.get("citizen_list") != null else 0
 	var bld_count: int = world_data.buildings.size() if world_data != null and world_data.get("buildings") != null else 0
 	print("[SaveManager] Loaded world state restored successfully (%d citizens, %d buildings)" % [cit_count, bld_count])
 	return {"success": true}
+
+static func _deserialize_settlements_scratch(stl_sec: Dictionary) -> Dictionary:
+	if not ResourceLoader.exists("res://scripts/world/settlement_data.gd"):
+		return {"items": [], "skip_reasons": {}}
+	var SettlementDataScript = load("res://scripts/world/settlement_data.gd")
+	var items: Array = []
+	var skips: Dictionary = {}
+	var raw_items = stl_sec.get("items", [])
+	if raw_items is Array:
+		for item in raw_items:
+			if item is Dictionary:
+				var stl = SettlementDataScript.deserialize(item)
+				if stl != null:
+					items.append(stl)
+	var raw_skips = stl_sec.get("skip_reasons", {})
+	if raw_skips is Dictionary:
+		for fk in raw_skips.keys():
+			skips[str(fk)] = str(raw_skips[fk])
+	return {"items": items, "skip_reasons": skips}
+
+static func _settlements_geometry_matches(live_stls: Variant, target_stls: Array) -> bool:
+	if not (live_stls is Array) or live_stls.size() != target_stls.size():
+		return false
+	var live_by_id: Dictionary = {}
+	for ls in live_stls:
+		if ls == null:
+			return false
+		live_by_id[str(ls.get("settlement_id"))] = ls
+	for ts in target_stls:
+		if ts == null:
+			return false
+		var sid := str(ts.get("settlement_id"))
+		if not live_by_id.has(sid):
+			return false
+		var ls = live_by_id[sid]
+		if ls.get("anchor_cell") != ts.get("anchor_cell"):
+			return false
+		if ls.get("buildings") != ts.get("buildings"):
+			return false
+		if ls.get("roads") != ts.get("roads"):
+			return false
+		if ls.get("decorations") != ts.get("decorations"):
+			return false
+	return true
+
+static func _validate_m4_settlements_against_world(world_data: WorldGenerator.WorldData, stls: Array, player_cells: Dictionary, prop_cells: Dictionary) -> String:
+	for stl in stls:
+		if stl == null:
+			return "Phát hiện phần tử settlement rỗng khi khôi phục."
+		var anchor: Vector2i = stl.anchor_cell
+		if not world_data.is_in_bounds(anchor):
+			return "anchor_cell của settlement '%s' nằm ngoài bản đồ." % stl.settlement_id
+		var t_anchor := int(world_data.terrain[anchor.x][anchor.y])
+		if t_anchor == WorldGenerator.TerrainType.WATER or t_anchor == WorldGenerator.TerrainType.MOUNTAINS:
+			return "anchor_cell của settlement '%s' nằm trên WATER/MOUNTAINS." % stl.settlement_id
+		if player_cells.has(anchor):
+			return "anchor_cell của settlement '%s' trùng với công trình người chơi." % stl.settlement_id
+
+		for b in stl.buildings:
+			var org: Vector2i = b["cell"]
+			var sz: Vector2i = b["size"]
+			var is_block := bool(b.get("blocking", true))
+			for ox in range(sz.x):
+				for oy in range(sz.y):
+					var fc := org + Vector2i(ox, oy)
+					if not world_data.is_in_bounds(fc):
+						return "Công trình settlement '%s' vượt ranh giới bản đồ." % stl.settlement_id
+					var tb := int(world_data.terrain[fc.x][fc.y])
+					if tb == WorldGenerator.TerrainType.WATER or tb == WorldGenerator.TerrainType.MOUNTAINS:
+						return "Công trình settlement '%s' nằm trên WATER/MOUNTAINS tại %s." % [stl.settlement_id, str(fc)]
+					if player_cells.has(fc):
+						return "Công trình settlement '%s' chồng lấn công trình người chơi tại %s." % [stl.settlement_id, str(fc)]
+					if is_block and prop_cells.has(fc):
+						return "Công trình settlement '%s' chồng lấn tài nguyên/vật thể tại %s." % [stl.settlement_id, str(fc)]
+
+		for r in stl.roads:
+			if not world_data.is_in_bounds(r):
+				return "Đường settlement '%s' vượt ranh giới bản đồ." % stl.settlement_id
+			var tr := int(world_data.terrain[r.x][r.y])
+			if tr == WorldGenerator.TerrainType.WATER or tr == WorldGenerator.TerrainType.MOUNTAINS:
+				return "Đường settlement '%s' nằm trên WATER/MOUNTAINS tại %s." % [stl.settlement_id, str(r)]
+			if player_cells.has(r):
+				return "Đường settlement '%s' chồng lấn công trình người chơi tại %s." % [stl.settlement_id, str(r)]
+	return ""
+
+static func _filter_legacy_v8_settlements_for_player_conflicts(world_data: WorldGenerator.WorldData, cand_stls: Array, cand_skips: Dictionary, player_cells: Dictionary) -> Dictionary:
+	var surviving: Array = []
+	var skips: Dictionary = cand_skips.duplicate(true)
+	var excluded_cells: Dictionary = {}
+
+	for stl in cand_stls:
+		if stl == null:
+			continue
+		var fid := str(stl.origin_faction_id)
+		var anchor: Vector2i = stl.anchor_cell
+		var solid_conflict := false
+
+		if not world_data.is_in_bounds(anchor) or player_cells.has(anchor):
+			solid_conflict = true
+		if not solid_conflict:
+			var t_anc := int(world_data.terrain[anchor.x][anchor.y])
+			if t_anc == WorldGenerator.TerrainType.WATER or t_anc == WorldGenerator.TerrainType.MOUNTAINS:
+				solid_conflict = true
+
+		var stl_solid: Dictionary = {}
+		if not solid_conflict:
+			for b in stl.buildings:
+				var org: Vector2i = b["cell"]
+				var sz: Vector2i = b["size"]
+				for ox in range(sz.x):
+					for oy in range(sz.y):
+						var fc := org + Vector2i(ox, oy)
+						if not world_data.is_in_bounds(fc) or player_cells.has(fc):
+							solid_conflict = true
+							break
+						var tb := int(world_data.terrain[fc.x][fc.y])
+						if tb == WorldGenerator.TerrainType.WATER or tb == WorldGenerator.TerrainType.MOUNTAINS:
+							solid_conflict = true
+							break
+						stl_solid[fc] = true
+					if solid_conflict:
+						break
+				if solid_conflict:
+					break
+
+		# Verify connectivity if roads/perimeter overlap player cells
+		if not solid_conflict:
+			var min_x := anchor.x
+			var max_x := anchor.x
+			var min_y := anchor.y
+			var max_y := anchor.y
+			for sc in stl_solid.keys():
+				min_x = mini(min_x, sc.x)
+				max_x = maxi(max_x, sc.x)
+				min_y = mini(min_y, sc.y)
+				max_y = maxi(max_y, sc.y)
+			var exit_count := 0
+			var visited: Dictionary = {anchor: true}
+			var q: Array[Vector2i] = [anchor]
+			var head := 0
+			var dirs: Array[Vector2i] = [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]
+			while head < q.size():
+				var cur: Vector2i = q[head]
+				head += 1
+				if cur.x < min_x or cur.x > max_x or cur.y < min_y or cur.y > max_y:
+					exit_count += 1
+					if exit_count >= 1:
+						break
+					continue
+				for d in dirs:
+					var nxt := cur + d
+					if not world_data.is_in_bounds(nxt) or visited.has(nxt):
+						continue
+					if stl_solid.has(nxt) or player_cells.has(nxt) or world_data.occupancy[nxt.x][nxt.y]:
+						continue
+					var nt := int(world_data.terrain[nxt.x][nxt.y])
+					if nt == WorldGenerator.TerrainType.WATER or nt == WorldGenerator.TerrainType.MOUNTAINS:
+						continue
+					visited[nxt] = true
+					q.append(nxt)
+			if exit_count < 1:
+				solid_conflict = true
+
+		if solid_conflict:
+			push_warning("[SaveManager] Pre-M4 V8 migration omitted settlement '%s' (%s) due to player building conflict." % [stl.settlement_id, fid])
+			skips[fid] = "legacy_player_building_conflict"
+			continue
+
+		for pk in player_cells.keys():
+			excluded_cells[pk] = true
+		surviving.append(stl)
+
+	return {"settlements": surviving, "skip_reasons": skips, "excluded_cells": excluded_cells}
+
+static func _reconcile_settlement_objectives(world_data: WorldGenerator.WorldData, siege_mgr: Object, is_m4_snapshot: bool) -> String:
+	if not ResourceLoader.exists("res://scripts/world/settlement_generator.gd"):
+		return ""
+	var SettlementGeneratorScript = load("res://scripts/world/settlement_generator.gd")
+	var stls: Array = world_data.settlements if world_data.get("settlements") is Array else []
+	var skips: Dictionary = world_data.settlement_skip_reasons if world_data.get("settlement_skip_reasons") is Dictionary else {}
+	var all_objs: Array = siege_mgr.call("get_all_objectives") if siege_mgr.has_method("get_all_objectives") else []
+
+	var stls_by_id: Dictionary = {}
+	var stls_by_fid: Dictionary = {}
+	var stls_by_oid: Dictionary = {}
+	for stl in stls:
+		if stl == null:
+			continue
+		if stls_by_id.has(stl.settlement_id):
+			return "Phát hiện settlement_id trùng lặp khi đối chiếu: %s." % stl.settlement_id
+		if not stl.linked_objective_id.is_empty() and stls_by_oid.has(stl.linked_objective_id):
+			return "Phát hiện linked_objective_id trùng lặp khi đối chiếu: %s." % stl.linked_objective_id
+		stls_by_id[stl.settlement_id] = stl
+		stls_by_fid[stl.origin_faction_id] = stl
+		if not stl.linked_objective_id.is_empty():
+			stls_by_oid[stl.linked_objective_id] = stl
+
+	var objs_by_id: Dictionary = {}
+	var objs_by_linked_sid: Dictionary = {}
+	var objs_by_orig_fid: Dictionary = {}
+	for obj in all_objs:
+		if obj == null or not is_instance_valid(obj):
+			continue
+		var oid := str(obj.objective_id)
+		var lsid := str(obj.get("linked_settlement_id")) if obj.get("linked_settlement_id") != null else ""
+		var orig_f := str(obj.get("original_owner_id")) if obj.get("original_owner_id") != null else ""
+		if orig_f.is_empty():
+			orig_f = str(obj.get("owning_faction_id"))
+		objs_by_id[oid] = obj
+		if not lsid.is_empty():
+			if objs_by_linked_sid.has(lsid):
+				return "Phát hiện nhiều objective cùng liên kết settlement '%s'." % lsid
+			if not stls_by_id.has(lsid):
+				return "Objective '%s' liên kết settlement không tồn tại '%s'." % [oid, lsid]
+			objs_by_linked_sid[lsid] = obj
+		if not orig_f.is_empty():
+			if not objs_by_orig_fid.has(orig_f):
+				objs_by_orig_fid[orig_f] = []
+			objs_by_orig_fid[orig_f].append(obj)
+
+	for spec in SettlementGeneratorScript.FACTION_SPECS:
+		var fid := str(spec["faction_id"])
+		if stls_by_fid.has(fid):
+			var stl = stls_by_fid[fid]
+			if stl.linked_objective_id.is_empty():
+				return "Settlement '%s' thiếu linked_objective_id." % stl.settlement_id
+			var obj = objs_by_id.get(stl.linked_objective_id, null)
+			if obj == null:
+				return "Settlement '%s' thiếu objective đối ứng '%s'." % [stl.settlement_id, stl.linked_objective_id]
+			var obj_lsid := str(obj.get("linked_settlement_id")) if obj.get("linked_settlement_id") != null else ""
+			if obj_lsid.is_empty():
+				if is_m4_snapshot:
+					return "Objective '%s' trong bản lưu M4 thiếu linked_settlement_id." % obj.objective_id
+				# Pre-M4 V8 migration: unique canonical match
+				obj.set("linked_settlement_id", stl.settlement_id)
+				obj.queue_redraw()
+			elif obj_lsid != stl.settlement_id:
+				return "Xung đột liên kết 1:1 giữa objective '%s' (%s) và settlement '%s'." % [obj.objective_id, obj_lsid, stl.settlement_id]
+		else:
+			var reason: String = str(skips.get(fid, ""))
+			var fac_objs: Array = objs_by_orig_fid.get(fid, [])
+			var expected_oid := "outpost_%s" % fid
+			if reason == "map_constraints":
+				if not fac_objs.is_empty() or objs_by_id.has(expected_oid):
+					return "Faction '%s' bị skip do map_constraints nhưng vẫn tồn tại objective." % fid
+			elif reason == "legacy_player_building_conflict":
+				if fac_objs.size() > 1:
+					return "Faction '%s' có nhiều hơn 1 objective khi bị skip do legacy_player_building_conflict." % fid
+				for fo in fac_objs:
+					var f_lsid := str(fo.get("linked_settlement_id")) if fo.get("linked_settlement_id") != null else ""
+					if not f_lsid.is_empty():
+						return "Objective '%s' của faction bị skip '%s' phải có linked_settlement_id rỗng." % [str(fo.objective_id), fid]
+			else:
+				return "Thiếu settlement và skip_reason cho faction '%s'." % fid
+
+	return ""

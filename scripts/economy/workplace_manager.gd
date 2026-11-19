@@ -4,7 +4,11 @@ extends RefCounted
 ## Manages production buffers, access points, and physical hauling loop.
 ## Prevents instant teleportation of goods from production sites to central storage.
 
+const PAUSE_REASON_PLAYER := "player"
+const PAUSE_REASON_DAMAGED := "damaged"
+
 signal buffer_changed(workplace_id: String, current_amount: int, max_capacity: int)
+signal buffer_forfeited(workplace_id: String, resource_id: String, amount: int)
 
 class WorkplaceData:
 	var id: String
@@ -22,7 +26,10 @@ class WorkplaceData:
 	var required_inputs: Dictionary = {}
 	var output_amount: int = 1
 	var level_multiplier: float = 1.0
-	var is_paused: bool = false
+	var pause_reasons: Dictionary = {}
+	var is_paused: bool:
+		get:
+			return not pause_reasons.is_empty()
 
 class DropoffData:
 	var id: String
@@ -115,7 +122,46 @@ func get_workplaces_for_building(building_id: String) -> Array:
 func has_workplace(id: String) -> bool:
 	return get_workplace(id) != null
 
-func unregister_workplace(id: String) -> void:
+## Policy A (MBL-ECO-01): Forfeits all unhauled output stored in the workplace buffer.
+## Pending goods are discarded and never credited to ResourceManager central inventory.
+## Safe and idempotent: returns a dictionary describing the forfeited resources and total amount.
+func forfeit_workplace_buffer(workplace_or_building_id: String) -> Dictionary:
+	var res := {
+		"total_forfeited": 0,
+		"forfeited_by_resource": {},
+		"workplaces_affected": []
+	}
+	if workplace_or_building_id.is_empty():
+		return res
+
+	# Locate all associated workplace instances (including channels if parent building ID)
+	var targets: Array[WorkplaceData] = []
+	for wp in _workplaces.values():
+		if wp.id == workplace_or_building_id or wp.parent_building_id == workplace_or_building_id:
+			targets.append(wp)
+
+	# If none found by building/parent ID, try exact alias or direct lookup
+	if targets.is_empty():
+		var direct_wp = get_workplace(workplace_or_building_id)
+		if direct_wp != null and not targets.has(direct_wp):
+			targets.append(direct_wp)
+
+	for wp in targets:
+		var amt: int = wp.buffer_amount
+		if amt > 0:
+			wp.buffer_amount = 0
+			buffer_changed.emit(wp.id, 0, wp.buffer_capacity)
+			buffer_forfeited.emit(wp.id, wp.output_resource, amt)
+			res["total_forfeited"] += amt
+			var r_id: String = wp.output_resource
+			res["forfeited_by_resource"][r_id] = int(res["forfeited_by_resource"].get(r_id, 0)) + amt
+			res["workplaces_affected"].append(wp.id)
+			print("[WorkplaceManager] Policy A: Forfeited %d unhauled %s from workplace '%s'" % [amt, r_id, wp.id])
+
+	return res
+
+func unregister_workplace(id: String) -> Dictionary:
+	var forfeit_res: Dictionary = forfeit_workplace_buffer(id)
 	_workplaces.erase(id)
 	var to_erase: Array[String] = []
 	for wid in _workplaces:
@@ -123,17 +169,49 @@ func unregister_workplace(id: String) -> void:
 			to_erase.append(wid)
 	for wid in to_erase:
 		_workplaces.erase(wid)
+	return forfeit_res
 
 func unregister_dropoff(id: String) -> void:
 	_dropoffs.erase(id)
 
-func set_workplace_paused(workplace_id: String, paused: bool) -> void:
+func has_dropoff(id: String) -> bool:
+	return _dropoffs.has(id)
+
+func _apply_pause_reason(wp: WorkplaceData, reason: String, active: bool) -> void:
+	if wp == null or reason.is_empty():
+		return
+	if active:
+		wp.pause_reasons[reason] = true
+	else:
+		wp.pause_reasons.erase(reason)
+
+func set_workplace_pause_reason(workplace_id: String, reason: String, active: bool) -> void:
+	if reason.is_empty():
+		return
 	var wp: WorkplaceData = get_workplace(workplace_id)
 	if wp != null:
-		wp.is_paused = paused
+		_apply_pause_reason(wp, reason, active)
 	for wid in _workplaces:
 		if _workplaces[wid].parent_building_id == workplace_id:
-			_workplaces[wid].is_paused = paused
+			_apply_pause_reason(_workplaces[wid], reason, active)
+
+func has_workplace_pause_reason(workplace_id: String, reason: String) -> bool:
+	var wp: WorkplaceData = get_workplace(workplace_id)
+	if wp != null:
+		return wp.pause_reasons.has(reason)
+	return false
+
+func get_workplace_pause_reasons(workplace_id: String) -> Array[String]:
+	var reasons: Array[String] = []
+	var wp: WorkplaceData = get_workplace(workplace_id)
+	if wp != null:
+		for key in wp.pause_reasons.keys():
+			reasons.append(str(key))
+		reasons.sort()
+	return reasons
+
+func set_workplace_paused(workplace_id: String, paused: bool) -> void:
+	set_workplace_pause_reason(workplace_id, PAUSE_REASON_PLAYER, paused)
 
 func is_workplace_paused(workplace_id: String) -> bool:
 	var wp: WorkplaceData = get_workplace(workplace_id)
@@ -249,6 +327,20 @@ func pickup_from_buffer(workplace_id: String, max_amount: int) -> int:
 	wp.buffer_amount -= taken
 	buffer_changed.emit(workplace_id, wp.buffer_amount, wp.buffer_capacity)
 	return taken
+
+## Returns unhauled cargo back into a workplace buffer safely, respecting capacity and emitting buffer_changed.
+func return_to_buffer(workplace_id: String, amount: int) -> int:
+	if amount <= 0:
+		return 0
+	var wp: WorkplaceData = get_workplace(workplace_id)
+	if wp == null:
+		return 0
+	var space: int = maxi(0, wp.buffer_capacity - wp.buffer_amount)
+	var accepted: int = mini(amount, space)
+	if accepted > 0:
+		wp.buffer_amount += accepted
+		buffer_changed.emit(workplace_id, wp.buffer_amount, wp.buffer_capacity)
+	return accepted
 
 ## Finds nearest registered dropoff access cell.
 func get_nearest_dropoff_cell(from_cell: Vector2i) -> Vector2i:

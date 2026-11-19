@@ -207,7 +207,10 @@ func _on_delete_program_pressed() -> void:
 
 func _on_enabled_toggled(button_pressed: bool) -> void:
 	if current_program:
-		current_program.enabled = button_pressed
+		if automation_mgr != null and automation_mgr.has_method("set_program_enabled"):
+			automation_mgr.set_program_enabled(current_program.id, button_pressed)
+		else:
+			current_program.enabled = button_pressed
 		_update_current_program_select_label()
 
 func _on_priority_changed(value: float) -> void:
@@ -505,6 +508,8 @@ func delete_node_by_id(nid: String) -> void:
 		if str(current_program.nodes[i].get("id")) == nid:
 			current_program.nodes.remove_at(i)
 			break
+	if automation_mgr != null and automation_mgr.has_method("cleanup_stale_graph_priority_modifiers"):
+		automation_mgr.cleanup_stale_graph_priority_modifiers()
 
 	var gn = graph_edit.get_node_or_null(nid)
 	if gn:
@@ -625,7 +630,9 @@ func _build_inspector_for_node(n_data: Dictionary) -> void:
 
 		"Action":
 			if subtype == "AssignRole":
-				var roles := ["idle", "farmer", "woodcutter", "builder", "hauler", "miner", "smith", "guard"]
+				var roles := ["idle", "farmer", "woodcutter", "builder", "hauler", "miner", "smith", "guard", "hunter"]
+				var role_label := func(r_id: String) -> String:
+					return "Thợ Săn" if r_id == "hunter" else r_id.capitalize()
 				# From Role
 				var lbl_fr := Label.new()
 				lbl_fr.text = "Từ nghề (From Role):"
@@ -633,7 +640,7 @@ func _build_inspector_for_node(n_data: Dictionary) -> void:
 
 				var opt_fr := OptionButton.new()
 				for i in range(roles.size()):
-					opt_fr.add_item(roles[i].capitalize(), i)
+					opt_fr.add_item(role_label.call(roles[i]), i)
 					if roles[i] == str(params.get("from_role", "idle")).to_lower():
 						opt_fr.selected = i
 				opt_fr.item_selected.connect(func(idx: int):
@@ -649,7 +656,7 @@ func _build_inspector_for_node(n_data: Dictionary) -> void:
 
 				var opt_tr := OptionButton.new()
 				for i in range(roles.size()):
-					opt_tr.add_item(roles[i].capitalize(), i)
+					opt_tr.add_item(role_label.call(roles[i]), i)
 					if roles[i] == str(params.get("to_role", "farmer")).to_lower():
 						opt_tr.selected = i
 				opt_tr.item_selected.connect(func(idx: int):

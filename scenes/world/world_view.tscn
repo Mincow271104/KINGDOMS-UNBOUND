@@ -27,6 +27,8 @@ y_sort_enabled = true
 [node name="CursorHighlight" type="Sprite2D" parent="World"]
 z_index = 10
 
+[node name="DayNightModulate" type="CanvasModulate" parent="World"]
+
 [node name="Camera2D" type="Camera2D" parent="."]
 script = ExtResource("2_cam")
 start_grid_pos = Vector2i(32, 32)

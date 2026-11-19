@@ -302,6 +302,9 @@ func _test_casualty_parity_with_player_army() -> void:
 	print("\n--- Test 10: Strict Casualty Parity with PlayerArmyManager ---")
 	var army_mgr = PlayerArmyManagerScript.new()
 	var tac_mgr = TacticalMilitaryManagerScript.new(null, army_mgr)
+	var nav := MockNav.new()
+	army_mgr.set_custom_nav(nav)
+	tac_mgr.set_custom_nav(nav)
 	army_mgr.set_tactical_military_manager(tac_mgr)
 
 	# Set up 3 soldiers

@@ -29,22 +29,22 @@ func _init() -> void:
 	else:
 		print("PASS: pause strictly halts time progression")
 		
-	# Test normal speed 1x
+	# Test normal speed 1x (GDD §4.1: 7.5 real seconds = 1 game hour, 180s = 1 game day)
 	tm.resume()
-	tm._process(1.0) # 1 real second = 1 game hour
+	tm._process(7.5) # 7.5 real seconds = 1 game hour at 1x
 	if tm.current_hour != 7:
-		printerr("FAIL: expected hour 7, got %d" % tm.current_hour)
+		printerr("FAIL: expected hour 7 after 7.5s at 1x, got %d" % tm.current_hour)
 		failures += 1
 	else:
-		print("PASS: 1.0s at 1x speed advances exactly 1 hour (06:00 -> 07:00)")
+		print("PASS: 7.5s at 1x speed advances exactly 1 hour (06:00 -> 07:00)")
 		
-	# Test day progression: advance 17 hours to 24:00 (midnight = next day)
-	tm._process(17.0)
+	# Test day progression: advance 17 hours (17 * 7.5 = 127.5s) to 24:00 (midnight = next day)
+	tm._process(127.5)
 	if tm.current_hour != 0 or tm.current_day != 2:
 		printerr("FAIL: expected midnight Day 2, got Day %d %02d:00" % [tm.current_day, tm.current_hour])
 		failures += 1
 	else:
-		print("PASS: 24-hour cycle advances to Day 2 at 00:00")
+		print("PASS: 180.0s (24-hour cycle) at 1x advances to Day 2 at 00:00")
 		
 	# Test seasonal modifier
 	if tm.get_seasonal_farm_modifier() != 1.0:
