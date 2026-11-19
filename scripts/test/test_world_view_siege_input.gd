@@ -129,6 +129,10 @@ func _run_verification() -> void:
 	pam.movement_state = 2 # MovementState.IDLE_AT_FIELD
 	pam.sync_state_from_tactical()
 
+	# Refresh world vision so the positioned field units observe the target objective in FogOfWar
+	if world_instance.has_method("refresh_world_vision"):
+		world_instance.refresh_world_vision()
+
 	tac_double.select_all()
 	_assert(tac_double.get_selected_count() > 0, "Tactical units selected (selected = %d)" % tac_double.get_selected_count())
 	_assert(pam.get_field_unit_count() > 0, "PlayerArmyManager has ready field troops (%d)" % pam.get_field_unit_count())

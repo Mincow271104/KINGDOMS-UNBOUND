@@ -1250,39 +1250,56 @@ func _unhandled_input(event: InputEvent) -> void:
 						target_is_obj = true
 
 					if target_is_obj and obj_target != null:
-						var is_active := false
-						if field_siege_mgr != null and field_siege_mgr.has_method("is_siege_active_for_objective"):
-							is_active = field_siege_mgr.is_siege_active_for_objective(obj_target.objective_id)
-
-						if is_active:
-							var res: Dictionary = tactical_military_mgr.call("issue_attack_order", obj_target, nav)
-							if not res.get("success", false) and hud != null:
-								hud.show_event_banner("Lệnh Tấn Công Thất Bại", res.get("reason", "Không thể tấn công"), false, 3.0)
+						if str(obj_target.owning_faction_id) == "player":
+							_handle_tactical_right_click_friendly_outpost(
+								str(obj_target.objective_id),
+								str(obj_target.objective_name),
+								obj_target.current_cell,
+								bool(obj_target.is_alive)
+							)
 						else:
-							if field_siege_mgr != null:
-								var check: Dictionary = field_siege_mgr.can_launch_field_siege(obj_target.owning_faction_id, obj_target.objective_id)
-								if bool(check.get("can_launch", false)):
-									var launch_res: Dictionary = field_siege_mgr.launch_field_siege(obj_target.owning_faction_id, obj_target.objective_id)
-									if bool(launch_res.get("success", false)):
-										var atk_res: Dictionary = tactical_military_mgr.call("issue_attack_order", obj_target, nav)
-										if not atk_res.get("success", false) and hud != null:
-											hud.show_event_banner("Lệnh Tấn Công Thất Bại", atk_res.get("reason", "Không thể tấn công mục tiêu công thành"), false, 3.0)
-										elif hud != null:
-											hud.show_event_banner("Phát Động Công Thành!", "Đã phát động chiến dịch công thành đối với %s!" % obj_target.objective_name, true, 4.0)
+							var is_active := false
+							if field_siege_mgr != null and field_siege_mgr.has_method("is_siege_active_for_objective"):
+								is_active = field_siege_mgr.is_siege_active_for_objective(obj_target.objective_id)
+
+							if is_active:
+								var res: Dictionary = tactical_military_mgr.call("issue_attack_order", obj_target, nav)
+								if not res.get("success", false) and hud != null:
+									hud.show_event_banner("Lệnh Tấn Công Thất Bại", res.get("reason", "Không thể tấn công"), false, 3.0)
+							else:
+								if field_siege_mgr != null:
+									var check: Dictionary = field_siege_mgr.can_launch_field_siege(obj_target.owning_faction_id, obj_target.objective_id)
+									if bool(check.get("can_launch", false)):
+										var launch_res: Dictionary = field_siege_mgr.launch_field_siege(obj_target.owning_faction_id, obj_target.objective_id)
+										if bool(launch_res.get("success", false)):
+											var atk_res: Dictionary = tactical_military_mgr.call("issue_attack_order", obj_target, nav)
+											if not atk_res.get("success", false) and hud != null:
+												hud.show_event_banner("Lệnh Tấn Công Thất Bại", atk_res.get("reason", "Không thể tấn công mục tiêu công thành"), false, 3.0)
+											elif hud != null:
+												hud.show_event_banner("Phát Động Công Thành!", "Đã phát động chiến dịch công thành đối với %s!" % obj_target.objective_name, true, 4.0)
+										else:
+											if hud != null:
+												hud.show_event_banner("Không Thể Công Thành", launch_res.get("reason", "Phát động thất bại"), false, 3.5)
 									else:
 										if hud != null:
-											hud.show_event_banner("Không Thể Công Thành", launch_res.get("reason", "Phát động thất bại"), false, 3.5)
-								else:
-									if hud != null:
-										hud.show_event_banner("Không Thể Công Thành", check.get("reason", "Không đủ điều kiện công thành"), false, 3.5)
+											hud.show_event_banner("Không Thể Công Thành", check.get("reason", "Không đủ điều kiện công thành"), false, 3.5)
 					elif enemy_target != null:
 						var res: Dictionary = tactical_military_mgr.call("issue_attack_order", enemy_target, nav)
 						if not res.get("success", false) and hud != null:
 							hud.show_event_banner("Lệnh Tấn Công Thất Bại", res.get("reason", "Không thể tấn công"), false, 3.0)
 					else:
-						var res: Dictionary = tactical_military_mgr.call("issue_move_order", cell, nav)
-						if not res.get("success", false) and hud != null:
-							hud.show_event_banner("Lệnh Thất Bại", res.get("reason", "Vị trí không thể đi tới"), false, 3.0)
+						var b_data := _get_building_at_cell(cell)
+						if not b_data.is_empty() and BuildingSystem.is_outpost_building(b_data):
+							var b_id := str(b_data.get("id", ""))
+							var b_type := str(b_data.get("type", ""))
+							var b_name := _get_building_display_name(b_type)
+							var b_cell: Vector2i = b_data.get("cell", cell)
+							var b_active := (str(b_data.get("state", "")) == "active")
+							_handle_tactical_right_click_friendly_outpost(b_id, b_name, b_cell, b_active)
+						else:
+							var res: Dictionary = tactical_military_mgr.call("issue_move_order", cell, nav)
+							if not res.get("success", false) and hud != null:
+								hud.show_event_banner("Lệnh Thất Bại", res.get("reason", "Vị trí không thể đi tới"), false, 3.0)
 				elif hud != null and hud.has_method("get_inspected_citizen") and hud.get_inspected_citizen() != null:
 					_handle_citizen_right_click(cell, hud.get_inspected_citizen())
 
@@ -3057,4 +3074,81 @@ func get_outpost_garrison_data(outpost_id: String) -> Dictionary:
 	if player_army_mgr != null and player_army_mgr.has_method("get_garrison"):
 		return player_army_mgr.call("get_garrison", outpost_id)
 	return {}
+
+func _handle_tactical_right_click_friendly_outpost(outpost_id: String, outpost_name: String, outpost_cell: Vector2i, is_operational: bool) -> void:
+	if player_army_mgr == null or tactical_military_mgr == null:
+		return
+	if not is_operational:
+		if hud != null:
+			hud.show_event_banner("Không Thể Đồn Trú", "%s chưa ở trạng thái hoạt động để đồn trú." % outpost_name, false, 3.0)
+		return
+
+	var info: Dictionary = player_army_mgr.call("get_outpost_info", outpost_id)
+	if not bool(info.get("valid", false)):
+		if hud != null:
+			hud.show_event_banner("Không Thể Đồn Trú", str(info.get("reason", "Tiền đồn không hợp lệ.")), false, 3.0)
+		return
+
+	var cap: int = int(player_army_mgr.call("get_garrison_capacity", outpost_id))
+	var cur: int = int(player_army_mgr.call("get_garrison_count", outpost_id))
+	var in_transit: int = int(player_army_mgr.call("get_in_transit_count", outpost_id))
+	var vacant: int = maxi(0, cap - cur - in_transit)
+	if vacant <= 0:
+		if hud != null:
+			hud.show_event_banner("Không Thể Đồn Trú", "%s đã đạt sức chứa tối đa (%d/%d)." % [outpost_name, cur, cap], false, 3.0)
+		return
+
+	var near_ids: Array[String] = []
+	var far_ids: Array[String] = []
+	var sel_ids: Array = tactical_military_mgr.get("selected_unit_ids") if tactical_military_mgr.get("selected_unit_ids") != null else []
+	for uid in sel_ids:
+		var u = tactical_military_mgr.call("get_unit", str(uid))
+		if u == null or not is_instance_valid(u) or not bool(u.get("is_alive")):
+			continue
+		var u_cell: Vector2i = u.get("current_cell")
+		if IsoMath.grid_distance(u_cell, outpost_cell) <= 4:
+			near_ids.append(str(uid))
+		else:
+			far_ids.append(str(uid))
+
+	var reserve_count: int = int(player_army_mgr.get("soldier_count")) if player_army_mgr.get("soldier_count") != null else 0
+	var max_stationable: int = mini(vacant, reserve_count)
+	if max_stationable <= 0 or (near_ids.is_empty() and far_ids.is_empty()):
+		if hud != null:
+			hud.show_event_banner("Không Thể Đồn Trú", "Không đủ binh sĩ dự bị hợp lệ để điều động.", false, 3.0)
+		return
+
+	if not near_ids.is_empty():
+		var to_station: int = mini(near_ids.size(), max_stationable)
+		var chosen_ids: Array[String] = near_ids.slice(0, to_station)
+		if tactical_military_mgr.has_method("despawn_units"):
+			tactical_military_mgr.call("despawn_units", chosen_ids, true)
+		var res: Dictionary = station_outpost_garrison(outpost_id, to_station)
+		if not bool(res.get("success", false)):
+			if tactical_military_mgr.has_method("sync_with_player_army"):
+				tactical_military_mgr.call("sync_with_player_army")
+			if hud != null:
+				hud.show_event_banner("Không Thể Đồn Trú", str(res.get("reason", "Điều binh thất bại")), false, 3.0)
+			return
+		if hud != null:
+			hud.show_event_banner("Đồn Trú Thành Công", "Đã đồn trú %d quân vào %s (%d/%d)." % [to_station, outpost_name, int(res.get("outpost_count", cur + to_station)), cap], true, 2.5)
+			if hud.has_method("refresh_building_inspector"):
+				hud.call("refresh_building_inspector")
+	else:
+		var to_dispatch: int = mini(far_ids.size(), max_stationable)
+		var chosen_ids: Array[String] = far_ids.slice(0, to_dispatch)
+		if tactical_military_mgr.has_method("despawn_units"):
+			tactical_military_mgr.call("despawn_units", chosen_ids, true)
+		var res: Dictionary = dispatch_reinforcements_to_outpost(outpost_id, to_dispatch)
+		if not bool(res.get("success", false)):
+			if tactical_military_mgr.has_method("sync_with_player_army"):
+				tactical_military_mgr.call("sync_with_player_army")
+			if hud != null:
+				hud.show_event_banner("Điều Binh Thất Bại", str(res.get("reason", "Không thể điều binh")), false, 3.0)
+			return
+		var travel_h: float = float(res.get("travel_hours", 1.0))
+		if hud != null:
+			hud.show_event_banner("Điều Binh Tiếp Viện", "Đã điều %d quân tiếp viện đến %s (Dự kiến đến sau %.1f giờ)." % [to_dispatch, outpost_name, travel_h], true, 2.5)
+			if hud.has_method("refresh_building_inspector"):
+				hud.call("refresh_building_inspector")
 

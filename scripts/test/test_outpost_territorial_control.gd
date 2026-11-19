@@ -119,6 +119,9 @@ func _test_group_2_player_siege_victory_captures_outpost() -> void:
 
 	var army_mgr = PlayerArmyManagerScript.new()
 	var tac_mgr = TacticalMilitaryManagerScript.new(null, army_mgr)
+	var nav := GridNavigation.new()
+	army_mgr.set_custom_nav(nav)
+	tac_mgr.set_custom_nav(nav)
 	army_mgr.set_tactical_military_manager(tac_mgr)
 	army_mgr.soldier_count = 3
 	tac_mgr.sync_with_player_army()
@@ -182,6 +185,9 @@ func _test_group_3_player_siege_defeat_and_withdrawal_safety() -> void:
 
 	var army_mgr = PlayerArmyManagerScript.new()
 	var tac_mgr = TacticalMilitaryManagerScript.new(null, army_mgr)
+	var nav := GridNavigation.new()
+	army_mgr.set_custom_nav(nav)
+	tac_mgr.set_custom_nav(nav)
 	army_mgr.set_tactical_military_manager(tac_mgr)
 	army_mgr.soldier_count = 2
 	tac_mgr.sync_with_player_army()
@@ -478,6 +484,9 @@ func _test_group_7_invalid_objective_and_conflict_safety() -> void:
 	sm.transfer_outpost_ownership("obj_safe_1", "player", "tx_player_claim")
 	var army_mgr = PlayerArmyManagerScript.new()
 	var tac_mgr = TacticalMilitaryManagerScript.new(null, army_mgr)
+	var nav := GridNavigation.new()
+	army_mgr.set_custom_nav(nav)
+	tac_mgr.set_custom_nav(nav)
 	army_mgr.set_tactical_military_manager(tac_mgr)
 	army_mgr.soldier_count = 5
 	tac_mgr.sync_with_player_army()
@@ -540,8 +549,13 @@ func _test_group_7_invalid_objective_and_conflict_safety() -> void:
 func _test_group_8_save_load_persistence_and_recapture() -> void:
 	print("\n--- Group 8: Save/Load Persistence, Recapture, and Tamper Resistance ---")
 	var fm_g8 := FactionManagerScript.new()
-	var sm1 = FieldSiegeManagerScript.new()
-	sm1.set_faction_manager(fm_g8)
+	var pam_g8 := PlayerArmyManagerScript.new()
+	var tac_g8 := TacticalMilitaryManagerScript.new(null, pam_g8)
+	var nav_g8 := GridNavigation.new()
+	pam_g8.set_custom_nav(nav_g8)
+	tac_g8.set_custom_nav(nav_g8)
+	pam_g8.set_tactical_military_manager(tac_g8)
+	var sm1 = FieldSiegeManagerScript.new(null, fm_g8, pam_g8, null)
 	var obj = sm1.register_objective("outpost_pers_1", Vector2i(32, 32), "neutral_tribe", 250.0, 3)
 
 	# 1. First capture: player takes neutral_tribe outpost
@@ -731,6 +745,9 @@ func _test_group_9_garrison_ownership_release_and_recapture_safety() -> void:
 	var fm_b := FactionManagerScript.new()
 	var army_mgr_b := PlayerArmyManagerScript.new()
 	var tac_mgr_b := TacticalMilitaryManagerScript.new(null, army_mgr_b)
+	var nav_b := GridNavigation.new()
+	army_mgr_b.set_custom_nav(nav_b)
+	tac_mgr_b.set_custom_nav(nav_b)
 	army_mgr_b.set_tactical_military_manager(tac_mgr_b)
 	army_mgr_b.soldier_count = 3
 	tac_mgr_b.sync_with_player_army()
@@ -784,6 +801,9 @@ func _test_group_9_garrison_ownership_release_and_recapture_safety() -> void:
 	var em_c := EnemyMilitaryManagerScript.new(null, fm_c)
 	var army_mgr_c := PlayerArmyManagerScript.new()
 	var tac_mgr_c := TacticalMilitaryManagerScript.new(null, army_mgr_c)
+	var nav_c := GridNavigation.new()
+	army_mgr_c.set_custom_nav(nav_c)
+	tac_mgr_c.set_custom_nav(nav_c)
 	army_mgr_c.set_tactical_military_manager(tac_mgr_c)
 	army_mgr_c.soldier_count = 3
 	tac_mgr_c.sync_with_player_army()
