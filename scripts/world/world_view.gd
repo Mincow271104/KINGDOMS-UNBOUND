@@ -51,6 +51,30 @@ var fog_of_war: FogOfWar
 var poi_mgr: POIManager
 var event_system: WorldEventSystem
 var poi_nodes_by_id: Dictionary = {}
+const TerrainPreviewFieldScript = preload("res://scripts/world/terrain_preview_field.gd")
+const TerrainPreviewRendererScript = preload("res://scripts/world/terrain_preview_renderer.gd")
+var fog_tile_layer: TileMapLayer = null
+var cloud_sea_base: Polygon2D = null
+var fog_cloud_layer: FogCloudLayer = null
+var cloud_sea_composite: Polygon2D = null
+var use_cloud_sea_composite: bool = true
+var _fog_state_bytes: PackedByteArray = PackedByteArray()
+var _fog_state_img: Image = null
+var _fog_state_tex: ImageTexture = null
+var _fog_state_upload_count: int = 0
+var _fog_state_last_stats: Dictionary = {}
+var _fog_transition_viewport: SubViewport = null
+var _fog_transition_rect: ColorRect = null
+var _fog_transition_update_count: int = 0
+var terrain_preview_field: TerrainPreviewFieldScript = null
+var terrain_preview_renderer: TerrainPreviewRendererScript = null
+static var _cloud_sea_shader: Shader = null
+const CLOUD_SEA_BASE_TEX_PATH: String = "res://assets/fog/cloud_sea_base_v4_512.png"
+const CLOUD_SEA_WISP_TEX_PATH: String = "res://assets/fog/cloud_sea_base_v5_wisps_512.png"
+const CLOUD_SEA_COMPOSITE_SHADER_PATH: String = "res://shaders/fog/cloud_sea_composite.gdshader"
+const FOG_TRANSITION_COVERAGE_SHADER_PATH: String = "res://shaders/fog/fog_transition_coverage.gdshader"
+const CLOUD_SEA_COMPOSITE_SEA_TEX_PATH: String = "res://assets/fog/cloud_wisps_sea_1024.png"
+const CLOUD_SEA_COMPOSITE_BANK_TEX_PATH: String = "res://assets/fog/cloud_banks_macro_1024.png"
 var faction_mgr: FactionManager
 var active_caravan: RefCounted = null
 var immigration_mgr: ImmigrationManager
@@ -286,22 +310,22 @@ func _generate_and_build_world() -> void:
 	field_siege_mgr.field_siege_resolved.connect(func(_sid: String, outcome: String, _details: Dictionary):
 		if hud != null:
 			if outcome == "DEFEAT":
-				hud.show_event_banner("Thất Bại Công Thành!", "Toàn bộ lực lượng công thành đã bị đẩy lui.", false, 5.0)
+				hud.show_event_banner("ThÃƒÂ¡Ã‚ÂºÃ‚Â¥t BÃƒÂ¡Ã‚ÂºÃ‚Â¡i CÃƒÆ’Ã‚Â´ng ThÃƒÆ’Ã‚Â nh!", "ToÃƒÆ’Ã‚Â n bÃƒÂ¡Ã‚Â»Ã¢â€žÂ¢ lÃƒÂ¡Ã‚Â»Ã‚Â±c lÃƒâ€ Ã‚Â°ÃƒÂ¡Ã‚Â»Ã‚Â£ng cÃƒÆ’Ã‚Â´ng thÃƒÆ’Ã‚Â nh Ãƒâ€žÃ¢â‚¬ËœÃƒÆ’Ã‚Â£ bÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¹ Ãƒâ€žÃ¢â‚¬ËœÃƒÂ¡Ã‚ÂºÃ‚Â©y lui.", false, 5.0)
 			elif outcome == "WITHDRAWAL":
-				hud.show_event_banner("Rút Quân Công Thành", "Lực lượng công thành đã rút lui khỏi chiến địa.", false, 4.0)
+				hud.show_event_banner("RÃƒÆ’Ã‚Âºt QuÃƒÆ’Ã‚Â¢n CÃƒÆ’Ã‚Â´ng ThÃƒÆ’Ã‚Â nh", "LÃƒÂ¡Ã‚Â»Ã‚Â±c lÃƒâ€ Ã‚Â°ÃƒÂ¡Ã‚Â»Ã‚Â£ng cÃƒÆ’Ã‚Â´ng thÃƒÆ’Ã‚Â nh Ãƒâ€žÃ¢â‚¬ËœÃƒÆ’Ã‚Â£ rÃƒÆ’Ã‚Âºt lui khÃƒÂ¡Ã‚Â»Ã‚Âi chiÃƒÂ¡Ã‚ÂºÃ‚Â¿n Ãƒâ€žÃ¢â‚¬ËœÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¹a.", false, 4.0)
 	)
 	field_siege_mgr.outpost_ownership_changed.connect(func(_obj_id: String, prev_owner: String, new_owner: String, _tx_id: String):
 		refresh_world_vision()
 		if hud != null:
 			var prev_name := _get_faction_display_name(prev_owner)
 			if new_owner == "player":
-				var title := "ĐÃ CHIẾM TIỀN ĐỒN!"
-				var desc := "Quân đội hoàng gia đã chiếm tiền đồn của %s. Quyền kiểm soát hiện thuộc về Vương quốc của bạn." % prev_name
+				var title := "Ãƒâ€žÃ‚ÂÃƒÆ’Ã†â€™ CHIÃƒÂ¡Ã‚ÂºÃ‚Â¾M TIÃƒÂ¡Ã‚Â»Ã¢â€šÂ¬N Ãƒâ€žÃ‚ÂÃƒÂ¡Ã‚Â»Ã¢â‚¬â„¢N!"
+				var desc := "QuÃƒÆ’Ã‚Â¢n Ãƒâ€žÃ¢â‚¬ËœÃƒÂ¡Ã‚Â»Ã¢â€žÂ¢i hoÃƒÆ’Ã‚Â ng gia Ãƒâ€žÃ¢â‚¬ËœÃƒÆ’Ã‚Â£ chiÃƒÂ¡Ã‚ÂºÃ‚Â¿m tiÃƒÂ¡Ã‚Â»Ã‚Ân Ãƒâ€žÃ¢â‚¬ËœÃƒÂ¡Ã‚Â»Ã¢â‚¬Å“n cÃƒÂ¡Ã‚Â»Ã‚Â§a %s. QuyÃƒÂ¡Ã‚Â»Ã‚Ân kiÃƒÂ¡Ã‚Â»Ã†â€™m soÃƒÆ’Ã‚Â¡t hiÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¡n thuÃƒÂ¡Ã‚Â»Ã¢â€žÂ¢c vÃƒÂ¡Ã‚Â»Ã‚Â VÃƒâ€ Ã‚Â°Ãƒâ€ Ã‚Â¡ng quÃƒÂ¡Ã‚Â»Ã¢â‚¬Ëœc cÃƒÂ¡Ã‚Â»Ã‚Â§a bÃƒÂ¡Ã‚ÂºÃ‚Â¡n." % prev_name
 				hud.show_event_banner(title, desc, true, 5.0)
 			else:
 				var new_name := _get_faction_display_name(new_owner)
-				var title := "BIẾN ĐỘNG LÃNH THỔ!"
-				var desc := "%s đã chiếm tiền đồn từ %s." % [new_name, prev_name]
+				var title := "BIÃƒÂ¡Ã‚ÂºÃ‚Â¾N Ãƒâ€žÃ‚ÂÃƒÂ¡Ã‚Â»Ã‹Å“NG LÃƒÆ’Ã†â€™NH THÃƒÂ¡Ã‚Â»Ã¢â‚¬Â!"
+				var desc := "%s Ãƒâ€žÃ¢â‚¬ËœÃƒÆ’Ã‚Â£ chiÃƒÂ¡Ã‚ÂºÃ‚Â¿m tiÃƒÂ¡Ã‚Â»Ã‚Ân Ãƒâ€žÃ¢â‚¬ËœÃƒÂ¡Ã‚Â»Ã¢â‚¬Å“n tÃƒÂ¡Ã‚Â»Ã‚Â« %s." % [new_name, prev_name]
 				hud.show_event_banner(title, desc, true, 5.0)
 	)
 	if field_siege_mgr.has_signal("objective_registered"):
@@ -351,6 +375,7 @@ func _generate_and_build_world() -> void:
 	_setup_workplaces()
 	_create_workplace_jobs()
 	_render_terrain()
+	_setup_fog_layer()
 	_spawn_starter_buildings()
 	_spawn_props()
 	_spawn_pois()
@@ -420,12 +445,12 @@ func _create_workplace_jobs() -> void:
 	# Farm at (36, 35) generates 5 recurring farming jobs
 	for i in range(5):
 		var target := Vector2i(35 + (i % 2), 35 + int(float(i) / 2.0))
-		job_mgr.create_job("farmer", target, "Chăm sóc và thu hoạch nông sản", "farm_starter", 3.0, 1, true)
+		job_mgr.create_job("farmer", target, "ChÃƒâ€žÃ†â€™m sÃƒÆ’Ã‚Â³c vÃƒÆ’Ã‚Â  thu hoÃƒÂ¡Ã‚ÂºÃ‚Â¡ch nÃƒÆ’Ã‚Â´ng sÃƒÂ¡Ã‚ÂºÃ‚Â£n", "farm_starter", 3.0, 1, true)
 		
 	# Woodcutter Camp at (26, 30) generates 4 recurring woodcutter jobs
 	for i in range(4):
 		var target := Vector2i(25 + (i % 2), 29 + int(float(i) / 2.0))
-		job_mgr.create_job("woodcutter", target, "Khai thác và chế biến gỗ", "woodcutter_starter", 3.0, 1, true)
+		job_mgr.create_job("woodcutter", target, "Khai thÃƒÆ’Ã‚Â¡c vÃƒÆ’Ã‚Â  chÃƒÂ¡Ã‚ÂºÃ‚Â¿ biÃƒÂ¡Ã‚ÂºÃ‚Â¿n gÃƒÂ¡Ã‚Â»Ã¢â‚¬â€", "woodcutter_starter", 3.0, 1, true)
 
 func _render_terrain() -> void:
 	for x in range(IsoMath.MAP_SIZE):
@@ -596,11 +621,11 @@ func _spawn_starter_citizens() -> void:
 	for i in range(9): starter_roles.append("idle")
 	
 	var citizen_names: Array[String] = [
-		"Nguyễn Văn An", "Trần Minh Bình", "Lê Văn Cường", "Phạm Quốc Dũng", "Hoàng Gia Em",
-		"Vũ Thành Phúc", "Đặng Quang Giáp", "Bùi Huy Hùng", "Đỗ Đức Khang", "Hồ Nhật Long",
-		"Ngô Hữu Minh", "Dương Tấn Nam", "Lý Hải Oanh", "Phan Trọng Phát", "Trịnh Đình Quân",
-		"Lâm Vĩnh Sơn", "Cao Hoài Thắng", "Mai Hữu Uy", "Đinh Tuấn Vũ", "Hà Hải Xuân",
-		"Đoàn Thế Yên", "Lương Chí Bảo", "Tạ Đình Chiến", "Trương Bá Đạt"
+		"NguyÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¦n VÃƒâ€žÃ†â€™n An", "TrÃƒÂ¡Ã‚ÂºÃ‚Â§n Minh BÃƒÆ’Ã‚Â¬nh", "LÃƒÆ’Ã‚Âª VÃƒâ€žÃ†â€™n CÃƒâ€ Ã‚Â°ÃƒÂ¡Ã‚Â»Ã‚Âng", "PhÃƒÂ¡Ã‚ÂºÃ‚Â¡m QuÃƒÂ¡Ã‚Â»Ã¢â‚¬Ëœc DÃƒâ€¦Ã‚Â©ng", "HoÃƒÆ’Ã‚Â ng Gia Em",
+		"VÃƒâ€¦Ã‚Â© ThÃƒÆ’Ã‚Â nh PhÃƒÆ’Ã‚Âºc", "Ãƒâ€žÃ‚ÂÃƒÂ¡Ã‚ÂºÃ‚Â·ng Quang GiÃƒÆ’Ã‚Â¡p", "BÃƒÆ’Ã‚Â¹i Huy HÃƒÆ’Ã‚Â¹ng", "Ãƒâ€žÃ‚ÂÃƒÂ¡Ã‚Â»Ã¢â‚¬â€ Ãƒâ€žÃ‚ÂÃƒÂ¡Ã‚Â»Ã‚Â©c Khang", "HÃƒÂ¡Ã‚Â»Ã¢â‚¬Å“ NhÃƒÂ¡Ã‚ÂºÃ‚Â­t Long",
+		"NgÃƒÆ’Ã‚Â´ HÃƒÂ¡Ã‚Â»Ã‚Â¯u Minh", "DÃƒâ€ Ã‚Â°Ãƒâ€ Ã‚Â¡ng TÃƒÂ¡Ã‚ÂºÃ‚Â¥n Nam", "LÃƒÆ’Ã‚Â½ HÃƒÂ¡Ã‚ÂºÃ‚Â£i Oanh", "Phan TrÃƒÂ¡Ã‚Â»Ã‚Âng PhÃƒÆ’Ã‚Â¡t", "TrÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¹nh Ãƒâ€žÃ‚ÂÃƒÆ’Ã‚Â¬nh QuÃƒÆ’Ã‚Â¢n",
+		"LÃƒÆ’Ã‚Â¢m VÃƒâ€žÃ‚Â©nh SÃƒâ€ Ã‚Â¡n", "Cao HoÃƒÆ’Ã‚Â i ThÃƒÂ¡Ã‚ÂºÃ‚Â¯ng", "Mai HÃƒÂ¡Ã‚Â»Ã‚Â¯u Uy", "Ãƒâ€žÃ‚Âinh TuÃƒÂ¡Ã‚ÂºÃ‚Â¥n VÃƒâ€¦Ã‚Â©", "HÃƒÆ’Ã‚Â  HÃƒÂ¡Ã‚ÂºÃ‚Â£i XuÃƒÆ’Ã‚Â¢n",
+		"Ãƒâ€žÃ‚ÂoÃƒÆ’Ã‚Â n ThÃƒÂ¡Ã‚ÂºÃ‚Â¿ YÃƒÆ’Ã‚Âªn", "LÃƒâ€ Ã‚Â°Ãƒâ€ Ã‚Â¡ng ChÃƒÆ’Ã‚Â­ BÃƒÂ¡Ã‚ÂºÃ‚Â£o", "TÃƒÂ¡Ã‚ÂºÃ‚Â¡ Ãƒâ€žÃ‚ÂÃƒÆ’Ã‚Â¬nh ChiÃƒÂ¡Ã‚ÂºÃ‚Â¿n", "TrÃƒâ€ Ã‚Â°Ãƒâ€ Ã‚Â¡ng BÃƒÆ’Ã‚Â¡ Ãƒâ€žÃ‚ÂÃƒÂ¡Ã‚ÂºÃ‚Â¡t"
 	]
 	
 	var rng := RandomNumberGenerator.new()
@@ -676,7 +701,7 @@ func _spawn_immigrant_wave(immigrants: Array) -> void:
 	if rm:
 		rm.active_population = citizen_list.size()
 	if em:
-		em.trigger_event("immigration_arrived", "Đoàn Người Di Cư Đã Đến!", "Có %d người di cư mới gia nhập vương quốc!" % immigrants.size(), true, {})
+		em.trigger_event("immigration_arrived", "Ãƒâ€žÃ‚ÂoÃƒÆ’Ã‚Â n NgÃƒâ€ Ã‚Â°ÃƒÂ¡Ã‚Â»Ã‚Âi Di CÃƒâ€ Ã‚Â° Ãƒâ€žÃ‚ÂÃƒÆ’Ã‚Â£ Ãƒâ€žÃ‚ÂÃƒÂ¡Ã‚ÂºÃ‚Â¿n!", "CÃƒÆ’Ã‚Â³ %d ngÃƒâ€ Ã‚Â°ÃƒÂ¡Ã‚Â»Ã‚Âi di cÃƒâ€ Ã‚Â° mÃƒÂ¡Ã‚Â»Ã¢â‚¬Âºi gia nhÃƒÂ¡Ã‚ÂºÃ‚Â­p vÃƒâ€ Ã‚Â°Ãƒâ€ Ã‚Â¡ng quÃƒÂ¡Ã‚Â»Ã¢â‚¬Ëœc!" % immigrants.size(), true, {})
 	var housing_cap: int = BuildingSystem.get_total_housing_capacity(world_data)
 	if hud:
 		hud.update_population_display(citizen_list.size(), housing_cap)
@@ -699,7 +724,7 @@ func _on_citizen_died(died_id: String) -> void:
 		is_combat_death = true
 	elif explicit_cause.is_empty():
 		var status_reason: String = String(cit.get("status_reason"))
-		if status_reason.contains("Tử trận"):
+		if status_reason.contains("TÃƒÂ¡Ã‚Â»Ã‚Â­ trÃƒÂ¡Ã‚ÂºÃ‚Â­n"):
 			is_combat_death = true
 
 	# Conserve carried goods on citizen death (BUG-001): deposit into central storage before node is freed
@@ -736,9 +761,9 @@ func _on_citizen_died(died_id: String) -> void:
 		rm.active_population = citizen_list.size()
 	if em:
 		if is_combat_death:
-			em.trigger_event("citizen_died", "Chiến Binh Tử Trận", "Một vệ binh đã anh dũng hy sinh khi bảo vệ định cư trong trận chiến.", false, {"citizen_id": died_id, "cause": "combat"})
+			em.trigger_event("citizen_died", "ChiÃƒÂ¡Ã‚ÂºÃ‚Â¿n Binh TÃƒÂ¡Ã‚Â»Ã‚Â­ TrÃƒÂ¡Ã‚ÂºÃ‚Â­n", "MÃƒÂ¡Ã‚Â»Ã¢â€žÂ¢t vÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¡ binh Ãƒâ€žÃ¢â‚¬ËœÃƒÆ’Ã‚Â£ anh dÃƒâ€¦Ã‚Â©ng hy sinh khi bÃƒÂ¡Ã‚ÂºÃ‚Â£o vÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¡ Ãƒâ€žÃ¢â‚¬ËœÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¹nh cÃƒâ€ Ã‚Â° trong trÃƒÂ¡Ã‚ÂºÃ‚Â­n chiÃƒÂ¡Ã‚ÂºÃ‚Â¿n.", false, {"citizen_id": died_id, "cause": "combat"})
 		else:
-			em.trigger_event("citizen_died", "Tang Lễ Vương Quốc", "Một cư dân đã qua đời do nạn đói hoặc kiệt sức.", false, {"citizen_id": died_id, "cause": "starvation_or_exhaustion"})
+			em.trigger_event("citizen_died", "Tang LÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¦ VÃƒâ€ Ã‚Â°Ãƒâ€ Ã‚Â¡ng QuÃƒÂ¡Ã‚Â»Ã¢â‚¬Ëœc", "MÃƒÂ¡Ã‚Â»Ã¢â€žÂ¢t cÃƒâ€ Ã‚Â° dÃƒÆ’Ã‚Â¢n Ãƒâ€žÃ¢â‚¬ËœÃƒÆ’Ã‚Â£ qua Ãƒâ€žÃ¢â‚¬ËœÃƒÂ¡Ã‚Â»Ã‚Âi do nÃƒÂ¡Ã‚ÂºÃ‚Â¡n Ãƒâ€žÃ¢â‚¬ËœÃƒÆ’Ã‚Â³i hoÃƒÂ¡Ã‚ÂºÃ‚Â·c kiÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¡t sÃƒÂ¡Ã‚Â»Ã‚Â©c.", false, {"citizen_id": died_id, "cause": "starvation_or_exhaustion"})
 	var housing_cap: int = BuildingSystem.get_total_housing_capacity(world_data)
 	if hud:
 		hud.update_population_display(citizen_list.size(), housing_cap)
@@ -865,7 +890,7 @@ func is_caravan_docked_at_market() -> bool:
 	return bool(dock_info.get("is_market", false))
 
 func get_caravan_docking_location_name() -> String:
-	return "Chợ" if is_caravan_docked_at_market() else "Tòa thị chính"
+	return "ChÃƒÂ¡Ã‚Â»Ã‚Â£" if is_caravan_docked_at_market() else "TÃƒÆ’Ã‚Â²a thÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¹ chÃƒÆ’Ã‚Â­nh"
 
 func get_tactical_military_manager() -> RefCounted:
 	return tactical_military_mgr
@@ -878,7 +903,7 @@ func get_field_siege_manager() -> RefCounted:
 
 func _get_faction_display_name(fac_id: String) -> String:
 	if fac_id == "player":
-		return "Vương quốc của bạn"
+		return "VÃƒâ€ Ã‚Â°Ãƒâ€ Ã‚Â¡ng quÃƒÂ¡Ã‚Â»Ã¢â‚¬Ëœc cÃƒÂ¡Ã‚Â»Ã‚Â§a bÃƒÂ¡Ã‚ÂºÃ‚Â¡n"
 	if faction_mgr != null and faction_mgr.has_method("get_faction"):
 		var f = faction_mgr.get_faction(fac_id)
 		if f != null and f.get("name") != null:
@@ -996,7 +1021,7 @@ func _on_faction_war_declared(faction_id: String) -> void:
 
 	if hud != null:
 		var fac_name: String = str(fac.name) if fac.get("name") != null else faction_id
-		hud.show_event_banner("Chiến Sự Bùng Nổ!", "Thế lực %s đã điều động quân đội đối đầu với chúng ta!" % fac_name, false, 5.0)
+		hud.show_event_banner("ChiÃƒÂ¡Ã‚ÂºÃ‚Â¿n SÃƒÂ¡Ã‚Â»Ã‚Â± BÃƒÆ’Ã‚Â¹ng NÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¢!", "ThÃƒÂ¡Ã‚ÂºÃ‚Â¿ lÃƒÂ¡Ã‚Â»Ã‚Â±c %s Ãƒâ€žÃ¢â‚¬ËœÃƒÆ’Ã‚Â£ Ãƒâ€žÃ¢â‚¬ËœiÃƒÂ¡Ã‚Â»Ã‚Âu Ãƒâ€žÃ¢â‚¬ËœÃƒÂ¡Ã‚Â»Ã¢â€žÂ¢ng quÃƒÆ’Ã‚Â¢n Ãƒâ€žÃ¢â‚¬ËœÃƒÂ¡Ã‚Â»Ã¢â€žÂ¢i Ãƒâ€žÃ¢â‚¬ËœÃƒÂ¡Ã‚Â»Ã¢â‚¬Ëœi Ãƒâ€žÃ¢â‚¬ËœÃƒÂ¡Ã‚ÂºÃ‚Â§u vÃƒÂ¡Ã‚Â»Ã¢â‚¬Âºi chÃƒÆ’Ã‚Âºng ta!" % fac_name, false, 5.0)
 
 func _on_faction_peace_signed(faction_id: String) -> void:
 	if enemy_military_mgr != null and enemy_military_mgr.has_method("on_peace_signed"):
@@ -1122,9 +1147,9 @@ func _update_tile_hover() -> void:
 				var prog: float = float(bld.get("construction_progress", 0.0))
 				var total: float = float(bld.get("construction_hours", 12.0))
 				var pct: int = int((prog / total) * 100.0) if total > 0.0 else 0
-				b_name += " [Đang xây: %d%%]" % pct
+				b_name += " [Ãƒâ€žÃ‚Âang xÃƒÆ’Ã‚Â¢y: %d%%]" % pct
 			if hud.has_method("is_army_move_targeting") and hud.call("is_army_move_targeting"):
-				b_name += " [Nhấp để điều động]"
+				b_name += " [NhÃƒÂ¡Ã‚ÂºÃ‚Â¥p Ãƒâ€žÃ¢â‚¬ËœÃƒÂ¡Ã‚Â»Ã†â€™ Ãƒâ€žÃ¢â‚¬ËœiÃƒÂ¡Ã‚Â»Ã‚Âu Ãƒâ€žÃ¢â‚¬ËœÃƒÂ¡Ã‚Â»Ã¢â€žÂ¢ng]"
 			hud.set_tile_info(cell, t_name, b_name)
 			
 		# Handle ghost building placement preview
@@ -1257,7 +1282,7 @@ func _unhandled_input(event: InputEvent) -> void:
 						if is_active:
 							var res: Dictionary = tactical_military_mgr.call("issue_attack_order", obj_target, nav)
 							if not res.get("success", false) and hud != null:
-								hud.show_event_banner("Lệnh Tấn Công Thất Bại", res.get("reason", "Không thể tấn công"), false, 3.0)
+								hud.show_event_banner("LÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¡nh TÃƒÂ¡Ã‚ÂºÃ‚Â¥n CÃƒÆ’Ã‚Â´ng ThÃƒÂ¡Ã‚ÂºÃ‚Â¥t BÃƒÂ¡Ã‚ÂºÃ‚Â¡i", res.get("reason", "KhÃƒÆ’Ã‚Â´ng thÃƒÂ¡Ã‚Â»Ã†â€™ tÃƒÂ¡Ã‚ÂºÃ‚Â¥n cÃƒÆ’Ã‚Â´ng"), false, 3.0)
 						else:
 							if field_siege_mgr != null:
 								var check: Dictionary = field_siege_mgr.can_launch_field_siege(obj_target.owning_faction_id, obj_target.objective_id)
@@ -1266,23 +1291,23 @@ func _unhandled_input(event: InputEvent) -> void:
 									if bool(launch_res.get("success", false)):
 										var atk_res: Dictionary = tactical_military_mgr.call("issue_attack_order", obj_target, nav)
 										if not atk_res.get("success", false) and hud != null:
-											hud.show_event_banner("Lệnh Tấn Công Thất Bại", atk_res.get("reason", "Không thể tấn công mục tiêu công thành"), false, 3.0)
+											hud.show_event_banner("LÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¡nh TÃƒÂ¡Ã‚ÂºÃ‚Â¥n CÃƒÆ’Ã‚Â´ng ThÃƒÂ¡Ã‚ÂºÃ‚Â¥t BÃƒÂ¡Ã‚ÂºÃ‚Â¡i", atk_res.get("reason", "KhÃƒÆ’Ã‚Â´ng thÃƒÂ¡Ã‚Â»Ã†â€™ tÃƒÂ¡Ã‚ÂºÃ‚Â¥n cÃƒÆ’Ã‚Â´ng mÃƒÂ¡Ã‚Â»Ã‚Â¥c tiÃƒÆ’Ã‚Âªu cÃƒÆ’Ã‚Â´ng thÃƒÆ’Ã‚Â nh"), false, 3.0)
 										elif hud != null:
-											hud.show_event_banner("Phát Động Công Thành!", "Đã phát động chiến dịch công thành đối với %s!" % obj_target.objective_name, true, 4.0)
+											hud.show_event_banner("PhÃƒÆ’Ã‚Â¡t Ãƒâ€žÃ‚ÂÃƒÂ¡Ã‚Â»Ã¢â€žÂ¢ng CÃƒÆ’Ã‚Â´ng ThÃƒÆ’Ã‚Â nh!", "Ãƒâ€žÃ‚ÂÃƒÆ’Ã‚Â£ phÃƒÆ’Ã‚Â¡t Ãƒâ€žÃ¢â‚¬ËœÃƒÂ¡Ã‚Â»Ã¢â€žÂ¢ng chiÃƒÂ¡Ã‚ÂºÃ‚Â¿n dÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¹ch cÃƒÆ’Ã‚Â´ng thÃƒÆ’Ã‚Â nh Ãƒâ€žÃ¢â‚¬ËœÃƒÂ¡Ã‚Â»Ã¢â‚¬Ëœi vÃƒÂ¡Ã‚Â»Ã¢â‚¬Âºi %s!" % obj_target.objective_name, true, 4.0)
 									else:
 										if hud != null:
-											hud.show_event_banner("Không Thể Công Thành", launch_res.get("reason", "Phát động thất bại"), false, 3.5)
+											hud.show_event_banner("KhÃƒÆ’Ã‚Â´ng ThÃƒÂ¡Ã‚Â»Ã†â€™ CÃƒÆ’Ã‚Â´ng ThÃƒÆ’Ã‚Â nh", launch_res.get("reason", "PhÃƒÆ’Ã‚Â¡t Ãƒâ€žÃ¢â‚¬ËœÃƒÂ¡Ã‚Â»Ã¢â€žÂ¢ng thÃƒÂ¡Ã‚ÂºÃ‚Â¥t bÃƒÂ¡Ã‚ÂºÃ‚Â¡i"), false, 3.5)
 								else:
 									if hud != null:
-										hud.show_event_banner("Không Thể Công Thành", check.get("reason", "Không đủ điều kiện công thành"), false, 3.5)
+										hud.show_event_banner("KhÃƒÆ’Ã‚Â´ng ThÃƒÂ¡Ã‚Â»Ã†â€™ CÃƒÆ’Ã‚Â´ng ThÃƒÆ’Ã‚Â nh", check.get("reason", "KhÃƒÆ’Ã‚Â´ng Ãƒâ€žÃ¢â‚¬ËœÃƒÂ¡Ã‚Â»Ã‚Â§ Ãƒâ€žÃ¢â‚¬ËœiÃƒÂ¡Ã‚Â»Ã‚Âu kiÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¡n cÃƒÆ’Ã‚Â´ng thÃƒÆ’Ã‚Â nh"), false, 3.5)
 					elif enemy_target != null:
 						var res: Dictionary = tactical_military_mgr.call("issue_attack_order", enemy_target, nav)
 						if not res.get("success", false) and hud != null:
-							hud.show_event_banner("Lệnh Tấn Công Thất Bại", res.get("reason", "Không thể tấn công"), false, 3.0)
+							hud.show_event_banner("LÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¡nh TÃƒÂ¡Ã‚ÂºÃ‚Â¥n CÃƒÆ’Ã‚Â´ng ThÃƒÂ¡Ã‚ÂºÃ‚Â¥t BÃƒÂ¡Ã‚ÂºÃ‚Â¡i", res.get("reason", "KhÃƒÆ’Ã‚Â´ng thÃƒÂ¡Ã‚Â»Ã†â€™ tÃƒÂ¡Ã‚ÂºÃ‚Â¥n cÃƒÆ’Ã‚Â´ng"), false, 3.0)
 					else:
 						var res: Dictionary = tactical_military_mgr.call("issue_move_order", cell, nav)
 						if not res.get("success", false) and hud != null:
-							hud.show_event_banner("Lệnh Thất Bại", res.get("reason", "Vị trí không thể đi tới"), false, 3.0)
+							hud.show_event_banner("LÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¡nh ThÃƒÂ¡Ã‚ÂºÃ‚Â¥t BÃƒÂ¡Ã‚ÂºÃ‚Â¡i", res.get("reason", "VÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¹ trÃƒÆ’Ã‚Â­ khÃƒÆ’Ã‚Â´ng thÃƒÂ¡Ã‚Â»Ã†â€™ Ãƒâ€žÃ¢â‚¬Ëœi tÃƒÂ¡Ã‚Â»Ã¢â‚¬Âºi"), false, 3.0)
 				elif hud != null and hud.has_method("get_inspected_citizen") and hud.get_inspected_citizen() != null:
 					_handle_citizen_right_click(cell, hud.get_inspected_citizen())
 
@@ -1292,7 +1317,7 @@ func _handle_citizen_right_click(cell: Vector2i, citizen: Node) -> void:
 
 	if not IsoMath.is_in_bounds(cell):
 		if hud != null:
-			hud.show_event_banner("Lệnh Thất Bại", "Tọa độ nằm ngoài bản đồ", false, 3.0)
+			hud.show_event_banner("LÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¡nh ThÃƒÂ¡Ã‚ÂºÃ‚Â¥t BÃƒÂ¡Ã‚ÂºÃ‚Â¡i", "TÃƒÂ¡Ã‚Â»Ã‚Âa Ãƒâ€žÃ¢â‚¬ËœÃƒÂ¡Ã‚Â»Ã¢â€žÂ¢ nÃƒÂ¡Ã‚ÂºÃ‚Â±m ngoÃƒÆ’Ã‚Â i bÃƒÂ¡Ã‚ÂºÃ‚Â£n Ãƒâ€žÃ¢â‚¬ËœÃƒÂ¡Ã‚Â»Ã¢â‚¬Å“", false, 3.0)
 		var am = get_node_or_null("/root/AudioManager") if is_inside_tree() else null
 		if am and am.has_method("play_error"):
 			am.play_error()
@@ -1327,7 +1352,7 @@ func _handle_citizen_right_click(cell: Vector2i, citizen: Node) -> void:
 					target_id = poi.id
 				else:
 					if hud != null:
-						hud.show_event_banner("Lệnh Thất Bại", "Điểm khám phá này đã được khai phá từ trước", false, 3.0)
+						hud.show_event_banner("LÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¡nh ThÃƒÂ¡Ã‚ÂºÃ‚Â¥t BÃƒÂ¡Ã‚ÂºÃ‚Â¡i", "Ãƒâ€žÃ‚ÂiÃƒÂ¡Ã‚Â»Ã†â€™m khÃƒÆ’Ã‚Â¡m phÃƒÆ’Ã‚Â¡ nÃƒÆ’Ã‚Â y Ãƒâ€žÃ¢â‚¬ËœÃƒÆ’Ã‚Â£ Ãƒâ€žÃ¢â‚¬ËœÃƒâ€ Ã‚Â°ÃƒÂ¡Ã‚Â»Ã‚Â£c khai phÃƒÆ’Ã‚Â¡ tÃƒÂ¡Ã‚Â»Ã‚Â« trÃƒâ€ Ã‚Â°ÃƒÂ¡Ã‚Â»Ã¢â‚¬Âºc", false, 3.0)
 					var am = get_node_or_null("/root/AudioManager") if is_inside_tree() else null
 					if am and am.has_method("play_error"):
 						am.play_error()
@@ -1357,7 +1382,7 @@ func _handle_citizen_right_click(cell: Vector2i, citizen: Node) -> void:
 				t_type = world_data.terrain[cell.x][cell.y]
 			if t_type == WorldGenerator.TerrainType.WATER:
 				if hud != null:
-					hud.show_event_banner("Lệnh Thất Bại", "Vị trí là mặt nước sâu, không thể tiếp cận", false, 3.0)
+					hud.show_event_banner("LÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¡nh ThÃƒÂ¡Ã‚ÂºÃ‚Â¥t BÃƒÂ¡Ã‚ÂºÃ‚Â¡i", "VÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¹ trÃƒÆ’Ã‚Â­ lÃƒÆ’Ã‚Â  mÃƒÂ¡Ã‚ÂºÃ‚Â·t nÃƒâ€ Ã‚Â°ÃƒÂ¡Ã‚Â»Ã¢â‚¬Âºc sÃƒÆ’Ã‚Â¢u, khÃƒÆ’Ã‚Â´ng thÃƒÂ¡Ã‚Â»Ã†â€™ tiÃƒÂ¡Ã‚ÂºÃ‚Â¿p cÃƒÂ¡Ã‚ÂºÃ‚Â­n", false, 3.0)
 				var am = get_node_or_null("/root/AudioManager") if is_inside_tree() else null
 				if am and am.has_method("play_error"):
 					am.play_error()
@@ -1365,7 +1390,7 @@ func _handle_citizen_right_click(cell: Vector2i, citizen: Node) -> void:
 			else:
 				if not b_data.is_empty():
 					if hud != null:
-						hud.show_event_banner("Lệnh Thất Bại", "Công trình đã hoàn thành và không có hàng đệm cần vận chuyển", false, 3.0)
+						hud.show_event_banner("LÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¡nh ThÃƒÂ¡Ã‚ÂºÃ‚Â¥t BÃƒÂ¡Ã‚ÂºÃ‚Â¡i", "CÃƒÆ’Ã‚Â´ng trÃƒÆ’Ã‚Â¬nh Ãƒâ€žÃ¢â‚¬ËœÃƒÆ’Ã‚Â£ hoÃƒÆ’Ã‚Â n thÃƒÆ’Ã‚Â nh vÃƒÆ’Ã‚Â  khÃƒÆ’Ã‚Â´ng cÃƒÆ’Ã‚Â³ hÃƒÆ’Ã‚Â ng Ãƒâ€žÃ¢â‚¬ËœÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¡m cÃƒÂ¡Ã‚ÂºÃ‚Â§n vÃƒÂ¡Ã‚ÂºÃ‚Â­n chuyÃƒÂ¡Ã‚Â»Ã†â€™n", false, 3.0)
 					var am = get_node_or_null("/root/AudioManager") if is_inside_tree() else null
 					if am and am.has_method("play_error"):
 						am.play_error()
@@ -1375,7 +1400,7 @@ func _handle_citizen_right_click(cell: Vector2i, citizen: Node) -> void:
 	var res: Dictionary = citizen.call("issue_manual_command", cmd_type, cell, target_id)
 	if not res.get("success", false):
 		if hud != null:
-			hud.show_event_banner("Lệnh Thất Bại", res.get("reason", "Không thể thực hiện lệnh"), false, 3.0)
+			hud.show_event_banner("LÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¡nh ThÃƒÂ¡Ã‚ÂºÃ‚Â¥t BÃƒÂ¡Ã‚ÂºÃ‚Â¡i", res.get("reason", "KhÃƒÆ’Ã‚Â´ng thÃƒÂ¡Ã‚Â»Ã†â€™ thÃƒÂ¡Ã‚Â»Ã‚Â±c hiÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¡n lÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¡nh"), false, 3.0)
 		var am = get_node_or_null("/root/AudioManager") if is_inside_tree() else null
 		if am and am.has_method("play_error"):
 			am.play_error()
@@ -1704,13 +1729,13 @@ func register_construction_jobs(b_data: Dictionary) -> Array[JobManager.JobData]
 			break
 		if cell in used_cells:
 			continue
-		var desc: String = "Thi công xây dựng %s" % _get_building_display_name(b_type)
+		var desc: String = "Thi cÃƒÆ’Ã‚Â´ng xÃƒÆ’Ã‚Â¢y dÃƒÂ¡Ã‚Â»Ã‚Â±ng %s" % _get_building_display_name(b_type)
 		var j_hours: float = float(b_data.get("construction_hours", 12.0))
 		if is_repairing:
-			desc = "Sửa chữa %s" % _get_building_display_name(b_type)
+			desc = "SÃƒÂ¡Ã‚Â»Ã‚Â­a chÃƒÂ¡Ã‚Â»Ã‚Â¯a %s" % _get_building_display_name(b_type)
 			j_hours = float(b_data.get("repair_hours_required", 2.0))
 		elif is_upgrading:
-			desc = "Nâng cấp %s" % _get_building_display_name(b_type)
+			desc = "NÃƒÆ’Ã‚Â¢ng cÃƒÂ¡Ã‚ÂºÃ‚Â¥p %s" % _get_building_display_name(b_type)
 			j_hours = float(b_data.get("upgrade_required_hours", 2.0))
 		var job = job_mgr.create_job(
 			"builder",
@@ -1746,7 +1771,7 @@ func advance_construction_work(b_id: String, delta_hours: float, p_resource_mgr:
 			if not completed_ok:
 				repair_result["completed"] = false
 				repair_result["completion_blocked"] = true
-				repair_result["reason"] = "Sửa chữa hoàn thành thời gian thi công nhưng chưa thể hoàn tất (chờ ResourceManager sẵn sàng)"
+				repair_result["reason"] = "SÃƒÂ¡Ã‚Â»Ã‚Â­a chÃƒÂ¡Ã‚Â»Ã‚Â¯a hoÃƒÆ’Ã‚Â n thÃƒÆ’Ã‚Â nh thÃƒÂ¡Ã‚Â»Ã‚Âi gian thi cÃƒÆ’Ã‚Â´ng nhÃƒâ€ Ã‚Â°ng chÃƒâ€ Ã‚Â°a thÃƒÂ¡Ã‚Â»Ã†â€™ hoÃƒÆ’Ã‚Â n tÃƒÂ¡Ã‚ÂºÃ‚Â¥t (chÃƒÂ¡Ã‚Â»Ã‚Â ResourceManager sÃƒÂ¡Ã‚ÂºÃ‚Âµn sÃƒÆ’Ã‚Â ng)"
 		return repair_result
 
 	if bool(b_data.get("is_upgrading", false)):
@@ -1758,7 +1783,7 @@ func advance_construction_work(b_id: String, delta_hours: float, p_resource_mgr:
 			if not completed_ok:
 				upgrade_result["completed"] = false
 				upgrade_result["completion_blocked"] = true
-				upgrade_result["reason"] = "Nâng cấp hoàn thành thời gian thi công nhưng chưa thể hoàn tất (chờ ResourceManager sẵn sàng)"
+				upgrade_result["reason"] = "NÃƒÆ’Ã‚Â¢ng cÃƒÂ¡Ã‚ÂºÃ‚Â¥p hoÃƒÆ’Ã‚Â n thÃƒÆ’Ã‚Â nh thÃƒÂ¡Ã‚Â»Ã‚Âi gian thi cÃƒÆ’Ã‚Â´ng nhÃƒâ€ Ã‚Â°ng chÃƒâ€ Ã‚Â°a thÃƒÂ¡Ã‚Â»Ã†â€™ hoÃƒÆ’Ã‚Â n tÃƒÂ¡Ã‚ÂºÃ‚Â¥t (chÃƒÂ¡Ã‚Â»Ã‚Â ResourceManager sÃƒÂ¡Ã‚ÂºÃ‚Âµn sÃƒÆ’Ã‚Â ng)"
 		return upgrade_result
 
 	var res := BuildingSystem.advance_construction(b_id, delta_hours, world_data)
@@ -1770,7 +1795,7 @@ func advance_construction_work(b_id: String, delta_hours: float, p_resource_mgr:
 		if not completed_ok:
 			res["completed"] = false
 			res["completion_blocked"] = true
-			res["reason"] = "Thi công xây dựng đã hoàn thành thời gian nhưng chưa thể hoàn tất"
+			res["reason"] = "Thi cÃƒÆ’Ã‚Â´ng xÃƒÆ’Ã‚Â¢y dÃƒÂ¡Ã‚Â»Ã‚Â±ng Ãƒâ€žÃ¢â‚¬ËœÃƒÆ’Ã‚Â£ hoÃƒÆ’Ã‚Â n thÃƒÆ’Ã‚Â nh thÃƒÂ¡Ã‚Â»Ã‚Âi gian nhÃƒâ€ Ã‚Â°ng chÃƒâ€ Ã‚Â°a thÃƒÂ¡Ã‚Â»Ã†â€™ hoÃƒÆ’Ã‚Â n tÃƒÂ¡Ã‚ÂºÃ‚Â¥t"
 
 	return res
 
@@ -1876,11 +1901,11 @@ func complete_construction(b_id: String, p_resource_mgr: Object = null) -> bool:
 
 func start_building_upgrade(b_id: String, p_resource_mgr: Object = null) -> Dictionary:
 	if world_data == null or b_id == "":
-		return {"success": false, "reason": "Dữ liệu thế giới không hợp lệ"}
+		return {"success": false, "reason": "DÃƒÂ¡Ã‚Â»Ã‚Â¯ liÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¡u thÃƒÂ¡Ã‚ÂºÃ‚Â¿ giÃƒÂ¡Ã‚Â»Ã¢â‚¬Âºi khÃƒÆ’Ã‚Â´ng hÃƒÂ¡Ã‚Â»Ã‚Â£p lÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¡"}
 
 	var b_data := BuildingSystem.get_building_by_id(b_id, world_data)
 	if b_data.is_empty():
-		return {"success": false, "reason": "Công trình không tồn tại"}
+		return {"success": false, "reason": "CÃƒÆ’Ã‚Â´ng trÃƒÆ’Ã‚Â¬nh khÃƒÆ’Ã‚Â´ng tÃƒÂ¡Ã‚Â»Ã¢â‚¬Å“n tÃƒÂ¡Ã‚ÂºÃ‚Â¡i"}
 
 	var rm: Object = p_resource_mgr if p_resource_mgr != null else _get_resource_mgr()
 	var res := BuildingSystem.start_upgrade(b_data, world_data, rm)
@@ -1896,11 +1921,11 @@ func start_building_upgrade(b_id: String, p_resource_mgr: Object = null) -> Dict
 
 func cancel_building_upgrade(b_id: String, p_resource_mgr: Object = null) -> Dictionary:
 	if world_data == null or b_id == "":
-		return {"success": false, "reason": "Dữ liệu thế giới không hợp lệ"}
+		return {"success": false, "reason": "DÃƒÂ¡Ã‚Â»Ã‚Â¯ liÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¡u thÃƒÂ¡Ã‚ÂºÃ‚Â¿ giÃƒÂ¡Ã‚Â»Ã¢â‚¬Âºi khÃƒÆ’Ã‚Â´ng hÃƒÂ¡Ã‚Â»Ã‚Â£p lÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¡"}
 
 	var b_data := BuildingSystem.get_building_by_id(b_id, world_data)
 	if b_data.is_empty():
-		return {"success": false, "reason": "Công trình không tồn tại"}
+		return {"success": false, "reason": "CÃƒÆ’Ã‚Â´ng trÃƒÆ’Ã‚Â¬nh khÃƒÆ’Ã‚Â´ng tÃƒÂ¡Ã‚Â»Ã¢â‚¬Å“n tÃƒÂ¡Ã‚ÂºÃ‚Â¡i"}
 
 	var rm: Object = p_resource_mgr if p_resource_mgr != null else _get_resource_mgr()
 	var res := BuildingSystem.cancel_upgrade(b_data, world_data, rm, job_mgr)
@@ -2085,7 +2110,7 @@ func register_upgrade_jobs(b_data: Dictionary) -> Array[JobManager.JobData]:
 		var job = job_mgr.create_job(
 			"builder",
 			cell,
-			"Nâng cấp %s lên Cấp %d" % [_get_building_display_name(b_type), target_lvl],
+			"NÃƒÆ’Ã‚Â¢ng cÃƒÂ¡Ã‚ÂºÃ‚Â¥p %s lÃƒÆ’Ã‚Âªn CÃƒÂ¡Ã‚ÂºÃ‚Â¥p %d" % [_get_building_display_name(b_type), target_lvl],
 			b_id,
 			duration,
 			2,
@@ -2100,15 +2125,15 @@ func register_upgrade_jobs(b_data: Dictionary) -> Array[JobManager.JobData]:
 
 func cancel_construction_project(b_id: String) -> Dictionary:
 	if world_data == null:
-		return {"success": false, "reason": "Dữ liệu thế giới rỗng"}
+		return {"success": false, "reason": "DÃƒÂ¡Ã‚Â»Ã‚Â¯ liÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¡u thÃƒÂ¡Ã‚ÂºÃ‚Â¿ giÃƒÂ¡Ã‚Â»Ã¢â‚¬Âºi rÃƒÂ¡Ã‚Â»Ã¢â‚¬â€ng"}
 
 	var b_data: Dictionary = BuildingSystem.get_building_by_id(b_id, world_data)
 	if b_data.is_empty():
-		return {"success": false, "reason": "Công trình không tồn tại"}
+		return {"success": false, "reason": "CÃƒÆ’Ã‚Â´ng trÃƒÆ’Ã‚Â¬nh khÃƒÆ’Ã‚Â´ng tÃƒÂ¡Ã‚Â»Ã¢â‚¬Å“n tÃƒÂ¡Ã‚ÂºÃ‚Â¡i"}
 
 	var rm := get_node_or_null("/root/ResourceManager")
 	if rm == null:
-		return {"success": false, "reason": "Thiếu ResourceManager để hoàn trả tài nguyên"}
+		return {"success": false, "reason": "ThiÃƒÂ¡Ã‚ÂºÃ‚Â¿u ResourceManager Ãƒâ€žÃ¢â‚¬ËœÃƒÂ¡Ã‚Â»Ã†â€™ hoÃƒÆ’Ã‚Â n trÃƒÂ¡Ã‚ÂºÃ‚Â£ tÃƒÆ’Ã‚Â i nguyÃƒÆ’Ã‚Âªn"}
 
 	var res := BuildingSystem.cancel_construction(b_data, world_data, rm, job_mgr)
 	if not res.get("success", false):
@@ -2215,7 +2240,7 @@ func set_building_state(b_id: String, new_state: String) -> bool:
 					job_mgr.release_job(cit.active_job)
 				cit.active_job = null
 				cit.set("current_state", CitizenController.State.IDLE)
-				cit.set("status_reason", "Công trình tạm dừng hoạt động")
+				cit.set("status_reason", "CÃƒÆ’Ã‚Â´ng trÃƒÆ’Ã‚Â¬nh tÃƒÂ¡Ã‚ÂºÃ‚Â¡m dÃƒÂ¡Ã‚Â»Ã‚Â«ng hoÃƒÂ¡Ã‚ÂºÃ‚Â¡t Ãƒâ€žÃ¢â‚¬ËœÃƒÂ¡Ã‚Â»Ã¢â€žÂ¢ng")
 	elif new_state == "damaged":
 		if old_state == "active" or old_state == "paused":
 			b_data["pre_damage_state"] = old_state
@@ -2232,7 +2257,7 @@ func set_building_state(b_id: String, new_state: String) -> bool:
 					job_mgr.release_job(cit.active_job)
 				cit.active_job = null
 				cit.set("current_state", CitizenController.State.IDLE)
-				cit.set("status_reason", "Công trình bị hư hại")
+				cit.set("status_reason", "CÃƒÆ’Ã‚Â´ng trÃƒÆ’Ã‚Â¬nh bÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¹ hÃƒâ€ Ã‚Â° hÃƒÂ¡Ã‚ÂºÃ‚Â¡i")
 	elif new_state == "active":
 		if old_state == "damaged" or old_state == "repairing":
 			b_data["health"] = int(b_data.get("max_health", 100))
@@ -2255,7 +2280,7 @@ func set_building_state(b_id: String, new_state: String) -> bool:
 					job_mgr.release_job(cit.active_job)
 				cit.active_job = null
 				cit.set("current_state", CitizenController.State.IDLE)
-				cit.set("status_reason", "Công trình đã bị phá hủy")
+				cit.set("status_reason", "CÃƒÆ’Ã‚Â´ng trÃƒÆ’Ã‚Â¬nh Ãƒâ€žÃ¢â‚¬ËœÃƒÆ’Ã‚Â£ bÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¹ phÃƒÆ’Ã‚Â¡ hÃƒÂ¡Ã‚Â»Ã‚Â§y")
 
 	if b_data.get("type", "") == "barracks":
 		if hud != null and hud.has_method("_refresh_role_options"):
@@ -2298,11 +2323,11 @@ func damage_building(b_id: String, amount: int) -> bool:
 
 func start_repair_building(b_id: String, p_resource_mgr: Object = null) -> Dictionary:
 	if world_data == null or b_id == "":
-		return {"success": false, "reason": "Dữ liệu thế giới rỗng"}
+		return {"success": false, "reason": "DÃƒÂ¡Ã‚Â»Ã‚Â¯ liÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¡u thÃƒÂ¡Ã‚ÂºÃ‚Â¿ giÃƒÂ¡Ã‚Â»Ã¢â‚¬Âºi rÃƒÂ¡Ã‚Â»Ã¢â‚¬â€ng"}
 
 	var b_data: Dictionary = BuildingSystem.get_building_by_id(b_id, world_data)
 	if b_data.is_empty():
-		return {"success": false, "reason": "Công trình không tồn tại"}
+		return {"success": false, "reason": "CÃƒÆ’Ã‚Â´ng trÃƒÆ’Ã‚Â¬nh khÃƒÆ’Ã‚Â´ng tÃƒÂ¡Ã‚Â»Ã¢â‚¬Å“n tÃƒÂ¡Ã‚ÂºÃ‚Â¡i"}
 
 	var rm: Object = p_resource_mgr if p_resource_mgr != null else _get_resource_mgr()
 	var res := BuildingSystem.start_repair(b_data, world_data, rm)
@@ -2383,11 +2408,11 @@ func complete_repair(b_id: String, p_resource_mgr: Object = null) -> bool:
 
 func cancel_repair_building(b_id: String, p_resource_mgr: Object = null) -> Dictionary:
 	if world_data == null or b_id == "":
-		return {"success": false, "reason": "Dữ liệu thế giới rỗng"}
+		return {"success": false, "reason": "DÃƒÂ¡Ã‚Â»Ã‚Â¯ liÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¡u thÃƒÂ¡Ã‚ÂºÃ‚Â¿ giÃƒÂ¡Ã‚Â»Ã¢â‚¬Âºi rÃƒÂ¡Ã‚Â»Ã¢â‚¬â€ng"}
 
 	var b_data: Dictionary = BuildingSystem.get_building_by_id(b_id, world_data)
 	if b_data.is_empty():
-		return {"success": false, "reason": "Công trình không tồn tại"}
+		return {"success": false, "reason": "CÃƒÆ’Ã‚Â´ng trÃƒÆ’Ã‚Â¬nh khÃƒÆ’Ã‚Â´ng tÃƒÂ¡Ã‚Â»Ã¢â‚¬Å“n tÃƒÂ¡Ã‚ÂºÃ‚Â¡i"}
 
 	var rm: Object = p_resource_mgr if p_resource_mgr != null else _get_resource_mgr()
 	var res := BuildingSystem.cancel_repair(b_data, world_data, rm)
@@ -2426,10 +2451,10 @@ func get_carried_cargo_for_building(b_id: String) -> Dictionary:
 
 func demolish_building_project(b_id: String) -> Dictionary:
 	if world_data == null or b_id == "":
-		return {"success": false, "reason": "Dữ liệu thế giới rỗng"}
+		return {"success": false, "reason": "DÃƒÂ¡Ã‚Â»Ã‚Â¯ liÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¡u thÃƒÂ¡Ã‚ÂºÃ‚Â¿ giÃƒÂ¡Ã‚Â»Ã¢â‚¬Âºi rÃƒÂ¡Ã‚Â»Ã¢â‚¬â€ng"}
 	var b_data: Dictionary = BuildingSystem.get_building_by_id(b_id, world_data)
 	if b_data.is_empty():
-		return {"success": false, "reason": "Công trình không tồn tại"}
+		return {"success": false, "reason": "CÃƒÆ’Ã‚Â´ng trÃƒÆ’Ã‚Â¬nh khÃƒÆ’Ã‚Â´ng tÃƒÂ¡Ã‚Â»Ã¢â‚¬Å“n tÃƒÂ¡Ã‚ÂºÃ‚Â¡i"}
 
 	var rm := get_node_or_null("/root/ResourceManager")
 	if bool(b_data.get("is_repairing", false)):
@@ -2483,12 +2508,12 @@ func demolish_building_project(b_id: String) -> Dictionary:
 						job_mgr.release_job(cit.active_job)
 					cit.active_job = null
 					cit.set("current_state", CitizenController.State.IDLE)
-					cit.set("status_reason", "Công trình đã bị dỡ bỏ")
+					cit.set("status_reason", "CÃƒÆ’Ã‚Â´ng trÃƒÆ’Ã‚Â¬nh Ãƒâ€žÃ¢â‚¬ËœÃƒÆ’Ã‚Â£ bÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¹ dÃƒÂ¡Ã‚Â»Ã‚Â¡ bÃƒÂ¡Ã‚Â»Ã‚Â")
 					# Note: Do not call _update_reason() here as it overwrites custom status reason
 				elif matches_src or matches_wp:
 					if cit.get("current_state") == CitizenController.State.HAULING:
 						cit.set("current_state", CitizenController.State.IDLE)
-						cit.set("status_reason", "Công trình đã bị dỡ bỏ")
+						cit.set("status_reason", "CÃƒÆ’Ã‚Â´ng trÃƒÆ’Ã‚Â¬nh Ãƒâ€žÃ¢â‚¬ËœÃƒÆ’Ã‚Â£ bÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¹ dÃƒÂ¡Ã‚Â»Ã‚Â¡ bÃƒÂ¡Ã‚Â»Ã‚Â")
 
 				if matches_wp:
 					cit.set("workplace_id", "")
@@ -2603,7 +2628,7 @@ func register_dynamic_workplace(b_data: Dictionary) -> WorkplaceManager.Workplac
 				var r_quota: int = int(r_data.get("worker_quota", 2))
 				var ch_suffix := "_smelt" if r_id == "smelt_metal" else ("_craft" if r_id == "craft_tools" else "_" + r_id)
 				var ch_id := b_id + ch_suffix
-				var desc: String = "Luyện kim loại từ quặng thô" if r_id == "smelt_metal" else ("Rèn công cụ từ kim loại và gỗ" if r_id == "craft_tools" else ("Chế tác: " + r_name))
+				var desc: String = "LuyÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¡n kim loÃƒÂ¡Ã‚ÂºÃ‚Â¡i tÃƒÂ¡Ã‚Â»Ã‚Â« quÃƒÂ¡Ã‚ÂºÃ‚Â·ng thÃƒÆ’Ã‚Â´" if r_id == "smelt_metal" else ("RÃƒÆ’Ã‚Â¨n cÃƒÆ’Ã‚Â´ng cÃƒÂ¡Ã‚Â»Ã‚Â¥ tÃƒÂ¡Ã‚Â»Ã‚Â« kim loÃƒÂ¡Ã‚ÂºÃ‚Â¡i vÃƒÆ’Ã‚Â  gÃƒÂ¡Ã‚Â»Ã¢â‚¬â€" if r_id == "craft_tools" else ("ChÃƒÂ¡Ã‚ÂºÃ‚Â¿ tÃƒÆ’Ã‚Â¡c: " + r_name))
 				for i in range(r_quota):
 					var r_job = job_mgr.create_job(workshop_job_type, access_cell, desc, b_id, r_duration, 1, true, r_id, ch_id)
 					if r_job != null:
@@ -2628,7 +2653,7 @@ func register_dynamic_workplace(b_data: Dictionary) -> WorkplaceManager.Workplac
 	# Create recurring jobs if not already present
 	var existing_jobs := job_mgr.get_jobs_for_building(b_id)
 	if existing_jobs.is_empty():
-		var desc: String = "Chăm sóc và thu hoạch nông sản" if b_type == "farm" else ("Khai thác và chế biến gỗ" if b_type == "woodcutter" else ("Khai thác đá tảng tại mỏ đá" if b_type == "quarry" else "Khai thác quặng thô tại mỏ quặng"))
+		var desc: String = "ChÃƒâ€žÃ†â€™m sÃƒÆ’Ã‚Â³c vÃƒÆ’Ã‚Â  thu hoÃƒÂ¡Ã‚ÂºÃ‚Â¡ch nÃƒÆ’Ã‚Â´ng sÃƒÂ¡Ã‚ÂºÃ‚Â£n" if b_type == "farm" else ("Khai thÃƒÆ’Ã‚Â¡c vÃƒÆ’Ã‚Â  chÃƒÂ¡Ã‚ÂºÃ‚Â¿ biÃƒÂ¡Ã‚ÂºÃ‚Â¿n gÃƒÂ¡Ã‚Â»Ã¢â‚¬â€" if b_type == "woodcutter" else ("Khai thÃƒÆ’Ã‚Â¡c Ãƒâ€žÃ¢â‚¬ËœÃƒÆ’Ã‚Â¡ tÃƒÂ¡Ã‚ÂºÃ‚Â£ng tÃƒÂ¡Ã‚ÂºÃ‚Â¡i mÃƒÂ¡Ã‚Â»Ã‚Â Ãƒâ€žÃ¢â‚¬ËœÃƒÆ’Ã‚Â¡" if b_type == "quarry" else "Khai thÃƒÆ’Ã‚Â¡c quÃƒÂ¡Ã‚ÂºÃ‚Â·ng thÃƒÆ’Ã‚Â´ tÃƒÂ¡Ã‚ÂºÃ‚Â¡i mÃƒÂ¡Ã‚Â»Ã‚Â quÃƒÂ¡Ã‚ÂºÃ‚Â·ng"))
 		for i in range(max_workers):
 			job_mgr.create_job(job_type, access_cell, desc, b_id, 3.0, 1, true)
 
@@ -2672,7 +2697,7 @@ func register_barracks_jobs(b_data: Dictionary, p_world_data: WorldGenerator.Wor
 	var num_jobs: int = mini(guard_capacity, perimeter_cells.size())
 	for i in range(num_jobs):
 		var target_cell: Vector2i = perimeter_cells[i]
-		var desc := "Tuần tra và canh gác tại Doanh Trại (Vị trí %d)" % (i + 1)
+		var desc := "TuÃƒÂ¡Ã‚ÂºÃ‚Â§n tra vÃƒÆ’Ã‚Â  canh gÃƒÆ’Ã‚Â¡c tÃƒÂ¡Ã‚ÂºÃ‚Â¡i Doanh TrÃƒÂ¡Ã‚ÂºÃ‚Â¡i (VÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¹ trÃƒÆ’Ã‚Â­ %d)" % (i + 1)
 		var job := job_mgr.create_job("guard", target_cell, desc, b_id, 4.0, 2, true)
 		result.append(job)
 
@@ -2788,27 +2813,27 @@ func _cancel_placement() -> void:
 
 func _get_terrain_name(type: int) -> String:
 	match type:
-		WorldGenerator.TerrainType.WATER: return "Mặt Nước (Không thể đi)"
-		WorldGenerator.TerrainType.SAND: return "Bãi Cát"
-		WorldGenerator.TerrainType.GRASS: return "Đồng Cỏ"
-		WorldGenerator.TerrainType.DIRT: return "Đất Thổ"
-		_: return "Không xác định"
+		WorldGenerator.TerrainType.WATER: return "MÃƒÂ¡Ã‚ÂºÃ‚Â·t NÃƒâ€ Ã‚Â°ÃƒÂ¡Ã‚Â»Ã¢â‚¬Âºc (KhÃƒÆ’Ã‚Â´ng thÃƒÂ¡Ã‚Â»Ã†â€™ Ãƒâ€žÃ¢â‚¬Ëœi)"
+		WorldGenerator.TerrainType.SAND: return "BÃƒÆ’Ã‚Â£i CÃƒÆ’Ã‚Â¡t"
+		WorldGenerator.TerrainType.GRASS: return "Ãƒâ€žÃ‚ÂÃƒÂ¡Ã‚Â»Ã¢â‚¬Å“ng CÃƒÂ¡Ã‚Â»Ã‚Â"
+		WorldGenerator.TerrainType.DIRT: return "Ãƒâ€žÃ‚ÂÃƒÂ¡Ã‚ÂºÃ‚Â¥t ThÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¢"
+		_: return "KhÃƒÆ’Ã‚Â´ng xÃƒÆ’Ã‚Â¡c Ãƒâ€žÃ¢â‚¬ËœÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¹nh"
 
 func _get_building_display_name(key: String) -> String:
 	match key:
-		"townhall": return "Tòa Thị Chính (3x3)"
-		"house": return "Nhà Ở (2x2)"
-		"farm": return "Nông Trại (2x2)"
-		"storehouse": return "Kho Lương (2x2)"
-		"woodcutter": return "Trại Tiều Phu (2x2)"
-		"watchtower": return "Tháp Canh (1x1)"
-		"quarry": return "Mỏ Khai Thác Đá (2x2)"
-		"mine": return "Mỏ Khai Thác Quặng (2x2)"
-		"workshop": return "Xưởng Chế Tác (2x2)"
-		"research_hall": return "Viện Nghiên Cứu Hoàng Gia (3x3)"
-		"barracks": return "Doanh Trại (3x3)"
-		"palisade": return "Tường Rào Phòng Ngự (1x1)"
-		"market": return "Chợ (3x3)"
+		"townhall": return "TÃƒÆ’Ã‚Â²a ThÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¹ ChÃƒÆ’Ã‚Â­nh (3x3)"
+		"house": return "NhÃƒÆ’Ã‚Â  ÃƒÂ¡Ã‚Â»Ã…Â¾ (2x2)"
+		"farm": return "NÃƒÆ’Ã‚Â´ng TrÃƒÂ¡Ã‚ÂºÃ‚Â¡i (2x2)"
+		"storehouse": return "Kho LÃƒâ€ Ã‚Â°Ãƒâ€ Ã‚Â¡ng (2x2)"
+		"woodcutter": return "TrÃƒÂ¡Ã‚ÂºÃ‚Â¡i TiÃƒÂ¡Ã‚Â»Ã‚Âu Phu (2x2)"
+		"watchtower": return "ThÃƒÆ’Ã‚Â¡p Canh (1x1)"
+		"quarry": return "MÃƒÂ¡Ã‚Â»Ã‚Â Khai ThÃƒÆ’Ã‚Â¡c Ãƒâ€žÃ‚ÂÃƒÆ’Ã‚Â¡ (2x2)"
+		"mine": return "MÃƒÂ¡Ã‚Â»Ã‚Â Khai ThÃƒÆ’Ã‚Â¡c QuÃƒÂ¡Ã‚ÂºÃ‚Â·ng (2x2)"
+		"workshop": return "XÃƒâ€ Ã‚Â°ÃƒÂ¡Ã‚Â»Ã…Â¸ng ChÃƒÂ¡Ã‚ÂºÃ‚Â¿ TÃƒÆ’Ã‚Â¡c (2x2)"
+		"research_hall": return "ViÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¡n NghiÃƒÆ’Ã‚Âªn CÃƒÂ¡Ã‚Â»Ã‚Â©u HoÃƒÆ’Ã‚Â ng Gia (3x3)"
+		"barracks": return "Doanh TrÃƒÂ¡Ã‚ÂºÃ‚Â¡i (3x3)"
+		"palisade": return "TÃƒâ€ Ã‚Â°ÃƒÂ¡Ã‚Â»Ã‚Âng RÃƒÆ’Ã‚Â o PhÃƒÆ’Ã‚Â²ng NgÃƒÂ¡Ã‚Â»Ã‚Â± (1x1)"
+		"market": return "ChÃƒÂ¡Ã‚Â»Ã‚Â£ (3x3)"
 		_: return ""
 
 func _on_return_to_menu() -> void:
@@ -3020,7 +3045,7 @@ func _on_simulation_day_passed(day: int, _season: String, _year: int) -> void:
 		refresh_caravan_marker()
 		if em != null:
 			var loc_name: String = get_caravan_docking_location_name()
-			em.trigger_event("caravan_arrived", "Thương Đoàn Ghé Thăm!", "%s đã cập bến %s của định cư!" % [active_caravan.get("name"), loc_name], true, {})
+			em.trigger_event("caravan_arrived", "ThÃƒâ€ Ã‚Â°Ãƒâ€ Ã‚Â¡ng Ãƒâ€žÃ‚ÂoÃƒÆ’Ã‚Â n GhÃƒÆ’Ã‚Â© ThÃƒâ€žÃ†â€™m!", "%s Ãƒâ€žÃ¢â‚¬ËœÃƒÆ’Ã‚Â£ cÃƒÂ¡Ã‚ÂºÃ‚Â­p bÃƒÂ¡Ã‚ÂºÃ‚Â¿n %s cÃƒÂ¡Ã‚Â»Ã‚Â§a Ãƒâ€žÃ¢â‚¬ËœÃƒÂ¡Ã‚Â»Ã¢â‚¬Â¹nh cÃƒâ€ Ã‚Â°!" % [active_caravan.get("name"), loc_name], true, {})
 			
 	# Check caravan departure
 	if active_caravan != null and day >= active_caravan.get("departure_day"):
@@ -3032,7 +3057,7 @@ func _on_simulation_day_passed(day: int, _season: String, _year: int) -> void:
 	if autosave_enabled and (day % autosave_interval_days == 0):
 		var asave_res := SaveManager.save_to_file(self, SaveManager.get_autosave_path())
 		if asave_res.get("success", false) and em != null:
-			em.trigger_event("autosave", "Tự Động Lưu", "Đã tự động lưu thế giới an toàn (Ngày %d)." % day, true, {})
+			em.trigger_event("autosave", "TÃƒÂ¡Ã‚Â»Ã‚Â± Ãƒâ€žÃ‚ÂÃƒÂ¡Ã‚Â»Ã¢â€žÂ¢ng LÃƒâ€ Ã‚Â°u", "Ãƒâ€žÃ‚ÂÃƒÆ’Ã‚Â£ tÃƒÂ¡Ã‚Â»Ã‚Â± Ãƒâ€žÃ¢â‚¬ËœÃƒÂ¡Ã‚Â»Ã¢â€žÂ¢ng lÃƒâ€ Ã‚Â°u thÃƒÂ¡Ã‚ÂºÃ‚Â¿ giÃƒÂ¡Ã‚Â»Ã¢â‚¬Âºi an toÃƒÆ’Ã‚Â n (NgÃƒÆ’Ã‚Â y %d)." % day, true, {})
 
 # -----------------------------------------------------------------------------
 # Package 3A: Outpost Garrisoning API
@@ -3041,20 +3066,550 @@ func _on_simulation_day_passed(day: int, _season: String, _year: int) -> void:
 func station_outpost_garrison(outpost_id: String, count: int = 1) -> Dictionary:
 	if player_army_mgr != null and player_army_mgr.has_method("station_soldier"):
 		return player_army_mgr.call("station_soldier", outpost_id, count)
-	return {"success": false, "reason": "PlayerArmyManager không khả dụng"}
+	return {"success": false, "reason": "PlayerArmyManager khÃƒÆ’Ã‚Â´ng khÃƒÂ¡Ã‚ÂºÃ‚Â£ dÃƒÂ¡Ã‚Â»Ã‚Â¥ng"}
 
 func recall_outpost_garrison(outpost_id: String, count: int = 1) -> Dictionary:
 	if player_army_mgr != null and player_army_mgr.has_method("recall_soldier"):
 		return player_army_mgr.call("recall_soldier", outpost_id, count)
-	return {"success": false, "reason": "PlayerArmyManager không khả dụng"}
+	return {"success": false, "reason": "PlayerArmyManager khÃƒÆ’Ã‚Â´ng khÃƒÂ¡Ã‚ÂºÃ‚Â£ dÃƒÂ¡Ã‚Â»Ã‚Â¥ng"}
 
 func dispatch_reinforcements_to_outpost(outpost_id: String, count: int = 1, travel_hours: float = -1.0) -> Dictionary:
 	if player_army_mgr != null and player_army_mgr.has_method("dispatch_reinforcements"):
 		return player_army_mgr.call("dispatch_reinforcements", outpost_id, count, travel_hours)
-	return {"success": false, "reason": "PlayerArmyManager không khả dụng"}
+	return {"success": false, "reason": "PlayerArmyManager khÃƒÆ’Ã‚Â´ng khÃƒÂ¡Ã‚ÂºÃ‚Â£ dÃƒÂ¡Ã‚Â»Ã‚Â¥ng"}
 
 func get_outpost_garrison_data(outpost_id: String) -> Dictionary:
 	if player_army_mgr != null and player_army_mgr.has_method("get_garrison"):
 		return player_army_mgr.call("get_garrison", outpost_id)
 	return {}
+
+func _setup_fog_layer() -> void:
+	var world_root := get_node_or_null("World")
+	if world_root == null or world_data == null:
+		return
+	if fog_tile_layer != null and is_instance_valid(fog_tile_layer):
+		if fog_tile_layer.get_parent() == world_root:
+			world_root.remove_child(fog_tile_layer)
+		fog_tile_layer.queue_free()
+		fog_tile_layer = null
+	if cloud_sea_base != null and is_instance_valid(cloud_sea_base):
+		if cloud_sea_base.get_parent() == world_root:
+			world_root.remove_child(cloud_sea_base)
+		cloud_sea_base.queue_free()
+		cloud_sea_base = null
+	if fog_cloud_layer != null and is_instance_valid(fog_cloud_layer):
+		if fog_cloud_layer.get_parent() == world_root:
+			world_root.remove_child(fog_cloud_layer)
+		fog_cloud_layer.queue_free()
+		fog_cloud_layer = null
+
+	var w: int = int(IsoMath.TILE_WIDTH)
+	var h: int = int(IsoMath.TILE_HEIGHT)
+	var half_w: float = float(w) * 0.5
+	var half_h: float = float(h) * 0.5
+	var img := Image.create(w * 16, h, false, Image.FORMAT_RGBA8)
+	img.fill(Color(0, 0, 0, 0))
+
+	# Build 16-tile cardinal-neighbor bitmask atlas (A2 Organic Pixel-Mist Fringe)
+	# Bit 0 (1): TR (0,-1), Bit 1 (2): BR (1,0), Bit 2 (4): BL (0,1), Bit 3 (8): TL (-1,0)
+	for mask in range(16):
+		var x_off: int = mask * w
+		for py in range(h):
+			for px in range(w):
+				var u: float = ((float(px) + 0.5) - half_w) / half_w
+				var v: float = ((float(py) + 0.5) - half_h) / half_h
+				var nx: float = absf(u)
+				var ny: float = absf(v)
+				if nx + ny > 1.08:
+					continue
+				if mask == 0:
+					img.set_pixel(x_off + px, py, Color(1, 1, 1, 1))
+					continue
+				var min_d: float = 99.0
+				if (mask & 1) != 0:
+					min_d = minf(min_d, 1.0 - (u - v))
+				if (mask & 2) != 0:
+					min_d = minf(min_d, 1.0 - (u + v))
+				if (mask & 4) != 0:
+					min_d = minf(min_d, 1.0 - (-u + v))
+				if (mask & 8) != 0:
+					min_d = minf(min_d, 1.0 - (-u - v))
+				var h_val: float = float(((px * 73856093) ^ (py * 19349663)) & 255) / 255.0
+				var alpha: float = 1.0
+				if min_d < 0.08:
+					alpha = 0.0
+				elif min_d < 0.24:
+					alpha = 0.42 if h_val < 0.55 else 0.0
+				elif min_d < 0.44:
+					alpha = 0.78 if h_val < 0.80 else 0.45
+				if alpha > 0.0:
+					img.set_pixel(x_off + px, py, Color(1, 1, 1, alpha))
+	var fog_tex := ImageTexture.create_from_image(img)
+
+	var ts := TileSet.new()
+	ts.tile_shape = TileSet.TILE_SHAPE_ISOMETRIC
+	ts.tile_layout = TileSet.TILE_LAYOUT_DIAMOND_DOWN
+	ts.tile_size = Vector2i(w, h)
+	var src := TileSetAtlasSource.new()
+	src.texture = fog_tex
+	src.texture_region_size = Vector2i(w, h)
+	for mask in range(16):
+		var coords := Vector2i(mask, 0)
+		src.create_tile(coords)
+		var td_unexplored := src.get_tile_data(coords, 0)
+		if td_unexplored != null:
+			td_unexplored.modulate = Color(0.04, 0.05, 0.08, 1.0)
+	src.create_alternative_tile(Vector2i(0, 0), 1)
+	var td_explored := src.get_tile_data(Vector2i(0, 0), 1)
+	if td_explored != null:
+		td_explored.modulate = Color(0.05, 0.07, 0.11, 0.56)
+	ts.add_source(src, 0)
+
+	fog_tile_layer = TileMapLayer.new()
+	fog_tile_layer.name = "FogTileMapLayer"
+	fog_tile_layer.z_index = 5
+	fog_tile_layer.tile_set = ts
+	fog_tile_layer.position = Vector2(-IsoMath.HALF_WIDTH, -IsoMath.HALF_HEIGHT)
+	fog_tile_layer.visible = true
+	world_root.add_child(fog_tile_layer)
+
+	fog_cloud_layer = FogCloudLayer.new()
+	fog_cloud_layer.visible = true
+	world_root.add_child(fog_cloud_layer)
+	var cloud_seed: int = int(world_data.get("seed")) if world_data != null and world_data.get("seed") != null else 1337
+	fog_cloud_layer.configure(fog_of_war, cloud_seed, FogCloudLayer.DensityPreset.BALANCED)
+
+	cloud_sea_base = _create_cloud_sea_base(fog_of_war.map_size, fog_of_war.map_size, fog_cloud_layer.get_fog_mask_texture())
+	cloud_sea_base.visible = not use_cloud_sea_composite and fog_cloud_layer.is_cloud_enabled()
+	world_root.add_child(cloud_sea_base)
+
+	_setup_terrain_preview_renderer()
+	_setup_cloud_sea_composite()
+	_sync_full_fog_layer()
+	_apply_fog_presentation_visibility()
+
+func _exit_tree() -> void:
+	cleanup_cloud_sea_composite()
+	cleanup_terrain_preview_renderer()
+
+func _setup_terrain_preview_renderer() -> void:
+	var mw: int = fog_of_war.map_size if fog_of_war != null else IsoMath.MAP_SIZE
+	var mh: int = fog_of_war.map_size if fog_of_war != null else IsoMath.MAP_SIZE
+	var p_seed: int = int(world_data.get("seed")) if world_data != null and world_data.get("seed") != null else world_seed
+
+	if terrain_preview_field == null:
+		terrain_preview_field = TerrainPreviewFieldScript.new()
+	terrain_preview_field.clear_sources()
+	terrain_preview_field.configure(mw, mh, p_seed, 1, fog_of_war)
+
+	if terrain_preview_renderer == null or not is_instance_valid(terrain_preview_renderer):
+		terrain_preview_renderer = TerrainPreviewRendererScript.new()
+		terrain_preview_renderer.name = "TerrainPreviewRenderer"
+		add_child(terrain_preview_renderer)
+	terrain_preview_renderer.configure(terrain_preview_field, 1)
+
+func rebind_terrain_preview_fog(new_fog: FogOfWar = null) -> void:
+	var target_fog: FogOfWar = new_fog if new_fog != null else fog_of_war
+	if new_fog != null:
+		fog_of_war = new_fog
+	if terrain_preview_field != null:
+		terrain_preview_field.set_fog_of_war(target_fog)
+	if terrain_preview_renderer != null and is_instance_valid(terrain_preview_renderer):
+		terrain_preview_renderer.sync_if_needed()
+	sync_fog_state_texture_full(false)
+	_refresh_cloud_sea_composite_bindings()
+
+func cleanup_terrain_preview_renderer() -> void:
+	if terrain_preview_renderer != null and is_instance_valid(terrain_preview_renderer):
+		terrain_preview_renderer.cleanup()
+		if terrain_preview_renderer.get_parent() == self:
+			remove_child(terrain_preview_renderer)
+		terrain_preview_renderer.queue_free()
+	terrain_preview_renderer = null
+	terrain_preview_field = null
+
+func _apply_fog_presentation_visibility() -> void:
+	var show_composite: bool = use_cloud_sea_composite
+	var show_legacy: bool = not use_cloud_sea_composite
+	if cloud_sea_composite != null and is_instance_valid(cloud_sea_composite):
+		cloud_sea_composite.visible = show_composite
+	if fog_tile_layer != null and is_instance_valid(fog_tile_layer):
+		fog_tile_layer.visible = show_legacy
+	if fog_cloud_layer != null and is_instance_valid(fog_cloud_layer):
+		fog_cloud_layer.visible = show_legacy and fog_cloud_layer.is_cloud_enabled()
+	if cloud_sea_base != null and is_instance_valid(cloud_sea_base) and fog_cloud_layer != null and is_instance_valid(fog_cloud_layer):
+		cloud_sea_base.visible = show_legacy and fog_cloud_layer.is_cloud_enabled()
+
+func _refresh_cloud_sea_composite_bindings() -> void:
+	if cloud_sea_composite == null or not is_instance_valid(cloud_sea_composite):
+		return
+	var mw: int = fog_of_war.map_size if fog_of_war != null else IsoMath.MAP_SIZE
+	var mh: int = fog_of_war.map_size if fog_of_war != null else IsoMath.MAP_SIZE
+	var p_seed: int = int(world_data.get("seed")) if world_data != null and world_data.get("seed") != null else world_seed
+	_ensure_fog_transition_viewport(mw, mh)
+	var c_mat := cloud_sea_composite.material as ShaderMaterial
+	if c_mat != null:
+		var env_tex: Texture2D = terrain_preview_renderer.get_envelope_texture() if (terrain_preview_renderer != null and is_instance_valid(terrain_preview_renderer)) else null
+		c_mat.set_shader_parameter("envelope_tex", env_tex)
+		c_mat.set_shader_parameter("fog_state_tex", _fog_state_tex)
+		c_mat.set_shader_parameter("transition_tex", _fog_transition_viewport.get_texture() if (_fog_transition_viewport != null and is_instance_valid(_fog_transition_viewport)) else null)
+		c_mat.set_shader_parameter("map_size", Vector2(float(mw), float(mh)))
+		c_mat.set_shader_parameter("world_seed_f", float(p_seed))
+	_apply_fog_presentation_visibility()
+
+static func _load_composite_cloud_texture(res_path: String) -> Texture2D:
+	if ResourceLoader.exists(res_path):
+		var loaded := load(res_path) as Texture2D
+		if loaded != null:
+			return loaded
+	var abs_path := ProjectSettings.globalize_path(res_path)
+	if FileAccess.file_exists(abs_path):
+		var img := Image.load_from_file(abs_path)
+		if img != null and not img.is_empty():
+			return ImageTexture.create_from_image(img)
+	return null
+
+func _setup_cloud_sea_composite() -> void:
+	var world_root := get_node_or_null("World")
+	if world_root == null:
+		return
+	var mw: int = fog_of_war.map_size if fog_of_war != null else IsoMath.MAP_SIZE
+	var mh: int = fog_of_war.map_size if fog_of_war != null else IsoMath.MAP_SIZE
+	var p_seed: int = int(world_data.get("seed")) if world_data != null and world_data.get("seed") != null else world_seed
+
+	if cloud_sea_composite == null or not is_instance_valid(cloud_sea_composite):
+		var mat := ShaderMaterial.new()
+		mat.shader = load(CLOUD_SEA_COMPOSITE_SHADER_PATH) as Shader
+		cloud_sea_composite = Polygon2D.new()
+		cloud_sea_composite.name = "CloudSeaComposite"
+		cloud_sea_composite.z_index = 7
+		cloud_sea_composite.texture_filter = CanvasItem.TEXTURE_FILTER_LINEAR
+		cloud_sea_composite.material = mat
+		world_root.add_child(cloud_sea_composite)
+	elif cloud_sea_composite.get_parent() != world_root:
+		if cloud_sea_composite.get_parent() != null:
+			cloud_sea_composite.get_parent().remove_child(cloud_sea_composite)
+		world_root.add_child(cloud_sea_composite)
+
+	var p0 := Vector2((-0.5 - (-0.5)) * IsoMath.HALF_WIDTH, (-0.5 + (-0.5)) * IsoMath.HALF_HEIGHT)
+	var p1 := Vector2(((float(mw) - 0.5) - (-0.5)) * IsoMath.HALF_WIDTH, ((float(mw) - 0.5) + (-0.5)) * IsoMath.HALF_HEIGHT)
+	var p2 := Vector2(((float(mw) - 0.5) - (float(mh) - 0.5)) * IsoMath.HALF_WIDTH, ((float(mw) - 0.5) + (float(mh) - 0.5)) * IsoMath.HALF_HEIGHT)
+	var p3 := Vector2((-0.5 - (float(mh) - 0.5)) * IsoMath.HALF_WIDTH, (-0.5 + (float(mh) - 0.5)) * IsoMath.HALF_HEIGHT)
+	cloud_sea_composite.polygon = PackedVector2Array([p0, p1, p2, p3])
+	cloud_sea_composite.modulate = Color.WHITE
+	cloud_sea_composite.visible = use_cloud_sea_composite
+
+	var c_mat := cloud_sea_composite.material as ShaderMaterial
+	if c_mat != null:
+		c_mat.set_shader_parameter("sea_tex", _load_composite_cloud_texture(CLOUD_SEA_COMPOSITE_SEA_TEX_PATH))
+		c_mat.set_shader_parameter("bank_tex", _load_composite_cloud_texture(CLOUD_SEA_COMPOSITE_BANK_TEX_PATH))
+		var env_tex: Texture2D = terrain_preview_renderer.get_envelope_texture() if (terrain_preview_renderer != null and is_instance_valid(terrain_preview_renderer)) else null
+		c_mat.set_shader_parameter("envelope_tex", env_tex)
+		_ensure_fog_transition_viewport(mw, mh)
+		sync_fog_state_texture_full(false)
+		c_mat.set_shader_parameter("fog_state_tex", _fog_state_tex)
+		c_mat.set_shader_parameter("transition_tex", _fog_transition_viewport.get_texture() if (_fog_transition_viewport != null and is_instance_valid(_fog_transition_viewport)) else null)
+		c_mat.set_shader_parameter("map_size", Vector2(float(mw), float(mh)))
+		c_mat.set_shader_parameter("world_seed_f", float(p_seed))
+		c_mat.set_shader_parameter("debug_mode", 0)
+
+func _ensure_fog_transition_viewport(mw: int, mh: int) -> void:
+	if _fog_transition_viewport == null or not is_instance_valid(_fog_transition_viewport):
+		_fog_transition_viewport = SubViewport.new()
+		_fog_transition_viewport.name = "FogTransitionViewport"
+		_fog_transition_viewport.size = Vector2i(maxi(128, mw * 2), maxi(128, mh * 2))
+		_fog_transition_viewport.transparent_bg = false
+		_fog_transition_viewport.render_target_update_mode = SubViewport.UPDATE_DISABLED
+		_fog_transition_viewport.disable_3d = true
+		_fog_transition_rect = ColorRect.new()
+		_fog_transition_rect.size = Vector2(_fog_transition_viewport.size)
+		var t_mat := ShaderMaterial.new()
+		t_mat.shader = load(FOG_TRANSITION_COVERAGE_SHADER_PATH) as Shader
+		_fog_transition_rect.material = t_mat
+		_fog_transition_viewport.add_child(_fog_transition_rect)
+		add_child(_fog_transition_viewport)
+	else:
+		var target_sz := Vector2i(maxi(128, mw * 2), maxi(128, mh * 2))
+		if _fog_transition_viewport.size != target_sz:
+			_fog_transition_viewport.size = target_sz
+			if _fog_transition_rect != null and is_instance_valid(_fog_transition_rect):
+				_fog_transition_rect.size = Vector2(target_sz)
+
+func _schedule_fog_transition_update(mw: int, mh: int) -> void:
+	if _fog_transition_viewport == null or not is_instance_valid(_fog_transition_viewport):
+		return
+	if _fog_transition_rect != null and is_instance_valid(_fog_transition_rect):
+		var t_mat := _fog_transition_rect.material as ShaderMaterial
+		if t_mat != null:
+			t_mat.set_shader_parameter("fog_state_tex", _fog_state_tex)
+			t_mat.set_shader_parameter("map_size", Vector2(float(mw), float(mh)))
+	_fog_transition_viewport.render_target_update_mode = SubViewport.UPDATE_ONCE
+	_fog_transition_update_count += 1
+
+func get_fog_transition_texture() -> Texture2D:
+	if _fog_transition_viewport != null and is_instance_valid(_fog_transition_viewport):
+		return _fog_transition_viewport.get_texture()
+	return null
+
+func get_fog_transition_update_count() -> int:
+	return _fog_transition_update_count
+
+static func _encode_fog_state_byte(state: int) -> int:
+	if state == FogOfWar.State.VISIBLE:
+		return 255
+	elif state == FogOfWar.State.EXPLORED:
+		return 128
+	return 0
+
+func get_fog_state_texture() -> ImageTexture:
+	return _fog_state_tex
+
+func get_fog_state_upload_count() -> int:
+	return _fog_state_upload_count
+
+func get_fog_state_last_stats() -> Dictionary:
+	return _fog_state_last_stats.duplicate()
+
+func sync_fog_state_texture_full(force: bool = false) -> bool:
+	if fog_of_war == null:
+		return false
+	var t0 := Time.get_ticks_usec()
+	var mw: int = fog_of_war.map_size
+	var mh: int = fog_of_war.map_size
+	var total: int = mw * mh
+	var new_bytes := PackedByteArray()
+	new_bytes.resize(total)
+	var grid: Array = fog_of_war._grid
+	for x in range(mw):
+		var col: Array = grid[x]
+		for y in range(mh):
+			new_bytes[y * mw + x] = _encode_fog_state_byte(int(col[y]))
+	var gen_ms := float(Time.get_ticks_usec() - t0) / 1000.0
+
+	var size_changed := (_fog_state_img == null or _fog_state_img.get_width() != mw or _fog_state_img.get_height() != mh)
+	if not force and not size_changed and _fog_state_tex != null and _fog_state_bytes == new_bytes:
+		return false
+
+	_fog_state_bytes = new_bytes
+	var t_up0 := Time.get_ticks_usec()
+	if size_changed:
+		_fog_state_img = Image.create_from_data(mw, mh, false, Image.FORMAT_R8, _fog_state_bytes)
+		_fog_state_tex = ImageTexture.create_from_image(_fog_state_img)
+	else:
+		_fog_state_img.set_data(mw, mh, false, Image.FORMAT_R8, _fog_state_bytes)
+		if _fog_state_tex == null:
+			_fog_state_tex = ImageTexture.create_from_image(_fog_state_img)
+		else:
+			_fog_state_tex.update(_fog_state_img)
+	var upload_ms := float(Time.get_ticks_usec() - t_up0) / 1000.0
+	_fog_state_upload_count += 1
+	_schedule_fog_transition_update(mw, mh)
+	_schedule_fog_transition_update(mw, mh)
+
+	if cloud_sea_composite != null and is_instance_valid(cloud_sea_composite):
+		var c_mat := cloud_sea_composite.material as ShaderMaterial
+		if c_mat != null:
+			c_mat.set_shader_parameter("fog_state_tex", _fog_state_tex)
+			if _fog_transition_viewport != null and is_instance_valid(_fog_transition_viewport):
+				c_mat.set_shader_parameter("transition_tex", _fog_transition_viewport.get_texture())
+
+	_fog_state_last_stats = {
+		"mode": "full",
+		"gen_ms": gen_ms,
+		"upload_ms": upload_ms,
+		"mem_bytes": total * 2,
+		"upload_count": _fog_state_upload_count,
+	}
+	return true
+
+func update_fog_state_texture_dirty_cells(dirty_cells: Array[Vector2i]) -> bool:
+	if fog_of_war == null or dirty_cells.is_empty():
+		return false
+	var mw: int = fog_of_war.map_size
+	var mh: int = fog_of_war.map_size
+	if _fog_state_tex == null or _fog_state_img == null or _fog_state_img.get_width() != mw or _fog_state_img.get_height() != mh or _fog_state_bytes.size() != mw * mh:
+		return sync_fog_state_texture_full(true)
+
+	var t0 := Time.get_ticks_usec()
+	var changed := false
+	for cell in dirty_cells:
+		if cell.x >= 0 and cell.y >= 0 and cell.x < mw and cell.y < mh:
+			var idx := cell.y * mw + cell.x
+			var encoded := _encode_fog_state_byte(fog_of_war.get_state(cell))
+			if _fog_state_bytes[idx] != encoded:
+				_fog_state_bytes[idx] = encoded
+				changed = true
+	var inc_ms := float(Time.get_ticks_usec() - t0) / 1000.0
+	if not changed:
+		return false
+
+	var t_up0 := Time.get_ticks_usec()
+	_fog_state_img.set_data(mw, mh, false, Image.FORMAT_R8, _fog_state_bytes)
+	_fog_state_tex.update(_fog_state_img)
+	var upload_ms := float(Time.get_ticks_usec() - t_up0) / 1000.0
+	_fog_state_upload_count += 1
+	_schedule_fog_transition_update(mw, mh)
+
+	_fog_state_last_stats = {
+		"mode": "incremental",
+		"inc_ms": inc_ms,
+		"upload_ms": upload_ms,
+		"dirty_count": dirty_cells.size(),
+		"mem_bytes": mw * mh * 2,
+		"upload_count": _fog_state_upload_count,
+	}
+	return true
+
+func set_cloud_sea_composite_isolated_mode(enabled: bool) -> void:
+	use_cloud_sea_composite = enabled
+	if cloud_sea_composite != null and is_instance_valid(cloud_sea_composite):
+		cloud_sea_composite.visible = enabled
+	if fog_tile_layer != null and is_instance_valid(fog_tile_layer):
+		fog_tile_layer.visible = not enabled
+	if fog_cloud_layer != null and is_instance_valid(fog_cloud_layer):
+		fog_cloud_layer.visible = (not enabled) and fog_cloud_layer.is_cloud_enabled()
+	if cloud_sea_base != null and is_instance_valid(cloud_sea_base) and fog_cloud_layer != null and is_instance_valid(fog_cloud_layer):
+		cloud_sea_base.visible = (not enabled) and fog_cloud_layer.is_cloud_enabled()
+
+func cleanup_cloud_sea_composite() -> void:
+	if cloud_sea_composite != null and is_instance_valid(cloud_sea_composite):
+		if cloud_sea_composite.get_parent() != null:
+			cloud_sea_composite.get_parent().remove_child(cloud_sea_composite)
+		cloud_sea_composite.queue_free()
+	cloud_sea_composite = null
+	if _fog_transition_viewport != null and is_instance_valid(_fog_transition_viewport):
+		if _fog_transition_viewport.get_parent() != null:
+			_fog_transition_viewport.get_parent().remove_child(_fog_transition_viewport)
+		_fog_transition_viewport.queue_free()
+	_fog_transition_viewport = null
+	_fog_transition_rect = null
+	_fog_state_tex = null
+	_fog_state_img = null
+	_fog_state_bytes.clear()
+
+static func _get_cloud_sea_shader() -> Shader:
+	if _cloud_sea_shader != null:
+		return _cloud_sea_shader
+	var sh := Shader.new()
+	sh.code = """
+shader_type canvas_item;
+
+uniform sampler2D base_tex : repeat_enable, filter_nearest;
+uniform sampler2D wisp_tex : repeat_enable, filter_nearest;
+uniform sampler2D fog_mask : repeat_disable, filter_linear;
+uniform vec2 map_size = vec2(128.0, 128.0);
+uniform float tex_scale = 512.0;
+uniform float wisp_scale = 640.0;
+uniform float use_wisp = 1.0;
+uniform float base_alpha = 0.96;
+
+varying vec2 v_world_pos;
+
+void vertex() {
+	v_world_pos = (MODEL_MATRIX * vec4(VERTEX, 0.0, 1.0)).xy;
+}
+
+float bayer4(vec2 p) {
+	int x = int(mod(floor(p.x), 4.0));
+	int y = int(mod(floor(p.y), 4.0));
+	int idx = x + y * 4;
+	float m[16] = float[16](
+		0.0/16.0, 8.0/16.0, 2.0/16.0, 10.0/16.0,
+		12.0/16.0, 4.0/16.0, 14.0/16.0, 6.0/16.0,
+		3.0/16.0, 11.0/16.0, 1.0/16.0, 9.0/16.0,
+		15.0/16.0, 7.0/16.0, 13.0/16.0, 5.0/16.0
+	);
+	return m[idx];
+}
+
+void fragment() {
+	float u_grid = (v_world_pos.x / 32.0) + (v_world_pos.y / 16.0);
+	float v_grid = (v_world_pos.y / 16.0) - (v_world_pos.x / 32.0);
+	vec2 mask_uv = (vec2(u_grid, v_grid) + 0.5) / map_size;
+	if (mask_uv.x < 0.0 || mask_uv.x > 1.0 || mask_uv.y < 0.0 || mask_uv.y > 1.0) {
+		discard;
+	}
+	float mask_val = texture(fog_mask, mask_uv).r;
+	if (mask_val <= 0.02) {
+		discard;
+	}
+	float dither = bayer4(floor(v_world_pos * 0.5));
+	if (mask_val < 0.98 && mask_val <= dither) {
+		discard;
+	}
+	vec4 col = texture(base_tex, v_world_pos / tex_scale);
+	if (use_wisp > 0.5) {
+		vec4 wcol = texture(wisp_tex, (v_world_pos / wisp_scale) + vec2(0.37, 0.19));
+		col.rgb = mix(col.rgb, wcol.rgb, wcol.a * 0.85);
+	}
+	COLOR = vec4(col.rgb, col.a * base_alpha);
+}
+"""
+	_cloud_sea_shader = sh
+	return _cloud_sea_shader
+
+func _create_cloud_sea_base(mw: int, mh: int, mask_tex: Texture2D) -> Polygon2D:
+	var mat := ShaderMaterial.new()
+	mat.shader = _get_cloud_sea_shader()
+	mat.set_shader_parameter("base_tex", load(CLOUD_SEA_BASE_TEX_PATH) as Texture2D)
+	mat.set_shader_parameter("wisp_tex", load(CLOUD_SEA_WISP_TEX_PATH) as Texture2D)
+	mat.set_shader_parameter("fog_mask", mask_tex)
+	mat.set_shader_parameter("map_size", Vector2(float(mw), float(mh)))
+	mat.set_shader_parameter("tex_scale", 512.0)
+	mat.set_shader_parameter("wisp_scale", 640.0)
+	mat.set_shader_parameter("use_wisp", 1.0)
+	mat.set_shader_parameter("base_alpha", 0.96)
+
+	var poly := Polygon2D.new()
+	poly.name = "CloudSeaBase"
+	poly.z_index = 6
+	poly.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	poly.material = mat
+	var p0 := Vector2((-0.5 - (-0.5)) * IsoMath.HALF_WIDTH, (-0.5 + (-0.5)) * IsoMath.HALF_HEIGHT)
+	var p1 := Vector2(((float(mw) - 0.5) - (-0.5)) * IsoMath.HALF_WIDTH, ((float(mw) - 0.5) + (-0.5)) * IsoMath.HALF_HEIGHT)
+	var p2 := Vector2(((float(mw) - 0.5) - (float(mh) - 0.5)) * IsoMath.HALF_WIDTH, ((float(mw) - 0.5) + (float(mh) - 0.5)) * IsoMath.HALF_HEIGHT)
+	var p3 := Vector2((-0.5 - (float(mh) - 0.5)) * IsoMath.HALF_WIDTH, (-0.5 + (float(mh) - 0.5)) * IsoMath.HALF_HEIGHT)
+	poly.polygon = PackedVector2Array([p0, p1, p2, p3])
+	return poly
+
+func _compute_unexplored_fog_mask(cell: Vector2i) -> int:
+	if fog_of_war == null:
+		return 0
+	var mask: int = 0
+	if fog_of_war.is_explored(cell + Vector2i(0, -1)):
+		mask |= 1
+	if fog_of_war.is_explored(cell + Vector2i(1, 0)):
+		mask |= 2
+	if fog_of_war.is_explored(cell + Vector2i(0, 1)):
+		mask |= 4
+	if fog_of_war.is_explored(cell + Vector2i(-1, 0)):
+		mask |= 8
+	return mask
+
+func _sync_fog_cell(cell: Vector2i) -> void:
+	if fog_tile_layer == null or not is_instance_valid(fog_tile_layer) or fog_of_war == null:
+		return
+	var st: int = fog_of_war.get_state(cell)
+	if st == FogOfWar.State.VISIBLE:
+		fog_tile_layer.erase_cell(cell)
+	elif st == FogOfWar.State.EXPLORED:
+		fog_tile_layer.set_cell(cell, 0, Vector2i(0, 0), 1)
+	else:
+		var mask: int = _compute_unexplored_fog_mask(cell)
+		fog_tile_layer.set_cell(cell, 0, Vector2i(mask, 0), 0)
+
+func _sync_full_fog_layer() -> void:
+	if fog_tile_layer == null or not is_instance_valid(fog_tile_layer) or fog_of_war == null:
+		return
+	fog_tile_layer.clear()
+	for x in range(fog_of_war.map_size):
+		for y in range(fog_of_war.map_size):
+			_sync_fog_cell(Vector2i(x, y))
+	if fog_cloud_layer != null and is_instance_valid(fog_cloud_layer):
+		fog_cloud_layer.sync_full()
+		if cloud_sea_base != null and is_instance_valid(cloud_sea_base):
+			var mat := cloud_sea_base.material as ShaderMaterial
+			if mat != null:
+				mat.set_shader_parameter("fog_mask", fog_cloud_layer.get_fog_mask_texture())
+	sync_fog_state_texture_full(false)
 
