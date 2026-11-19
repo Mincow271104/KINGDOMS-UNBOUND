@@ -90,7 +90,7 @@ func _test_enemy_visuals_and_properties() -> void:
 	enemy._setup_visuals()
 
 	_assert(enemy.sprite != null, "TC-ENEMY.1: Enemy sprite created successfully")
-	_assert(enemy.sprite.modulate == EnemyTacticalUnitScript.CRIMSON_MODULATE, "TC-ENEMY.1: Sprite modulate is crimson (0.95, 0.3, 0.3, 1.0)")
+	_assert(enemy.sprite.modulate == Color.WHITE, "TC-ENEMY.1: M5 zero whole-body tint (uses 7x7 faction marker)")
 	_assert(enemy.detection_range == 8, "TC-ENEMY.1: Default detection_range is 8 tiles")
 	_assert(enemy.ai_state == EnemyTacticalUnitScript.AIState.ACQUIRE_TARGET, "TC-ENEMY.1: Initial AI state is ACQUIRE_TARGET")
 

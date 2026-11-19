@@ -40,7 +40,15 @@ var damage_flash_timer: float = 0.0
 var is_selected: bool = false
 var current_path: Array[Vector2i] = []
 var step_accumulator: float = 0.0
-var move_speed_px: float = 48.0 # Visual catchup speed
+var move_speed_px: float = 36.0 # Continuous isometric march speed (matches 0.5s/cell parity)
+var _path_follower: ContinuousPathFollower = ContinuousPathFollower.new()
+var _follower_source_path: Array[Vector2i] = []
+var facing_dir: int = ContinuousPathFollower.ScreenDir.E
+var facing_name: String = "E"
+var is_moving_visually: bool = false
+var _walk_anim_phase: float = 0.0
+var _unit_anim_clock: float = 0.0
+var _unit_active_clip: String = ""
 
 var sprite: Sprite2D = null
 var world_view: Node = null
@@ -64,13 +72,22 @@ func _setup_visuals() -> void:
 	if sprite == null:
 		sprite = Sprite2D.new()
 		sprite.name = "Sprite2D"
-		if ResourceLoader.exists("res://assets/entities/citizen.png"):
-			sprite.texture = load("res://assets/entities/citizen.png")
-		sprite.offset = Vector2(-12.0, -30.0) # Ground contact foot pivot
-		sprite.centered = false
-		# Distinct royal military golden armor tint
-		sprite.modulate = Color(1.0, 0.85, 0.35, 1.0)
 		add_child(sprite)
+	var tex := EntityVisualRegistry.get_villager_sheet_texture("soldier")
+	var lay := EntityVisualRegistry.get_villager_sheet_layout("soldier")
+	if tex != null:
+		sprite.texture = tex
+		sprite.hframes = int(lay.get("hframes", 6))
+		sprite.vframes = int(lay.get("vframes", 6))
+	elif ResourceLoader.exists("res://assets/entities/citizen.png"):
+		sprite.texture = load("res://assets/entities/citizen.png")
+		sprite.hframes = 1
+		sprite.vframes = 1
+	sprite.offset = EntityVisualRegistry.VILLAGER_SPRITE_OFFSET
+	sprite.centered = false
+	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	sprite.modulate = Color.WHITE
+	_sync_unit_visuals(0.0)
 
 func set_world_view(wv: Node) -> void:
 	world_view = wv
@@ -146,6 +163,10 @@ func _draw() -> void:
 		# Border outline
 		draw_rect(Rect2(bar_pos, Vector2(bar_w, bar_h)), Color(0.0, 0.0, 0.0, 0.8), false, 1.0)
 
+	# Non-player faction 7x7 marker above head, below HP bar (y=-30)
+	if is_alive and not faction_id.is_empty() and faction_id != "player":
+		EntityVisualRegistry.draw_faction_marker_7x7(self, faction_id, EntityVisualRegistry.FACTION_MARKER_OFFSET)
+
 	# Combat flash visual indicator
 	if damage_flash_timer > 0.0:
 		var flash_pts := PackedVector2Array([
@@ -171,9 +192,13 @@ func order_move(path: Array, dest: Vector2i) -> void:
 	if order_state == OrderState.IDLE and target_cell == dest and current_cell == dest and current_path.is_empty() and new_path.is_empty():
 		return
 
+	var was_moving := (order_state == OrderState.MOVING)
 	current_path = new_path
 	target_cell = dest
 	step_accumulator = 0.0
+	_follower_source_path.clear()
+	if not was_moving and IsoMath.local_to_map(position) != current_cell:
+		position = IsoMath.map_to_local(current_cell)
 	if current_path.is_empty():
 		current_cell = dest
 		order_state = OrderState.IDLE
@@ -196,8 +221,91 @@ func order_stop() -> void:
 	step_accumulator = 0.0
 	order_state = OrderState.IDLE
 
+func _stop_walk_animation() -> void:
+	is_moving_visually = false
+	if sprite != null:
+		sprite.offset = EntityVisualRegistry.VILLAGER_SPRITE_OFFSET
+
+func _update_walk_visuals(velocity: Vector2, speed_mult: float, delta: float) -> void:
+	if velocity.length_squared() < ContinuousPathFollower.VEL_DEADZONE_SQ:
+		_stop_walk_animation()
+		return
+	is_moving_visually = true
+	facing_dir = _path_follower.update_facing_from_velocity(velocity)
+	facing_name = ContinuousPathFollower.dir_to_name(facing_dir)
+	_walk_anim_phase = fmod(_walk_anim_phase + delta * speed_mult * 10.0, TAU)
+	if sprite != null:
+		sprite.flip_h = _path_follower.last_flip_h
+		sprite.offset = EntityVisualRegistry.VILLAGER_SPRITE_OFFSET
+	_sync_unit_visuals(delta * speed_mult)
+
+func _sync_unit_visuals(anim_dt: float) -> void:
+	if sprite == null or not is_instance_valid(sprite):
+		return
+	var lay := EntityVisualRegistry.get_villager_sheet_layout("soldier")
+	var tex := EntityVisualRegistry.get_villager_sheet_texture("soldier")
+	if tex == null:
+		return
+	if sprite.texture != tex:
+		sprite.texture = tex
+	sprite.hframes = int(lay.get("hframes", 6))
+	sprite.vframes = int(lay.get("vframes", 6))
+	sprite.centered = false
+	sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	sprite.offset = EntityVisualRegistry.VILLAGER_SPRITE_OFFSET
+
+	var is_back := (facing_dir == ContinuousPathFollower.ScreenDir.NW or facing_dir == ContinuousPathFollower.ScreenDir.N or facing_dir == ContinuousPathFollower.ScreenDir.NE)
+	var clip := "idle"
+	var row := 2 if is_back else 0
+	var fcount := int(lay.get("idle_frames", 4))
+	var fps := float(lay.get("idle_fps", 2.0))
+	if is_moving_visually or order_state == OrderState.MOVING:
+		clip = "walk"
+		row = 3 if is_back else 1
+		fcount = int(lay.get("walk_frames", 6))
+		fps = float(lay.get("walk_fps", 9.5))
+	elif order_state == OrderState.ATTACKING:
+		clip = "attack"
+		row = 5 if is_back else 4
+		fcount = int(lay.get("work_frames", 6))
+		fps = float(lay.get("work_fps", 7.5))
+
+	if clip != _unit_active_clip:
+		_unit_active_clip = clip
+		_unit_anim_clock = 0.0
+	elif anim_dt > 0.0:
+		_unit_anim_clock += anim_dt
+
+	var frame_idx := int(floor(_unit_anim_clock * fps)) % maxi(1, fcount)
+	sprite.frame_coords = Vector2i(frame_idx, row)
+
+func _sync_path_follower() -> void:
+	var needs_sync := current_path.size() != _follower_source_path.size()
+	if not needs_sync and not current_path.is_empty():
+		if current_path[0] != _follower_source_path[0] or current_path[-1] != _follower_source_path[-1]:
+			needs_sync = true
+		elif current_path != _follower_source_path:
+			needs_sync = true
+	if needs_sync:
+		_follower_source_path = current_path.duplicate()
+		var full_path: Array[Vector2i] = []
+		var start_cell := IsoMath.local_to_map(position)
+		if not IsoMath.is_in_bounds(start_cell):
+			start_cell = current_cell
+		full_path.append(start_cell)
+		for c in current_path:
+			if full_path.is_empty() or full_path[-1] != c:
+				full_path.append(c)
+		_path_follower.set_path(full_path, _get_active_nav(), position)
+
+func _get_active_nav() -> GridNavigation:
+	if is_instance_valid(world_view) and world_view.get("nav") is GridNavigation:
+		return world_view.get("nav")
+	return null
+
 func advance_movement(delta: float, speed_mult: float = 1.0, nav: GridNavigation = null) -> void:
 	if order_state != OrderState.MOVING or current_path.is_empty():
+		_stop_walk_animation()
 		if order_state == OrderState.MOVING and current_path.is_empty():
 			order_state = OrderState.IDLE
 			target_cell = current_cell
@@ -205,27 +313,45 @@ func advance_movement(delta: float, speed_mult: float = 1.0, nav: GridNavigation
 		return
 
 	if speed_mult <= 0.0:
+		_stop_walk_animation()
 		return
 
 	var tm = get_time_manager()
 	if tm != null and tm.has_method("is_paused") and tm.is_paused():
+		_stop_walk_animation()
 		return
 
-	step_accumulator += delta * speed_mult
-	while step_accumulator >= CELL_STEP_DURATION and not current_path.is_empty():
-		step_accumulator -= CELL_STEP_DURATION
-		var next_cell: Vector2i = current_path[0]
+	# Sync follower using provided nav if available
+	var active_nav := nav if nav != null else _get_active_nav()
+	var needs_sync := current_path.size() != _follower_source_path.size()
+	if not needs_sync and not current_path.is_empty():
+		if current_path[0] != _follower_source_path[0] or current_path[-1] != _follower_source_path[-1]:
+			needs_sync = true
+		elif current_path != _follower_source_path:
+			needs_sync = true
+	if needs_sync:
+		_follower_source_path = current_path.duplicate()
+		if IsoMath.local_to_map(position) != current_cell:
+			position = IsoMath.map_to_local(current_cell)
+		var full_path: Array[Vector2i] = []
+		full_path.append(current_cell)
+		for c in current_path:
+			if full_path.is_empty() or full_path[-1] != c:
+				full_path.append(c)
+		_path_follower.set_path(full_path, active_nav, position)
 
-		# Verify next cell is still walkable if nav is provided
-		if nav != null and not nav.is_cell_walkable(next_cell):
-			# Route dynamically obstructed: attempt rerouting to target_cell
-			var rerouted: Array[Vector2i] = nav.find_path(current_cell, target_cell)
+	# Verify next smoothed waypoint is still walkable if nav is provided
+	if active_nav != null and _path_follower.waypoint_index < _path_follower.smoothed_cells.size():
+		var next_wp_cell: Vector2i = _path_follower.smoothed_cells[_path_follower.waypoint_index]
+		if not active_nav.is_cell_walkable(next_wp_cell):
+			var rerouted: Array[Vector2i] = active_nav.find_path(current_cell, target_cell)
 			if rerouted.is_empty():
-				# Halt safely at current cell
 				current_path.clear()
+				_follower_source_path.clear()
 				step_accumulator = 0.0
 				target_cell = current_cell
 				order_state = OrderState.IDLE
+				_stop_walk_animation()
 				unit_reached_destination.emit(unit_id, current_cell)
 				return
 			else:
@@ -233,23 +359,46 @@ func advance_movement(delta: float, speed_mult: float = 1.0, nav: GridNavigation
 					rerouted.remove_at(0)
 				if rerouted.is_empty():
 					current_path.clear()
+					_follower_source_path.clear()
 					step_accumulator = 0.0
 					target_cell = current_cell
 					order_state = OrderState.IDLE
+					_stop_walk_animation()
 					unit_reached_destination.emit(unit_id, current_cell)
 					return
 				current_path = rerouted
-				next_cell = current_path[0]
+				_sync_path_follower()
 
-		current_cell = next_cell
-		current_path.remove_at(0)
+	step_accumulator = fmod(step_accumulator + delta * speed_mult, CELL_STEP_DURATION)
+	if step_accumulator <= 0.0 and delta * speed_mult > 0.0:
+		step_accumulator = 0.001
+	var step_dist := move_speed_px * delta * speed_mult
+	var res := _path_follower.advance(position, step_dist)
+	var new_pos: Vector2 = res["position"]
+	var new_cell: Vector2i = res["cell"]
+
+	position = new_pos
+	_update_walk_visuals(res["velocity"], speed_mult, delta)
+
+	if new_cell != current_cell and IsoMath.is_in_bounds(new_cell):
+		current_cell = new_cell
+		# Trim passed prefix from current_path while keeping target_cell as final element
+		while current_path.size() > 1 and current_path[0] == current_cell:
+			current_path.remove_at(0)
+		_follower_source_path = current_path.duplicate()
 		unit_cell_changed.emit(unit_id, current_cell)
 
-		if current_path.is_empty():
-			target_cell = current_cell
-			order_state = OrderState.IDLE
-			unit_reached_destination.emit(unit_id, current_cell)
-			break
+	if bool(res["arrived"]):
+		position = IsoMath.map_to_local(target_cell)
+		if current_cell != target_cell:
+			current_cell = target_cell
+			unit_cell_changed.emit(unit_id, current_cell)
+		current_path.clear()
+		_follower_source_path.clear()
+		step_accumulator = 0.0
+		order_state = OrderState.IDLE
+		_stop_walk_animation()
+		unit_reached_destination.emit(unit_id, current_cell)
 
 # -----------------------------------------------------------------------------
 # Combat Model & Time-Sliced Resolution (Package 1X)
@@ -439,11 +588,21 @@ func resolve_target_actor() -> void:
 		clear_combat_and_pursuit_to_idle()
 
 func _process(delta: float) -> void:
-	# Continuous visual interpolation towards authoritative current_cell local position
+	# When MOVING, advance_movement() drives continuous position & walk animation directly.
 	var tm = get_time_manager()
 	if tm != null and tm.has_method("is_paused") and tm.is_paused():
+		_stop_walk_animation()
 		return
 
+	if order_state == OrderState.MOVING and not current_path.is_empty():
+		return
+
+	_stop_walk_animation()
+	var speed_mult_proc: float = 1.0
+	if tm != null and tm.get("current_speed") != null:
+		speed_mult_proc = float(tm.get("current_speed"))
+	if speed_mult_proc > 0.0:
+		_sync_unit_visuals(delta * speed_mult_proc)
 	var target_local := IsoMath.map_to_local(current_cell)
 	var diff := target_local - position
 	if diff.length_squared() > 0.25:
@@ -503,7 +662,10 @@ func serialize() -> Dictionary:
 		"attack_cooldown_remaining": attack_cooldown_remaining,
 		"is_alive": is_alive,
 		"faction_id": faction_id,
-		"target_actor_id": target_actor_id
+		"target_actor_id": target_actor_id,
+		"pos_x": position.x,
+		"pos_y": position.y,
+		"facing_dir": facing_dir
 	}
 
 func deserialize(data: Dictionary) -> bool:
@@ -596,7 +758,21 @@ func deserialize(data: Dictionary) -> bool:
 	order_state = o_state_val
 	current_path = parsed_path
 	step_accumulator = 0.0
-	position = IsoMath.map_to_local(current_cell)
+	if data.has("pos_x") and data.has("pos_y"):
+		var loaded_pos := Vector2(float(data.get("pos_x", 0.0)), float(data.get("pos_y", 0.0)))
+		if IsoMath.is_in_bounds(IsoMath.local_to_map(loaded_pos)):
+			position = loaded_pos
+		else:
+			position = IsoMath.map_to_local(current_cell)
+	else:
+		position = IsoMath.map_to_local(current_cell)
+	facing_dir = clampi(int(data.get("facing_dir", ContinuousPathFollower.ScreenDir.E)), 0, 7)
+	facing_name = ContinuousPathFollower.dir_to_name(facing_dir)
+	_path_follower.last_screen_dir = facing_dir
+	_path_follower.last_flip_h = ContinuousPathFollower.should_flip_h(facing_dir, false)
+	if sprite != null:
+		sprite.flip_h = _path_follower.last_flip_h
+	_follower_source_path.clear()
 
 	# Combat properties restoration (Package 1X)
 	health = clampf(float(data.get("health", 100.0)), 0.0, float(data.get("max_health", 100.0)))

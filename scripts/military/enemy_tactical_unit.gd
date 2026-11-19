@@ -34,14 +34,16 @@ func _init() -> void:
 
 func _ready() -> void:
 	super._ready()
-	faction_id = owning_faction_id if not owning_faction_id.is_empty() else "enemy"
+	faction_id = owning_faction_id if not owning_faction_id.is_empty() else "rival_military"
 	if sprite != null:
-		sprite.modulate = CRIMSON_MODULATE
+		sprite.modulate = Color.WHITE
+	queue_redraw()
 
 func _setup_visuals() -> void:
 	super._setup_visuals()
 	if sprite != null:
-		sprite.modulate = CRIMSON_MODULATE
+		sprite.modulate = Color.WHITE
+	queue_redraw()
 
 func set_ai_state(new_state: int) -> void:
 	if ai_state != new_state:
