@@ -259,6 +259,12 @@ func _test_tc_bm_5_click_priority() -> bool:
 	var failures: int = 0
 	var hud = world_instance.hud
 
+	# Ensure test click cells (9..28) are visible in FogOfWar on 128x128 maps
+	if world_instance.get("fog_of_war") != null:
+		for fx in range(9, 29):
+			for fy in range(9, 29):
+				world_instance.fog_of_war.set_state(Vector2i(fx, fy), FogOfWar.State.VISIBLE)
+
 	# Setup buildings for testing 1x1, 2x2, and 3x3 footprints
 	var b_1x1 := {
 		"id": "pri_test_1x1",
@@ -279,7 +285,7 @@ func _test_tc_bm_5_click_priority() -> bool:
 	var b_3x3 := {
 		"id": "pri_test_3x3",
 		"type": "townhall",
-		"cell": Vector2i(16, 16),
+		"cell": Vector2i(24, 24),
 		"size": Vector2i(3, 3),
 		"state": "active",
 		"health": 100
@@ -306,11 +312,20 @@ func _test_tc_bm_5_click_priority() -> bool:
 				failures += 1
 
 	# 3. 3x3 Building click through _unhandled_input across all 9 cells
+	# Ensure no random citizen/wildlife overlaps the 3x3 test cells
+	for cit in world_instance.citizen_list:
+		if cit.current_cell.x >= 24 and cit.current_cell.x <= 26 and cit.current_cell.y >= 24 and cit.current_cell.y <= 26:
+			cit.current_cell = Vector2i(22, 22)
+	if world_instance.get("wildlife_mgr") != null:
+		for a in world_instance.wildlife_mgr.animals:
+			var ac: Vector2i = a.get("cell", Vector2i(-1, -1))
+			if ac.x >= 24 and ac.x <= 26 and ac.y >= 24 and ac.y <= 26:
+				a["cell"] = Vector2i(22, 23)
 	for ox in range(3):
 		for oy in range(3):
-			_simulate_mouse_click(world_instance, Vector2i(16 + ox, 16 + oy))
+			_simulate_mouse_click(world_instance, Vector2i(24 + ox, 24 + oy))
 			if world_instance.selected_building_id != "pri_test_3x3":
-				printerr("FAIL: 3x3 building not selected on cell (%d, %d)" % [16 + ox, 16 + oy])
+				printerr("FAIL: 3x3 building not selected on cell (%d, %d)" % [24 + ox, 24 + oy])
 				failures += 1
 
 	# 4. Exact-cell citizen click takes priority over empty ground & opens CitizenInspectPanel
@@ -453,6 +468,12 @@ func _test_tc_bm_7_panel_data_reflection() -> bool:
 	print("--- Running TC-BM.7: BuildingInspectPanel Live Reflection ---")
 	var failures: int = 0
 	var hud = world_instance.hud
+
+	# Ensure test click cells (9..28) are visible in FogOfWar on 128x128 maps
+	if world_instance.get("fog_of_war") != null:
+		for fx in range(9, 29):
+			for fy in range(9, 29):
+				world_instance.fog_of_war.set_state(Vector2i(fx, fy), FogOfWar.State.VISIBLE)
 	var b_data := {
 		"id": "panel_ref_test",
 		"type": "farm",
@@ -494,6 +515,12 @@ func _test_tc_bm_8_buffer_saturation() -> bool:
 	print("--- Running TC-BM.8: Buffer Saturation Warnings ---")
 	var failures: int = 0
 	var hud = world_instance.hud
+
+	# Ensure test click cells (9..28) are visible in FogOfWar on 128x128 maps
+	if world_instance.get("fog_of_war") != null:
+		for fx in range(9, 29):
+			for fy in range(9, 29):
+				world_instance.fog_of_war.set_state(Vector2i(fx, fy), FogOfWar.State.VISIBLE)
 	var wp_mgr = world_instance.workplace_mgr
 
 	var wp = wp_mgr.get_workplace("farm_starter")
@@ -539,6 +566,12 @@ func _test_tc_bm_9_workshop_dual_channels() -> bool:
 	print("--- Running TC-BM.9: Workshop Dual-Channel Buffer Reflection ---")
 	var failures: int = 0
 	var hud = world_instance.hud
+
+	# Ensure test click cells (9..28) are visible in FogOfWar on 128x128 maps
+	if world_instance.get("fog_of_war") != null:
+		for fx in range(9, 29):
+			for fy in range(9, 29):
+				world_instance.fog_of_war.set_state(Vector2i(fx, fy), FogOfWar.State.VISIBLE)
 	var origin := Vector2i(22, 22)
 	var b_data := {
 		"id": "bld_ws_dual_test",
@@ -585,6 +618,12 @@ func _test_tc_bm_10_worker_roster_skills() -> bool:
 	print("--- Running TC-BM.10: Worker Roster with Package 2B Skills ---")
 	var failures: int = 0
 	var hud = world_instance.hud
+
+	# Ensure test click cells (9..28) are visible in FogOfWar on 128x128 maps
+	if world_instance.get("fog_of_war") != null:
+		for fx in range(9, 29):
+			for fy in range(9, 29):
+				world_instance.fog_of_war.set_state(Vector2i(fx, fy), FogOfWar.State.VISIBLE)
 	if world_instance.citizen_list.is_empty():
 		printerr("FAIL: Citizen list is empty")
 		return false
@@ -633,6 +672,12 @@ func _test_tc_bm_11_worker_click_to_inspector() -> bool:
 	print("--- Running TC-BM.11: Worker Roster Click to Citizen Inspector ---")
 	var failures: int = 0
 	var hud = world_instance.hud
+
+	# Ensure test click cells (9..28) are visible in FogOfWar on 128x128 maps
+	if world_instance.get("fog_of_war") != null:
+		for fx in range(9, 29):
+			for fy in range(9, 29):
+				world_instance.fog_of_war.set_state(Vector2i(fx, fy), FogOfWar.State.VISIBLE)
 	var cit = world_instance.citizen_list[0]
 	cit.role = "farmer"
 	var job = JobData.new()
@@ -678,6 +723,12 @@ func _test_tc_bm_12_civic_descriptions() -> bool:
 	print("--- Running TC-BM.12: Civic Buildings Description & Stats ---")
 	var failures: int = 0
 	var hud = world_instance.hud
+
+	# Ensure test click cells (9..28) are visible in FogOfWar on 128x128 maps
+	if world_instance.get("fog_of_war") != null:
+		for fx in range(9, 29):
+			for fy in range(9, 29):
+				world_instance.fog_of_war.set_state(Vector2i(fx, fy), FogOfWar.State.VISIBLE)
 	var civic_types := ["townhall", "house", "storehouse", "barracks", "watchtower", "market", "research_hall"]
 
 	for t in civic_types:
@@ -746,6 +797,12 @@ func _test_tc_bm_13_construction_inspection() -> bool:
 	print("--- Running TC-BM.13: Construction Site Live Inspection ---")
 	var failures: int = 0
 	var hud = world_instance.hud
+
+	# Ensure test click cells (9..28) are visible in FogOfWar on 128x128 maps
+	if world_instance.get("fog_of_war") != null:
+		for fx in range(9, 29):
+			for fy in range(9, 29):
+				world_instance.fog_of_war.set_state(Vector2i(fx, fy), FogOfWar.State.VISIBLE)
 	var b_data := {
 		"id": "bld_under_constr_test",
 		"type": "farm",
@@ -852,20 +909,19 @@ func _test_tc_bm_16_cancel_execution() -> bool:
 	var rm = world_instance.get_node_or_null("/root/ResourceManager")
 	var init_wood = rm.get_total_stock("wood")
 
-	# Find a clear 2x2 location on grass
-	var target_cell := Vector2i(40, 40)
+	# Find a clear, owned 2x2 location around center_spawn
+	var wd = world_instance.world_data
+	if rm != null:
+		rm.add_resource("wood", 100)
+		rm.add_resource("stone", 100)
+	var cs: Vector2i = wd.center_spawn
+	var target_cell := cs
 	var found_cell := false
-	for cx in range(35, 55):
-		for cy in range(35, 55):
-			var occ = false
-			for ox in range(2):
-				for oy in range(2):
-					if world_instance.world_data.occupancy[cx + ox][cy + oy]:
-						occ = true
-						break
-				if occ: break
-			if not occ:
-				target_cell = Vector2i(cx, cy)
+	for cx in range(cs.x - 14, cs.x + 15):
+		for cy in range(cs.y - 14, cs.y + 15):
+			var c := Vector2i(cx, cy)
+			if BuildingSystemScript.can_place_building("farm", c, wd, rm).get("valid", false):
+				target_cell = c
 				found_cell = true
 				break
 		if found_cell: break
@@ -1641,6 +1697,12 @@ func _test_tc_bm_30_escape_key_hierarchy() -> bool:
 	print("--- Running TC-BM.30: Escape Key Dismissal Hierarchy ---")
 	var failures: int = 0
 	var hud = world_instance.hud
+
+	# Ensure test click cells (9..28) are visible in FogOfWar on 128x128 maps
+	if world_instance.get("fog_of_war") != null:
+		for fx in range(9, 29):
+			for fy in range(9, 29):
+				world_instance.fog_of_war.set_state(Vector2i(fx, fy), FogOfWar.State.VISIBLE)
 
 	# 1. Overlay open -> Escape closes overlay first, keeps panel open
 	hud.show_building_inspector({"id": "farm_starter", "type": "farm", "cell": Vector2i(36, 35), "size": Vector2i(2, 2), "state": "active"})
@@ -2657,7 +2719,23 @@ func _test_tc_bm_33_cargo_conservation_scenarios() -> bool:
 		failures += 1
 
 	# STEP 1: Hauler picks up cargo from workplace using real _pickup_hauler_cargo
-	var origin := Vector2i(26, 26)
+	var cs33: Vector2i = world_instance.world_data.center_spawn
+	# Ensure local territory is owned for TC-BM.33 (TC-BM.21/22 demolished Town Hall)
+	if world_instance.world_data.owned_cells.size() == world_instance.world_data.map_width:
+		for tx in range(maxi(0, cs33.x - 14), mini(world_instance.world_data.map_width, cs33.x + 15)):
+			for ty in range(maxi(0, cs33.y - 14), mini(world_instance.world_data.map_height, cs33.y + 15)):
+				world_instance.world_data.owned_cells[tx][ty] = true
+	var origin := cs33 + Vector2i(-6, -6)
+	for cx in range(cs33.x - 10, cs33.x + 11):
+		var found33 := false
+		for cy in range(cs33.y - 10, cs33.y + 11):
+			var c33 := Vector2i(cx, cy)
+			if BuildingSystemScript.can_place_building("farm", c33, world_instance.world_data, rm).get("valid", false):
+				origin = c33
+				found33 = true
+				break
+		if found33:
+			break
 	var b_data := {
 		"id": "farm_cargo_test",
 		"type": "farm",
@@ -2678,6 +2756,19 @@ func _test_tc_bm_33_cargo_conservation_scenarios() -> bool:
 	if farm_wp != null:
 		farm_wp.buffer_amount = 10
 
+	var start_c: Vector2i = farm_wp.access_cell if farm_wp != null else origin + Vector2i(-1, 0)
+	var dropoff_c: Vector2i = wp_mgr.get_nearest_dropoff_cell(start_c)
+	var test_path: Array = cit0.call("_find_civilian_path", start_c, dropoff_c)
+	if test_path.is_empty():
+		for dx in range(-4, 5):
+			for dy in range(-4, 5):
+				var cand := cs33 + Vector2i(dx, dy)
+				var p: Array = cit0.call("_find_civilian_path", start_c, cand)
+				if not p.is_empty():
+					dropoff_c = cand
+					break
+			if not cit0.call("_find_civilian_path", start_c, dropoff_c).is_empty():
+				break
 	var hauler_job = JobData.new()
 	hauler_job.id = "haul_farm_test"
 	hauler_job.type = "hauler"
@@ -2685,11 +2776,11 @@ func _test_tc_bm_33_cargo_conservation_scenarios() -> bool:
 	hauler_job.target_building_id = "farm_cargo_test"
 	hauler_job.cargo_resource = "food"
 	hauler_job.cargo_amount = 10
-	hauler_job.dest_cell = Vector2i(32, 32)
+	hauler_job.dest_cell = dropoff_c
 
 	cit0.active_job = hauler_job
 	cit0.current_state = CitizenController.State.MOVING_TO_JOB
-	cit0.current_cell = Vector2i(26, 25) # adjacent cell
+	cit0.current_cell = start_c # adjacent cell
 	cit0.call("_pickup_hauler_cargo")
 
 	if cit0.carrying_resource != "food" or cit0.carrying_amount != 10:
@@ -2726,7 +2817,7 @@ func _test_tc_bm_33_cargo_conservation_scenarios() -> bool:
 
 	# STEP 3: Objective A3-A8: Real second hauling job through JobManager; genuine eligibility check
 	farm_wp.buffer_amount = 10 # Buffer has actual goods (Objective A4)
-	var extra_haul_job = jm.create_hauling_job("farm_cargo_test", farm_wp.access_cell, Vector2i(31, 34), "food", 5, "Haul extra food", 2)
+	var extra_haul_job = jm.create_hauling_job("farm_cargo_test", farm_wp.access_cell, dropoff_c, "food", 5, "Haul extra food", 2)
 	if extra_haul_job.state != JobState.AVAILABLE:
 		printerr("FAIL Step 3: Second hauling job should be AVAILABLE: %d" % extra_haul_job.state)
 		failures += 1
@@ -3211,6 +3302,8 @@ func _test_tc_bm_34_starter_storage_capacity_invariant() -> bool:
 					wd.occupancy[cell.x][cell.y] = true
 		world_instance._instantiate_building_node("storehouse", sh_entry.get("cell", Vector2i.ZERO), Vector2i(2, 2), "active")
 
+	if world_instance.territory_mgr != null:
+		world_instance.territory_mgr.recalculate_territory()
 	if world_instance.victory_mgr != null:
 		world_instance.victory_mgr.townhall_ruin_hours = 0.0
 		world_instance.victory_mgr.is_collapse_triggered = false
@@ -3233,9 +3326,10 @@ func _test_tc_bm_35_legacy_building_defaults_level_1() -> bool:
 	# 1. Place a building via BuildingSystemScript.place_building with funded rm
 	rm.add_resource("wood", 100)
 	rm.add_resource("stone", 100)
+	var cs: Vector2i = wd.center_spawn
 	var test_cell := Vector2i(-1, -1)
-	for x in range(20, 50):
-		for y in range(20, 50):
+	for x in range(cs.x - 14, cs.x + 15):
+		for y in range(cs.y - 14, cs.y + 15):
 			var c := Vector2i(x, y)
 			if BuildingSystemScript.can_place_building("house", c, wd, rm)["valid"]:
 				test_cell = c
@@ -3494,14 +3588,14 @@ func _test_tc_bm_39_upgrade_costs_and_durations() -> bool:
 		printerr("FAIL: Storehouse Lvl 3 duration expected 9.0h, got %f" % sh_d3)
 		failures += 1
 
-	# Non-upgradeable building: townhall
-	var th_cost = EconomyConfigScript.get_upgrade_cost("townhall", 2)
-	var th_duration = EconomyConfigScript.get_upgrade_duration("townhall", 2)
-	if not th_cost.is_empty():
-		printerr("FAIL: Townhall should not have upgrade cost, got %s" % str(th_cost))
+	# Non-upgradeable building: watchtower
+	var wt_cost = EconomyConfigScript.get_upgrade_cost("watchtower", 2)
+	var wt_duration = EconomyConfigScript.get_upgrade_duration("watchtower", 2)
+	if not wt_cost.is_empty():
+		printerr("FAIL: Watchtower should not have upgrade cost, got %s" % str(wt_cost))
 		failures += 1
-	if th_duration != 0.0:
-		printerr("FAIL: Townhall should have 0.0 upgrade duration, got %f" % th_duration)
+	if wt_duration != 0.0:
+		printerr("FAIL: Watchtower should have 0.0 upgrade duration, got %f" % wt_duration)
 		failures += 1
 
 	if failures == 0:
@@ -4164,9 +4258,10 @@ func _test_tc_bm_49_level_1_regressions_valid() -> bool:
 	# Fund resources and place normal Level 1 house
 	rm.add_resource("wood", 100)
 	rm.add_resource("stone", 100)
+	var cs: Vector2i = wd.center_spawn
 	var test_cell := Vector2i(-1, -1)
-	for x in range(20, 50):
-		for y in range(20, 50):
+	for x in range(cs.x - 14, cs.x + 15):
+		for y in range(cs.y - 14, cs.y + 15):
 			var c := Vector2i(x, y)
 			if BuildingSystemScript.can_place_building("house", c, wd, rm)["valid"]:
 				test_cell = c

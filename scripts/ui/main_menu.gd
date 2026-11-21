@@ -33,6 +33,19 @@ var perk_checkboxes: Dictionary = {} # perk_id -> CheckBox
 var perk_buttons: Dictionary = {} # perk_id -> Button
 var modifier_checkboxes: Dictionary = {} # mod_id -> CheckBox
 
+var _compat_overlay: Control = null
+var _compat_v1_btn: Button = null
+var _compat_v2_btn: Button = null
+var _compat_cancel_btn: Button = null
+var _compat_title_label: Label = null
+var _compat_msg_label: Label = null
+var _pending_ambiguous_save_data: Dictionary = {}
+var _pending_ambiguous_source: String = ""
+var _is_load_in_progress: bool = false
+var _load_error_label: Label = null
+var last_load_error: String = ""
+var last_loaded_world: Node = null
+
 func _ready() -> void:
 	DisplayServer.window_set_min_size(Vector2i(1024, 576))
 	new_world_overlay.visible = false
@@ -290,6 +303,11 @@ func _on_open_settings() -> void:
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventKey and event.pressed and not event.echo:
+		if is_compatibility_dialog_open() and event.keycode == KEY_ESCAPE:
+			cancel_compatibility_dialog()
+			if get_viewport() != null:
+				get_viewport().set_input_as_handled()
+			return
 		if event.keycode == KEY_F11:
 			var cur_mode := DisplayServer.window_get_mode()
 			var is_fs := (cur_mode == DisplayServer.WINDOW_MODE_FULLSCREEN or cur_mode == DisplayServer.WINDOW_MODE_EXCLUSIVE_FULLSCREEN)
@@ -343,27 +361,61 @@ func _on_load_autosave() -> void:
 	_load_save_data_into_world(SaveManager.get_autosave_path())
 
 func _load_save_data_into_world(save_filepath: String) -> void:
+	if _is_load_in_progress or is_compatibility_dialog_open():
+		return
 	_play_click()
 	var am = get_node_or_null("/root/AudioManager")
 	var load_res: Dictionary = SaveManager.load_from_file(save_filepath)
 	if not load_res.get("success", false):
-		print("[MainMenu] Failed to load save file (%s): %s" % [save_filepath, load_res.get("error", "")])
+		_report_load_error(load_res.get("error", "Không thể đọc tệp bản lưu."), save_filepath)
 		if am: am.play_error()
 		return
 
 	var save_data: Dictionary = load_res.get("data", {})
+	await start_load_from_save_data(save_data, save_filepath)
+
+func start_load_from_save_data(save_data: Dictionary, source_label: String = "in_memory") -> void:
+	if _is_load_in_progress or is_compatibility_dialog_open():
+		return
+	last_load_error = ""
+	if _load_error_label != null:
+		_load_error_label.visible = false
+	var am = get_node_or_null("/root/AudioManager")
 	var val_res: Dictionary = SaveManager.validate_save_data(save_data)
 	if not val_res.get("valid", false):
-		print("[MainMenu] Save data (%s) failed preflight validation: %s" % [save_filepath, val_res.get("error", "")])
+		_report_load_error(val_res.get("error", "Dữ liệu bản lưu không hợp lệ."), source_label)
 		if am: am.play_error()
 		return
 
+	var meta: Dictionary = save_data.get("metadata", {})
+	var gen_res: Dictionary = SaveManager.resolve_save_generator_version(meta)
+	var gen_status: int = int(gen_res.get("status", SaveManager.GeneratorVersionStatus.UNSUPPORTED))
+
+	if gen_status == SaveManager.GeneratorVersionStatus.UNSUPPORTED:
+		_report_load_error(gen_res.get("error", "Phiên bản bộ tạo thế giới không được hỗ trợ."), source_label)
+		if am: am.play_error()
+		return
+
+	if gen_status == SaveManager.GeneratorVersionStatus.AMBIGUOUS_MISSING:
+		_open_compatibility_dialog(save_data, source_label)
+		return
+
+	var explicit_ver: int = int(gen_res.get("version", -1))
+	await _execute_world_load_with_version(save_data, explicit_ver, source_label)
+
+func _execute_world_load_with_version(save_data: Dictionary, gen_ver: int, source_label: String) -> void:
+	if _is_load_in_progress:
+		return
+	_is_load_in_progress = true
+	var am = get_node_or_null("/root/AudioManager")
 	var meta: Dictionary = save_data.get("metadata", {})
 	var s_val: int = meta.get("world_seed", 12345)
 
 	# Instantiates WorldView scene in staged recovery mode before retiring MainMenu
 	var world_scene: Node = load("res://scenes/world/world_view.tscn").instantiate()
+	world_scene.set("is_loading_save", true)
 	world_scene.set("world_seed", s_val)
+	world_scene.set("world_generator_version", gen_ver)
 	var WorldViewScript = load("res://scripts/world/world_view.gd")
 	if WorldViewScript != null and WorldViewScript.has_method("generate_unique_world_id"):
 		world_scene.set("world_id", WorldViewScript.generate_unique_world_id(s_val))
@@ -376,19 +428,163 @@ func _load_save_data_into_world(save_filepath: String) -> void:
 	await get_tree().process_frame
 
 	# Apply loaded state to world and verify restoration succeeded before switching scenes
-	var apply_res: Dictionary = SaveManager.apply_loaded_state_to_world(world_scene, save_data)
+	var apply_res: Dictionary = SaveManager.apply_loaded_state_to_world(world_scene, save_data, false, gen_ver)
 	if not apply_res.get("success", false):
-		print("[MainMenu] Failed to apply loaded state to world (%s): %s" % [save_filepath, apply_res.get("error", "")])
+		_report_load_error(apply_res.get("error", "Không thể áp dụng trạng thái bản lưu."), source_label)
 		if is_instance_valid(world_scene):
 			if world_scene.get_parent() == root:
 				root.remove_child(world_scene)
 			world_scene.queue_free()
+		_is_load_in_progress = false
 		if am: am.play_error()
 		return
 
+	last_loaded_world = world_scene
+	_is_load_in_progress = false
 	if am: am.play_coin()
 	get_tree().current_scene = world_scene
 	queue_free()
+
+func _report_load_error(err_msg: String, source_label: String = "") -> void:
+	last_load_error = err_msg
+	print("[MainMenu] Load error (%s): %s" % [source_label, err_msg])
+	if _load_error_label == null and main_buttons != null:
+		_load_error_label = Label.new()
+		_load_error_label.name = "LoadErrorLabel"
+		_load_error_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		_load_error_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		_load_error_label.add_theme_color_override("font_color", Color(1.0, 0.42, 0.42))
+		main_buttons.add_child(_load_error_label)
+	if _load_error_label != null:
+		_load_error_label.text = err_msg
+		_load_error_label.visible = true
+
+func _ensure_compatibility_dialog() -> void:
+	if _compat_overlay != null:
+		return
+	_compat_overlay = Control.new()
+	_compat_overlay.name = "GeneratorCompatibilityOverlay"
+	_compat_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_compat_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	_compat_overlay.visible = false
+	_compat_overlay.z_index = 100
+
+	var backdrop := ColorRect.new()
+	backdrop.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	backdrop.color = Color(0.04, 0.05, 0.08, 0.78)
+	backdrop.mouse_filter = Control.MOUSE_FILTER_STOP
+	_compat_overlay.add_child(backdrop)
+
+	var center := CenterContainer.new()
+	center.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	center.mouse_filter = Control.MOUSE_FILTER_STOP
+	_compat_overlay.add_child(center)
+
+	var panel := PanelContainer.new()
+	panel.custom_minimum_size = Vector2(520, 0)
+	var sb := StyleBoxFlat.new()
+	sb.bg_color = Color(0.11, 0.13, 0.17, 0.98)
+	sb.border_color = Color(0.76, 0.63, 0.35, 1.0)
+	sb.set_border_width_all(2)
+	sb.set_corner_radius_all(8)
+	panel.add_theme_stylebox_override("panel", sb)
+	center.add_child(panel)
+
+	var margin := MarginContainer.new()
+	margin.add_theme_constant_override("margin_left", 24)
+	margin.add_theme_constant_override("margin_right", 24)
+	margin.add_theme_constant_override("margin_top", 20)
+	margin.add_theme_constant_override("margin_bottom", 20)
+	panel.add_child(margin)
+
+	var vbox := VBoxContainer.new()
+	vbox.add_theme_constant_override("separation", 12)
+	margin.add_child(vbox)
+
+	_compat_title_label = Label.new()
+	_compat_title_label.text = "World Generator Compatibility"
+	_compat_title_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_compat_title_label.add_theme_font_size_override("font_size", 20)
+	_compat_title_label.add_theme_color_override("font_color", Color(0.96, 0.85, 0.55))
+	vbox.add_child(_compat_title_label)
+
+	_compat_msg_label = Label.new()
+	_compat_msg_label.text = "Save này chưa lưu phiên bản tạo bản đồ. Hãy chọn phiên bản phù hợp với thế giới đã lưu."
+	_compat_msg_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_compat_msg_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	vbox.add_child(_compat_msg_label)
+
+	_compat_v1_btn = Button.new()
+	_compat_v1_btn.name = "SelectV1Btn"
+	_compat_v1_btn.text = "V1: Pre-Batch 03"
+	_compat_v1_btn.custom_minimum_size = Vector2(0, 40)
+	_compat_v1_btn.focus_mode = Control.FOCUS_ALL
+	_compat_v1_btn.pressed.connect(func(): select_compatibility_version(1))
+	vbox.add_child(_compat_v1_btn)
+
+	var v1_desc := Label.new()
+	v1_desc.text = "Bản đồ cũ, chưa có Hills/Mountains."
+	v1_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v1_desc.add_theme_color_override("font_color", Color(0.75, 0.78, 0.84))
+	vbox.add_child(v1_desc)
+
+	_compat_v2_btn = Button.new()
+	_compat_v2_btn.name = "SelectV2Btn"
+	_compat_v2_btn.text = "V2: Batch 03"
+	_compat_v2_btn.custom_minimum_size = Vector2(0, 40)
+	_compat_v2_btn.focus_mode = Control.FOCUS_ALL
+	_compat_v2_btn.pressed.connect(func(): select_compatibility_version(2))
+	vbox.add_child(_compat_v2_btn)
+
+	var v2_desc := Label.new()
+	v2_desc.text = "Bản đồ có Hills/Mountains theo thuật toán Batch 03 ban đầu."
+	v2_desc.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v2_desc.add_theme_color_override("font_color", Color(0.75, 0.78, 0.84))
+	vbox.add_child(v2_desc)
+
+	_compat_cancel_btn = Button.new()
+	_compat_cancel_btn.name = "CancelCompatBtn"
+	_compat_cancel_btn.text = "Hủy"
+	_compat_cancel_btn.custom_minimum_size = Vector2(0, 38)
+	_compat_cancel_btn.focus_mode = Control.FOCUS_ALL
+	_compat_cancel_btn.pressed.connect(cancel_compatibility_dialog)
+	vbox.add_child(_compat_cancel_btn)
+
+	add_child(_compat_overlay)
+
+func _open_compatibility_dialog(save_data: Dictionary, source_label: String) -> void:
+	_ensure_compatibility_dialog()
+	_pending_ambiguous_save_data = save_data
+	_pending_ambiguous_source = source_label
+	_compat_v1_btn.disabled = false
+	_compat_v2_btn.disabled = false
+	_compat_cancel_btn.disabled = false
+	_compat_overlay.visible = true
+
+func is_compatibility_dialog_open() -> bool:
+	return _compat_overlay != null and _compat_overlay.visible
+
+func select_compatibility_version(version: int) -> void:
+	if not is_compatibility_dialog_open() or _is_load_in_progress:
+		return
+	if not (version in [WorldGenerator.LEGACY_GENERATOR_VERSION, WorldGenerator.BATCH03_GENERATOR_VERSION]):
+		return
+	var save_copy: Dictionary = _pending_ambiguous_save_data
+	var source_copy: String = _pending_ambiguous_source
+	_pending_ambiguous_save_data = {}
+	_pending_ambiguous_source = ""
+	_compat_v1_btn.disabled = true
+	_compat_v2_btn.disabled = true
+	_compat_cancel_btn.disabled = true
+	_compat_overlay.visible = false
+	call_deferred("_execute_world_load_with_version", save_copy, version, source_copy)
+
+func cancel_compatibility_dialog() -> void:
+	if not is_compatibility_dialog_open() or _is_load_in_progress:
+		return
+	_pending_ambiguous_save_data = {}
+	_pending_ambiguous_source = ""
+	_compat_overlay.visible = false
 
 func _on_fullscreen_toggled(is_fullscreen: bool) -> void:
 	if is_fullscreen:

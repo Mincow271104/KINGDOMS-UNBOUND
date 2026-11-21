@@ -26,7 +26,21 @@ func _assert(condition: bool, test_name: String, details: String = "") -> void:
 
 func _create_test_world() -> WorldGenerator.WorldData:
 	var wd = WorldGeneratorScript.generate(42)
+	IsoMath.set_active_map_dimensions(wd.terrain.size(), wd.terrain[0].size())
 	return wd
+
+func _resolve_dropoff_cell(wd: WorldGenerator.WorldData) -> Vector2i:
+	return wd.center_spawn
+
+func _clear_walkable_rect(wd: WorldGenerator.WorldData, min_cell: Vector2i, max_cell: Vector2i) -> void:
+	for x in range(min_cell.x, max_cell.x + 1):
+		for y in range(min_cell.y, max_cell.y + 1):
+			wd.terrain[x][y] = WorldGeneratorScript.TerrainType.GRASS
+			wd.occupancy[x][y] = false
+	for i in range(wd.props.size() - 1, -1, -1):
+		var c: Vector2i = wd.props[i].get("cell", Vector2i(-1, -1))
+		if c.x >= min_cell.x and c.x <= max_cell.x and c.y >= min_cell.y and c.y <= max_cell.y:
+			wd.props.remove_at(i)
 
 func _init() -> void:
 	print("\n========================================================")
@@ -148,6 +162,8 @@ func _run_tc_man_2_prior_job_clean_release() -> void:
 func _run_tc_man_3_manual_tree_chopping() -> void:
 	print("--- TC-MAN.3: Manual Tree Chopping ---")
 	var wd = _create_test_world()
+	var drop_cell := _resolve_dropoff_cell(wd)
+	_clear_walkable_rect(wd, drop_cell, drop_cell + Vector2i(3, 0))
 	var nav = GridNavigationScript.new(wd)
 	var jm = JobManagerScript.new()
 	var rm = ResourceManagerScript.new()
@@ -156,21 +172,20 @@ func _run_tc_man_3_manual_tree_chopping() -> void:
 
 	var cit = CitizenControllerScript.new()
 	root.add_child(cit)
-	# Citizen at (34, 32), Tree at (35, 32). Storehouse drop-off is (32, 32).
-	cit.init_citizen("cit_3", "Logger", "idle", Vector2i(34, 32), nav, jm)
+	cit.init_citizen("cit_3", "Logger", "idle", drop_cell + Vector2i(2, 0), nav, jm)
 	cit.world_data = wd
 	cit.set_custom_resource_manager(rm)
 
-	var tree_cell := Vector2i(35, 32)
+	var tree_cell := drop_cell + Vector2i(3, 0)
 	wd.props.append({"type": "tree", "cell": tree_cell})
-	wd.occupancy[35][32] = true
+	wd.occupancy[tree_cell.x][tree_cell.y] = true
 
 	var init_wood: int = rm.get_available_stock("wood")
 
 	var res := cit.issue_manual_command("chop", tree_cell)
 	_assert(res.get("success", false) == true, "TC-MAN.3.1: issue_manual_command 'chop' succeeds")
 	_assert(cit.manual_command.type == "chop", "TC-MAN.3.2: Manual command type is 'chop'")
-	_assert(cit.current_state == CitizenController.State.WORKING, "TC-MAN.3.3: Immediately starts WORKING (adjacent at 34,32)")
+	_assert(cit.current_state == CitizenController.State.WORKING, "TC-MAN.3.3: Immediately starts WORKING (adjacent at tree)")
 
 	# Simulate working hours (required 5.0)
 	cit._process_manual_working(6.0)
@@ -179,8 +194,8 @@ func _run_tc_man_3_manual_tree_chopping() -> void:
 	_assert(cit.carrying_amount == 10, "TC-MAN.3.5: Citizen collected exactly 10 wood")
 	_assert(cit.current_state == CitizenController.State.HAULING, "TC-MAN.3.6: Citizen transitions to HAULING en route to storehouse")
 
-	# Haul cargo to storehouse at (32, 32)
-	cit.current_cell = Vector2i(32, 32)
+	# Haul cargo to storehouse drop_cell
+	cit.current_cell = drop_cell
 	cit._arrive_at_destination()
 
 	_assert(cit.carrying_amount == 0, "TC-MAN.3.7: Cargo deposited completely")
@@ -194,6 +209,8 @@ func _run_tc_man_3_manual_tree_chopping() -> void:
 func _run_tc_man_4_manual_rock_mining() -> void:
 	print("--- TC-MAN.4: Manual Rock Mining ---")
 	var wd = _create_test_world()
+	var drop_cell := _resolve_dropoff_cell(wd)
+	_clear_walkable_rect(wd, drop_cell, drop_cell + Vector2i(3, 0))
 	var nav = GridNavigationScript.new(wd)
 	var jm = JobManagerScript.new()
 	var rm = ResourceManagerScript.new()
@@ -202,14 +219,13 @@ func _run_tc_man_4_manual_rock_mining() -> void:
 
 	var cit = CitizenControllerScript.new()
 	root.add_child(cit)
-	# Citizen at (34, 32), Rock at (35, 32). Storehouse at (32, 32).
-	cit.init_citizen("cit_4", "Miner", "idle", Vector2i(34, 32), nav, jm)
+	cit.init_citizen("cit_4", "Miner", "idle", drop_cell + Vector2i(2, 0), nav, jm)
 	cit.world_data = wd
 	cit.set_custom_resource_manager(rm)
 
-	var rock_cell := Vector2i(35, 32)
+	var rock_cell := drop_cell + Vector2i(3, 0)
 	wd.props.append({"type": "rock", "cell": rock_cell})
-	wd.occupancy[35][32] = true
+	wd.occupancy[rock_cell.x][rock_cell.y] = true
 
 	var init_stone: int = rm.get_available_stock("stone")
 
@@ -224,7 +240,7 @@ func _run_tc_man_4_manual_rock_mining() -> void:
 	_assert(cit.carrying_amount == 10, "TC-MAN.4.5: Citizen collected exactly 10 stone")
 	_assert(cit.current_state == CitizenController.State.HAULING, "TC-MAN.4.6: Citizen transitions to HAULING")
 
-	cit.current_cell = Vector2i(32, 32)
+	cit.current_cell = drop_cell
 	cit._arrive_at_destination()
 
 	_assert(rm.get_available_stock("stone") == init_stone + 10, "TC-MAN.4.7: Central storage credited with +10 stone")
@@ -663,6 +679,8 @@ func _run_tc_man_14_citizen_death_cleanup() -> void:
 func _run_tc_man_15_vocational_xp_award_on_completion() -> void:
 	print("--- TC-MAN.15: Vocational XP Awarded on Manual Completion ---")
 	var wd = _create_test_world()
+	var drop_cell := _resolve_dropoff_cell(wd)
+	_clear_walkable_rect(wd, drop_cell + Vector2i(-1, 0), drop_cell + Vector2i(1, 0))
 	var nav = GridNavigationScript.new(wd)
 	var jm = JobManagerScript.new()
 	var rm = ResourceManagerScript.new()
@@ -671,7 +689,7 @@ func _run_tc_man_15_vocational_xp_award_on_completion() -> void:
 
 	var cit = CitizenControllerScript.new()
 	root.add_child(cit)
-	cit.init_citizen("cit_15", "Student", "idle", Vector2i(32, 32), nav, jm)
+	cit.init_citizen("cit_15", "Student", "idle", drop_cell, nav, jm)
 	cit.world_data = wd
 	cit.set_custom_resource_manager(rm)
 
@@ -679,8 +697,8 @@ func _run_tc_man_15_vocational_xp_award_on_completion() -> void:
 	var init_wood_xp: float = s_data.get_xp("woodcutting")
 	var init_mining_xp: float = s_data.get_xp("mining")
 
-	wd.props.append({"type": "tree", "cell": Vector2i(33, 32)})
-	cit.issue_manual_command("chop", Vector2i(33, 32))
+	wd.props.append({"type": "tree", "cell": drop_cell + Vector2i(1, 0)})
+	cit.issue_manual_command("chop", drop_cell + Vector2i(1, 0))
 	cit._process_manual_working(5.0)
 
 	_assert(s_data.get_xp("woodcutting") >= init_wood_xp + 10.0, "TC-MAN.15.1: Chopping awarded +10 woodcutting XP")
@@ -688,8 +706,8 @@ func _run_tc_man_15_vocational_xp_award_on_completion() -> void:
 	# Clean delivery
 	cit._deposit_hauler_cargo()
 
-	wd.props.append({"type": "rock", "cell": Vector2i(31, 32)})
-	cit.issue_manual_command("mine", Vector2i(31, 32))
+	wd.props.append({"type": "rock", "cell": drop_cell + Vector2i(-1, 0)})
+	cit.issue_manual_command("mine", drop_cell + Vector2i(-1, 0))
 	cit._process_manual_working(5.0)
 
 	_assert(s_data.get_xp("mining") >= init_mining_xp + 10.0, "TC-MAN.15.2: Mining awarded +10 mining XP")
@@ -701,6 +719,9 @@ func _run_tc_man_15_vocational_xp_award_on_completion() -> void:
 func _run_tc_man_16_survival_interruption_during_cargo_hauling() -> void:
 	print("--- TC-MAN.16: Survival Interruption During Cargo Hauling & Resumption ---")
 	var wd = _create_test_world()
+	var drop_cell := _resolve_dropoff_cell(wd)
+	var tree_cell := drop_cell + Vector2i(3, 0)
+	_clear_walkable_rect(wd, drop_cell, tree_cell)
 	var nav = GridNavigationScript.new(wd)
 	var jm = JobManagerScript.new()
 	var rm = ResourceManagerScript.new()
@@ -709,32 +730,29 @@ func _run_tc_man_16_survival_interruption_during_cargo_hauling() -> void:
 
 	var cit = CitizenControllerScript.new()
 	root.add_child(cit)
-	cit.init_citizen("cit_16", "Woodcutter", "idle", Vector2i(32, 32), nav, jm)
+	cit.init_citizen("cit_16", "Woodcutter", "idle", drop_cell, nav, jm)
 	cit.world_data = wd
 	cit.set_custom_resource_manager(rm)
 
-	# Tree at (35, 32)
-	wd.props.append({"type": "tree", "cell": Vector2i(35, 32)})
-	for x in range(32, 36):
-		wd.occupancy[x][32] = false
-		wd.terrain[x][32] = WorldGenerator.TerrainType.GRASS
-	wd.occupancy[35][32] = true
+	# Tree at drop_cell + (3, 0)
+	wd.props.append({"type": "tree", "cell": tree_cell})
+	wd.occupancy[tree_cell.x][tree_cell.y] = true
 
-	var res := cit.issue_manual_command("chop", Vector2i(35, 32))
+	var res := cit.issue_manual_command("chop", tree_cell)
 	_assert(res.get("success", false) == true, "TC-MAN.16.1: Chop command accepted")
 
 	# Move adjacent and complete harvest
-	cit.current_cell = Vector2i(34, 32)
+	cit.current_cell = drop_cell + Vector2i(2, 0)
 	cit.position = IsoMath.map_to_local(cit.current_cell)
 	cit._arrive_at_manual_destination()
 	cit._process_manual_working(5.0)
 
 	_assert(cit.carrying_amount == 10, "TC-MAN.16.2: Citizen holds 10 wood cargo")
 	_assert(cit.current_state == CitizenController.State.HAULING, "TC-MAN.16.3: State is HAULING toward storage")
-	_assert(cit._is_tree_at_cell(Vector2i(35, 32)) == false, "TC-MAN.16.4: Tree removed from world props upon harvest")
+	_assert(cit._is_tree_at_cell(tree_cell) == false, "TC-MAN.16.4: Tree removed from world props upon harvest")
 
 	# Citizen steps 1 tile toward storehouse
-	cit.current_cell = Vector2i(33, 32)
+	cit.current_cell = drop_cell + Vector2i(1, 0)
 	cit.position = IsoMath.map_to_local(cit.current_cell)
 
 	var init_wood: int = rm.get_total_stock("wood")
@@ -754,15 +772,15 @@ func _run_tc_man_16_survival_interruption_during_cargo_hauling() -> void:
 	_assert(cit.manual_command.is_paused == false, "TC-MAN.16.9: Manual command unpaused")
 	_assert(cit.current_state == CitizenController.State.HAULING, "TC-MAN.16.10: Citizen resumed HAULING state toward storehouse")
 	_assert(cit.carrying_amount == 10, "TC-MAN.16.11: Cargo intact in citizen hands")
-	_assert(rm.get_total_stock("wood") == init_wood, "TC-MAN.16.12: Zero teleportation (warehouse not credited prematurely from (33, 32))")
+	_assert(rm.get_total_stock("wood") == init_wood, "TC-MAN.16.12: Zero teleportation (warehouse not credited prematurely)")
 
-	# Step until arrival at storehouse (32, 32)
+	# Step until arrival at storehouse drop_cell
 	for _i in range(20):
 		cit._process(0.1)
 		if not cit.has_manual_command():
 			break
 
-	_assert(cit.current_cell == Vector2i(32, 32), "TC-MAN.16.13: Citizen physically reached storehouse cell (32, 32)")
+	_assert(cit.current_cell == drop_cell, "TC-MAN.16.13: Citizen physically reached storehouse cell")
 	_assert(cit.carrying_amount == 0, "TC-MAN.16.14: Cargo deposited completely")
 	_assert(rm.get_total_stock("wood") == init_wood + 10, "TC-MAN.16.15: Warehouse correctly credited +10 wood at storehouse")
 	_assert(cit.has_manual_command() == false, "TC-MAN.16.16: Manual command completed cleanly")
@@ -774,6 +792,9 @@ func _run_tc_man_16_survival_interruption_during_cargo_hauling() -> void:
 func _run_tc_man_17_full_storage_arrival_and_stationing() -> void:
 	print("--- TC-MAN.17: Full Storage Arrival & Stationing ---")
 	var wd = _create_test_world()
+	var drop_cell := _resolve_dropoff_cell(wd)
+	var rock_cell := drop_cell + Vector2i(2, 0)
+	_clear_walkable_rect(wd, drop_cell, rock_cell)
 	var nav = GridNavigationScript.new(wd)
 	var jm = JobManagerScript.new()
 	var rm = ResourceManagerScript.new()
@@ -782,19 +803,16 @@ func _run_tc_man_17_full_storage_arrival_and_stationing() -> void:
 
 	var cit = CitizenControllerScript.new()
 	root.add_child(cit)
-	cit.init_citizen("cit_17", "Miner", "idle", Vector2i(32, 32), nav, jm)
+	cit.init_citizen("cit_17", "Miner", "idle", drop_cell, nav, jm)
 	cit.world_data = wd
 	cit.set_custom_resource_manager(rm)
 
-	# Rock at (34, 32)
-	wd.props.append({"type": "rock", "cell": Vector2i(34, 32)})
-	for x in range(32, 35):
-		wd.occupancy[x][32] = false
-		wd.terrain[x][32] = WorldGenerator.TerrainType.GRASS
-	wd.occupancy[34][32] = true
+	# Rock at drop_cell + (2, 0)
+	wd.props.append({"type": "rock", "cell": rock_cell})
+	wd.occupancy[rock_cell.x][rock_cell.y] = true
 
-	cit.issue_manual_command("mine", Vector2i(34, 32))
-	cit.current_cell = Vector2i(33, 32)
+	cit.issue_manual_command("mine", rock_cell)
+	cit.current_cell = drop_cell + Vector2i(1, 0)
 	cit.position = IsoMath.map_to_local(cit.current_cell)
 	cit._arrive_at_manual_destination()
 	cit._process_manual_working(5.0)
@@ -805,8 +823,8 @@ func _run_tc_man_17_full_storage_arrival_and_stationing() -> void:
 	# Fill stone capacity completely (capacity = total_stock)
 	rm._current_stock["stone"] = rm.get_storage_capacity("stone")
 
-	# Arrive at storehouse (32, 32) with 0 capacity space
-	cit.current_cell = Vector2i(32, 32)
+	# Arrive at storehouse drop_cell with 0 capacity space
+	cit.current_cell = drop_cell
 	cit.position = IsoMath.map_to_local(cit.current_cell)
 	cit._deposit_hauler_cargo()
 
@@ -814,10 +832,10 @@ func _run_tc_man_17_full_storage_arrival_and_stationing() -> void:
 	_assert(cit.has_manual_command() == true, "TC-MAN.17.4: Manual command remains active while awaiting storehouse space")
 	_assert(cit.current_state == CitizenController.State.IDLE, "TC-MAN.17.5: Citizen transitions to IDLE awaiting storage")
 
-	# Run simulation frame: citizen must NOT path back to rock cell (34, 32)!
+	# Run simulation frame: citizen must NOT path back to rock cell!
 	cit._process(0.1)
 
-	_assert(cit.current_cell == Vector2i(32, 32), "TC-MAN.17.6: Citizen remains stationed at storehouse (32, 32)")
+	_assert(cit.current_cell == drop_cell, "TC-MAN.17.6: Citizen remains stationed at storehouse")
 	_assert(cit.current_path.is_empty(), "TC-MAN.17.7: Citizen does not path back to harvested rock site")
 
 	# Free 10 stone capacity in storehouse
@@ -942,6 +960,8 @@ func _run_tc_man_19_save_load_during_cargo_hauling() -> void:
 func _run_tc_man_20_semantic_cancellation_and_death_cargo_lifecycle() -> void:
 	print("--- TC-MAN.20: Semantic Cancellation & Death Cargo Lifecycle ---")
 	var wd = _create_test_world()
+	var drop_cell := _resolve_dropoff_cell(wd)
+	_clear_walkable_rect(wd, drop_cell, drop_cell + Vector2i(3, 0))
 	var nav = GridNavigationScript.new(wd)
 	var jm = JobManagerScript.new()
 	var rm = ResourceManagerScript.new()
@@ -950,7 +970,7 @@ func _run_tc_man_20_semantic_cancellation_and_death_cargo_lifecycle() -> void:
 
 	var cit = CitizenControllerScript.new()
 	root.add_child(cit)
-	cit.init_citizen("cit_20", "Semantic Worker", "idle", Vector2i(34, 32), nav, jm)
+	cit.init_citizen("cit_20", "Semantic Worker", "idle", drop_cell + Vector2i(2, 0), nav, jm)
 	cit.world_data = wd
 	cit.set_custom_resource_manager(rm)
 
@@ -959,7 +979,7 @@ func _run_tc_man_20_semantic_cancellation_and_death_cargo_lifecycle() -> void:
 	cit.carrying_amount = 10
 	cit.manual_command = {
 		"type": "mine",
-		"target_cell": Vector2i(35, 32),
+		"target_cell": drop_cell + Vector2i(3, 0),
 		"target_id": "",
 		"work_hours_required": 5.0,
 		"work_hours_done": 5.0,
@@ -1036,6 +1056,8 @@ func _run_tc_man_20_semantic_cancellation_and_death_cargo_lifecycle() -> void:
 func _run_tc_man_21_path_failure_with_cargo_invariant() -> void:
 	print("--- TC-MAN.21: Path Failure While Carrying Cargo & Proximity Invariant ---")
 	var wd = _create_test_world()
+	var drop_cell := _resolve_dropoff_cell(wd)
+	_clear_walkable_rect(wd, drop_cell + Vector2i(-2, -2), drop_cell + Vector2i(4, 2))
 	var nav = GridNavigationScript.new(wd)
 	var jm = JobManagerScript.new()
 	var rm = ResourceManagerScript.new()
@@ -1044,17 +1066,17 @@ func _run_tc_man_21_path_failure_with_cargo_invariant() -> void:
 
 	var cit = CitizenControllerScript.new()
 	root.add_child(cit)
-	cit.init_citizen("cit_21", "Unreachable Hauler", "woodcutter", Vector2i(35, 32), nav, jm)
+	cit.init_citizen("cit_21", "Unreachable Hauler", "woodcutter", drop_cell + Vector2i(3, 0), nav, jm)
 	cit.world_data = wd
 	cit.set_custom_resource_manager(rm)
 
-	# 1. Citizen finishes chopping wood at (35, 32)
+	# 1. Citizen finishes chopping wood near drop_cell
 	var pre_wood: int = rm.get_total_stock("wood")
 	cit.carrying_resource = "wood"
 	cit.carrying_amount = 10
 	cit.manual_command = {
 		"type": "chop",
-		"target_cell": Vector2i(36, 32),
+		"target_cell": drop_cell + Vector2i(4, 0),
 		"target_id": "",
 		"work_hours_required": 5.0,
 		"work_hours_done": 5.0,
@@ -1063,9 +1085,9 @@ func _run_tc_man_21_path_failure_with_cargo_invariant() -> void:
 		"pause_reason": ""
 	}
 
-	# 2. Make storage dropoff (32, 32) completely unreachable in navigation
-	for x in range(30, 35):
-		for y in range(30, 35):
+	# 2. Make storage dropoff completely unreachable in navigation
+	for x in range(drop_cell.x - 2, drop_cell.x + 3):
+		for y in range(drop_cell.y - 2, drop_cell.y + 3):
 			wd.terrain[x][y] = WorldGeneratorScript.TerrainType.WATER
 
 	# 3. Simulate arrival at harvest completion / path failure attempt
@@ -1099,11 +1121,8 @@ func _run_tc_man_21_path_failure_with_cargo_invariant() -> void:
 	_assert(cit.carrying_amount == 10, "TC-MAN.21.14: _deposit_hauler_cargo fails closed off-site (proximity guard)")
 	_assert(rm.get_total_stock("wood") == pre_wood, "TC-MAN.21.15: ResourceManager stock completely protected")
 
-	# 7. Restore walkability / route to storage dropoff (32, 32)
-	for x in range(30, 35):
-		for y in range(30, 35):
-			wd.terrain[x][y] = WorldGeneratorScript.TerrainType.GRASS
-			wd.occupancy[x][y] = false
+	# 7. Restore walkability / route to storage dropoff
+	_clear_walkable_rect(wd, drop_cell + Vector2i(-2, -2), drop_cell + Vector2i(4, 2))
 
 	# 8. Process idle tick with valid route
 	cit._process_idle()
@@ -1263,11 +1282,11 @@ func _run_tc_man_23_active_job_hauler_proximity_bypass_elimination() -> void:
 	cit.current_state = CitizenController.State.MOVING_TO_JOB
 	cit.current_cell = Vector2i(26, 25)
 
-	# 5. Pick up cargo: citizen now holds 10 food, active_job != null, current_state == State.HAULING, NOT stranded
+	# 5. Pick up cargo: citizen now holds 10 food, haul_job completed & active_job cleared (0A-3), current_state == State.HAULING, NOT stranded
 	var pre_food: int = rm.get_total_stock("food")
 	cit._pickup_hauler_cargo()
 
-	_assert(cit.active_job != null, "TC-MAN.23.1: Citizen has active_job != null")
+	_assert(cit.active_job == null and haul_job.state == JobManager.JobState.COMPLETED, "TC-MAN.23.1: Hauling job completed and active_job cleared upon pickup (0A-3)")
 	_assert(cit.current_state == CitizenController.State.HAULING, "TC-MAN.23.2: Citizen is in State.HAULING")
 	_assert(cit.is_stranded_with_cargo == false, "TC-MAN.23.3: Citizen is NOT marked stranded (is_stranded_with_cargo == false)")
 	_assert(cit.carrying_amount == 10, "TC-MAN.23.4: Citizen carrying 10 units of food")
@@ -1283,7 +1302,7 @@ func _run_tc_man_23_active_job_hauler_proximity_bypass_elimination() -> void:
 	_assert(cit.carrying_resource == "food", "TC-MAN.23.9: Cargo resource retained as food")
 	_assert(rm.get_total_stock("food") == pre_food, "TC-MAN.23.10: Central stock completely unchanged (0 remote credit)")
 	_assert(cit.current_state == CitizenController.State.HAULING, "TC-MAN.23.11: Citizen state remains HAULING")
-	_assert(cit.active_job != null, "TC-MAN.23.12: Active hauling job preserved")
+	_assert(cit.active_job == null and haul_job.state == JobManager.JobState.COMPLETED, "TC-MAN.23.12: Hauling job remains completed and active_job cleared while cargo retained")
 
 	# 7. Citizen physically walks step-by-step along current_path to storage dropoff (32, 32)
 	_assert(not cit.current_path.is_empty(), "TC-MAN.23.13: Citizen has non-empty path to storage")

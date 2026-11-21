@@ -25,6 +25,7 @@ class JobData:
 	var state: int = JobState.AVAILABLE
 	var worker_id: String = ""
 	var description: String = ""
+	var base_priority: int = 1
 	var priority: int = 1
 	var is_recurring: bool = false
 	var source_workplace_id: String = ""
@@ -37,6 +38,7 @@ class JobData:
 
 var _jobs: Array[JobData] = []
 var _terminal_jobs_history: Array[JobData] = []
+var _priority_modifiers: Dictionary = {} # source_id -> {source_id, job_type, workplace_id, delta}
 var _next_job_id: int = 1
 
 func create_job(
@@ -60,10 +62,12 @@ func create_job(
 	job.work_hours_required = duration_hours
 	job.work_hours_done = 0.0
 	job.state = JobState.AVAILABLE
-	job.priority = clampi(priority, MIN_JOB_PRIORITY, MAX_JOB_PRIORITY)
+	job.base_priority = clampi(priority, MIN_JOB_PRIORITY, MAX_JOB_PRIORITY)
+	job.priority = job.base_priority
 	job.is_recurring = recurring
 	job.recipe_id = recipe
 	job.workplace_channel_id = channel_id
+	_recompute_job_priority(job)
 	_jobs.append(job)
 	return job
 
@@ -82,7 +86,9 @@ func create_hauling_job(workplace_id: String, source: Vector2i, dest: Vector2i, 
 	job.work_hours_required = 0.5 # Fast pickup
 	job.work_hours_done = 0.0
 	job.state = JobState.AVAILABLE
-	job.priority = clampi(priority, MIN_JOB_PRIORITY, MAX_JOB_PRIORITY)
+	job.base_priority = clampi(priority, MIN_JOB_PRIORITY, MAX_JOB_PRIORITY)
+	job.priority = job.base_priority
+	_recompute_job_priority(job)
 	_jobs.append(job)
 	return job
 
@@ -236,14 +242,86 @@ func request_job(citizen_id: String, role: String, citizen_cell: Vector2i, nav: 
 		
 	return best_job
 
-func boost_jobs_priority(job_type: String, boost_delta: int) -> int:
-	var modified := 0
+func _modifier_matches_job(mod: Dictionary, job: JobData) -> bool:
+	if job == null:
+		return false
+	var mod_type: String = str(mod.get("job_type", ""))
+	if mod_type != "" and job.type != mod_type:
+		return false
+	var mod_wp: String = str(mod.get("workplace_id", ""))
+	if mod_wp != "" and not job_matches_building(job, mod_wp):
+		return false
+	return true
+
+func get_effective_priority(job: JobData) -> int:
+	if job == null:
+		return MIN_JOB_PRIORITY
+	var total_delta: int = 0
+	for mod in _priority_modifiers.values():
+		if _modifier_matches_job(mod, job):
+			total_delta += int(mod.get("delta", 0))
+	return clampi(job.base_priority + total_delta, MIN_JOB_PRIORITY, MAX_JOB_PRIORITY)
+
+func _recompute_job_priority(job: JobData) -> void:
+	if job == null:
+		return
+	job.priority = get_effective_priority(job)
+
+func _recompute_all_job_priorities() -> void:
 	for job in _jobs:
-		if job.type == job_type and job.state == JobState.AVAILABLE:
-			var next_prio := clampi(job.priority + boost_delta, MIN_JOB_PRIORITY, MAX_JOB_PRIORITY)
-			job.priority = next_prio
-			modified += 1
-	return modified
+		_recompute_job_priority(job)
+
+func set_job_base_priority(job: JobData, new_base_priority: int) -> void:
+	if job == null:
+		return
+	job.base_priority = clampi(new_base_priority, MIN_JOB_PRIORITY, MAX_JOB_PRIORITY)
+	_recompute_job_priority(job)
+
+func set_priority_modifier(source_id: String, delta: int, job_type: String = "", workplace_id: String = "") -> int:
+	if source_id.is_empty():
+		return 0
+	_priority_modifiers[source_id] = {
+		"source_id": source_id,
+		"job_type": job_type,
+		"workplace_id": workplace_id,
+		"delta": delta
+	}
+	_recompute_all_job_priorities()
+	var affected := 0
+	var mod: Dictionary = _priority_modifiers[source_id]
+	for job in _jobs:
+		if job.state == JobState.AVAILABLE and _modifier_matches_job(mod, job):
+			affected += 1
+	return affected
+
+func remove_priority_modifier(source_id: String) -> bool:
+	if source_id.is_empty() or not _priority_modifiers.has(source_id):
+		return false
+	_priority_modifiers.erase(source_id)
+	_recompute_all_job_priorities()
+	return true
+
+func has_priority_modifier(source_id: String) -> bool:
+	return _priority_modifiers.has(source_id)
+
+func get_priority_modifiers_for_job(job: JobData) -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	if job == null:
+		return result
+	for mod in _priority_modifiers.values():
+		if _modifier_matches_job(mod, job):
+			result.append(mod.duplicate())
+	return result
+
+func get_all_priority_modifiers() -> Dictionary:
+	var copy: Dictionary = {}
+	for k in _priority_modifiers:
+		copy[k] = _priority_modifiers[k].duplicate()
+	return copy
+
+func boost_jobs_priority(job_type: String, boost_delta: int, source_id: String = "") -> int:
+	var effective_source: String = source_id if not source_id.is_empty() else "legacy_boost:%s" % job_type
+	return set_priority_modifier(effective_source, boost_delta, job_type, "")
 
 func get_all_jobs() -> Array[JobData]:
 	return _jobs.duplicate()

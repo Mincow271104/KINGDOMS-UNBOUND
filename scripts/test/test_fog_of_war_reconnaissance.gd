@@ -66,6 +66,9 @@ func _run_all_tests() -> void:
 	_test_tc_fow_12_legacy_save_compatibility()
 	_test_tc_fow_13_reinforcements_transitions_vision_safety()
 	_test_tc_fow_14_enemy_outpost_zero_player_vision()
+	_test_tc_fow_15_left_click_unexplored_leak_prevention()
+	_test_tc_fow_16_right_click_hostile_targeting_fog_safety()
+	_test_tc_fow_17_malformed_save_payload_safety()
 
 # -----------------------------------------------------------------------------
 # 1. TC-FOW.01: Outpost reveals cells within Manhattan radius 6
@@ -373,7 +376,8 @@ func _test_tc_fow_11_save_load_rebuilds_visibility_from_observers() -> void:
 	var apply_res = SaveManagerScript.apply_loaded_state_to_world(world_instance, load_res.get("data", {}))
 	_assert(apply_res.get("success", false) == true, "TC-FOW.11.2: Restored world from save")
 
-	_assert(fow.is_visible(Vector2i(32, 32)) == true, "TC-FOW.11.3: Town Hall center restored as VISIBLE")
+	var th_center: Vector2i = world_instance.world_data.center_spawn if world_instance.world_data != null else Vector2i(32, 32)
+	_assert(fow.is_visible(th_center) == true, "TC-FOW.11.3: Town Hall center restored as VISIBLE")
 	_assert(fow.is_visible(out_c) == true, "TC-FOW.11.4: Restored player outpost is VISIBLE")
 	_assert(fow.is_visible(Vector2i(out_c.x + 6, out_c.y)) == true, "TC-FOW.11.5: Outpost perimeter (dist 6) restored as VISIBLE")
 
@@ -476,3 +480,302 @@ func _test_tc_fow_14_enemy_outpost_zero_player_vision() -> void:
 	_assert(not fow.is_visible(enemy_c), "TC-FOW.14.5: Enemy outpost grants ZERO player vision")
 
 	fsm.unregister_objective("outpost_enemy_test")
+
+# -----------------------------------------------------------------------------
+# Test Double for Tactical Military Input Order Spying
+# -----------------------------------------------------------------------------
+class TacticalSpyDouble extends TacticalMilitaryManager:
+	var issue_attack_order_calls: int = 0
+	var issue_move_order_calls: int = 0
+	var last_attack_target: Node = null
+	var last_move_cell: Vector2i = Vector2i(-1, -1)
+
+	func issue_attack_order(target: Node, nav: GridNavigation = null) -> Dictionary:
+		issue_attack_order_calls += 1
+		last_attack_target = target
+		return {"success": true}
+
+	func issue_move_order(target_cell: Vector2i, nav: GridNavigation = null) -> Dictionary:
+		issue_move_order_calls += 1
+		last_move_cell = target_cell
+		return {"success": true}
+
+# -----------------------------------------------------------------------------
+# 15. TC-FOW.15: AUD-3B-01 Left-Click Unexplored Fog Information Leak Prevention
+# -----------------------------------------------------------------------------
+func _test_tc_fow_15_left_click_unexplored_leak_prevention() -> void:
+	print("\n--- TC-FOW.15: Left-Click Unexplored Fog Information Leak Prevention (AUD-3B-01) ---")
+	var fsm = world_instance.get("field_siege_mgr")
+	var fow = world_instance.get("fog_of_war")
+	var hud = world_instance.get("hud")
+
+	var inspect_cell := Vector2i(44, 44)
+	fow.set_state(inspect_cell, FogOfWar.State.UNEXPLORED)
+	fow.set_state(inspect_cell + Vector2i(1, 0), FogOfWar.State.UNEXPLORED)
+	fow.set_state(inspect_cell + Vector2i(0, 1), FogOfWar.State.UNEXPLORED)
+	fow.set_state(inspect_cell + Vector2i(1, 1), FogOfWar.State.UNEXPLORED)
+
+	# Register a hidden building at inspect_cell
+	var b_data := {
+		"id": "bld_leak_test_mine",
+		"type": "mine",
+		"cell": inspect_cell,
+		"size": Vector2i(2, 2),
+		"state": "active"
+	}
+	world_instance.world_data.buildings.append(b_data)
+
+	# Register a hidden hostile outpost at inspect_cell
+	var leak_obj = fsm.register_objective("outpost_leak_obj", inspect_cell, "rival_military", 250.0, 3)
+	world_instance.refresh_world_vision()
+
+	_assert(fow.is_unexplored(inspect_cell) == true, "TC-FOW.15.1: Target cell is UNEXPLORED")
+
+	# Subcase 1: Direct _handle_left_click on UNEXPLORED cell must fail closed
+	world_instance.clear_building_selection()
+	world_instance._handle_left_click(inspect_cell)
+	_assert(world_instance.selected_building_id == "", "TC-FOW.15.2: Left-click on UNEXPLORED cell does not select hidden building or outpost")
+	_assert(hud == null or not hud.has_method("get_inspected_citizen") or hud.get_inspected_citizen() == null, "TC-FOW.15.3: Left-click on UNEXPLORED cell does not inspect citizen")
+
+	# Subcase 2: Synthetic InputEventMouseButton left-click on UNEXPLORED cell must fail closed
+	var mb_down := InputEventMouseButton.new()
+	mb_down.button_index = MOUSE_BUTTON_LEFT
+	mb_down.pressed = true
+	mb_down.set_meta("target_cell", inspect_cell)
+	world_instance._unhandled_input(mb_down)
+	var mb_up := InputEventMouseButton.new()
+	mb_up.button_index = MOUSE_BUTTON_LEFT
+	mb_up.pressed = false
+	mb_up.set_meta("target_cell", inspect_cell)
+	world_instance._unhandled_input(mb_up)
+	_assert(world_instance.selected_building_id == "", "TC-FOW.15.4: Synthetic left-click event on UNEXPLORED cell leaks zero selection")
+
+	# Subcase 3: Explored cell legitimately selects the entity
+	fow.set_state(inspect_cell, FogOfWar.State.EXPLORED)
+	world_instance._handle_left_click(inspect_cell)
+	_assert(world_instance.selected_building_id != "", "TC-FOW.15.5: Left-click on EXPLORED cell legitimately selects entity")
+	_assert(world_instance.selected_building_id == "outpost_leak_obj" or world_instance.selected_building_id == "bld_leak_test_mine", "TC-FOW.15.6: Selected entity matches expected target ID")
+
+	# Subcase 4: Fail closed when fog_of_war is null
+	world_instance.fog_of_war = null
+	world_instance.selected_building_id = "stale_bld_id"
+	world_instance._handle_left_click(inspect_cell)
+	_assert(world_instance.selected_building_id == "", "TC-FOW.15.7: Left-click with null fog_of_war fails closed and clears selection")
+	world_instance.fog_of_war = fow
+
+	# Subcase 5: Safe unrelated UI clicks on empty cell
+	var empty_cell := Vector2i(1, 1)
+	fow.set_state(empty_cell, FogOfWar.State.EXPLORED)
+	world_instance.selected_building_id = "stale_bld_id"
+	world_instance._handle_left_click(empty_cell)
+	_assert(world_instance.selected_building_id == "", "TC-FOW.15.8: Left-click on empty cell deselects cleanly without error")
+
+	# Teardown
+	fsm.unregister_objective("outpost_leak_obj")
+	world_instance.world_data.buildings.erase(b_data)
+	world_instance.clear_building_selection()
+
+# -----------------------------------------------------------------------------
+# 16. TC-FOW.16: AUD-3B-01 Right-Click Hostile Targeting Fog Safety
+# -----------------------------------------------------------------------------
+func _test_tc_fow_16_right_click_hostile_targeting_fog_safety() -> void:
+	print("\n--- TC-FOW.16: Right-Click Hostile Targeting Fog Safety (AUD-3B-01) ---")
+	var pam = world_instance.get("player_army_mgr")
+	var real_tac = world_instance.get("tactical_military_mgr")
+	var fsm = world_instance.get("field_siege_mgr")
+	var fow = world_instance.get("fog_of_war")
+	var emm = world_instance.get("enemy_military_mgr")
+
+	var spy_tac := TacticalSpyDouble.new(world_instance, pam)
+	spy_tac.set_world_view(world_instance)
+	spy_tac.set_player_army_manager(pam)
+	world_instance.set("tactical_military_mgr", spy_tac)
+	pam.set_tactical_military_manager(spy_tac)
+
+	pam.soldier_count = 3
+	spy_tac.sync_with_player_army()
+	spy_tac.select_all()
+	_assert(spy_tac.get_selected_count() > 0, "TC-FOW.16.1: Tactical units selected for order tests")
+
+	var hostile_cell := Vector2i(48, 48)
+	var enemy_u = emm.spawn_enemy_unit("rival_military", hostile_cell, "enemy_fow_test_unit")
+	_assert(enemy_u != null, "TC-FOW.16.2: Spawned enemy unit at hostile_cell")
+
+	var outpost_cell := Vector2i(46, 46)
+	var enemy_obj = fsm.register_objective("enemy_outpost_fow_test", outpost_cell, "rival_military", 250.0, 3)
+	_assert(enemy_obj != null, "TC-FOW.16.3: Registered enemy siege objective at outpost_cell")
+	# Register active siege so right clicking on visible outpost directly dispatches attack order
+	fsm.active_sieges["test_siege_fow"] = {
+		"siege_id": "test_siege_fow",
+		"objective_id": "enemy_outpost_fow_test",
+		"attacker_faction_id": "player",
+		"defender_faction_id": "rival_military",
+		"status": "active"
+	}
+
+	# --- Part A: Enemy Tactical Unit ---
+	# Subcase 1: Target unit cell is UNEXPLORED
+	fow.set_state(hostile_cell, FogOfWar.State.UNEXPLORED)
+	spy_tac.issue_attack_order_calls = 0
+	spy_tac.issue_move_order_calls = 0
+	var mb_unit := InputEventMouseButton.new()
+	mb_unit.button_index = MOUSE_BUTTON_RIGHT
+	mb_unit.pressed = true
+	mb_unit.set_meta("target_cell", hostile_cell)
+	world_instance._unhandled_input(mb_unit)
+	_assert(spy_tac.issue_attack_order_calls == 0, "TC-FOW.16.4: In UNEXPLORED fog, attack order is NOT dispatched to hidden enemy unit")
+	_assert(spy_tac.issue_move_order_calls == 1, "TC-FOW.16.5: In UNEXPLORED fog, safe move order is issued instead")
+	_assert(spy_tac.last_move_cell == hostile_cell, "TC-FOW.16.6: Safe move order targets the clicked cell")
+
+	# Subcase 2: Target unit cell is EXPLORED but not VISIBLE
+	fow.set_state(hostile_cell, FogOfWar.State.EXPLORED)
+	_assert(not fow.is_visible(hostile_cell), "TC-FOW.16.7: Unit cell is EXPLORED but NOT VISIBLE")
+	spy_tac.issue_attack_order_calls = 0
+	spy_tac.issue_move_order_calls = 0
+	world_instance._unhandled_input(mb_unit)
+	_assert(spy_tac.issue_attack_order_calls == 0, "TC-FOW.16.8: In EXPLORED-only fog, attack order is NOT dispatched to non-visible enemy unit")
+	_assert(spy_tac.issue_move_order_calls == 1, "TC-FOW.16.9: In EXPLORED-only fog, safe move order is issued instead")
+
+	# Subcase 3: Target unit cell is VISIBLE
+	fow.set_state(hostile_cell, FogOfWar.State.VISIBLE)
+	_assert(fow.is_visible(hostile_cell), "TC-FOW.16.10: Unit cell is actively VISIBLE")
+	spy_tac.issue_attack_order_calls = 0
+	spy_tac.issue_move_order_calls = 0
+	world_instance._unhandled_input(mb_unit)
+	_assert(spy_tac.issue_attack_order_calls == 1, "TC-FOW.16.11: When unit cell is VISIBLE, attack order IS dispatched to enemy unit")
+	_assert(spy_tac.last_attack_target == enemy_u, "TC-FOW.16.12: Attack target matches visible enemy unit")
+
+	# Subcase 4: Target unit cell with null fog_of_war (fail-closed)
+	world_instance.fog_of_war = null
+	spy_tac.issue_attack_order_calls = 0
+	spy_tac.issue_move_order_calls = 0
+	world_instance._unhandled_input(mb_unit)
+	_assert(spy_tac.issue_attack_order_calls == 0, "TC-FOW.16.13: With null fog_of_war, attack order is NOT dispatched against unit")
+	_assert(spy_tac.issue_move_order_calls == 1, "TC-FOW.16.14: With null fog_of_war, falls through to safe move order")
+	world_instance.fog_of_war = fow
+
+	# --- Part B: Enemy Siege Objective Outpost ---
+	var mb_obj := InputEventMouseButton.new()
+	mb_obj.button_index = MOUSE_BUTTON_RIGHT
+	mb_obj.pressed = true
+	mb_obj.set_meta("target_cell", outpost_cell)
+
+	# Subcase 5: Target outpost cell is UNEXPLORED
+	fow.set_state(outpost_cell, FogOfWar.State.UNEXPLORED)
+	spy_tac.issue_attack_order_calls = 0
+	spy_tac.issue_move_order_calls = 0
+	world_instance._unhandled_input(mb_obj)
+	_assert(spy_tac.issue_attack_order_calls == 0, "TC-FOW.16.15: In UNEXPLORED fog, attack order is NOT dispatched to hidden outpost")
+	_assert(spy_tac.issue_move_order_calls == 1, "TC-FOW.16.16: In UNEXPLORED fog, safe move order is issued instead of siege attack")
+
+	# Subcase 6: Target outpost cell is EXPLORED but not VISIBLE
+	fow.set_state(outpost_cell, FogOfWar.State.EXPLORED)
+	_assert(not fow.is_visible(outpost_cell), "TC-FOW.16.17: Outpost cell is EXPLORED but NOT VISIBLE")
+	spy_tac.issue_attack_order_calls = 0
+	spy_tac.issue_move_order_calls = 0
+	world_instance._unhandled_input(mb_obj)
+	_assert(spy_tac.issue_attack_order_calls == 0, "TC-FOW.16.18: In EXPLORED-only fog, attack order is NOT dispatched to non-visible outpost")
+	_assert(spy_tac.issue_move_order_calls == 1, "TC-FOW.16.19: In EXPLORED-only fog, safe move order is issued instead")
+
+	# Subcase 7: Target outpost cell is VISIBLE
+	fow.set_state(outpost_cell, FogOfWar.State.VISIBLE)
+	_assert(fow.is_visible(outpost_cell), "TC-FOW.16.20: Outpost cell is actively VISIBLE")
+	spy_tac.issue_attack_order_calls = 0
+	spy_tac.issue_move_order_calls = 0
+	world_instance._unhandled_input(mb_obj)
+	_assert(spy_tac.issue_attack_order_calls == 1, "TC-FOW.16.21: When outpost cell is VISIBLE, attack order IS dispatched to siege objective")
+	_assert(spy_tac.last_attack_target == enemy_obj, "TC-FOW.16.22: Attack target matches visible siege objective")
+
+	# Subcase 8: Target outpost cell with null fog_of_war (fail-closed)
+	world_instance.fog_of_war = null
+	spy_tac.issue_attack_order_calls = 0
+	spy_tac.issue_move_order_calls = 0
+	world_instance._unhandled_input(mb_obj)
+	_assert(spy_tac.issue_attack_order_calls == 0, "TC-FOW.16.23: With null fog_of_war, siege attack fails closed")
+	_assert(spy_tac.issue_move_order_calls == 1, "TC-FOW.16.24: With null fog_of_war, falls through to safe move order")
+	world_instance.fog_of_war = fow
+
+	# Teardown
+	fsm.active_sieges.erase("test_siege_fow")
+	fsm.unregister_objective("enemy_outpost_fow_test")
+	emm.remove_enemy("enemy_fow_test_unit")
+	world_instance.set("tactical_military_mgr", real_tac)
+	pam.set_tactical_military_manager(real_tac)
+
+# -----------------------------------------------------------------------------
+# 17. TC-FOW.17: AUD-3B-02 Malformed Save Payload Validation and Safety
+# -----------------------------------------------------------------------------
+func _test_tc_fow_17_malformed_save_payload_safety() -> void:
+	print("\n--- TC-FOW.17: Malformed Save Payload Validation and Safety (AUD-3B-02) ---")
+	var test_slot := "user://saves/test_fow_malformed_suite.json"
+	var save_res = SaveManagerScript.save_to_file(world_instance, test_slot)
+	_assert(save_res.get("success", false) == true, "TC-FOW.17.0a: Generated baseline valid save file")
+	var load_res = SaveManagerScript.load_from_file(test_slot)
+	_assert(load_res.get("success", false) == true, "TC-FOW.17.0b: Loaded baseline valid save file")
+	var base_dict: Dictionary = load_res.get("data", {}).duplicate(true)
+
+	# Case 1: Missing fog_of_war key (legacy save compatibility)
+	var c1 = base_dict.duplicate(true)
+	c1.erase("fog_of_war")
+	var val_c1 = SaveManagerScript.validate_save_data(c1)
+	_assert(val_c1.get("valid", false) == true, "TC-FOW.17.1: Missing 'fog_of_war' key is accepted as valid legacy save")
+
+	# Case 2: Valid non-empty Array
+	var c2 = base_dict.duplicate(true)
+	c2["fog_of_war"] = [[10, 10], [12, 12]]
+	var val_c2 = SaveManagerScript.validate_save_data(c2)
+	_assert(val_c2.get("valid", false) == true, "TC-FOW.17.2: Valid non-empty coordinates array is accepted")
+
+	# Case 3: Valid empty Array
+	var c3 = base_dict.duplicate(true)
+	c3["fog_of_war"] = []
+	var val_c3 = SaveManagerScript.validate_save_data(c3)
+	_assert(val_c3.get("valid", false) == true, "TC-FOW.17.3: Valid empty array is accepted")
+
+	# Case 4: Malformed Array elements
+	var c4 = base_dict.duplicate(true)
+	c4["fog_of_war"] = ["bad_coordinate", [999, 999]]
+	var val_c4 = SaveManagerScript.validate_save_data(c4)
+	_assert(val_c4.get("valid", true) == false, "TC-FOW.17.4: Malformed array elements rejected by validate_save_data")
+
+	# Case 5: Integer payload
+	var c5 = base_dict.duplicate(true)
+	c5["fog_of_war"] = 42
+	var val_c5 = SaveManagerScript.validate_save_data(c5)
+	_assert(val_c5.get("valid", true) == false, "TC-FOW.17.5: Integer payload rejected by validate_save_data")
+
+	# Case 6: Dictionary payload
+	var c6 = base_dict.duplicate(true)
+	c6["fog_of_war"] = {"coords": []}
+	var val_c6 = SaveManagerScript.validate_save_data(c6)
+	_assert(val_c6.get("valid", true) == false, "TC-FOW.17.6: Dictionary payload rejected by validate_save_data")
+
+	# Case 7: Null payload
+	var c7 = base_dict.duplicate(true)
+	c7["fog_of_war"] = null
+	var val_c7 = SaveManagerScript.validate_save_data(c7)
+	_assert(val_c7.get("valid", true) == false, "TC-FOW.17.7: Null payload rejected by validate_save_data")
+
+	# Case 8: Atomic load rejection (malformed file load does not mutate live world state)
+	var malformed_slot := "user://saves/test_fow_malformed_reject.json"
+	var f := FileAccess.open(malformed_slot, FileAccess.WRITE)
+	f.store_string(JSON.stringify(c5, "\t"))
+	f.close()
+
+	var pre_cit_count: int = world_instance.citizen_list.size()
+	var pre_mods: Array = world_instance.world_modifiers.duplicate()
+	var load_reject = SaveManagerScript.load_from_file(malformed_slot)
+	_assert(load_reject.get("success", true) == false, "TC-FOW.17.8: load_from_file atomically rejected malformed save")
+	_assert(world_instance.citizen_list.size() == pre_cit_count, "TC-FOW.17.9: Live citizens count unmutated after rejection")
+	_assert(world_instance.world_modifiers == pre_mods, "TC-FOW.17.10: Live world modifiers unmutated after rejection")
+
+	# Case 9: Direct apply_loaded_state_to_world with non-array payload safely rejected without crash
+	var direct_app = SaveManagerScript.apply_loaded_state_to_world(world_instance, c5)
+	_assert(direct_app.get("success", true) == false, "TC-FOW.17.11: Direct apply_loaded_state_to_world with integer payload safely rejected")
+	_assert(world_instance.world_modifiers == pre_mods, "TC-FOW.17.12: Live world modifiers preserved through direct rejection")
+
+	# Cleanup temporary files
+	if FileAccess.file_exists(test_slot):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(test_slot))
+	if FileAccess.file_exists(malformed_slot):
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(malformed_slot))

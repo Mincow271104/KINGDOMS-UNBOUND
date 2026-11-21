@@ -6,6 +6,7 @@ extends SceneTree
 const CrisisManagerScript = preload("res://scripts/core/crisis_manager.gd")
 const SaveManagerScript = preload("res://scripts/persistence/save_manager.gd")
 const BuildingSystemScript = preload("res://scripts/economy/building_system.gd")
+const CitizenControllerScript = preload("res://scripts/entities/citizen_controller.gd")
 
 var _total_assertions: int = 0
 var _passed_assertions: int = 0
@@ -67,7 +68,7 @@ class MockCitizen:
 	var morale: float = 75.0
 	var fatigue: float = 10.0
 	var hunger: float = 20.0
-	var current_state: int = 1 # State.WORKING
+	var current_state: int = CitizenController.State.WORKING
 	var death_reason: String = ""
 	var death_cause: String = ""
 	func is_alive() -> bool:
@@ -97,6 +98,8 @@ class MockPlayerArmyManager:
 		var removed: int = mini(count, soldier_count)
 		soldier_count -= removed
 		return removed
+	func get_defending_soldier_count() -> int:
+		return soldier_count
 
 func run_all_tests() -> void:
 	test_initial_state()
@@ -204,14 +207,22 @@ func test_drought_scenario_consequences_and_recovery() -> void:
 	# Production modifier during drought: 0.40
 	assert_almost_eq(cm.get_farm_production_multiplier(), 0.40, 0.001, "Drought farm multiplier should be 0.40 (60% penalty)")
 
-	# Thirst / fatigue stress on working citizens
+	# Thirst / fatigue stress on working citizens (MBL-CRS-01: State.WORKING == 2)
 	var cit := MockCitizen.new()
 	cit.fatigue = 20.0
-	cit.current_state = 1 # WORKING
-	var citizen_list: Array = [cit]
+	cit.current_state = CitizenController.State.WORKING
+	var cit_moving := MockCitizen.new()
+	cit_moving.fatigue = 20.0
+	cit_moving.current_state = CitizenController.State.MOVING_TO_JOB
+	var cit_idle := MockCitizen.new()
+	cit_idle.fatigue = 20.0
+	cit_idle.current_state = CitizenController.State.IDLE
+	var citizen_list: Array = [cit, cit_moving, cit_idle]
 
 	cm.tick_hourly(10, 1, "summer", null, null, citizen_list)
 	assert_almost_eq(cit.fatigue, 20.5, 0.01, "Working citizen should suffer thirst fatigue in drought")
+	assert_almost_eq(cit_moving.fatigue, 20.0, 0.01, "Moving citizen should NOT suffer drought working fatigue")
+	assert_almost_eq(cit_idle.fatigue, 20.0, 0.01, "Idle citizen should NOT suffer drought working fatigue")
 
 	# Fast forward 71 hours -> transitions to RECOVERY
 	for h in range(71):
@@ -313,8 +324,8 @@ func test_bandit_horde_breach_consequences() -> void:
 
 	var world_data = WorldGenerator.WorldData.new()
 	var test_b: Dictionary = {
-		"id": "farm_1",
-		"type": "farm",
+		"id": "townhall_starter",
+		"type": "townhall",
 		"health": 100,
 		"max_health": 100,
 		"state": "active",

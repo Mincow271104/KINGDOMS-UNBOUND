@@ -116,6 +116,15 @@ func get_storage_capacity(res_id: String) -> int:
 func get_daily_production_tally(res_id: String) -> float:
 	return _daily_production_tallies.get(res_id, 0.0)
 
+func get_daily_consumption_tally(res_id: String) -> float:
+	return _daily_consumption_tallies.get(res_id, 0.0)
+
+func get_last_day_production(res_id: String) -> float:
+	return _last_day_production.get(res_id, 0.0)
+
+func get_last_day_consumption(res_id: String) -> float:
+	return _last_day_consumption.get(res_id, 0.0)
+
 func has_resource(res_id: String, amount: int) -> bool:
 	return get_available_stock(res_id) >= amount
 

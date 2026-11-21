@@ -584,6 +584,18 @@ func resolve_target_actor() -> void:
 			if u != null and is_instance_valid(u) and u.is_alive:
 				target_actor = u
 				return
+		var mm = world_view.get("monster_mgr")
+		if mm != null:
+			if mm.has_method("get_monster_actor"):
+				var ma = mm.get_monster_actor(target_actor_id)
+				if ma != null and is_instance_valid(ma) and ma.is_alive:
+					target_actor = ma
+					return
+			if mm.has_method("get_nest_actor"):
+				var na = mm.get_nest_actor(target_actor_id)
+				if na != null and is_instance_valid(na) and na.is_alive:
+					target_actor = na
+					return
 	if order_state == OrderState.ATTACKING:
 		clear_combat_and_pursuit_to_idle()
 

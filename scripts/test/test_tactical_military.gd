@@ -324,11 +324,36 @@ func _run_all_tests() -> void:
 
 	standalone_tac.clear_selection()
 	standalone_tac.select_unit(unit_a.unit_id, false)
-	unit_a.current_cell = Vector2i(30, 30)
+	var tac_origin: Vector2i = world_instance.world_data.center_spawn if world_instance.get("world_data") != null else Vector2i(32, 33)
+	var move_start: Vector2i = tac_origin
+	var move_dest: Vector2i = tac_origin
+	var found_pair := false
+	for dx in range(-8, 9):
+		for dy in range(-8, 9):
+			var s_cand := tac_origin + Vector2i(dx, dy)
+			if not live_nav.is_cell_walkable(s_cand):
+				continue
+			for d2x in range(-4, 5):
+				for d2y in range(-4, 5):
+					var d_cand := s_cand + Vector2i(d2x, d2y)
+					if d_cand == s_cand or not live_nav.is_cell_walkable(d_cand):
+						continue
+					var p: Array[Vector2i] = live_nav.find_path(s_cand, d_cand)
+					if p.size() >= 3 and p.size() <= 6:
+						move_start = s_cand
+						move_dest = d_cand
+						found_pair = true
+						break
+				if found_pair:
+					break
+			if found_pair:
+				break
+		if found_pair:
+			break
+	unit_a.current_cell = move_start
 	unit_a.position = IsoMath.map_to_local(unit_a.current_cell)
 
 	# TC-TAC.13: Move order to walkable cell generates valid path
-	var move_dest := Vector2i(30, 32)
 	var move_res = standalone_tac.issue_move_order(move_dest, live_nav)
 	_assert(move_res.get("success", false), "TC-TAC.13: Move order to walkable cell succeeded")
 	_assert(unit_a.order_state == TacticalUnitScript.OrderState.MOVING, "TC-TAC.13: Unit A transitioned to MOVING state")
@@ -387,6 +412,8 @@ func _run_all_tests() -> void:
 	unit_a.order_stop()
 
 	# TC-TAC.19: Simulation speed scaling (1x, 2x, 3x)
+	unit_a.current_cell = Vector2i(29, 28)
+	unit_a.position = IsoMath.map_to_local(Vector2i(29, 28))
 	unit_a.order_move([Vector2i(28, 28), Vector2i(27, 28), Vector2i(26, 28)], Vector2i(26, 28))
 	mock_tm.set_speed(2)
 	standalone_tac.advance_movement(0.25, 2.0, live_nav)
@@ -1495,23 +1522,41 @@ func _run_all_tests() -> void:
 	_assert(rec_ph9.get("success", false) and fu_tac.get_unit_count() == 2, "PH-CASE.9: Recruited 2 units for repeated-command regression test")
 	var ph9_units = fu_tac.get_all_units()
 
-	# 1. Strategic center starts at (34, 33) which is distance 2 from rally (32, 33)
+	# 1. Strategic center starts at path distance 2 from rally_cell
+	var ph9_rally: Vector2i = fu_army.get_rally_cell()
+	var ph9_near: Vector2i = ph9_rally
+	var ph9_far: Vector2i = ph9_rally
+	for dx in range(-10, 11):
+		for dy in range(-10, 11):
+			var c := ph9_rally + Vector2i(dx, dy)
+			if c == ph9_rally or not live_nav.is_cell_walkable(c):
+				continue
+			var p: Array[Vector2i] = live_nav.find_path(c, ph9_rally)
+			if p.size() == 3 and ph9_near == ph9_rally:
+				ph9_near = c
+			elif p.size() >= 7 and ph9_far == ph9_rally:
+				ph9_far = c
+			if ph9_near != ph9_rally and ph9_far != ph9_rally:
+				break
+		if ph9_near != ph9_rally and ph9_far != ph9_rally:
+			break
+
 	fu_army.movement_state = PlayerArmyManagerScript.MovementState.IDLE_AT_FIELD
-	fu_army.current_cell = Vector2i(34, 33)
-	fu_army.destination_cell = Vector2i(34, 33)
+	fu_army.current_cell = ph9_near
+	fu_army.destination_cell = ph9_near
 	fu_army.current_path.clear()
 	fu_army.step_accumulator = 0.0
 
-	# Unit 0 is at (34, 33) - distance 2 from rally (32, 33)
-	ph9_units[0].current_cell = Vector2i(34, 33)
-	ph9_units[0].target_cell = Vector2i(34, 33)
+	# Unit 0 is at ph9_near - path distance 2 from rally
+	ph9_units[0].current_cell = ph9_near
+	ph9_units[0].target_cell = ph9_near
 	ph9_units[0].order_state = TacticalUnitScript.OrderState.IDLE
 	ph9_units[0].current_path.clear()
 	ph9_units[0].step_accumulator = 0.0
 
-	# Unit 1 is placed further back at (38, 33) - distance 6 from rally (32, 33)
-	ph9_units[1].current_cell = Vector2i(38, 33)
-	ph9_units[1].target_cell = Vector2i(38, 33)
+	# Unit 1 is placed further back at ph9_far - path distance >= 6 from rally
+	ph9_units[1].current_cell = ph9_far
+	ph9_units[1].target_cell = ph9_far
 	ph9_units[1].order_state = TacticalUnitScript.OrderState.IDLE
 	ph9_units[1].current_path.clear()
 	ph9_units[1].step_accumulator = 0.0
@@ -2248,14 +2293,41 @@ func _run_all_tests() -> void:
 
 	# --- Gate C1 (CANON-002): Target death clears pursuit path and stops movement ---
 	var EnemyTacticalUnitScript = preload("res://scripts/military/enemy_tactical_unit.gd")
+	var c1_origin: Vector2i = world_instance.world_data.center_spawn if world_instance.get("world_data") != null else Vector2i(32, 33)
+	var c1_start: Vector2i = c1_origin
+	var c1_enemy: Vector2i = c1_origin
+	var c1_found := false
+	for dx in range(-8, 9):
+		for dy in range(-8, 9):
+			var s_c := c1_origin + Vector2i(dx, dy)
+			if not live_nav.is_cell_walkable(s_c):
+				continue
+			for edx in range(-6, 7):
+				for edy in range(-6, 7):
+					var e_c := s_c + Vector2i(edx, edy)
+					if IsoMath.grid_distance(s_c, e_c) < 3 or not live_nav.is_cell_walkable(e_c):
+						continue
+					var ep: Array[Vector2i] = live_nav.find_path(s_c, e_c)
+					if ep.size() >= 4 and ep.size() <= 7:
+						c1_start = s_c
+						c1_enemy = e_c
+						c1_found = true
+						break
+				if c1_found:
+					break
+			if c1_found:
+				break
+		if c1_found:
+			break
+
 	var pursue_player = TacticalUnitScript.new()
 	pursue_player.unit_id = "tac_pursue_1"
 	pursue_player.unit_name = "Chiến Binh"
-	pursue_player.current_cell = Vector2i(10, 10)
-	pursue_player.target_cell = Vector2i(10, 10)
+	pursue_player.current_cell = c1_start
+	pursue_player.target_cell = c1_start
 	var pursue_enemy = EnemyTacticalUnitScript.new()
 	pursue_enemy.unit_id = "enemy_pursue_1"
-	pursue_enemy.current_cell = Vector2i(10, 14)
+	pursue_enemy.current_cell = c1_enemy
 	pursue_enemy.health = 20.0
 
 	pursue_player.order_attack(pursue_enemy)

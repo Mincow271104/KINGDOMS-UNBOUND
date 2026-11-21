@@ -271,7 +271,7 @@ func is_cell_spawn_eligible(c: Vector2i, nav: GridNavigation = null, occupied: D
 	if is_instance_valid(world_view) and world_view.get("world_data") != null:
 		wd = world_view.get("world_data")
 	if wd != null:
-		if wd.get("terrain") != null and wd.terrain[c.x][c.y] == WorldGenerator.TerrainType.WATER:
+		if wd.get("terrain") != null and wd.terrain[c.x][c.y] in [WorldGenerator.TerrainType.WATER, WorldGenerator.TerrainType.MOUNTAINS]:
 			return false
 		if wd.get("occupancy") != null and wd.occupancy[c.x][c.y]:
 			return false
@@ -375,7 +375,7 @@ func _find_distinct_walkable_cells(
 	if slots.size() >= count:
 		return slots
 
-	var max_radius: int = IsoMath.MAP_SIZE
+	var max_radius: int = maxi(IsoMath.get_active_map_width(), IsoMath.get_active_map_height())
 	for radius in range(1, max_radius):
 		for dy in range(-radius, radius + 1):
 			for dx in range(-radius, radius + 1):

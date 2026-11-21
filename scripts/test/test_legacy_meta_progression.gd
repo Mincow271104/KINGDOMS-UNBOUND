@@ -643,7 +643,9 @@ func _test_victory_reward_calculation_and_settlement() -> bool:
 	var rm: Node = root.get_node_or_null("ResourceManager")
 	if rm != null:
 		rm.call("reset_economy")
-		rm.call("add_resource", "gold", 3300) # Total 3500 gold (200 initial + 3300)
+		var cur_g1: int = int(rm.call("get_available_stock", "gold"))
+		if cur_g1 < 3500:
+			rm.call("add_resource", "gold", 3500 - cur_g1) # Explicitly establish 3500 total gold
 
 	# Save world to establish valid persisted world_id
 	SaveManagerScript.save_to_file(wv, TEST_SAVE_A)
@@ -694,7 +696,9 @@ func _test_collapse_zero_reward_policy() -> bool:
 	var rm: Node = root.get_node_or_null("ResourceManager")
 	if rm != null:
 		rm.call("reset_economy")
-		rm.call("add_resource", "gold", 3800) # Total 4000 gold
+		var cur_g2: int = int(rm.call("get_available_stock", "gold"))
+		if cur_g2 < 4000:
+			rm.call("add_resource", "gold", 4000 - cur_g2) # Explicitly establish 4000 total gold
 
 	SaveManagerScript.save_to_file(wv, TEST_SAVE_B)
 
@@ -944,7 +948,9 @@ func _test_victory_settlement_crash_consistency_interruption_windows() -> bool:
 	var rm1: Node = root.get_node_or_null("ResourceManager")
 	if rm1 != null:
 		rm1.call("reset_economy")
-		rm1.call("add_resource", "gold", 2300) # 2500 total gold
+		var cur_g1: int = int(rm1.call("get_available_stock", "gold"))
+		if cur_g1 < 2500:
+			rm1.call("add_resource", "gold", 2500 - cur_g1) # Explicitly establish 2500 total gold
 	SaveManagerScript.save_to_file(wv1, TEST_SAVE_A)
 
 	# Simulate interruption: process stopped before any mutation.
@@ -981,7 +987,9 @@ func _test_victory_settlement_crash_consistency_interruption_windows() -> bool:
 	var rm2: Node = root.get_node_or_null("ResourceManager")
 	if rm2 != null:
 		rm2.call("reset_economy")
-		rm2.call("add_resource", "gold", 1800) # 2000 total gold
+		var cur_g2: int = int(rm2.call("get_available_stock", "gold"))
+		if cur_g2 < 2000:
+			rm2.call("add_resource", "gold", 2000 - cur_g2) # Explicitly establish 2000 total gold
 	SaveManagerScript.save_to_file(wv2, TEST_SAVE_A)
 	var wid2: String = wv2.world_id
 
@@ -1031,7 +1039,9 @@ func _test_victory_settlement_crash_consistency_interruption_windows() -> bool:
 	var rm3: Node = root.get_node_or_null("ResourceManager")
 	if rm3 != null:
 		rm3.call("reset_economy")
-		rm3.call("add_resource", "gold", 2800) # 3000 total gold
+		var cur_g3: int = int(rm3.call("get_available_stock", "gold"))
+		if cur_g3 < 3000:
+			rm3.call("add_resource", "gold", 3000 - cur_g3) # Explicitly establish 3000 total gold
 	var vic3: VictoryManager = wv3.victory_mgr
 	vic3.is_victory_achieved = true
 	vic3.legacy_points_earned = 100
@@ -1082,7 +1092,9 @@ func _test_victory_settlement_crash_consistency_interruption_windows() -> bool:
 	var rm4: Node = root.get_node_or_null("ResourceManager")
 	if rm4 != null:
 		rm4.call("reset_economy")
-		rm4.call("add_resource", "gold", 2300) # 2500 total gold
+		var cur_g4: int = int(rm4.call("get_available_stock", "gold"))
+		if cur_g4 < 2500:
+			rm4.call("add_resource", "gold", 2500 - cur_g4) # Explicitly establish 2500 total gold
 	SaveManagerScript.save_to_file(wv4, TEST_SAVE_A)
 
 	var vic4: VictoryManager = wv4.victory_mgr

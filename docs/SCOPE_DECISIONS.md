@@ -691,6 +691,21 @@
 
 ---
 
+### 1.32 Workplace Demolition Output-Buffer Disposition (MBL-ECO-01 — Policy A)
+- **Problem:**
+  When a workplace is demolished or destroyed, goods may remain in its local output buffer (`WorkplaceManager._workplaces[b_id].buffer_amount`). A design decision was required to govern whether unhauled goods are refunded to central storage, dropped in the world, or discarded.
+- **Approved Decision (Policy A — Forfeit Unhauled Output):**
+  - Unhauled workplace output is forfeited when the associated workplace is permanently demolished or destroyed. It is not transferred to central ResourceManager inventory. Temporary inactivity, cancellation, rejection, or non-destructive state changes do not trigger forfeiture.
+- **Rules & Invariants:**
+  1. All remaining unhauled output in `buffer_amount` is discarded immediately upon permanent demolition or permanent building destruction.
+  2. Discarded goods are never credited to `ResourceManager` central stock.
+  3. No refund, compensation, or replacement items are generated.
+  4. Cleanup is executed through `WorkplaceManager.unregister_workplace()` and `WorkplaceManager.forfeit_workplace_buffer()`.
+  5. State changes that do not constitute permanent removal (demolition cancellation, preflight rejection, pausing, unpausing, non-lethal damage, repair) strictly preserve the buffer.
+  6. Multi-channel workplaces (e.g. Workshop with smelt and craft channels) have all associated channel buffers forfeited cleanly.
+
+---
+
 ## 2. Deferred & Excluded Scope for MVP
 | Feature | GDD Section | Status for MVP | Rationale |
 |---|---|---|---|

@@ -48,6 +48,7 @@ var profile_mgr: RefCounted = null
 var world_id: String = ""
 var is_world_id_persisted: bool = false
 var resource_mgr: Node = null
+var world_view: Object = null
 
 func calculate_stability(food_stock: int, treasury_stock: int, pop: int, housing_cap: int, avg_morale: float, town_hall_alive: bool) -> float:
 	var stability: float = 0.0
@@ -465,6 +466,39 @@ func finalize_victory_settlement(resource_mgr_override = null, stability_overrid
 		res_dict["reason"] = "profile_unavailable"
 		return res_dict
 
+	# Early Idempotency Check: if already completely settled
+	if is_treasury_converted_or_settled() and is_legacy_claimed:
+		res_dict["victory_claimed"] = true
+		res_dict["treasury_converted"] = true
+		res_dict["treasury_conversion"] = get_active_treasury_conversion_record()
+		res_dict["reason"] = "already_settled"
+		res_dict["success"] = false
+		res_dict["total_legacy_awarded"] = 0
+		return res_dict
+
+	# MBL-LEG-02: Authoritative Live Kingdom Stability Resolution
+	var current_stab: float = -1.0
+	if stability_override >= 0.0:
+		current_stab = stability_override
+	elif world_view != null and world_view.has_method("get_live_stability"):
+		current_stab = float(world_view.call("get_live_stability"))
+	elif rm != null and rm.get_parent() != null and rm.get_parent().has_method("get_live_stability"):
+		current_stab = float(rm.get_parent().call("get_live_stability"))
+
+	if current_stab < 0.0 or is_nan(current_stab) or is_inf(current_stab):
+		res_dict["reason"] = "stability_unavailable"
+		res_dict["message"] = "Authoritative live kingdom stability is unavailable; settlement rejected fail-closed."
+		return res_dict
+
+	# MBL-LEG-02: Stability Gate (MIN_CONVERSION_STABILITY = 80.0)
+	# Must reject BEFORE any irreversible mutations (claim_legacy_reward, gold deduction, profile save)
+	if current_stab < MIN_CONVERSION_STABILITY:
+		res_dict["reason"] = "stability_too_low"
+		res_dict["stability"] = current_stab
+		res_dict["required_stability"] = MIN_CONVERSION_STABILITY
+		res_dict["message"] = "Kingdom stability (%.1f%%) is below the required 80.0%% minimum." % current_stab
+		return res_dict
+
 	# 1. Claim base victory reward (100 LP) if not already claimed
 	var vic_pts: int = 0
 	if not is_legacy_claimed:
@@ -482,16 +516,12 @@ func finalize_victory_settlement(resource_mgr_override = null, stability_overrid
 			res_dict["reason"] = "already_settled"
 		return res_dict
 
-	# Determine treasury gold and stability
+	# Determine treasury gold
 	var treasury_gold: int = 0
 	if rm != null and rm.has_method("get_available_stock"):
 		treasury_gold = rm.get_available_stock("gold")
 	elif rm != null and rm.get("available_resources") is Dictionary:
 		treasury_gold = rm.available_resources.get("gold", 0)
-
-	var current_stab: float = 85.0
-	if stability_override >= 0.0:
-		current_stab = stability_override
 
 	var conv_res: Dictionary = profile_mgr.convert_surplus_treasury(
 		treasury_gold,

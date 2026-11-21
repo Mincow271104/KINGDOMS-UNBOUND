@@ -692,9 +692,10 @@ func _test_tc8_8_world_event_persistence_and_legacy_fallback() -> bool:
 	var test_farm_job = job_mgr.create_job("farmer", Vector2i(35, 35), "Test Harvest", "farm_starter", 1.0, 1, true)
 	test_farm_job.state = 2 # JobState.IN_PROGRESS
 	test_farm_job.work_hours_done = 0.0
+	farmer_cit.current_cell = Vector2i(35, 35)
 	farmer_cit.active_job = test_farm_job
 	farmer_cit.current_state = 2 # State.WORKING
-	farmer_cit._process_working(1.0)
+	farmer_cit._process_working(7.5)
 	_assert_eq(farm_wp.buffer_amount, 8, "TC-8.8-FARM-PROD-DAY6-AFTER-LOAD", "Restored farmer produces 8 food on Day 6 while bountiful_harvest active")
 
 	# Advance to Day 7 (expiration boundary): verify cooldown blocks new event AND farm bonus expires to 0.0 (5 food/cycle)
@@ -705,9 +706,10 @@ func _test_tc8_8_world_event_persistence_and_legacy_fallback() -> bool:
 	farm_wp.buffer_amount = 0
 	test_farm_job.state = 2
 	test_farm_job.work_hours_done = 0.0
+	farmer_cit.current_cell = Vector2i(35, 35)
 	farmer_cit.active_job = test_farm_job
 	farmer_cit.current_state = 2
-	farmer_cit._process_working(1.0)
+	farmer_cit._process_working(7.5)
 	_assert_eq(farm_wp.buffer_amount, 5, "TC-8.8-FARM-PROD-DAY7-EXPIRED", "Restored farmer returns to baseline 5 food on Day 7 after expiration")
 
 	# Verify RNG continuation on Day 9 (when cooldown expires) matches uninterrupted reference
@@ -1084,11 +1086,14 @@ func _test_tc8_11_hardening_gates_combat_transactional_and_caravan() -> bool:
 
 	# 3. Fog of War active vision vs explored degradation (CANON-011)
 	var fow = world_instance.get("fog_of_war")
-	fow.reveal_circle(Vector2i(60, 60), 2)
-	_assert_eq(fow.get_state(Vector2i(60, 60)), FogOfWar.State.VISIBLE, "GATE-B.4", "Far corner (60,60) initially marked VISIBLE")
+	var wd_b = world_instance.get("world_data")
+	var far_corner := Vector2i(wd_b.map_width - 4, wd_b.map_height - 4) if wd_b != null else Vector2i(60, 60)
+	var center_cell: Vector2i = wd_b.center_spawn if wd_b != null else Vector2i(32, 32)
+	fow.reveal_circle(far_corner, 2)
+	_assert_eq(fow.get_state(far_corner), FogOfWar.State.VISIBLE, "GATE-B.4", "Far corner %s initially marked VISIBLE" % str(far_corner))
 	world_instance.call("refresh_world_vision")
-	_assert_eq(fow.get_state(Vector2i(60, 60)), FogOfWar.State.EXPLORED, "GATE-B.5", "Unobserved cell (60,60) degraded from VISIBLE to EXPLORED on vision refresh")
-	_assert_eq(fow.get_state(Vector2i(32, 32)), FogOfWar.State.VISIBLE, "GATE-B.6", "Settlement center (32,32) remains VISIBLE")
+	_assert_eq(fow.get_state(far_corner), FogOfWar.State.EXPLORED, "GATE-B.5", "Unobserved cell %s degraded from VISIBLE to EXPLORED on vision refresh" % str(far_corner))
+	_assert_eq(fow.get_state(center_cell), FogOfWar.State.VISIBLE, "GATE-B.6", "Settlement center %s remains VISIBLE" % str(center_cell))
 
 	# Save and reload -> verify Victory fields, Active Caravan, and Fog of War states
 	var gate_b_save: Dictionary = SaveManager.serialize_world_state(world_instance)
@@ -1113,7 +1118,7 @@ func _test_tc8_11_hardening_gates_combat_transactional_and_caravan() -> bool:
 	if restored_caravan != null:
 		_assert_eq(int(restored_caravan.inventory.get("food", -1)), post_buy_food, "GATE-B.14", "Restored caravan preserved modified food inventory")
 		_assert_eq(int(restored_caravan.gold), post_buy_gold, "GATE-B.15", "Restored caravan preserved modified gold balance")
-	_assert_eq(fow.get_state(Vector2i(60, 60)), FogOfWar.State.EXPLORED, "GATE-B.16", "Saved explored cell (60,60) restored as EXPLORED (not VISIBLE)")
+	_assert_eq(fow.get_state(far_corner), FogOfWar.State.EXPLORED, "GATE-B.16", "Saved explored cell %s restored as EXPLORED (not VISIBLE)" % str(far_corner))
 
 	# 4. Midnight hour-0 signal ordering before daily autosave (CANON-008)
 	var signal_order: Array[String] = []

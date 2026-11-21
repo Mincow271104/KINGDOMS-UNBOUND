@@ -385,6 +385,13 @@ func inspect_cell(cell: Vector2i, world_data: WorldGenerator.WorldData, fog_of_w
 		var state_str: String = WildlifeConfig.state_name(int(rec["state"]))
 		var biome_str: String = WildlifeConfig.biome_name(world_data.get_biome(a_cell)) if world_data != null else "Unknown"
 		var a_id: String = str(rec["id"])
+		var biome_id: int = world_data.get_biome(a_cell) if world_data != null else -1
+		var huntable: bool = WildlifeConfig.is_huntable_species(species_id)
+		var meat_yield: int = int(rec.get("raw_meat_yield", spec.get("raw_meat_yield", 0)))
+		var hunt_hours: float = float(rec.get("hunt_duration_hours", spec.get("hunt_duration_hours", 0.0)))
+		var rec_hours: float = float(rec.get("recovery_hours", spec.get("recovery_hours", 0.0)))
+		var res_by: String = get_reserved_hunter(a_id)
+		var res_type: String = str(rec.get("reservation_type", ""))
 		return {
 			"is_debug_inspect": true,
 			"category": "wildlife",
@@ -393,15 +400,25 @@ func inspect_cell(cell: Vector2i, world_data: WorldGenerator.WorldData, fog_of_w
 			"species_id": species_id,
 			"display_name": display_name,
 			"wildlife_category": cat_str,
+			"category_int": int(rec["category"]),
 			"biome": biome_str,
+			"biome_id": biome_id,
 			"cell": a_cell,
 			"size": Vector2i(1, 1),
 			"behavior_state": state_str,
-			"title": "%s (%s)" % [display_name, a_id],
-			"coords_text": "Tọa độ: (%d, %d) | Biome: %s | Species: %s" % [a_cell.x, a_cell.y, biome_str, species_id],
+			"state_int": int(rec["state"]),
+			"huntable": huntable,
+			"raw_meat_yield": meat_yield,
+			"hunt_duration_hours": hunt_hours,
+			"recovery_hours": rec_hours,
+			"is_reserved": is_animal_reserved(a_id),
+			"reserved_by": res_by,
+			"reservation_type": res_type,
+			"title": "%s [Debug]" % display_name,
+			"coords_text": "Tọa độ: (%d, %d) | Quần xã: %s | Loài: %s" % [a_cell.x, a_cell.y, biome_str, species_id],
 			"state_text": "[%s — %s]" % [cat_str.to_upper(), state_str],
 			"state_color": Color(0.55, 0.90, 0.65, 1.0),
-			"detail_text": "ID: %s | Category: %s | State: %s (Read-only)" % [a_id, cat_str, state_str],
+			"detail_text": "Hành vi: %s | Săn bắt: %s" % [state_str, "Có (+%d thịt sống)" % meat_yield if huntable else "Không"],
 			"show_bar": false,
 		}
 	return {}

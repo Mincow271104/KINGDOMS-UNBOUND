@@ -7,7 +7,8 @@ const TILE_WIDTH: float = 32.0
 const TILE_HEIGHT: float = 16.0
 const HALF_WIDTH: float = 16.0
 const HALF_HEIGHT: float = 8.0
-const MAP_SIZE: int = 64
+const LEGACY_MAP_SIZE: int = 64
+const MAP_SIZE: int = 64 # Legacy default constant; use get_active_map_width()/get_active_map_height() or explicit dimensions at runtime
 
 # Global world-depth z_index mapping for sortable entities across sibling containers.
 # TerrainLayer sits at -3000; sortable entities map to [-2500, -100]; Fog/Clouds/HUD overlays stay >= 5.
@@ -17,6 +18,19 @@ const DEPTH_Z_MAX_OFFSET: int = 2400
 
 static func world_y_to_z_index(world_y: float) -> int:
 	return DEPTH_Z_BASE + clampi(int(round(world_y)), DEPTH_Z_MIN_OFFSET, DEPTH_Z_MAX_OFFSET)
+
+static var active_map_width: int = 64
+static var active_map_height: int = 64
+
+static func set_active_map_dimensions(width: int, height: int) -> void:
+	active_map_width = maxi(1, width)
+	active_map_height = maxi(1, height)
+
+static func get_active_map_width() -> int:
+	return active_map_width
+
+static func get_active_map_height() -> int:
+	return active_map_height
 
 ## Converts a discrete integer grid coordinate (gx, gy) to continuous map-local pixel space.
 ## The resulting Vector2 represents the bottom-center ground contact vertex of the cell diamond.
@@ -39,15 +53,19 @@ static func local_to_map(local_pos: Vector2) -> Vector2i:
 	var gy: int = int(floor(v + 0.5))
 	return Vector2i(gx, gy)
 
-## Checks whether a grid coordinate is within the valid 64x64 simulation boundaries.
-static func is_in_bounds(grid_pos: Vector2i) -> bool:
-	return grid_pos.x >= 0 and grid_pos.x < MAP_SIZE and grid_pos.y >= 0 and grid_pos.y < MAP_SIZE
+## Checks whether a grid coordinate is within the valid simulation boundaries.
+static func is_in_bounds(grid_pos: Vector2i, width: int = -1, height: int = -1) -> bool:
+	var w := active_map_width if width <= 0 else width
+	var h := active_map_height if height <= 0 else height
+	return grid_pos.x >= 0 and grid_pos.x < w and grid_pos.y >= 0 and grid_pos.y < h
 
-## Clamps a grid coordinate to the valid 64x64 boundaries.
-static func clamp_grid(grid_pos: Vector2i) -> Vector2i:
+## Clamps a grid coordinate to the valid simulation boundaries.
+static func clamp_grid(grid_pos: Vector2i, width: int = -1, height: int = -1) -> Vector2i:
+	var w := active_map_width if width <= 0 else width
+	var h := active_map_height if height <= 0 else height
 	return Vector2i(
-		clampi(grid_pos.x, 0, MAP_SIZE - 1),
-		clampi(grid_pos.y, 0, MAP_SIZE - 1)
+		clampi(grid_pos.x, 0, w - 1),
+		clampi(grid_pos.y, 0, h - 1)
 	)
 
 ## Returns the 4 cardinal neighbors (North, East, South, West) on the isometric diamond grid.

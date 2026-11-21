@@ -57,6 +57,15 @@ var active_crisis_data: Dictionary = {}
 var cold_hypothermia_active: bool = false
 var last_raid_result: Dictionary = {}
 var world_modifiers: Array[String] = []
+var building_damage_handler: Callable = Callable()
+
+## Configures building damage handler (e.g. WorldView.damage_building) for unified crisis damage lifecycle.
+func set_building_damage_handler(handler: Callable) -> void:
+	building_damage_handler = handler
+
+## Alias for set_building_damage_handler
+func set_damage_handler(handler: Callable) -> void:
+	building_damage_handler = handler
 
 func _init(seed_val: int = 12345) -> void:
 	crisis_seed = seed_val + 4040
@@ -367,22 +376,106 @@ func _process_blizzard_hour(rm: Variant, citizen_list: Array, world_data: Varian
 	if hour % 12 == 0 and world_data != null and world_data.get("buildings") != null:
 		var buildings: Array = world_data.get("buildings")
 		if not buildings.is_empty():
-			var BuildingSystemScript = load("res://scripts/economy/building_system.gd")
-			if BuildingSystemScript != null and BuildingSystemScript.has_method("apply_damage"):
-				var idx: int = rng.randi_range(0, buildings.size() - 1)
-				var b = buildings[idx]
-				if b is Dictionary and b.get("state") != "destroyed":
-					BuildingSystemScript.call("apply_damage", b, 2, world_data)
+			var candidates: Array = []
+			for b in buildings:
+				if b is Dictionary and str(b.get("state", "")) != "destroyed":
+					candidates.append(b)
+			if not candidates.is_empty():
+				var idx: int = rng.randi_range(0, candidates.size() - 1)
+				var b = candidates[idx]
+				var b_id := str(b.get("id", ""))
+				if building_damage_handler.is_valid():
+					building_damage_handler.call(b_id, 2)
+				else:
+					var BuildingSystemScript = load("res://scripts/economy/building_system.gd")
+					if BuildingSystemScript != null and BuildingSystemScript.has_method("apply_damage"):
+						BuildingSystemScript.call("apply_damage", b, 2, world_data, rm)
 
 func _process_drought_hour(citizen_list: Array) -> void:
 	# Slight water/thirst stress: additional fatigue on working citizens
 	for cit in citizen_list:
 		if cit != null and is_instance_valid(cit) and cit.has_method("is_alive") and cit.call("is_alive"):
 			var st = cit.get("current_state")
-			# If working, fatigue slightly accumulates faster
-			if st != null and int(st) == 1: # State.WORKING
+			# MBL-CRS-01: Compare against symbolic CitizenController.State.WORKING (2), NOT hardcoded 1 (MOVING_TO_JOB)
+			if st != null and int(st) == CitizenController.State.WORKING:
 				var fat: float = float(cit.get("fatigue")) if cit.get("fatigue") != null else 10.0
 				cit.set("fatigue", minf(100.0, fat + 0.5))
+
+## MBL-BLD-01: Canonical Town Hall entity identification and validity predicate.
+func _is_canonical_town_hall_type(b_type: String) -> bool:
+	var norm := b_type.strip_edges().to_lower()
+	return norm == "townhall" or norm == "town_hall"
+
+func _is_valid_town_hall_candidate(b: Variant) -> bool:
+	if not (b is Dictionary):
+		return false
+	var b_type := str(b.get("type", ""))
+	if not _is_canonical_town_hall_type(b_type):
+		return false
+	# Faction / ownership check: must belong to player/neutral
+	var faction := str(b.get("faction", "player"))
+	var owner_str := str(b.get("owner", "player"))
+	if faction != "player" and faction != "" and faction != "neutral":
+		return false
+	if owner_str != "player" and owner_str != "":
+		return false
+	# Lifecycle & state check: destroyed, removed, or under_construction are ineligible
+	var state := str(b.get("state", "active"))
+	if state == "destroyed" or state == "under_construction" or state == "removed":
+		return false
+	# Health check: positive health remaining
+	var health := int(b.get("health", 1))
+	if health <= 0:
+		return false
+	# Must have a non-empty identifier
+	var b_id := str(b.get("id", "")).strip_edges()
+	if b_id.is_empty():
+		return false
+	return true
+
+func _find_town_hall_target(b_list: Array) -> Dictionary:
+	if b_list.is_empty():
+		return {}
+
+	# 1. Primary Lookup: Locate canonical active Town Hall
+	# Priority 1a: Starter ID "townhall_starter"
+	for b in b_list:
+		if b is Dictionary and str(b.get("id", "")) == "townhall_starter" and _is_valid_town_hall_candidate(b):
+			return b
+
+	# Priority 1b: First active canonical "townhall"
+	for b in b_list:
+		if b is Dictionary and str(b.get("type", "")).strip_edges().to_lower() == "townhall" and str(b.get("state", "active")) == "active" and _is_valid_town_hall_candidate(b):
+			return b
+
+	# 2. Fallback Candidate Selection:
+	# Fallback gathers all valid Town Hall candidates (including supported legacy "town_hall" alias).
+	# Ordinary buildings (houses, workshops, farms, quarries, etc.) are strictly excluded.
+	# Destroyed, under_construction, invalid faction, and zero-health candidates are rejected.
+	var fallback_candidates: Array = []
+	for b in b_list:
+		if _is_valid_town_hall_candidate(b):
+			fallback_candidates.append(b)
+
+	if fallback_candidates.is_empty():
+		# 3. Safe terminal/idle behavior: No valid Town Hall candidate exists.
+		return {}
+
+	# Deterministic selection among valid fallback Town Hall candidates (sort by ID)
+	fallback_candidates.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+		return str(a.get("id", "")) < str(b.get("id", ""))
+	)
+	return fallback_candidates[0]
+
+## Public accessor for bandit raid Town Hall targeting inspection.
+func get_bandit_raid_target(world_data: Variant) -> Dictionary:
+	var b_list: Array = []
+	if world_data != null:
+		if world_data is Dictionary and world_data.has("buildings"):
+			b_list = world_data.get("buildings", [])
+		elif "buildings" in world_data and world_data.buildings != null:
+			b_list = world_data.buildings
+	return _find_town_hall_target(b_list)
 
 ## Evaluates and resolves the Bandit Horde attack using existing military & outpost systems.
 func resolve_bandit_raid(
@@ -390,7 +483,8 @@ func resolve_bandit_raid(
 	rm: Variant,
 	citizen_list: Array,
 	player_army_mgr: Variant,
-	field_siege_mgr: Variant
+	field_siege_mgr: Variant,
+	damage_callback: Callable = Callable()
 ) -> Dictionary:
 	var base_threat: int = rng.randi_range(8, 14)
 	if world_modifiers.has("restless_bandits"):
@@ -425,9 +519,18 @@ func resolve_bandit_raid(
 
 	# 2. Phase 2: Settlement Field Defense (Player Army)
 	if threat_remaining > 0 and player_army_mgr != null:
-		var army_count: int = int(player_army_mgr.get("soldier_count")) if player_army_mgr.get("soldier_count") != null else 0
-		if army_count > 0:
-			var max_field_kills: int = army_count * 2
+		# MBL-CRS-02: Use eligible defending soldiers stationed at settlement, not remote/field armies
+		var defending_count: int = 0
+		if player_army_mgr.has_method("get_defending_soldier_count"):
+			defending_count = int(player_army_mgr.call("get_defending_soldier_count"))
+		elif player_army_mgr.has_method("is_defense_eligible"):
+			if bool(player_army_mgr.call("is_defense_eligible")):
+				defending_count = int(player_army_mgr.get("soldier_count")) if player_army_mgr.get("soldier_count") != null else 0
+		elif player_army_mgr.get("soldier_count") != null:
+			defending_count = int(player_army_mgr.get("soldier_count"))
+
+		if defending_count > 0:
+			var max_field_kills: int = defending_count * 2
 			var kills: int = mini(threat_remaining, max_field_kills)
 			threat_remaining -= kills
 			field_intercepted += kills
@@ -455,23 +558,49 @@ func resolve_bandit_raid(
 			if plundered_gold > 0:
 				rm.call("consume_resource", "gold", plundered_gold)
 
-		# Bandits damage 1-2 buildings (Package 2M BuildingSystem durability)
-		if world_data != null and world_data.get("buildings") != null:
-			var b_list: Array = world_data.get("buildings")
-			var BuildingSystemScript = load("res://scripts/economy/building_system.gd")
-			if BuildingSystemScript != null and BuildingSystemScript.has_method("apply_damage"):
-				var candidates: Array = []
-				for b in b_list:
-					if b is Dictionary and b.get("type") != "town_hall" and b.get("state") != "destroyed":
-						candidates.append(b)
-				if candidates.is_empty() and not b_list.is_empty():
-					candidates = b_list
+		# MBL-BLD-01: Bandits locate and target the canonical Town Hall (authoritative building lifecycle)
+		var b_list: Array = []
+		if world_data != null:
+			if world_data is Dictionary and world_data.has("buildings"):
+				b_list = world_data.get("buildings", [])
+			elif "buildings" in world_data and world_data.buildings != null:
+				b_list = world_data.buildings
 
-				var count_to_damage := mini(2, candidates.size())
-				for i in range(count_to_damage):
-					var target_b = candidates[i]
-					BuildingSystemScript.call("apply_damage", target_b, 25, world_data)
-					damaged_buildings.append(str(target_b.get("id", "")))
+		if not b_list.is_empty():
+			var BuildingSystemScript = load("res://scripts/economy/building_system.gd")
+			# Gather all valid Town Hall candidates
+			# Primary candidate (starter ID "townhall_starter" or first active "townhall") is placed first
+			var candidates: Array = []
+			var primary_b := _find_town_hall_target(b_list)
+			if not primary_b.is_empty():
+				candidates.append(primary_b)
+				# Add remaining valid Town Hall candidates deterministically sorted by ID
+				var other_candidates: Array = []
+				for b in b_list:
+					if _is_valid_town_hall_candidate(b) and str(b.get("id", "")) != str(primary_b.get("id", "")):
+						other_candidates.append(b)
+				other_candidates.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
+					return str(a.get("id", "")) < str(b.get("id", ""))
+				)
+				candidates.append_array(other_candidates)
+
+			var count_to_damage := mini(2, candidates.size())
+			for i in range(count_to_damage):
+				var target_b = candidates[i]
+				var target_id := str(target_b.get("id", ""))
+				var damaged_ok := false
+				if damage_callback.is_valid():
+					damage_callback.call(target_id, 25)
+					damaged_ok = true
+				elif building_damage_handler.is_valid():
+					building_damage_handler.call(target_id, 25)
+					damaged_ok = true
+				elif BuildingSystemScript != null and BuildingSystemScript.has_method("apply_damage"):
+					BuildingSystemScript.call("apply_damage", target_b, 25, world_data, rm)
+					damaged_ok = true
+				if damaged_ok:
+					if not damaged_buildings.has(target_id):
+						damaged_buildings.append(target_id)
 
 		# Citizen morale penalty
 		morale_penalty = -10.0
@@ -518,8 +647,8 @@ func serialize() -> Dictionary:
 	}
 
 ## Deserialization with safe fallback for legacy saves.
-func deserialize(data: Dictionary) -> void:
-	if data == null or data.is_empty():
+func deserialize(data: Variant) -> void:
+	if data == null or not (data is Dictionary) or data.is_empty():
 		current_crisis_type = CRISIS_NONE
 		current_stage = STAGE_INACTIVE
 		warning_hours_remaining = 0.0
@@ -529,11 +658,22 @@ func deserialize(data: Dictionary) -> void:
 		active_crisis_data = {}
 		cold_hypothermia_active = false
 		last_raid_result = {}
-		world_modifiers = []
+		# MBL-SAV-02: Do NOT reset world_modifiers if payload is empty/legacy!
+		# world_modifiers was already configured from metadata.
 		return
 
-	current_crisis_type = str(data.get("current_crisis_type", CRISIS_NONE))
-	current_stage = str(data.get("current_stage", STAGE_INACTIVE))
+	var raw_type = str(data.get("current_crisis_type", CRISIS_NONE))
+	if raw_type in [CRISIS_NONE, CRISIS_DROUGHT, CRISIS_BLIZZARD, CRISIS_BANDIT_HORDE]:
+		current_crisis_type = raw_type
+	else:
+		current_crisis_type = CRISIS_NONE
+
+	var raw_stage = str(data.get("current_stage", STAGE_INACTIVE))
+	if raw_stage in [STAGE_INACTIVE, STAGE_WARNING, STAGE_ACTIVE, STAGE_RECOVERY]:
+		current_stage = raw_stage
+	else:
+		current_stage = STAGE_INACTIVE
+
 	warning_hours_remaining = float(data.get("warning_hours_remaining", 0.0))
 	active_hours_remaining = float(data.get("active_hours_remaining", 0.0))
 	recovery_hours_remaining = float(data.get("recovery_hours_remaining", 0.0))
@@ -541,11 +681,24 @@ func deserialize(data: Dictionary) -> void:
 	crisis_seed = int(data.get("crisis_seed", crisis_seed))
 	total_crises_faced = int(data.get("total_crises_faced", 0))
 	total_crises_survived = int(data.get("total_crises_survived", 0))
-	active_crisis_data = data.get("active_crisis_data", {}).duplicate(true)
+
+	var raw_acd = data.get("active_crisis_data")
+	if raw_acd is Dictionary:
+		active_crisis_data = raw_acd.duplicate(true)
+	else:
+		active_crisis_data = {}
+
 	cold_hypothermia_active = bool(data.get("cold_hypothermia_active", false))
-	last_raid_result = data.get("last_raid_result", {}).duplicate(true)
-	world_modifiers.clear()
+
+	var raw_raid = data.get("last_raid_result")
+	if raw_raid is Dictionary:
+		last_raid_result = raw_raid.duplicate(true)
+	else:
+		last_raid_result = {}
+
+	# MBL-SAV-02: Only update world_modifiers if explicitly provided in data
 	if data.has("world_modifiers") and data["world_modifiers"] is Array:
+		world_modifiers.clear()
 		for m in data["world_modifiers"]:
 			world_modifiers.append(str(m))
 

@@ -17,18 +17,33 @@ var _drag_start_camera: Vector2 = Vector2.ZERO
 # Right vertex: map_to_local(63, 0) = (63*16, 63*8) = (1008, 504)
 # Bottom vertex: map_to_local(63, 63) = (0, 1008)
 # Left vertex: map_to_local(0, 63) = (-1008, 504)
-const MAP_BOUND_LEFT: float = -1200.0
-const MAP_BOUND_RIGHT: float = 1200.0
-const MAP_BOUND_TOP: float = -200.0
-const MAP_BOUND_BOTTOM: float = 1200.0
+var _bound_left: float = -1200.0
+var _bound_right: float = 1200.0
+var _bound_top: float = -200.0
+var _bound_bottom: float = 1200.0
 
 @export var start_grid_pos: Vector2i = Vector2i(32, 32)
 @export var auto_center_on_start: bool = true
 
 func _ready() -> void:
 	zoom = Vector2(1.5, 1.5) # Default comfortable zoom level
+	set_map_dimensions(IsoMath.get_active_map_width(), IsoMath.get_active_map_height())
 	if auto_center_on_start:
 		position = IsoMath.map_to_local(start_grid_pos)
+		_clamp_position()
+
+func set_map_dimensions(width: int, height: int) -> void:
+	var w: int = maxi(1, width)
+	var h: int = maxi(1, height)
+	var top_pt: Vector2 = IsoMath.map_to_local(Vector2i(0, 0))
+	var right_pt: Vector2 = IsoMath.map_to_local(Vector2i(w - 1, 0))
+	var bottom_pt: Vector2 = IsoMath.map_to_local(Vector2i(w - 1, h - 1))
+	var left_pt: Vector2 = IsoMath.map_to_local(Vector2i(0, h - 1))
+	_bound_left = left_pt.x - 192.0
+	_bound_right = right_pt.x + 192.0
+	_bound_top = top_pt.y - 200.0
+	_bound_bottom = bottom_pt.y + 192.0
+	_clamp_position()
 
 func _process(delta: float) -> void:
 	var move_dir := Vector2.ZERO
@@ -75,8 +90,8 @@ func _apply_zoom(factor: float) -> void:
 	zoom = Vector2(new_zoom_val, new_zoom_val)
 
 func _clamp_position() -> void:
-	position.x = clampf(position.x, MAP_BOUND_LEFT, MAP_BOUND_RIGHT)
-	position.y = clampf(position.y, MAP_BOUND_TOP, MAP_BOUND_BOTTOM)
+	position.x = clampf(position.x, _bound_left, _bound_right)
+	position.y = clampf(position.y, _bound_top, _bound_bottom)
 
 func focus_on_cell(grid_pos: Vector2i) -> void:
 	position = IsoMath.map_to_local(grid_pos)

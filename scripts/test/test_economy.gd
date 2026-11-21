@@ -13,17 +13,22 @@ func _init() -> void:
 	root.add_child(rm)
 	rm.reset_economy()
 	
-	# Test 1: Initial starter stock matches GDD specification
+	# Test 1: Initial starter stock matches GDD §5.2 specification
 	var start_wood: int = rm.get_available_stock(EconomyConfigScript.RES_WOOD)
 	var start_stone: int = rm.get_available_stock(EconomyConfigScript.RES_STONE)
 	var start_food: int = rm.get_available_stock(EconomyConfigScript.RES_FOOD)
+	var start_ore: int = rm.get_available_stock(EconomyConfigScript.RES_ORE)
+	var start_metal: int = rm.get_available_stock(EconomyConfigScript.RES_METAL)
+	var start_tools: int = rm.get_available_stock(EconomyConfigScript.RES_TOOLS)
+	var start_crystal: int = rm.get_available_stock(EconomyConfigScript.RES_CRYSTAL)
+	var start_herbs: int = rm.get_available_stock(EconomyConfigScript.RES_HERBS)
 	var start_gold: int = rm.get_available_stock(EconomyConfigScript.RES_GOLD)
 	
-	if start_wood != 120 or start_stone != 60 or start_food != 150 or start_gold != 200:
-		printerr("FAIL: Starting stock mismatch! Wood=%d, Stone=%d, Food=%d, Gold=%d" % [start_wood, start_stone, start_food, start_gold])
+	if start_food != 120 or start_wood != 120 or start_stone != 70 or start_ore != 20 or start_metal != 5 or start_tools != 12 or start_crystal != 0 or start_herbs != 10 or start_gold != 250:
+		printerr("FAIL: Starting stock mismatch! Food=%d, Wood=%d, Stone=%d, Ore=%d, Metal=%d, Tools=%d, Crystal=%d, Herbs=%d, Gold=%d" % [start_food, start_wood, start_stone, start_ore, start_metal, start_tools, start_crystal, start_herbs, start_gold])
 		failures += 1
 	else:
-		print("PASS: Starting inventory verified (Wood 120, Stone 60, Food 150, Gold 200)")
+		print("PASS: Starting inventory verified (GDD §5.2: Food 120, Wood 120, Stone 70, Ore 20, Metal 5, Tools 12, Crystal 0, Herbs 10, Gold 250)")
 
 	# Test 2: Storage limits enforcement
 	var initial_wood_cap: int = rm.get_capacity(EconomyConfigScript.RES_WOOD)
@@ -73,7 +78,7 @@ func _init() -> void:
 		print("PASS: release_cost restores available stock cleanly")
 
 	# Test 4: All-or-nothing cost reservation
-	# Request 50 wood (we have 120) and 999 stone (we only have 60)
+	# Request 50 wood (we have 120) and 999 stone (we only have 70)
 	var partial_cost: Dictionary = {EconomyConfigScript.RES_WOOD: 50, EconomyConfigScript.RES_STONE: 999}
 	if rm.reserve_cost(partial_cost):
 		printerr("FAIL: reserve_cost succeeded with insufficient stone!")
@@ -137,7 +142,7 @@ func _init() -> void:
 
 	# Test 6: Daily food consumption tick
 	rm.reset_economy()
-	var food_start: int = rm.get_available_stock(EconomyConfigScript.RES_FOOD) # 150
+	var food_start: int = rm.get_available_stock(EconomyConfigScript.RES_FOOD) # 120
 	rm._execute_daily_accounting_tick() # 24 citizens consume 20 food
 	var food_after_1_day: int = rm.get_available_stock(EconomyConfigScript.RES_FOOD)
 	if food_after_1_day != food_start - 20:
