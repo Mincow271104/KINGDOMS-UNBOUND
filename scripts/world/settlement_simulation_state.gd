@@ -17,6 +17,10 @@ var required_hour_seq: int = 0
 var settled_hour_seq: int = 0
 var latest_captured_daily_seq: int = -1
 var completed_daily_seq: int = -1
+var last_immigration_daily_seq: int = -1
+var total_immigrants_admitted: int = 0
+var initial_population_seeded: bool = false
+var initial_seed_hour_seq: int = -1
 var pending_daily: Array = []
 var villager_daily_seq: Dictionary = {}
 var registered: Dictionary = {}
@@ -36,7 +40,8 @@ var stats: Dictionary = {
 	"daily_processed": 0,
 	"pickups": 0,
 	"deposits": 0,
-	"produced": 0
+	"produced": 0,
+	"immigrants_admitted": 0
 }
 
 static func _is_int(val: Variant) -> bool:
@@ -94,6 +99,10 @@ func to_dict() -> Dictionary:
 		"settled_hour_seq": settled_hour_seq,
 		"latest_captured_daily_seq": latest_captured_daily_seq,
 		"completed_daily_seq": completed_daily_seq,
+		"last_immigration_daily_seq": last_immigration_daily_seq,
+		"total_immigrants_admitted": total_immigrants_admitted,
+		"initial_population_seeded": initial_population_seeded,
+		"initial_seed_hour_seq": initial_seed_hour_seq,
 		"pending_daily": pending_daily.duplicate(),
 		"villager_daily_seq": villager_daily_seq.duplicate(true),
 		"registered": registered.duplicate(true),
@@ -116,12 +125,12 @@ static func from_dict(data: Variant) -> RefCounted:
 		return null
 	var d: Dictionary = data
 	var st: RefCounted = (load("res://scripts/world/settlement_simulation_state.gd") as GDScript).new()
-	for k in ["required_hour_seq", "settled_hour_seq", "latest_captured_daily_seq", "completed_daily_seq", "recovery_hours_left"]:
+	for k in ["required_hour_seq", "settled_hour_seq", "latest_captured_daily_seq", "completed_daily_seq", "last_immigration_daily_seq", "total_immigrants_admitted", "initial_seed_hour_seq", "recovery_hours_left"]:
 		if d.has(k) and not _is_int(d[k]):
 			return null
 	if d.has("survival_state") and (not (d["survival_state"] is String) or not VALID_SURVIVAL_STATES.has(String(d["survival_state"]))):
 		return null
-	for k in ["initialized", "ration_shortfall", "baseline_captured"]:
+	for k in ["initialized", "ration_shortfall", "baseline_captured", "initial_population_seeded"]:
 		if d.has(k) and not (d[k] is bool):
 			return null
 	for k in ["villager_daily_seq", "registered", "production_sources", "production_blocked", "transit_in", "transit_out", "transit_baseline", "stats"]:
@@ -137,6 +146,10 @@ static func from_dict(data: Variant) -> RefCounted:
 		return null
 	st.latest_captured_daily_seq = int(d.get("latest_captured_daily_seq", -1))
 	st.completed_daily_seq = int(d.get("completed_daily_seq", -1))
+	st.last_immigration_daily_seq = int(d.get("last_immigration_daily_seq", -1))
+	st.total_immigrants_admitted = maxi(0, int(d.get("total_immigrants_admitted", 0)))
+	st.initial_population_seeded = bool(d.get("initial_population_seeded", false))
+	st.initial_seed_hour_seq = int(d.get("initial_seed_hour_seq", -1))
 	for s in d.get("pending_daily", []):
 		if not _is_int(s):
 			return null

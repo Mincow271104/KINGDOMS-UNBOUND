@@ -225,7 +225,7 @@ var _bridge_status_label: Label = null
 @onready var upgrade_max_label: Label = get_node_or_null("BuildingInspectPanel/MarginContainer/VBoxContainer/ScrollContainer/ContentVBox/UpgradeSection/UpgradeMaxLabel")
 
 # Phase 7: Read-Only Rival Settlement & Villager Inspection Panels
-var RivalInspectionQueryScript = null
+const RivalInspectionQueryScript = preload("res://scripts/world/rival_inspection_query.gd")
 @onready var rival_settlement_panel: Control = get_node_or_null("RivalSettlementInspectPanel")
 @onready var rival_settlement_title_label: Label = get_node_or_null("RivalSettlementInspectPanel/MarginContainer/VBoxContainer/HeaderHBox/TitlesVBox/SettlementTitleLabel")
 @onready var rival_settlement_subtitle_label: Label = get_node_or_null("RivalSettlementInspectPanel/MarginContainer/VBoxContainer/HeaderHBox/TitlesVBox/SettlementSubtitleLabel")

@@ -589,14 +589,17 @@ func _test_hardening_worldview_runtime_smoke() -> void:
 	var tm: Node = root.get_node_or_null("TimeManager")
 	_assert(mgr1 != null and is_instance_valid(mgr1), "WorldView initializes single SettlementSimulationManager")
 	var initial_count: int = mgr1.get_registered_settlement_ids().size()
-	_assert(initial_count >= 1 and int(mgr1.get_telemetry()["registered_villagers"]) == 0, "WorldView registers canonical rival settlements without fabricating villagers")
+	var initial_villagers: int = int(mgr1.get_telemetry()["registered_villagers"])
+	# P5-07: Fresh WorldView seeds initial canonical residents across registered settlements.
+	_assert(initial_count >= 1 and initial_villagers > 0, "WorldView registers canonical rival settlements and seeds initial P5-07 villagers")
 
-	# Repeated apply_settlement_overlays_from_world_data must not duplicate manager or contexts
+	# Repeated apply_settlement_overlays_from_world_data must not duplicate manager, contexts, or villagers
 	wv1.apply_settlement_overlays_from_world_data()
 	_assert(
 		wv1.get("settlement_simulation_manager") == mgr1
-		and mgr1.get_registered_settlement_ids().size() == initial_count,
-		"Repeated apply_settlement_overlays_from_world_data() does not duplicate manager or contexts"
+		and mgr1.get_registered_settlement_ids().size() == initial_count
+		and int(mgr1.get_telemetry()["registered_villagers"]) == initial_villagers,
+		"Repeated apply_settlement_overlays_from_world_data() does not duplicate manager, contexts, or villagers"
 	)
 
 	# TimeManager hour_passed reaches manager once

@@ -14,21 +14,34 @@ signal batch_completed(summary: Dictionary)
 const SettlementVillagerDataScript = preload("res://scripts/world/settlement_villager_data.gd")
 const SettlementVillagerContextScript = preload("res://scripts/world/settlement_villager_context.gd")
 const SettlementJobBoardScript = preload("res://scripts/world/settlement_job_board.gd")
+const SettlementWorkplaceRegistryScript = preload("res://scripts/world/settlement_workplace_registry.gd")
 const SettlementEconomyScript = preload("res://scripts/world/settlement_economy.gd")
 const SettlementBuildingCapabilityAdapterScript = preload("res://scripts/world/settlement_building_capability_adapter.gd")
 const SettlementSimulationConfigScript = preload("res://scripts/world/settlement_simulation_config.gd")
 const SettlementSimulationStateScript = preload("res://scripts/world/settlement_simulation_state.gd")
 const SettlementResourceSourceAdapterScript = preload("res://scripts/world/settlement_resource_source_adapter.gd")
+const SettlementImmigrationPolicyScript = preload("res://scripts/world/settlement_immigration_policy.gd")
+const SettlementImmigrationServiceScript = preload("res://scripts/world/settlement_immigration_service.gd")
+const SettlementPopulationSeederScript = preload("res://scripts/world/settlement_population_seeder.gd")
+const SettlementAmbientLocomotionScript = preload("res://scripts/world/settlement_ambient_locomotion.gd")
 const EconomyConfigScript = preload("res://scripts/economy/economy_config.gd")
 
 var _contexts_by_id: Dictionary = {} # settlement_id -> SettlementVillagerContext
 var _isolated_settlements: Dictionary = {} # settlement_id -> Dictionary
 var _consecutive_failures: Dictionary = {} # settlement_id -> int
+var diagnostic_trace_enabled: bool = false
+var _diagnostic_events: Array[Dictionary] = []
+const MAX_DIAGNOSTIC_EVENTS: int = 512
 var _fault_injection_hooks: Dictionary = {} # settlement_id -> Callable (for deterministic tests)
 var _stage_fault_hooks: Dictionary = {} # settlement_id -> Callable (sid, vid, h_seq, stage) -> bool
 
 var _world_data: RefCounted = null
 var _world_view: Node = null
+var _world_seed: int = 12345
+var _immigration_service: RefCounted = null
+var _population_seeder: RefCounted = null
+var _ambient_locomotion: RefCounted = null
+var immigration_enabled: bool = true
 var _globally_allocated_tree_cells: Dictionary = {} # Vector2i -> workplace_id (String)
 var _last_wildlife_recovery_hour_seq: int = -1
 
@@ -51,6 +64,24 @@ var max_villagers_per_batch: int = SettlementSimulationConfigScript.MAX_VILLAGER
 var soft_budget_ms_per_frame: float = SettlementSimulationConfigScript.SOFT_BUDGET_MS_PER_FRAME
 var _last_batch_duration_ms: float = 0.0
 var _max_batch_duration_ms: float = 0.0
+
+# M0 Opt-In Benchmark Telemetry (disabled by default; zero gameplay impact)
+const BENCH_SAMPLE_CAP: int = 256
+var benchmark_telemetry_enabled: bool = false:
+	set(value):
+		benchmark_telemetry_enabled = value
+		if _ambient_locomotion != null:
+			_ambient_locomotion.benchmark_telemetry_enabled = value
+var _bench_sim_samples_ms: PackedFloat64Array = PackedFloat64Array()
+var _bench_sim_sample_cursor: int = 0
+var _bench_sim_ticks: int = 0
+var _bench_sim_total_ms: float = 0.0
+var _bench_villagers_processed: int = 0
+var _bench_settlements_processed: int = 0
+var _bench_rebuild_queue_ms: float = 0.0
+var _bench_update_settled_ms: float = 0.0
+var _bench_eval_bp_ms: float = 0.0
+var _bench_maintenance_villagers: int = 0
 
 func _ready() -> void:
 	set_process(false)
@@ -159,7 +190,7 @@ func get_registered_settlement_ids() -> Array[String]:
 
 ## Registers canonical rival settlements from WorldData without fabricating any villagers.
 func register_settlements_from_world_data(world_data: RefCounted) -> int:
-	_world_data = world_data
+	set_world_data(world_data)
 	if world_data == null or world_data.get("settlements") == null:
 		return 0
 	var added: int = 0
@@ -194,10 +225,96 @@ func register_settlements_from_world_data(world_data: RefCounted) -> int:
 	SettlementResourceSourceAdapterScript.register_all_farm_sources(contexts_list)
 	# Automatic registration of all eligible Hunter workplaces across registered contexts (H1)
 	SettlementResourceSourceAdapterScript.register_all_hunter_sources(contexts_list, _world_data)
+	# M1: Configure validated road graphs for canonical ambient wandering
+	get_ambient_locomotion().configure_from_world_data(_world_data)
 	return added
+
+func get_ambient_locomotion() -> RefCounted:
+	if _ambient_locomotion == null:
+		_ambient_locomotion = SettlementAmbientLocomotionScript.new()
+		_ambient_locomotion.world_seed = _world_seed
+		_ambient_locomotion.benchmark_telemetry_enabled = benchmark_telemetry_enabled
+	return _ambient_locomotion
+
+func step_ambient_locomotion(sim_dt: float) -> void:
+	if sim_dt <= 0.0:
+		return
+	get_ambient_locomotion().step_simulation_time(sim_dt, self)
 
 func set_world_data(world_data: RefCounted) -> void:
 	_world_data = world_data
+	if _world_data != null:
+		var s_val: Variant = _world_data.get("seed_value")
+		if s_val is int:
+			_world_seed = int(s_val)
+
+func set_world_seed(seed_val: int) -> void:
+	_world_seed = seed_val
+
+func get_world_seed() -> int:
+	return _world_seed
+
+func get_immigration_service() -> RefCounted:
+	if _immigration_service == null:
+		_immigration_service = SettlementImmigrationServiceScript.new()
+	return _immigration_service
+
+func get_population_seeder() -> RefCounted:
+	if _population_seeder == null:
+		_population_seeder = SettlementPopulationSeederScript.new()
+	return _population_seeder
+
+## Seeds initial founding residents for all eligible unseeded active settlements.
+## Intended for fresh-world initialization only (idempotent; skips already-seeded or populated contexts).
+func seed_initial_populations() -> Dictionary:
+	var seeder := get_population_seeder()
+	var total_seeded: int = 0
+	var per_settlement: Dictionary = {}
+	var hunter_contexts: Array = []
+	for sid in get_registered_settlement_ids():
+		var ctx = _contexts_by_id.get(sid, null)
+		if ctx == null:
+			continue
+		var stl_data := _find_settlement_data(sid)
+		if String(ctx.origin_faction_id) == "neutral_tribe" and stl_data != null:
+			var had_hunter: bool = ctx.has_meta("enable_hunter") and bool(ctx.get_meta("enable_hunter"))
+			if not had_hunter:
+				ctx.set_meta("enable_hunter", true)
+				ctx.reconcile_buildings(stl_data)
+				hunter_contexts.append(ctx)
+	if not hunter_contexts.is_empty():
+		SettlementResourceSourceAdapterScript.register_all_hunter_sources(hunter_contexts, _world_data)
+	for sid in get_registered_settlement_ids():
+		var ctx = _contexts_by_id.get(sid, null)
+		if ctx == null:
+			continue
+		var stl_data := _find_settlement_data(sid)
+		var res: Dictionary = seeder.seed_settlement(ctx, _world_seed, stl_data, _world_data)
+		per_settlement[sid] = res
+		total_seeded += int(res.get("seeded", 0))
+	if total_seeded > 0:
+		_rebuild_pending_queue()
+		_evaluate_backpressure()
+	return {"ok": true, "total_seeded": total_seeded, "per_settlement": per_settlement}
+
+func set_immigration_policy(p_policy: RefCounted) -> void:
+	var svc := get_immigration_service()
+	if p_policy != null:
+		svc.policy = p_policy
+
+func set_immigration_enabled(enabled: bool) -> void:
+	immigration_enabled = enabled
+
+func is_immigration_enabled() -> bool:
+	return immigration_enabled
+
+func _find_settlement_data(sid: String) -> RefCounted:
+	if _world_data == null or _world_data.get("settlements") == null:
+		return null
+	for stl in _world_data.settlements:
+		if stl != null and String(stl.get("settlement_id")) == sid:
+			return stl
+	return null
 
 func get_world_data() -> RefCounted:
 	return _world_data
@@ -364,6 +481,7 @@ func capture_daily_event(hour_seq: int) -> void:
 	set_process(true)
 
 func _rebuild_pending_queue() -> void:
+	var rq_start: int = Time.get_ticks_usec() if benchmark_telemetry_enabled else 0
 	_pending_queue.clear()
 	var sids: Array[String] = get_registered_settlement_ids()
 	if sids.is_empty():
@@ -381,7 +499,7 @@ func _rebuild_pending_queue() -> void:
 			continue
 		var target_h: int = int(st.required_hour_seq)
 		var list: Array[Dictionary] = []
-		var villagers: Array = ctx.get_all_villagers()
+		var villagers: Array = ctx.get_all_villagers_cached_view()
 		if villagers.is_empty():
 			# Zero-villager settlement still advances its settled_hour_seq for economy providers
 			for h in range(int(st.settled_hour_seq) + 1, target_h + 1):
@@ -407,6 +525,8 @@ func _rebuild_pending_queue() -> void:
 			if i < slist.size():
 				_pending_queue.append(slist[i])
 	_rr_cursor = (start_idx + 1) % maxi(1, sids.size())
+	if benchmark_telemetry_enabled:
+		_bench_rebuild_queue_ms += float(Time.get_ticks_usec() - rq_start) / 1000.0
 
 func _process(_delta: float) -> void:
 	if _pending_queue.is_empty() and not _has_any_pending_daily():
@@ -471,17 +591,33 @@ func process_batch(batch_limit: int = -1, budget_ms: float = -1.0) -> Dictionary
 			idx += 1
 
 	# Update settled_hour_seq for settlements that finished an hour & run eligible daily events
+	var maint_start: int = Time.get_ticks_usec() if benchmark_telemetry_enabled else 0
 	for sid in get_registered_settlement_ids():
 		if _isolated_settlements.has(sid):
 			continue
 		var ctx = _contexts_by_id[sid]
 		_update_settled_hour(ctx)
 		daily_done += _process_eligible_daily_events(ctx)
+	if benchmark_telemetry_enabled:
+		_bench_update_settled_ms += float(Time.get_ticks_usec() - maint_start) / 1000.0
 
 	var total_ms: float = float(Time.get_ticks_usec() - start_usec) / 1000.0
 	_last_batch_duration_ms = total_ms
 	_max_batch_duration_ms = maxf(_max_batch_duration_ms, total_ms)
+	if benchmark_telemetry_enabled:
+		_bench_sim_ticks += 1
+		_bench_sim_total_ms += total_ms
+		_bench_villagers_processed += processed
+		_bench_settlements_processed += maxi(0, _contexts_by_id.size() - _isolated_settlements.size())
+		if _bench_sim_samples_ms.size() < BENCH_SAMPLE_CAP:
+			_bench_sim_samples_ms.append(total_ms)
+		else:
+			_bench_sim_samples_ms[_bench_sim_sample_cursor] = total_ms
+			_bench_sim_sample_cursor = (_bench_sim_sample_cursor + 1) % BENCH_SAMPLE_CAP
+	var bp_start: int = Time.get_ticks_usec() if benchmark_telemetry_enabled else 0
 	_evaluate_backpressure()
+	if benchmark_telemetry_enabled:
+		_bench_eval_bp_ms += float(Time.get_ticks_usec() - bp_start) / 1000.0
 	if _pending_queue.is_empty() and not _has_any_pending_daily():
 		set_process(false)
 	var summary := {
@@ -584,7 +720,9 @@ func _advance_settlement_providers_for_hour(ctx: RefCounted, h_seq: int) -> void
 
 func _update_settled_hour(ctx: RefCounted) -> void:
 	var st = ctx.sim_state
-	var villagers: Array = ctx.get_all_villagers()
+	var villagers: Array = ctx.get_all_villagers_cached_view()
+	if benchmark_telemetry_enabled:
+		_bench_maintenance_villagers += villagers.size()
 	if villagers.is_empty():
 		return
 	var min_h: int = int(st.required_hour_seq)
@@ -601,7 +739,7 @@ func _get_total_available_food(ctx: RefCounted) -> int:
 	for wp in ctx.workplace_registry.get_all_workplaces():
 		if wp.output_resource == EconomyConfigScript.RES_FOOD:
 			total += int(wp.buffer_amount)
-	for v in ctx.get_all_villagers():
+	for v in ctx.get_all_villagers_cached_view():
 		if v.get_carrying_resource() == EconomyConfigScript.RES_FOOD:
 			total += v.get_carrying_amount()
 	return total
@@ -609,7 +747,7 @@ func _get_total_available_food(ctx: RefCounted) -> int:
 func _evaluate_survival_mode(ctx: RefCounted) -> void:
 	var st = ctx.sim_state
 	var living: int = 0
-	for v in ctx.get_all_villagers():
+	for v in ctx.get_all_villagers_cached_view():
 		if v.life_state == SettlementVillagerDataScript.LIFE_ALIVE:
 			living += 1
 	var daily_need: int = maxi(1, living * SettlementSimulationConfigScript.DAILY_RATION_FOOD)
@@ -673,27 +811,31 @@ func _process_eligible_daily_events(ctx: RefCounted) -> int:
 	if st == null or st.pending_daily.is_empty():
 		return 0
 	var completed: int = 0
+	var admitted_any: bool = false
 	while not st.pending_daily.is_empty():
 		var d_seq: int = int(st.pending_daily[0])
 		if not _all_villagers_reached_hour(ctx, d_seq):
 			break
-		_execute_daily_event(ctx, d_seq)
+		if _execute_daily_event(ctx, d_seq):
+			admitted_any = true
 		st.pending_daily.pop_front()
 		st.completed_daily_seq = maxi(int(st.completed_daily_seq), d_seq)
 		st.stats["daily_processed"] = int(st.stats.get("daily_processed", 0)) + 1
 		completed += 1
+	if admitted_any:
+		_rebuild_pending_queue()
 	return completed
 
 func _all_villagers_reached_hour(ctx: RefCounted, target_h: int) -> bool:
-	for v in ctx.get_all_villagers():
+	for v in ctx.get_all_villagers_cached_view():
 		if int(v.last_processed_hour_seq) < target_h:
 			return false
 	return true
 
-func _execute_daily_event(ctx: RefCounted, daily_seq: int) -> void:
+func _execute_daily_event(ctx: RefCounted, daily_seq: int) -> bool:
 	var st = ctx.sim_state
 	var eligible: Array = []
-	for v in ctx.get_all_villagers():
+	for v in ctx.get_all_villagers_cached_view():
 		if v.life_state != SettlementVillagerDataScript.LIFE_ALIVE:
 			continue
 		var last_d: int = int(st.villager_daily_seq.get(v.villager_id, -1))
@@ -732,11 +874,182 @@ func _execute_daily_event(ctx: RefCounted, daily_seq: int) -> void:
 	st.ration_shortfall = any_shortfall
 	_evaluate_survival_mode(ctx)
 
+	# Phase 5: Evaluate daily population immigration after existing residents & rations settle
+	if not immigration_enabled:
+		return false
+	var svc := get_immigration_service()
+	var stl_data := _find_settlement_data(ctx.settlement_id)
+	var imm_res: Dictionary = svc.process_daily_immigration(
+		ctx,
+		_world_seed,
+		daily_seq,
+		stl_data,
+		is_settlement_isolated(ctx.settlement_id)
+	)
+	return int(imm_res.get("admitted", 0)) > 0
+
 # -----------------------------------------------------------------------------
 # Per-Villager Needs & Logical Job Execution (§8.3-8.5, §10, §11, §12, §13)
 # Strictly atomic: computes candidate state first, checks stage boundaries & executes
 # economic/buffer transactions before committing villager, job, or watermark state.
 # -----------------------------------------------------------------------------
+func _record_diagnostic_event(ctx: RefCounted, v: RefCounted, h_seq: int, event_name: String) -> void:
+	if not diagnostic_trace_enabled or ctx == null or v == null:
+		return
+	if _diagnostic_events.size() >= MAX_DIAGNOSTIC_EVENTS:
+		_diagnostic_events.pop_front()
+	var nctx = ctx.get_meta("nav_context") if ctx.has_meta("nav_context") else null
+	var home_bd := _get_valid_home_building(ctx, v)
+	var home_ac: Vector2i = home_bd.get("access_cell", home_bd.get("origin_cell", Vector2i(-1, -1))) if not home_bd.is_empty() else Vector2i(-1, -1)
+	var loc = nctx.get_or_create_locomotion(v) if (nctx != null and nctx.has_method("get_or_create_locomotion")) else null
+	_diagnostic_events.append({
+		"h_seq": h_seq,
+		"clock_hour": SettlementResourceSourceAdapterScript.clock_hour_from_hour_seq(h_seq) if h_seq >= 0 else -1,
+		"event": event_name,
+		"settlement_id": String(ctx.settlement_id),
+		"faction_id": String(ctx.owner_faction_id),
+		"villager_id": String(v.villager_id),
+		"role": String(v.role),
+		"cell": v.cell,
+		"home_building_id": String(v.home_building_id),
+		"home_access_cell": home_ac,
+		"workplace_id": String(v.workplace_id),
+		"task_state": String(v.task_state),
+		"rest_phase": String(v.rest_phase),
+		"cargo_amount": v.get_carrying_amount(),
+		"cargo_resource": String(v.cargo.get("resource", "")),
+		"nav_intent": String(loc.intent_key) if loc != null else "",
+		"nav_status": int(loc.status) if loc != null else -1,
+		"lod_is_far": bool(ctx.get_meta("lod_is_far", false)),
+	})
+
+func get_diagnostic_events() -> Array[Dictionary]:
+	return _diagnostic_events.duplicate(true)
+
+func clear_diagnostic_events() -> void:
+	_diagnostic_events.clear()
+
+func _is_daytime_hour(ctx: RefCounted, h_seq: int) -> bool:
+	var tm_ref: Node = _time_manager
+	if tm_ref == null and ctx != null and ctx.has_meta("time_manager"):
+		tm_ref = ctx.get_meta("time_manager")
+	if tm_ref != null and is_instance_valid(tm_ref) and tm_ref.has_method("get_day_phase"):
+		var tm_seq: int = int(tm_ref.get_hour_seq()) if tm_ref.has_method("get_hour_seq") else -1
+		if h_seq < 0 or tm_seq == h_seq:
+			var dp: int = int(tm_ref.call("get_day_phase"))
+			return dp == 0 or dp == 1 # DAWN (5..6) or DAY (7..17)
+	if h_seq >= 0:
+		return SettlementResourceSourceAdapterScript.is_day_shift_hour(h_seq)
+	return true
+
+func _get_valid_home_building(ctx: RefCounted, v: RefCounted) -> Dictionary:
+	var hb_id: String = String(v.home_building_id)
+	if hb_id.is_empty() or ctx == null or not ctx.has_method("get_residential_buildings"):
+		return {}
+	var is_res := false
+	for rb in ctx.get_residential_buildings():
+		if rb is Dictionary and String(rb.get("building_id", "")) == hb_id and int(rb.get("capacity", 0)) > 0:
+			is_res = true
+			break
+	if not is_res:
+		return {}
+	if ctx.has_method("get_building_descriptors"):
+		for bd in ctx.get_building_descriptors():
+			if bd is Dictionary and String(bd.get("building_id", "")) == hb_id:
+				return bd
+	return {"building_id": hb_id}
+
+func _has_valid_assigned_home(ctx: RefCounted, v: RefCounted) -> bool:
+	return not _get_valid_home_building(ctx, v).is_empty()
+
+## Immediately transitions a returning villager to REST_RESTING_INSIDE upon physical arrival at home.
+func complete_home_arrival_if_eligible(ctx: RefCounted, v: RefCounted) -> bool:
+	if ctx == null or v == null:
+		return false
+	if String(v.life_state) != SettlementVillagerDataScript.LIFE_ALIVE:
+		return false
+	if String(v.task_state) != SettlementVillagerDataScript.TASK_RESTING:
+		return false
+	if String(v.rest_phase) != SettlementVillagerDataScript.REST_RETURNING_HOME:
+		return false
+	if not _has_valid_assigned_home(ctx, v) or not _is_at_assigned_home(ctx, v):
+		return false
+	v.rest_phase = SettlementVillagerDataScript.REST_RESTING_INSIDE
+	return true
+
+func _is_at_assigned_home(ctx: RefCounted, v: RefCounted) -> bool:
+	var bd := _get_valid_home_building(ctx, v)
+	if bd.is_empty():
+		return false
+	var ac: Variant = bd.get("access_cell")
+	if not (ac is Vector2i):
+		ac = bd.get("origin_cell")
+	if not (ac is Vector2i):
+		return false
+	var ac_cell: Vector2i = ac
+	if ac_cell.x < 0 or ac_cell.y < 0:
+		return false
+	return IsoMath.grid_distance(v.cell, ac_cell) <= 2
+
+func _is_villager_at_cell_target(ctx: RefCounted, v: RefCounted, target_cell: Vector2i, max_dist: int = 2) -> bool:
+	if target_cell.x < 0 or target_cell.y < 0:
+		return false
+	if v.cell == target_cell or IsoMath.grid_distance(v.cell, target_cell) <= max_dist:
+		return true
+	if ctx != null and ctx.has_meta("nav_context"):
+		var nctx = ctx.get_meta("nav_context")
+		if nctx != null and nctx.has_method("find_closest_walkable_adjacent"):
+			var adj: Vector2i = nctx.call("find_closest_walkable_adjacent", target_cell, v.cell)
+			if adj != Vector2i(-1, -1) and v.cell == adj:
+				return true
+	return false
+
+func _should_enforce_work_location(ctx: RefCounted) -> bool:
+	if ctx == null:
+		return false
+	if ctx.has_meta("nav_context"):
+		return true
+	if ctx.has_meta("enforce_work_location_auth") and bool(ctx.get_meta("enforce_work_location_auth")):
+		return true
+	return false
+
+func _is_villager_at_work_location(ctx: RefCounted, v: RefCounted, j: RefCounted, wp: RefCounted) -> bool:
+	if not _should_enforce_work_location(ctx):
+		return true
+	if ctx == null or v == null or j == null or wp == null:
+		return false
+	if not (j is SettlementJobBoardScript.NpcJobRecord) or not (wp is SettlementWorkplaceRegistryScript.NpcWorkplaceRecord):
+		return false
+	if String(j.settlement_id) != String(ctx.settlement_id) or String(wp.settlement_id) != String(ctx.settlement_id):
+		return false
+	if not wp.is_active:
+		return false
+	var wp_cell: Vector2i = wp.access_cell if (wp.access_cell.x >= 0 and wp.access_cell.y >= 0) else wp.origin_cell
+	if j.job_type == SettlementVillagerDataScript.ROLE_HAULER:
+		if v.get_carrying_amount() > 0:
+			var dcell: Vector2i = j.dest_cell
+			if dcell.x < 0 or dcell.y < 0:
+				dcell = wp_cell
+			return _is_villager_at_cell_target(ctx, v, dcell, 2)
+		var scell: Vector2i = j.source_cell
+		if scell.x < 0 or scell.y < 0:
+			scell = wp_cell
+		return _is_villager_at_cell_target(ctx, v, scell, 2)
+	if j.job_type == SettlementVillagerDataScript.ROLE_GUARD:
+		var wt_id: String = String(v.work_target_id)
+		if ctx.has_method("get_patrol_targets"):
+			for pt in ctx.get_patrol_targets():
+				if pt is Dictionary and String(pt.get("building_id", "")) == wt_id:
+					var pac = pt.get("access_cell")
+					if pac is Vector2i and _is_villager_at_cell_target(ctx, v, pac, 2):
+						return true
+	var tcell: Vector2i = j.target_cell
+	if tcell.x < 0 or tcell.y < 0:
+		tcell = wp_cell
+	if _is_villager_at_cell_target(ctx, v, tcell, 2):
+		return true
+	return _is_villager_at_cell_target(ctx, v, wp_cell, 2)
+
 func _simulate_villager_hour(ctx: RefCounted, v: RefCounted, h_seq: int) -> bool:
 	var sid: String = ctx.settlement_id
 	var vid: String = v.villager_id
@@ -746,29 +1059,61 @@ func _simulate_villager_hour(ctx: RefCounted, v: RefCounted, h_seq: int) -> bool
 	if not _check_stage_ok(sid, vid, h_seq, "after_needs"):
 		return false
 
-	# 2. Compute candidate fatigue / rest phase
+	# 1b. Advance offscreen FAR-LOD travel along valid cached/computed routes at hourly cadence
+	if bool(ctx.get_meta("lod_is_far", false)) and ctx.has_meta("nav_context"):
+		var far_nctx = ctx.get_meta("nav_context")
+		if far_nctx != null and far_nctx.has_method("advance_far_hour"):
+			far_nctx.call("advance_far_hour", ctx, v)
+
+	# 2. Compute candidate fatigue / rest phase (exhaustion + scheduled night curfew)
+	var is_daytime: bool = _is_daytime_hour(ctx, h_seq)
+	var is_night_curfew: bool = (
+		not is_daytime
+		and v.role != SettlementVillagerDataScript.ROLE_GUARD
+		and v.get_carrying_amount() == 0
+	)
+	var has_valid_home: bool = _has_valid_assigned_home(ctx, v)
+	var at_home: bool = has_valid_home and _is_at_assigned_home(ctx, v)
+
 	var cand_task: String = v.task_state
 	var cand_rest: String = v.rest_phase
 	var cand_fatigue: float = v.fatigue
 	if cand_fatigue >= SettlementSimulationConfigScript.FATIGUE_EXHAUSTED:
 		cand_task = SettlementVillagerDataScript.TASK_RESTING
-		cand_rest = SettlementVillagerDataScript.REST_RESTING_INSIDE
+		cand_rest = SettlementVillagerDataScript.REST_RESTING_INSIDE if (has_valid_home and (at_home or not _should_enforce_work_location(ctx))) else (SettlementVillagerDataScript.REST_RETURNING_HOME if has_valid_home else SettlementVillagerDataScript.REST_NONE)
+	elif is_night_curfew:
+		cand_task = SettlementVillagerDataScript.TASK_RESTING
+		if has_valid_home:
+			cand_rest = SettlementVillagerDataScript.REST_RESTING_INSIDE if at_home else SettlementVillagerDataScript.REST_RETURNING_HOME
+		else:
+			cand_rest = SettlementVillagerDataScript.REST_NONE
 	elif cand_task == SettlementVillagerDataScript.TASK_RESTING:
-		if cand_fatigue <= SettlementSimulationConfigScript.FATIGUE_RESUME:
+		if is_daytime and cand_fatigue <= SettlementSimulationConfigScript.FATIGUE_RESUME:
 			cand_task = SettlementVillagerDataScript.TASK_IDLE
 			cand_rest = SettlementVillagerDataScript.REST_NONE
+		elif has_valid_home and cand_rest == SettlementVillagerDataScript.REST_RETURNING_HOME and at_home:
+			cand_rest = SettlementVillagerDataScript.REST_RESTING_INSIDE
 
 	if not _check_stage_ok(sid, vid, h_seq, "before_job"):
 		return false
 
 	# 3. Evaluate candidate job execution (no mutation to v or job until commit)
 	var target_job: RefCounted = null
+	var target_wp: RefCounted = null
 	var cand_job_state: String = ""
 	var cand_job_hours: float = 0.0
 	var cand_work_target: String = v.work_target_id
 	var cand_work_hours: float = v.work_hours_done
 	var executed_work: bool = false
 	var should_deposit: bool = (v.get_carrying_amount() > 0)
+	var can_deposit_at_loc: bool = true
+	if should_deposit and _should_enforce_work_location(ctx):
+		var drop_cell: Vector2i = Vector2i(v.cargo.get("dest_cell_x", -1), v.cargo.get("dest_cell_y", -1))
+		if drop_cell.x < 0 or drop_cell.y < 0:
+			var stl_d := _find_settlement_data(sid)
+			if stl_d != null:
+				drop_cell = stl_d.anchor_cell
+		can_deposit_at_loc = _is_villager_at_cell_target(ctx, v, drop_cell, 2)
 	var should_pickup: bool = false
 	var should_produce_wp: RefCounted = null
 
@@ -781,67 +1126,76 @@ func _simulate_villager_hour(ctx: RefCounted, v: RefCounted, h_seq: int) -> bool
 				return false
 			target_job = job_plan["job"]
 			var wp: RefCounted = job_plan["workplace"]
+			target_wp = wp
+			var is_arrived: bool = bool(job_plan.get("arrived", true))
 
-			# Immediate authoritative re-check before advancing labor progress
-			var is_farmer_capped: bool = false
-			if target_job.job_type == SettlementVillagerDataScript.ROLE_FARMER:
-				var tm_ref: Node = _time_manager
-				if tm_ref == null and ctx != null and ctx.has_meta("time_manager"):
-					tm_ref = ctx.get_meta("time_manager")
-				if SettlementResourceSourceAdapterScript.is_farm_daily_cap_reached(ctx, wp.workplace_id, tm_ref, h_seq):
-					is_farmer_capped = true
-
-			if is_farmer_capped:
-				cand_task = SettlementVillagerDataScript.TASK_IDLE
-				cand_fatigue = maxf(0.0, cand_fatigue - SettlementSimulationConfigScript.FATIGUE_IDLE_RECOVERY_PER_HOUR)
-				target_job = null
-			else:
-				executed_work = true
+			if not is_arrived:
 				cand_task = String(job_plan["task_state"])
 				cand_job_state = SettlementJobBoardScript.STATE_IN_PROGRESS
-				cand_job_hours = target_job.work_hours_done + 1.0
-				cand_work_hours = cand_job_hours
-				if target_job.job_type == SettlementVillagerDataScript.ROLE_GUARD:
-					if cand_job_hours >= target_job.work_hours_required:
-						cand_job_hours = 0.0
-						cand_work_hours = 0.0
-						var next_t: Dictionary = ctx.get_next_patrol_target(cand_work_target, wp.workplace_id)
-						if bool(next_t.get("ok", false)):
-							cand_work_target = String(next_t.get("building_id", wp.workplace_id))
-				elif target_job.job_type == SettlementVillagerDataScript.ROLE_HAULER:
-					if not should_deposit:
-						should_pickup = true
-					if cand_job_hours >= target_job.work_hours_required:
-						cand_job_hours = 0.0
-						cand_work_hours = 0.0
-				elif target_job.job_type == SettlementVillagerDataScript.ROLE_FARMER or target_job.job_type == SettlementVillagerDataScript.ROLE_WOODCUTTER:
-					if cand_job_hours >= target_job.work_hours_required:
-						cand_job_hours = 0.0
-						cand_work_hours = 0.0
-						should_produce_wp = wp
-				elif target_job.job_type == SettlementVillagerDataScript.ROLE_HUNTER:
+				cand_job_hours = target_job.work_hours_done
+				cand_work_hours = v.work_hours_done
+			else:
+				# Immediate authoritative re-check before advancing labor progress
+				var is_farmer_capped: bool = false
+				if target_job.job_type == SettlementVillagerDataScript.ROLE_FARMER:
 					var tm_ref: Node = _time_manager
 					if tm_ref == null and ctx != null and ctx.has_meta("time_manager"):
 						tm_ref = ctx.get_meta("time_manager")
-					var h_res := SettlementResourceSourceAdapterScript.execute_hunter_production_transaction(
-						ctx, wp.workplace_id, _world_data, tm_ref, v, 1.0, h_seq
-					)
-					cand_work_hours = v.work_hours_done
-					cand_job_hours = v.work_hours_done
-					if not bool(h_res.get("ok", false)) and String(h_res.get("reason", "")) == "no_available_prey":
-						cand_task = SettlementVillagerDataScript.TASK_IDLE
-				cand_fatigue = minf(SettlementSimulationConfigScript.FATIGUE_MAX, cand_fatigue + SettlementSimulationConfigScript.fatigue_per_work_hour(v.role))
+					if SettlementResourceSourceAdapterScript.is_farm_daily_cap_reached(ctx, wp.workplace_id, tm_ref, h_seq):
+						is_farmer_capped = true
+
+				if is_farmer_capped:
+					cand_task = SettlementVillagerDataScript.TASK_IDLE
+					cand_fatigue = maxf(0.0, cand_fatigue - SettlementSimulationConfigScript.FATIGUE_IDLE_RECOVERY_PER_HOUR)
+					target_job = null
+				else:
+					executed_work = true
+					cand_task = String(job_plan["task_state"])
+					cand_job_state = SettlementJobBoardScript.STATE_IN_PROGRESS
+					cand_job_hours = target_job.work_hours_done + 1.0
+					cand_work_hours = cand_job_hours
+					if target_job.job_type == SettlementVillagerDataScript.ROLE_GUARD:
+						if cand_job_hours >= target_job.work_hours_required:
+							cand_job_hours = 0.0
+							cand_work_hours = 0.0
+							var next_t: Dictionary = ctx.get_next_patrol_target(cand_work_target, wp.workplace_id)
+							if bool(next_t.get("ok", false)):
+								cand_work_target = String(next_t.get("building_id", wp.workplace_id))
+					elif target_job.job_type == SettlementVillagerDataScript.ROLE_HAULER:
+						if not should_deposit:
+							should_pickup = true
+						if cand_job_hours >= target_job.work_hours_required:
+							cand_job_hours = 0.0
+							cand_work_hours = 0.0
+					elif target_job.job_type == SettlementVillagerDataScript.ROLE_FARMER or target_job.job_type == SettlementVillagerDataScript.ROLE_WOODCUTTER:
+						if cand_job_hours >= target_job.work_hours_required:
+							cand_job_hours = 0.0
+							cand_work_hours = 0.0
+							should_produce_wp = wp
+					elif target_job.job_type == SettlementVillagerDataScript.ROLE_HUNTER:
+						var tm_ref: Node = _time_manager
+						if tm_ref == null and ctx != null and ctx.has_meta("time_manager"):
+							tm_ref = ctx.get_meta("time_manager")
+						var h_res := SettlementResourceSourceAdapterScript.execute_hunter_production_transaction(
+							ctx, wp.workplace_id, _world_data, tm_ref, v, 1.0, h_seq
+						)
+						cand_work_hours = v.work_hours_done
+						cand_job_hours = v.work_hours_done
+						if not bool(h_res.get("ok", false)) and String(h_res.get("reason", "")) == "no_available_prey":
+							cand_task = SettlementVillagerDataScript.TASK_IDLE
+					cand_fatigue = minf(SettlementSimulationConfigScript.FATIGUE_MAX, cand_fatigue + SettlementSimulationConfigScript.fatigue_per_work_hour(v.role))
 		else:
 			cand_task = SettlementVillagerDataScript.TASK_IDLE
 			cand_fatigue = maxf(0.0, cand_fatigue - SettlementSimulationConfigScript.FATIGUE_IDLE_RECOVERY_PER_HOUR)
 
 	# 4. Execute atomic economic/buffer steps (after all stage checks for that step pass)
-	if should_deposit:
+	if should_deposit and can_deposit_at_loc:
 		if not _check_stage_ok(sid, vid, h_seq, "during_deposit"):
 			return false
 		_attempt_hauler_deposit(ctx, v, h_seq)
-		if executed_work and target_job != null and target_job.job_type == SettlementVillagerDataScript.ROLE_HAULER and v.get_carrying_amount() == 0:
-			should_pickup = true
+		if executed_work and is_daytime and target_job != null and target_wp != null and target_job.job_type == SettlementVillagerDataScript.ROLE_HAULER and v.get_carrying_amount() == 0:
+			if _is_villager_at_work_location(ctx, v, target_job, target_wp):
+				should_pickup = true
 
 	if should_pickup and target_job != null:
 		if not _check_stage_ok(sid, vid, h_seq, "during_pickup"):
@@ -867,6 +1221,8 @@ func _simulate_villager_hour(ctx: RefCounted, v: RefCounted, h_seq: int) -> bool
 		cand_morale = minf(100.0, cand_morale + SettlementSimulationConfigScript.MORALE_GAIN_PER_HOUR)
 
 	# 6. Commit all authoritative villager & job fields together
+	var prev_task: String = String(v.task_state)
+	var prev_rest: String = String(v.rest_phase)
 	v.hunger = cand_hunger
 	v.task_state = cand_task
 	v.rest_phase = cand_rest
@@ -878,6 +1234,8 @@ func _simulate_villager_hour(ctx: RefCounted, v: RefCounted, h_seq: int) -> bool
 	if target_job != null:
 		target_job.state = cand_job_state
 		target_job.work_hours_done = cand_job_hours
+	if diagnostic_trace_enabled and (prev_task != cand_task or prev_rest != cand_rest):
+		_record_diagnostic_event(ctx, v, h_seq, "%s:%s->%s:%s" % [prev_task, prev_rest, cand_task, cand_rest])
 	return true
 
 func _plan_villager_job_hour(ctx: RefCounted, v: RefCounted, h_seq: int = -1) -> Dictionary:
@@ -923,7 +1281,10 @@ func _plan_villager_job_hour(ctx: RefCounted, v: RefCounted, h_seq: int = -1) ->
 			t_state = SettlementVillagerDataScript.TASK_WORKING
 		_:
 			return {"eligible": false}
-	return {"eligible": true, "job": j, "workplace": wp, "task_state": t_state}
+	var arrived: bool = _is_villager_at_work_location(ctx, v, j, wp)
+	if not arrived:
+		t_state = SettlementVillagerDataScript.TASK_HAULING if j.job_type == SettlementVillagerDataScript.ROLE_HAULER else SettlementVillagerDataScript.TASK_MOVING_TO_JOB
+	return {"eligible": true, "arrived": arrived, "job": j, "workplace": wp, "task_state": t_state}
 
 func _attempt_source_backed_production(ctx: RefCounted, wp: RefCounted) -> void:
 	var st = ctx.sim_state
@@ -1036,7 +1397,7 @@ func get_telemetry() -> Dictionary:
 		total_villagers += ctx.get_villager_count()
 		if ctx.sim_state != null:
 			pending_daily_total += ctx.sim_state.pending_daily.size()
-			for v in ctx.get_all_villagers():
+			for v in ctx.get_all_villagers_cached_view():
 				max_lag = maxi(max_lag, maxi(0, _required_hour_seq - int(v.last_processed_hour_seq)))
 	return {
 		"required_hour_seq": _required_hour_seq,
@@ -1052,4 +1413,63 @@ func get_telemetry() -> Dictionary:
 		"effective_speed": _effective_speed,
 		"backpressure_active": _backpressure_active,
 		"backpressure_enabled": backpressure_enabled
+	}
+
+func reset_benchmark_metrics() -> void:
+	_bench_sim_samples_ms = PackedFloat64Array()
+	_bench_sim_sample_cursor = 0
+	_bench_sim_ticks = 0
+	_bench_sim_total_ms = 0.0
+	_bench_villagers_processed = 0
+	_bench_settlements_processed = 0
+	_bench_rebuild_queue_ms = 0.0
+	_bench_update_settled_ms = 0.0
+	_bench_eval_bp_ms = 0.0
+	_bench_maintenance_villagers = 0
+	for sid in get_registered_settlement_ids():
+		var ctx = _contexts_by_id.get(sid, null)
+		if ctx != null and ctx.has_method("reset_villager_cache_telemetry"):
+			ctx.reset_villager_cache_telemetry()
+	if _ambient_locomotion != null:
+		_ambient_locomotion.reset_benchmark_metrics()
+
+func get_benchmark_metrics() -> Dictionary:
+	var n: int = _bench_sim_samples_ms.size()
+	var avg_ms: float = (_bench_sim_total_ms / float(_bench_sim_ticks)) if _bench_sim_ticks > 0 else 0.0
+	var p95_ms: float = 0.0
+	if n > 0:
+		var sorted: Array[float] = []
+		sorted.resize(n)
+		for i in range(n):
+			sorted[i] = _bench_sim_samples_ms[i]
+		sorted.sort()
+		var idx: int = clampi(int(ceil(0.95 * float(n))) - 1, 0, n - 1)
+		p95_ms = sorted[idx]
+	var cache_rebuilds: int = 0
+	var cache_parses: int = 0
+	var cache_hits: int = 0
+	for sid in get_registered_settlement_ids():
+		var ctx = _contexts_by_id.get(sid, null)
+		if ctx != null and ctx.has_method("get_villager_cache_telemetry"):
+			var ct: Dictionary = ctx.get_villager_cache_telemetry()
+			cache_rebuilds += int(ct.get("rebuilds", 0))
+			cache_parses += int(ct.get("id_parses", 0))
+			cache_hits += int(ct.get("hits", 0))
+	return {
+		"enabled": benchmark_telemetry_enabled,
+		"sim_ticks": _bench_sim_ticks,
+		"total_sim_ms": _bench_sim_total_ms,
+		"avg_sim_ms": avg_ms,
+		"p95_sim_ms": p95_ms,
+		"max_sim_ms": _max_batch_duration_ms,
+		"villagers_processed": _bench_villagers_processed,
+		"active_settlements_processed": _bench_settlements_processed,
+		"rebuild_queue_ms": _bench_rebuild_queue_ms,
+		"update_settled_ms": _bench_update_settled_ms,
+		"eval_bp_ms": _bench_eval_bp_ms,
+		"maintenance_villagers": _bench_maintenance_villagers,
+		"cache_rebuilds": cache_rebuilds,
+		"cache_id_parses": cache_parses,
+		"cache_hits": cache_hits,
+		"ambient_locomotion": _ambient_locomotion.get_benchmark_metrics() if _ambient_locomotion != null else {},
 	}
