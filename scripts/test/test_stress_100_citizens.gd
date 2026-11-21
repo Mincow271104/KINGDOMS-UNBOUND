@@ -121,16 +121,18 @@ func _process(_delta: float) -> bool:
 			# Multi-Day Extended Stress Simulation (72 hours = 3 full game days)
 			print("\n[Stress Test 4] Simulating 72 continuous simulation hours (3 game days)...")
 			var tm = root.get_node_or_null("/root/TimeManager")
-			var start_hour: int = tm.current_hour if tm else 0
-			var start_day: int = tm.current_day if tm else 0
+			if tm != null:
+				tm.set_speed(1)
+			var hour_seconds: float = tm.REAL_SECONDS_PER_GAME_HOUR if tm != null else 7.5
 			
 			var sim_start_ticks := Time.get_ticks_usec()
 			for h in range(72):
-				var cur_h: int = (start_hour + h) % 24
-				var cur_d: int = start_day + int((start_hour + h) / 24)
-				world_instance._on_simulation_hour_passed(cur_h, cur_d)
-				if cur_h == 0 and h > 0:
-					world_instance._on_simulation_day_passed(cur_d, "spring", 1)
+				if tm != null:
+					tm._process(hour_seconds)
+				else:
+					world_instance._on_simulation_hour_passed(h % 24, 1 + int(h / 24))
+					if (h % 24) == 0 and h > 0:
+						world_instance._on_simulation_day_passed(1 + int(h / 24), "spring", 1)
 					
 			var sim_duration_ms: float = float(Time.get_ticks_usec() - sim_start_ticks) / 1000.0
 			var ms_per_hour: float = sim_duration_ms / 72.0

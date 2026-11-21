@@ -1,0 +1,201 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://scripts/ui/player_field_guide.gd" id="1_script"]
+
+[node name="PlayerFieldGuide" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 0
+script = ExtResource("1_script")
+
+[node name="ModalBackdrop" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 0
+color = Color(0.04, 0.04, 0.08, 0.85)
+
+[node name="CenterContainer" type="CenterContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="GuidePanel" type="PanelContainer" parent="CenterContainer"]
+custom_minimum_size = Vector2(860, 490)
+layout_mode = 2
+mouse_filter = 0
+
+[node name="MarginContainer" type="MarginContainer" parent="CenterContainer/GuidePanel"]
+layout_mode = 2
+theme_override_constants/margin_left = 16
+theme_override_constants/margin_top = 12
+theme_override_constants/margin_right = 16
+theme_override_constants/margin_bottom = 12
+
+[node name="VBoxContainer" type="VBoxContainer" parent="CenterContainer/GuidePanel/MarginContainer"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="HeaderBox" type="HBoxContainer" parent="CenterContainer/GuidePanel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="TitleIcon" type="Label" parent="CenterContainer/GuidePanel/MarginContainer/VBoxContainer/HeaderBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "📖"
+
+[node name="TitleLabel" type="Label" parent="CenterContainer/GuidePanel/MarginContainer/VBoxContainer/HeaderBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.95, 0.8, 0.25, 1)
+theme_override_font_sizes/font_size = 15
+text = "CẨM NANG VƯƠNG QUỐC — SỔ TAY HƯỚNG DẪN ĐỊNH CƯ"
+
+[node name="Spacer" type="Control" parent="CenterContainer/GuidePanel/MarginContainer/VBoxContainer/HeaderBox"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="HotkeyHint" type="Label" parent="CenterContainer/GuidePanel/MarginContainer/VBoxContainer/HeaderBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.7, 0.7, 0.7, 1)
+theme_override_font_sizes/font_size = 12
+text = "[Phím H / Esc]"
+
+[node name="CloseBtn" type="Button" parent="CenterContainer/GuidePanel/MarginContainer/VBoxContainer/HeaderBox"]
+layout_mode = 2
+text = "✕ Đóng (Esc)"
+
+[node name="HSeparator1" type="HSeparator" parent="CenterContainer/GuidePanel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+
+[node name="MainBody" type="HBoxContainer" parent="CenterContainer/GuidePanel/MarginContainer/VBoxContainer"]
+layout_mode = 2
+size_flags_vertical = 3
+theme_override_constants/separation = 14
+
+[node name="Sidebar" type="VBoxContainer" parent="CenterContainer/GuidePanel/MarginContainer/VBoxContainer/MainBody"]
+custom_minimum_size = Vector2(210, 0)
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="SidebarTitle" type="Label" parent="CenterContainer/GuidePanel/MarginContainer/VBoxContainer/MainBody/Sidebar"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.9, 0.7, 0.3, 1)
+theme_override_font_sizes/font_size = 12
+text = "MỤC LỤC CẨM NANG"
+
+[node name="ChapterBtn0" type="Button" parent="CenterContainer/GuidePanel/MarginContainer/VBoxContainer/MainBody/Sidebar"]
+layout_mode = 2
+text = "1. Khởi Đầu Vương Quốc"
+alignment = 0
+
+[node name="ChapterBtn1" type="Button" parent="CenterContainer/GuidePanel/MarginContainer/VBoxContainer/MainBody/Sidebar"]
+layout_mode = 2
+text = "2. Dân Cư & Nghề Nghiệp"
+alignment = 0
+
+[node name="ChapterBtn2" type="Button" parent="CenterContainer/GuidePanel/MarginContainer/VBoxContainer/MainBody/Sidebar"]
+layout_mode = 2
+text = "3. Xây Dựng & Sản Xuất"
+alignment = 0
+
+[node name="ChapterBtn3" type="Button" parent="CenterContainer/GuidePanel/MarginContainer/VBoxContainer/MainBody/Sidebar"]
+layout_mode = 2
+text = "4. Hướng Dẫn 30 Ngày Đầu"
+alignment = 0
+
+[node name="ChapterBtn4" type="Button" parent="CenterContainer/GuidePanel/MarginContainer/VBoxContainer/MainBody/Sidebar"]
+layout_mode = 2
+text = "5. Sự Kiện & Quân Sự"
+alignment = 0
+
+[node name="ChapterBtn5" type="Button" parent="CenterContainer/GuidePanel/MarginContainer/VBoxContainer/MainBody/Sidebar"]
+layout_mode = 2
+text = "6. Chiến Thắng & Di Sản"
+alignment = 0
+
+[node name="SidebarSpacer" type="Control" parent="CenterContainer/GuidePanel/MarginContainer/VBoxContainer/MainBody/Sidebar"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="SidebarFooter" type="Label" parent="CenterContainer/GuidePanel/MarginContainer/VBoxContainer/MainBody/Sidebar"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.6, 0.6, 0.6, 1)
+theme_override_font_sizes/font_size = 11
+text = "Phím tắt: [H] mở/đóng"
+horizontal_alignment = 1
+
+[node name="VSeparator1" type="VSeparator" parent="CenterContainer/GuidePanel/MarginContainer/VBoxContainer/MainBody"]
+layout_mode = 2
+
+[node name="ContentBox" type="VBoxContainer" parent="CenterContainer/GuidePanel/MarginContainer/VBoxContainer/MainBody"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 6
+
+[node name="ChapterHeaderLabel" type="Label" parent="CenterContainer/GuidePanel/MarginContainer/VBoxContainer/MainBody/ContentBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.4, 0.8, 1, 1)
+theme_override_font_sizes/font_size = 15
+text = "Chương A: Khởi Đầu Vương Quốc"
+
+[node name="ChapterSubLabel" type="Label" parent="CenterContainer/GuidePanel/MarginContainer/VBoxContainer/MainBody/ContentBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.8, 0.8, 0.8, 1)
+theme_override_font_sizes/font_size = 12
+text = "Giao diện điều khiển, chu kỳ thời gian và thiết lập khu định cư ban đầu"
+
+[node name="HSeparatorContent" type="HSeparator" parent="CenterContainer/GuidePanel/MarginContainer/VBoxContainer/MainBody/ContentBox"]
+layout_mode = 2
+
+[node name="ContentScroll" type="ScrollContainer" parent="CenterContainer/GuidePanel/MarginContainer/VBoxContainer/MainBody/ContentBox"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="ContentText" type="RichTextLabel" parent="CenterContainer/GuidePanel/MarginContainer/VBoxContainer/MainBody/ContentBox/ContentScroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+bbcode_enabled = true
+text = "Nội dung cẩm nang"
+fit_content = true
+scroll_active = false
+
+[node name="HSeparatorNav" type="HSeparator" parent="CenterContainer/GuidePanel/MarginContainer/VBoxContainer/MainBody/ContentBox"]
+layout_mode = 2
+
+[node name="NavFooter" type="HBoxContainer" parent="CenterContainer/GuidePanel/MarginContainer/VBoxContainer/MainBody/ContentBox"]
+layout_mode = 2
+
+[node name="PrevBtn" type="Button" parent="CenterContainer/GuidePanel/MarginContainer/VBoxContainer/MainBody/ContentBox/NavFooter"]
+layout_mode = 2
+text = "◀ Chương Trước"
+
+[node name="NavSpacer1" type="Control" parent="CenterContainer/GuidePanel/MarginContainer/VBoxContainer/MainBody/ContentBox/NavFooter"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="PageIndicator" type="Label" parent="CenterContainer/GuidePanel/MarginContainer/VBoxContainer/MainBody/ContentBox/NavFooter"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.9, 0.85, 0.6, 1)
+theme_override_font_sizes/font_size = 13
+text = "Chương 1 / 6"
+
+[node name="NavSpacer2" type="Control" parent="CenterContainer/GuidePanel/MarginContainer/VBoxContainer/MainBody/ContentBox/NavFooter"]
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="NextBtn" type="Button" parent="CenterContainer/GuidePanel/MarginContainer/VBoxContainer/MainBody/ContentBox/NavFooter"]
+layout_mode = 2
+text = "Chương Tiếp Theo ▶"

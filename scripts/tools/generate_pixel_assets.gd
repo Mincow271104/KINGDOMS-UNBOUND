@@ -60,6 +60,7 @@ func _init() -> void:
 	_generate_storehouse_building("res://assets/buildings/bld_storehouse.png")
 	_generate_woodcutter_building("res://assets/buildings/bld_woodcutter.png")
 	_generate_poi_ruins("res://assets/props/prop_poi_ruins.png")
+	_generate_watchtower_building("res://assets/buildings/bld_watchtower.png")
 	
 	print("=== All pixel assets generated successfully ===")
 	quit(0)
@@ -480,6 +481,97 @@ func _generate_poi_ruins(path: String) -> void:
 	for x in range(10, 22):
 		img.set_pixel(x, 29, Color(0, 0, 0, 0.4))
 		
+	img.save_png(path)
+	print("Generated: %s" % path)
+
+## 11. Watchtower (32x48 px, 1x1 footprint = 32x16 base diamond, ground pivot at (16, 40))
+func _generate_watchtower_building(path: String) -> void:
+	var img := Image.create(32, 48, false, Image.FORMAT_RGBA8)
+	img.fill(COL_TRANSPARENT)
+
+	# 1. Base diamond foundation (spans x: 0..31, y: 32..47)
+	for y in range(35, 47):
+		for x in range(0, 32):
+			var dist_x := absf(float(x) - 15.5) / 16.0
+			var dist_y := absf(float(y) - 39.5) / 8.0
+			if dist_x + dist_y <= 1.0:
+				var col := COL_STONE_LIGHT if x < 16 else COL_STONE_DEEP
+				if dist_x + dist_y >= 0.85:
+					col = COL_STONE_DARKEST # Foundation outline
+				elif (x + y) % 5 == 0:
+					col = COL_STONE_MID
+				img.set_pixel(x, y, col)
+
+	# 2. Tower Stone Shaft (x: 10..21, y: 16..38)
+	for y in range(16, 39):
+		for x in range(10, 22):
+			var col := COL_STONE_LIGHT
+			if x < 16:
+				# SW Lit wall
+				col = COL_STONE_LIGHT
+				if x == 10:
+					col = COL_STONE_DARKEST # Left outline
+				elif x == 15:
+					col = COL_STONE_HIGHLIGHT # Center corner highlight
+				elif y % 4 == 0:
+					col = COL_STONE_MID # Horizontal mortar line
+			else:
+				# SE Shaded wall
+				col = COL_STONE_DEEP
+				if x == 21:
+					col = COL_STONE_DARKEST # Right outline
+				elif y % 4 == 0:
+					col = COL_STONE_DARKEST # Shaded mortar line
+			img.set_pixel(x, y, col)
+
+	# Arrow slit window on SW wall (y: 25..28, x: 12..13)
+	for y in range(25, 29):
+		for x in range(12, 14):
+			img.set_pixel(x, y, COL_STONE_DARKEST)
+
+	# 3. Wooden Observation Deck / Balcony (y: 12..16, x: 7..24)
+	# Platform support struts under floor (y: 17..18)
+	for y in range(17, 19):
+		for x in [8, 9, 22, 23]:
+			img.set_pixel(x, y, COL_EARTH_DARKEST)
+
+	# Platform floor (y: 15..16, x: 7..24)
+	for y in range(15, 17):
+		for x in range(7, 25):
+			var col := COL_EARTH_LIGHT if x < 16 else COL_EARTH_MID
+			if y == 16 or x == 7 or x == 24:
+				col = COL_EARTH_DARKEST
+			img.set_pixel(x, y, col)
+
+	# Railing and guard opening (y: 12..14)
+	for y in range(12, 15):
+		for x in range(7, 25):
+			if y == 12 or x in [7, 11, 15, 19, 24]:
+				var col := COL_EARTH_LIGHT if (x < 16 and y > 12) else COL_EARTH_DARKEST
+				img.set_pixel(x, y, col)
+			else:
+				img.set_pixel(x, y, COL_STONE_DARKEST) # Lookout interior darkness
+
+	# 4. Gabled / Pyramid Canopy Roof (y: 3..12)
+	for y in range(3, 13):
+		var span := int(float(y - 3) * 1.05) + 1
+		for x in range(15 - span, 16 + span + 1):
+			if x >= 0 and x < 32:
+				var col := Color("#ba3b49") if x <= 15 else Color("#751923")
+				if x == (15 - span) or x == (16 + span) or y == 12:
+					col = COL_STONE_DARKEST # Outline
+				elif x == 15:
+					col = COL_CRIMSON # Center ridge
+				img.set_pixel(x, y, col)
+
+	# 5. Finial & Banner at peak (y: 0..3)
+	for y in range(0, 4):
+		img.set_pixel(15, y, COL_STONE_DARKEST)
+	for y in range(0, 3):
+		for x in range(16, 19):
+			img.set_pixel(x, y, COL_GOLD)
+	img.set_pixel(16, 1, COL_CREAM) # Highlight
+
 	img.save_png(path)
 	print("Generated: %s" % path)
 

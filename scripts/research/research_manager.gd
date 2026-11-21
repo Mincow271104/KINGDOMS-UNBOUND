@@ -13,6 +13,15 @@ var _unlocked_techs: Dictionary = {} # tech_id -> bool
 var active_tech_id: String = ""
 var active_progress_hours: float = 0.0
 var active_required_hours: float = 0.0
+var hall_checker: Callable = Callable()
+
+func set_hall_checker(checker: Callable) -> void:
+	hall_checker = checker
+
+func has_active_hall() -> bool:
+	if hall_checker.is_valid():
+		return bool(hall_checker.call())
+	return false
 
 func is_unlocked(tech_id: String) -> bool:
 	return _unlocked_techs.get(tech_id, false)
@@ -34,6 +43,9 @@ func can_research(tech_id: String, resource_mgr: Object) -> Dictionary:
 	if active_tech_id != "":
 		return {"valid": false, "reason": "Đang có dự án nghiên cứu khác: %s" % active_tech_id}
 		
+	if not has_active_hall():
+		return {"valid": false, "reason": "Cần có Viện Nghiên Cứu Hoàng Gia đang hoạt động"}
+
 	for prereq in def.get("prereqs", []):
 		if not is_unlocked(prereq):
 			var prereq_def = TechTree.TECHNOLOGIES.get(prereq, {})
@@ -48,19 +60,26 @@ func can_research(tech_id: String, resource_mgr: Object) -> Dictionary:
 	return {"valid": true, "reason": "Hợp lệ"}
 
 func start_research(tech_id: String, resource_mgr: Object) -> bool:
-	var check: Dictionary = can_research(tech_id, resource_mgr)
+	var check: Dictionary = can_research(tech_id, null)
 	if not check["valid"]:
 		return false
 		
 	var def: Dictionary = TechTree.TECHNOLOGIES[tech_id]
 	var cost: Dictionary = def.get("cost", {})
 	
-	# Atomically consume resources
-	if resource_mgr != null:
-		for res_id in cost:
-			var amt: int = cost[res_id]
-			resource_mgr.call("consume_resource", res_id, amt)
-			
+	# Atomically reserve and commit resources for non-free tech
+	if not cost.is_empty():
+		if resource_mgr == null:
+			return false
+		if not resource_mgr.has_method("reserve_cost") or not resource_mgr.has_method("commit_cost"):
+			return false
+
+		var reserved: bool = resource_mgr.call("reserve_cost", cost)
+		if not reserved:
+			return false
+
+		resource_mgr.call("commit_cost", cost)
+
 	active_tech_id = tech_id
 	active_progress_hours = 0.0
 	active_required_hours = def.get("duration_hours", 12.0)
@@ -72,6 +91,9 @@ func progress_research(delta_hours: float, resource_mgr: Object = null) -> bool:
 	if active_tech_id == "":
 		return false
 		
+	if not has_active_hall():
+		return false
+
 	# Crystal Resonance bonus (+25% research speed)
 	var speed_mult := 1.0
 	if is_unlocked("crystal_resonance"):

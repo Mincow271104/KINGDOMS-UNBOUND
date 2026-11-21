@@ -78,12 +78,19 @@ func test_seasonal_modifiers_and_non_instant_starvation() -> void:
 	assert(summer_prod > winter_prod, "Summer production must strictly exceed winter production")
 	print("PASS: Seasonal farm modifier verified (Summer: %d > Winter: %d)" % [summer_prod, winter_prod])
 	
-	# Test Non-Instant Starvation Escalation on Citizen
+	# Test Non-Instant Starvation Escalation on Citizen & Famine Eating Guard (CANON-009 / WEAK-TEST-05)
 	var cit := CitizenControllerScript.new()
+	var famine_rm := MockResourceManager.new(0)
+	cit.set_custom_resource_manager(famine_rm)
 	cit.hunger = 100.0
 	cit.health = 100.0
 	cit.morale = 70.0
 	
+	# Verify citizen cannot magically eat when central food stock is 0 (CANON-009)
+	cit._eat_food()
+	assert(cit.hunger == 100.0, "Citizen must NOT reduce hunger when central food stock is 0")
+	assert(cit.status_reason == "Kho lương thực trống rỗng (Đang đói)", "Citizen status_reason must reflect empty food storage during famine")
+
 	# Simulate 24 hours of extreme starvation (1 full game day without food)
 	for h in range(24):
 		# Hourly starvation impact: health drops ~0.2% per hour (-5% per day)
@@ -94,12 +101,16 @@ func test_seasonal_modifiers_and_non_instant_starvation() -> void:
 	assert(cit.morale < 70.0, "Starvation must reduce morale")
 	print("PASS: Starvation escalates non-instantly (Citizen health dropped to %.1f%% after 24h starvation, no instant death)" % cit.health)
 	
-	# Test recovery when food is consumed
-	cit.hunger = 0.0 # Fed
+	# Test recovery when food is restored to central storage and consumed
+	famine_rm.food_stock = 100
+	cit._eat_food()
+	assert(cit.hunger == 50.0, "Citizen hunger reduced by 50.0 when central food is available")
+	cit._eat_food()
+	assert(cit.hunger == 0.0, "Citizen hunger reduced to 0.0 after second meal")
 	var health_before := cit.health
 	for h in range(24):
 		cit._on_hour_passed(h, 2)
-	assert(cit.health > health_before, "Citizen health naturally recovers when well-fed")
+	assert(cit.health > health_before, "Citizen health naturally recovers when well-fed and food is available")
 	print("PASS: Citizen naturally recovers health when food is restored")
 	cit.free()
 
@@ -126,8 +137,17 @@ func test_automation_rules_and_execution_budget() -> void:
 			assert(j.priority > 1, "Farmer priority must be boosted during low food")
 		elif j.type == "hauler":
 			assert(j.priority > 1, "Hauler priority must be boosted during low food")
+
+	# Verify priority clamping under repeated boosts (CANON-013)
+	for _i in range(25):
+		auto_mgr.evaluate_rules(mock_rm, job_mgr, wp_mgr, "autumn")
+		job_mgr.boost_jobs_priority("farmer", 5)
+		job_mgr.boost_jobs_priority("hauler", 5)
+	for j in job_mgr.get_all_jobs():
+		assert(j.priority <= JobManager.MAX_JOB_PRIORITY, "Job priority must be clamped at MAX_JOB_PRIORITY (%d), got %d" % [JobManager.MAX_JOB_PRIORITY, j.priority])
+		assert(j.priority >= JobManager.MIN_JOB_PRIORITY, "Job priority must be >= MIN_JOB_PRIORITY")
 			
-	print("PASS: Emergency food automation rule correctly boosted farmer & hauler priorities")
+	print("PASS: Emergency food automation rule correctly boosted farmer & hauler priorities with bounded ceiling")
 	print("PASS: Execution budget strictly enforced (Budget used: %d / %d)" % [
 		auto_mgr.execution_budget_used, AutomationManager.MAX_RULE_CHECKS_PER_TICK
 	])

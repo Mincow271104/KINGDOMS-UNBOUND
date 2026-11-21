@@ -18,6 +18,7 @@ func _init() -> void:
 func test_research_system_and_bonuses() -> void:
 	var res_mgr := MockResourceManager.new(100, 100, 100)
 	var research := ResearchManager.new()
+	research.set_hall_checker(func(): return true)
 	
 	# 1. Prerequisite verification: Cannot start food_preservation without crop_rotation
 	var check_prereq := research.can_research("food_preservation", res_mgr)
@@ -145,6 +146,13 @@ class MockResourceManager extends RefCounted:
 			if get_available_stock(res) < cost[res]:
 				return false
 		return true
+
+	func reserve_cost(cost: Dictionary) -> bool:
+		return can_afford(cost)
+
+	func commit_cost(cost: Dictionary) -> void:
+		for res in cost:
+			consume_resource(res, cost[res])
 		
 	func get_available_stock(res: String) -> int:
 		match res:

@@ -5,6 +5,10 @@ extends RefCounted
 ## Multi-factor combat model factoring troops, equipment, fortifications, morale, and terrain.
 ## Produces explainable casualty breakdowns, spoils, and diplomatic consequences.
 
+const VICTOR_ATTACKER: String = "attacker"
+const VICTOR_DEFENDER: String = "defender"
+const VICTOR_STALEMATE: String = "stalemate"
+
 class BattleReport:
 	var victor: String # "attacker", "defender", "stalemate"
 	var attacker_troops_initial: int
@@ -56,47 +60,164 @@ static func resolve_battle(
 	var final_atk_score := atk_combat_score * variance
 	var final_def_score := def_combat_score
 	
-	# Victory resolution
+	# Edge Case: Zero troops on either or both sides
+	if atk_troops <= 0 and def_troops <= 0:
+		report.victor = VICTOR_STALEMATE
+		report.attacker_casualties = 0
+		report.defender_casualties = 0
+		report.attacker_troops_remaining = 0
+		report.defender_troops_remaining = 0
+		report.explanation = "Không có lực lượng tham chiến giữa hai bên."
+		report.details = {
+			"attacker_combat_score": 0.0,
+			"defender_combat_score": 0.0,
+			"fortification_bonus": def_fort_bonus,
+			"fortification_level": def_fort,
+			"has_settlement_context": false,
+			"terrain_bonus": def_terrain,
+			"score_ratio": 1.0
+		}
+		return report
+
+	if def_troops <= 0:
+		report.victor = VICTOR_ATTACKER
+		report.attacker_casualties = 0
+		report.defender_casualties = 0
+		report.attacker_troops_remaining = atk_troops
+		report.defender_troops_remaining = 0
+		var def_res: Dictionary = defender_force.get("resources", {})
+		for r_id in def_res:
+			var plundered: int = int(round(def_res[r_id] * 0.20))
+			if plundered > 0:
+				report.plunder_spoils[r_id] = plundered
+		report.explanation = "Phe Tấn Công giành quyền kiểm soát định cư do đối phương không có quân phòng thủ (Điểm công: %.1f vs Điểm thủ: 0.0)." % final_atk_score
+		report.details = {
+			"attacker_combat_score": final_atk_score,
+			"defender_combat_score": 0.0,
+			"fortification_bonus": def_fort_bonus,
+			"fortification_level": def_fort,
+			"has_settlement_context": false,
+			"terrain_bonus": def_terrain,
+			"score_ratio": 999.0
+		}
+		return report
+
+	if atk_troops <= 0:
+		report.victor = VICTOR_DEFENDER
+		report.attacker_casualties = 0
+		report.defender_casualties = 0
+		report.attacker_troops_remaining = 0
+		report.defender_troops_remaining = def_troops
+		report.explanation = "Phe Tấn Công không có binh lực tham chiến; phe Phòng Thủ bảo toàn định cư (Điểm thủ: %.1f vs Điểm công: 0.0)." % final_def_score
+		report.details = {
+			"attacker_combat_score": 0.0,
+			"defender_combat_score": final_def_score,
+			"fortification_bonus": def_fort_bonus,
+			"fortification_level": def_fort,
+			"has_settlement_context": false,
+			"terrain_bonus": def_terrain,
+			"score_ratio": 0.0
+		}
+		return report
+
+	# Victory resolution for normal combat (atk_troops > 0 and def_troops > 0)
 	var score_ratio := final_atk_score / maxf(final_def_score, 0.001)
-	
+
 	if score_ratio > 1.10:
-		report.victor = "attacker"
+		report.victor = VICTOR_ATTACKER
 		# Attacker wins: suffers lower casualties
 		var atk_loss_rate := clampf(0.12 * (1.0 / score_ratio), 0.08, 0.25)
 		var def_loss_rate := clampf(0.40 * score_ratio, 0.35, 0.70)
-		report.attacker_casualties = maxi(1, int(round(atk_troops * atk_loss_rate)))
-		report.defender_casualties = maxi(1, int(round(def_troops * def_loss_rate)))
-		
+		report.attacker_casualties = clampi(int(round(atk_troops * atk_loss_rate)), 1, atk_troops)
+		report.defender_casualties = clampi(int(round(def_troops * def_loss_rate)), 1, def_troops)
+
 		# Plunder spoils if defender has resources
 		var def_res: Dictionary = defender_force.get("resources", {})
 		for r_id in def_res:
 			var plundered: int = int(round(def_res[r_id] * 0.20))
 			if plundered > 0:
 				report.plunder_spoils[r_id] = plundered
-				
+
 		report.explanation = "Phe Tấn Công giành chiến thắng áp đảo nhờ sức mạnh chiến đấu vượt trội (Điểm công: %.1f vs Điểm thủ: %.1f)." % [final_atk_score, final_def_score]
 	elif score_ratio < 0.90:
-		report.victor = "defender"
+		report.victor = VICTOR_DEFENDER
 		# Defender wins: fortifications and terrain held the line
 		var def_loss_rate := clampf(0.12 * score_ratio, 0.08, 0.25)
 		var atk_loss_rate := clampf(0.45 * (1.0 / score_ratio), 0.35, 0.70)
-		report.defender_casualties = maxi(1, int(round(def_troops * def_loss_rate)))
-		report.attacker_casualties = maxi(1, int(round(atk_troops * atk_loss_rate)))
+		report.defender_casualties = clampi(int(round(def_troops * def_loss_rate)), 1, def_troops)
+		report.attacker_casualties = clampi(int(round(atk_troops * atk_loss_rate)), 1, atk_troops)
 		report.explanation = "Phe Phòng Thủ bảo vệ thành công lãnh thổ nhờ phòng tuyến vững chắc và công sự phòng ngự (Điểm thủ: %.1f vs Điểm công: %.1f)." % [final_def_score, final_atk_score]
 	else:
-		report.victor = "stalemate"
-		report.attacker_casualties = maxi(1, int(round(atk_troops * 0.25)))
-		report.defender_casualties = maxi(1, int(round(def_troops * 0.25)))
+		report.victor = VICTOR_STALEMATE
+		report.attacker_casualties = clampi(int(round(atk_troops * 0.25)), 1, atk_troops)
+		report.defender_casualties = clampi(int(round(def_troops * 0.25)), 1, def_troops)
 		report.explanation = "Trận chiến bất phân thắng bại, cả hai bên đều chịu tổn thất tương đương (Tỷ lệ lực lượng tương đương: %.2f)." % score_ratio
-		
+
 	report.attacker_troops_remaining = maxi(0, atk_troops - report.attacker_casualties)
 	report.defender_troops_remaining = maxi(0, def_troops - report.defender_casualties)
-	
+
 	report.details = {
 		"attacker_combat_score": final_atk_score,
 		"defender_combat_score": final_def_score,
 		"fortification_bonus": def_fort_bonus,
+		"fortification_level": def_fort,
+		"has_settlement_context": false,
 		"terrain_bonus": def_terrain,
 		"score_ratio": score_ratio
 	}
 	return report
+
+## Resolves a deterministic battle where the defender is an established settlement with fortifications.
+## Derives the effective fortification level directly from authoritative WorldData via BuildingSystem.
+## Guarantees caller inputs are never mutated, overrides any omitted or stale caller-provided
+## fortification values, and fails closed (level 0) when settlement context is missing or invalid.
+static func resolve_settlement_battle(
+	attacker_force: Dictionary,
+	defender_force: Dictionary,
+	defender_world_data: WorldGenerator.WorldData,
+	seed_val: int = 12345
+) -> BattleReport:
+	var atk_copy: Dictionary = attacker_force.duplicate(true)
+	var def_copy: Dictionary = defender_force.duplicate(true)
+
+	var has_valid_context: bool = (defender_world_data != null and defender_world_data.buildings != null)
+	var fort_level: int = 0
+	if has_valid_context:
+		fort_level = calculate_settlement_fortification_level(defender_world_data)
+
+	# Automatically enforce authoritative fortification level onto defender force
+	def_copy["fortification_level"] = fort_level
+	if has_valid_context and defender_world_data.terrain != null:
+		var terrain_bonus: float = calculate_settlement_terrain_multiplier(defender_world_data)
+		def_copy["terrain_multiplier"] = maxf(float(def_copy.get("terrain_multiplier", 1.0)), terrain_bonus)
+
+	var report: BattleReport = resolve_battle(atk_copy, def_copy, seed_val)
+
+	# Enrich report details with settlement-defense context
+	report.details["has_settlement_context"] = has_valid_context
+	report.details["fortification_level"] = fort_level
+
+	return report
+
+## Derives defensive terrain bonus (1.0..1.15) when active defensive buildings leverage Water chokepoints.
+static func calculate_settlement_terrain_multiplier(world_data: WorldGenerator.WorldData) -> float:
+	if world_data == null or world_data.terrain == null or world_data.buildings == null:
+		return 1.0
+	for bld in world_data.buildings:
+		var b_type: String = String(bld.get("type", ""))
+		if not (b_type in ["townhall", "watchtower", "barracks", "palisade"]):
+			continue
+		var origin: Vector2i = bld.get("cell", Vector2i.ZERO)
+		var size: Vector2i = bld.get("size", Vector2i(1, 1))
+		for ox in range(-1, size.x + 1):
+			for oy in range(-1, size.y + 1):
+				var c := origin + Vector2i(ox, oy)
+				if IsoMath.is_in_bounds(c):
+					var t: int = int(world_data.terrain[c.x][c.y])
+					if t == WorldGenerator.TerrainType.WATER:
+						return 1.15
+	return 1.0
+
+## Calculates the settlement fortification level (0..3) from active Palisade fortifications.
+static func calculate_settlement_fortification_level(world_data: WorldGenerator.WorldData) -> int:
+	return BuildingSystem.calculate_fortification_level(world_data)

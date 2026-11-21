@@ -3,6 +3,10 @@ extends RefCounted
 ## Shared Job System for KINGDOMS UNBOUND.
 ## Manages job lifecycles (Available -> Reserved -> InProgress -> Completed/Cancelled).
 
+const MIN_JOB_PRIORITY: int = 1
+const MAX_JOB_PRIORITY: int = 20
+const MAX_TERMINAL_HISTORY: int = 50
+
 enum JobState {
 	AVAILABLE = 0,
 	RESERVED = 1,
@@ -21,6 +25,7 @@ class JobData:
 	var state: int = JobState.AVAILABLE
 	var worker_id: String = ""
 	var description: String = ""
+	var base_priority: int = 1
 	var priority: int = 1
 	var is_recurring: bool = false
 	var source_workplace_id: String = ""
@@ -28,11 +33,25 @@ class JobData:
 	var dest_cell: Vector2i = Vector2i.ZERO
 	var cargo_resource: String = ""
 	var cargo_amount: int = 0
+	var recipe_id: String = ""
+	var workplace_channel_id: String = ""
 
 var _jobs: Array[JobData] = []
+var _terminal_jobs_history: Array[JobData] = []
+var _priority_modifiers: Dictionary = {} # source_id -> {source_id, job_type, workplace_id, delta}
 var _next_job_id: int = 1
 
-func create_job(type: String, target_cell: Vector2i, desc: String = "", building_id: String = "", duration_hours: float = 2.0, priority: int = 1, recurring: bool = false) -> JobData:
+func create_job(
+	type: String,
+	target_cell: Vector2i,
+	desc: String = "",
+	building_id: String = "",
+	duration_hours: float = 2.0,
+	priority: int = 1,
+	recurring: bool = false,
+	recipe: String = "",
+	channel_id: String = ""
+) -> JobData:
 	var job := JobData.new()
 	job.id = "job_%d" % _next_job_id
 	_next_job_id += 1
@@ -43,8 +62,12 @@ func create_job(type: String, target_cell: Vector2i, desc: String = "", building
 	job.work_hours_required = duration_hours
 	job.work_hours_done = 0.0
 	job.state = JobState.AVAILABLE
-	job.priority = priority
+	job.base_priority = clampi(priority, MIN_JOB_PRIORITY, MAX_JOB_PRIORITY)
+	job.priority = job.base_priority
 	job.is_recurring = recurring
+	job.recipe_id = recipe
+	job.workplace_channel_id = channel_id
+	_recompute_job_priority(job)
 	_jobs.append(job)
 	return job
 
@@ -63,12 +86,127 @@ func create_hauling_job(workplace_id: String, source: Vector2i, dest: Vector2i, 
 	job.work_hours_required = 0.5 # Fast pickup
 	job.work_hours_done = 0.0
 	job.state = JobState.AVAILABLE
-	job.priority = priority
+	job.base_priority = clampi(priority, MIN_JOB_PRIORITY, MAX_JOB_PRIORITY)
+	job.priority = job.base_priority
+	_recompute_job_priority(job)
 	_jobs.append(job)
 	return job
 
+var barracks_checker: Callable = Callable()
+var construction_checker: Callable = Callable()
+var building_checker: Callable = Callable()
+
+func set_barracks_checker(checker: Callable) -> void:
+	barracks_checker = checker
+
+func set_building_checker(checker: Callable) -> void:
+	building_checker = checker
+
+func set_construction_checker(checker: Callable) -> void:
+	construction_checker = checker
+
+func _is_job_executable(job: JobData, wp_mgr: Object, resource_mgr: Node, custom_filter: Callable = Callable(), nav: GridNavigation = null) -> bool:
+	if job.type == "guard":
+		var b_id: String = job.target_building_id
+		# Requirement 1: Guard job is invalid if target_building_id is empty
+		if b_id == "":
+			return false
+
+		# Requirement 2: Prefer a valid per-call custom_filter when supplied.
+		# It must be able to receive the specific Barracks ID and verify that building's active state.
+		if custom_filter.is_valid():
+			var argc := custom_filter.get_argument_count()
+			if argc == 0:
+				# Cannot verify a specific building ID
+				return false
+			if not bool(custom_filter.call(b_id)):
+				return false
+		# Requirement 3: Otherwise use barracks_checker, but only if it can check a specific Barracks ID.
+		elif barracks_checker.is_valid():
+			var argc := barracks_checker.get_argument_count()
+			if argc == 0:
+				# Cannot verify a specific building ID
+				return false
+			if not bool(barracks_checker.call(b_id)):
+				return false
+		elif building_checker.is_valid():
+			var argc := building_checker.get_argument_count()
+			if argc == 0:
+				return false
+			if not bool(building_checker.call(b_id)):
+				return false
+		# Requirement 4: If neither callback is available, return false.
+		else:
+			return false
+
+		# Requirement 6: Keep the existing target walkability check.
+		if nav != null and not nav.is_cell_walkable(job.target_cell):
+			return false
+		return true
+
+	if job.type == "builder":
+		var b_id: String = job.target_building_id
+		if b_id == "":
+			return false
+
+		if custom_filter.is_valid():
+			var argc := custom_filter.get_argument_count()
+			if argc == 0:
+				return false
+			if not bool(custom_filter.call(b_id)):
+				return false
+		elif construction_checker.is_valid():
+			var argc := construction_checker.get_argument_count()
+			if argc == 0:
+				return false
+			if not bool(construction_checker.call(b_id)):
+				return false
+		else:
+			return false
+
+		if nav != null and not nav.is_cell_walkable(job.target_cell):
+			return false
+		return true
+
+	# General workplace and production jobs (non-hauler)
+	if job.type != "hauler":
+		# Check building active status via building_checker if registered
+		if job.target_building_id != "" and building_checker.is_valid():
+			var argc := building_checker.get_argument_count()
+			if argc > 0:
+				if not bool(building_checker.call(job.target_building_id)):
+					return false
+			else:
+				if not bool(building_checker.call()):
+					return false
+
+		# Check paused state in workplace manager
+		if wp_mgr != null and wp_mgr.has_method("is_workplace_paused"):
+			var check_wp_id := job.workplace_channel_id if job.workplace_channel_id != "" else job.target_building_id
+			if check_wp_id != "" and wp_mgr.is_workplace_paused(check_wp_id):
+				return false
+
+	if job.type != "smith" or job.recipe_id == "":
+		return true
+	if wp_mgr == null or resource_mgr == null:
+		return true
+	var channel_id := job.workplace_channel_id
+	if channel_id == "":
+		channel_id = job.target_building_id
+	var wp = wp_mgr.get_workplace(channel_id)
+	if wp == null:
+		return true
+	# Check output buffer capacity
+	if wp.buffer_amount >= wp.buffer_capacity:
+		return false
+	# Check input resources
+	for in_res in wp.required_inputs:
+		if resource_mgr.get_available_stock(in_res) < wp.required_inputs[in_res]:
+			return false
+	return true
+
 ## Finds the best reachable job matching the citizen's role, prioritized by priority score.
-func request_job(citizen_id: String, role: String, citizen_cell: Vector2i, nav: GridNavigation) -> JobData:
+func request_job(citizen_id: String, role: String, citizen_cell: Vector2i, nav: GridNavigation, wp_mgr: Object = null, resource_mgr: Node = null, job_filter: Callable = Callable()) -> JobData:
 	if role == "idle":
 		return null
 		
@@ -81,6 +219,10 @@ func request_job(citizen_id: String, role: String, citizen_cell: Vector2i, nav: 
 		if job.type != role:
 			continue
 			
+		# Check executability for crafting and guard jobs
+		if not _is_job_executable(job, wp_mgr, resource_mgr, job_filter, nav):
+			continue
+
 		# Check reachability
 		var check_target: Vector2i = job.source_cell if job.type == "hauler" else job.target_cell
 		var path := nav.find_path(citizen_cell, check_target)
@@ -100,16 +242,166 @@ func request_job(citizen_id: String, role: String, citizen_cell: Vector2i, nav: 
 		
 	return best_job
 
-func boost_jobs_priority(job_type: String, boost_delta: int) -> int:
-	var modified := 0
+func _modifier_matches_job(mod: Dictionary, job: JobData) -> bool:
+	if job == null:
+		return false
+	var mod_type: String = str(mod.get("job_type", ""))
+	if mod_type != "" and job.type != mod_type:
+		return false
+	var mod_wp: String = str(mod.get("workplace_id", ""))
+	if mod_wp != "" and not job_matches_building(job, mod_wp):
+		return false
+	return true
+
+func get_effective_priority(job: JobData) -> int:
+	if job == null:
+		return MIN_JOB_PRIORITY
+	var total_delta: int = 0
+	for mod in _priority_modifiers.values():
+		if _modifier_matches_job(mod, job):
+			total_delta += int(mod.get("delta", 0))
+	return clampi(job.base_priority + total_delta, MIN_JOB_PRIORITY, MAX_JOB_PRIORITY)
+
+func _recompute_job_priority(job: JobData) -> void:
+	if job == null:
+		return
+	job.priority = get_effective_priority(job)
+
+func _recompute_all_job_priorities() -> void:
 	for job in _jobs:
-		if job.type == job_type and job.state == JobState.AVAILABLE:
-			job.priority += boost_delta
-			modified += 1
-	return modified
+		_recompute_job_priority(job)
+
+func set_job_base_priority(job: JobData, new_base_priority: int) -> void:
+	if job == null:
+		return
+	job.base_priority = clampi(new_base_priority, MIN_JOB_PRIORITY, MAX_JOB_PRIORITY)
+	_recompute_job_priority(job)
+
+func set_priority_modifier(source_id: String, delta: int, job_type: String = "", workplace_id: String = "") -> int:
+	if source_id.is_empty():
+		return 0
+	_priority_modifiers[source_id] = {
+		"source_id": source_id,
+		"job_type": job_type,
+		"workplace_id": workplace_id,
+		"delta": delta
+	}
+	_recompute_all_job_priorities()
+	var affected := 0
+	var mod: Dictionary = _priority_modifiers[source_id]
+	for job in _jobs:
+		if job.state == JobState.AVAILABLE and _modifier_matches_job(mod, job):
+			affected += 1
+	return affected
+
+func remove_priority_modifier(source_id: String) -> bool:
+	if source_id.is_empty() or not _priority_modifiers.has(source_id):
+		return false
+	_priority_modifiers.erase(source_id)
+	_recompute_all_job_priorities()
+	return true
+
+func has_priority_modifier(source_id: String) -> bool:
+	return _priority_modifiers.has(source_id)
+
+func get_priority_modifiers_for_job(job: JobData) -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	if job == null:
+		return result
+	for mod in _priority_modifiers.values():
+		if _modifier_matches_job(mod, job):
+			result.append(mod.duplicate())
+	return result
+
+func get_all_priority_modifiers() -> Dictionary:
+	var copy: Dictionary = {}
+	for k in _priority_modifiers:
+		copy[k] = _priority_modifiers[k].duplicate()
+	return copy
+
+func boost_jobs_priority(job_type: String, boost_delta: int, source_id: String = "") -> int:
+	var effective_source: String = source_id if not source_id.is_empty() else "legacy_boost:%s" % job_type
+	return set_priority_modifier(effective_source, boost_delta, job_type, "")
 
 func get_all_jobs() -> Array[JobData]:
-	return _jobs
+	return _jobs.duplicate()
+
+static func job_matches_building(job: JobData, building_id: String) -> bool:
+	if job == null or building_id == "":
+		return false
+	if job.target_building_id == building_id or job.source_workplace_id == building_id or job.workplace_channel_id == building_id:
+		return true
+	var prefix := building_id + "_"
+	if (job.target_building_id != "" and job.target_building_id.begins_with(prefix)) or \
+	   (job.source_workplace_id != "" and job.source_workplace_id.begins_with(prefix)) or \
+	   (job.workplace_channel_id != "" and job.workplace_channel_id.begins_with(prefix)):
+		return true
+	return false
+
+func get_jobs_for_building(building_id: String) -> Array[JobData]:
+	var result: Array[JobData] = []
+	for job in _jobs:
+		if job_matches_building(job, building_id):
+			result.append(job)
+	return result
+
+func remove_jobs_for_building(building_id: String) -> void:
+	var remaining: Array[JobData] = []
+	for job in _jobs:
+		if not job_matches_building(job, building_id):
+			remaining.append(job)
+		else:
+			_record_terminal_job(job)
+	_jobs = remaining
+
+func remove_job(job_id: String) -> bool:
+	for i in range(_jobs.size()):
+		if _jobs[i].id == job_id:
+			var job := _jobs[i]
+			_jobs.remove_at(i)
+			_record_terminal_job(job)
+			return true
+	return false
+
+func _remove_job_internal(job: JobData) -> bool:
+	if job == null:
+		return false
+	var idx := _jobs.find(job)
+	if idx >= 0:
+		_jobs.remove_at(idx)
+		_record_terminal_job(job)
+		return true
+	return false
+
+func _record_terminal_job(job: JobData) -> void:
+	if job == null:
+		return
+	_terminal_jobs_history.append(job)
+	if _terminal_jobs_history.size() > MAX_TERMINAL_HISTORY:
+		_terminal_jobs_history.remove_at(0)
+
+func get_recent_terminal_jobs() -> Array[JobData]:
+	return _terminal_jobs_history.duplicate()
+
+func get_terminal_jobs_count() -> int:
+	return _terminal_jobs_history.size()
+
+func clear_dynamic_jobs(preserve_building_ids: Array = ["farm_starter", "woodcutter_starter"]) -> void:
+	var remaining: Array[JobData] = []
+	for job in _jobs:
+		# Preserve recurring starter jobs and reset transient runtime state
+		if job.target_building_id in preserve_building_ids and job.is_recurring:
+			job.state = JobState.AVAILABLE
+			job.worker_id = ""
+			job.work_hours_done = 0.0
+			remaining.append(job)
+		# Preserve non-building jobs if any
+		elif job.target_building_id == "" and job.source_workplace_id == "":
+			remaining.append(job)
+		else:
+			_record_terminal_job(job)
+	_jobs = remaining
+	_terminal_jobs_history.clear()
 
 func progress_job(job: JobData, delta_hours: float) -> bool:
 	if job == null or job.state != JobState.IN_PROGRESS:
@@ -131,6 +423,7 @@ func complete_job(job: JobData) -> void:
 	else:
 		job.state = JobState.COMPLETED
 		job.worker_id = ""
+		_remove_job_internal(job)
 
 func release_job(job: JobData) -> void:
 	if job == null:
@@ -142,8 +435,18 @@ func release_job(job: JobData) -> void:
 func cancel_job(job: JobData, _reason: String = "") -> void:
 	if job == null:
 		return
-	job.state = JobState.CANCELLED
 	job.worker_id = ""
+	if job.is_recurring:
+		var has_target: bool = (job.target_building_id != "" or job.source_workplace_id != "" or job.workplace_channel_id != "")
+		if has_target:
+			job.state = JobState.AVAILABLE
+			job.work_hours_done = 0.0
+		else:
+			job.state = JobState.CANCELLED
+			_remove_job_internal(job)
+	else:
+		job.state = JobState.CANCELLED
+		_remove_job_internal(job)
 
 func get_active_jobs_count() -> int:
 	var count := 0
