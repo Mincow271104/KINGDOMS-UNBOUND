@@ -8,7 +8,7 @@ extends SceneTree
 ## - Campaign B: Deterioration, Anarchy/Extinction Collapse, & Zero-Reward Policy
 ## - Campaign C: Cross-Campaign Legacy, Meta-Unlocks, Modifiers, & Save Compatibility
 ## Engine: Godot 4.7-stable (Hardware GUI Execution: D3D12 Forward+ on Windows)
-## Output Screenshots: docs/visual_validation/final_acceptance/
+## Output Screenshots: docs/visual_validation/phase7c/
 ## =============================================================================
 
 const MainMenuScene = preload("res://scenes/ui/main_menu.tscn")
@@ -19,8 +19,9 @@ const CrisisManagerScript = preload("res://scripts/core/crisis_manager.gd")
 const VictoryManagerScript = preload("res://scripts/core/victory_manager.gd")
 const EconomyConfigScript = preload("res://scripts/economy/economy_config.gd")
 const TradeRouteCalculatorScript = preload("res://scripts/trade/trade_route_calculator.gd")
+const BuildingSystemScript = preload("res://scripts/economy/building_system.gd")
 
-const SCREENSHOT_DIR: String = "docs/visual_validation/final_acceptance/"
+const SCREENSHOT_DIR: String = "docs/visual_validation/phase7c/"
 const TEST_PROFILE_PATH: String = "user://final_acceptance_legacy_profile.json"
 const SAVE_CAMPAIGN_A: String = "user://saves/final_acceptance_campaign_a.json"
 const SAVE_CAMPAIGN_B: String = "user://saves/final_acceptance_campaign_b.json"
@@ -47,6 +48,60 @@ var camp_b_wid: String = ""
 
 # Campaign C state tracking
 var camp_c_wid: String = ""
+
+func _get_settlement_center(world: WorldView) -> Vector2i:
+	if world != null and world.world_data != null:
+		return world.world_data.center_spawn
+	return Vector2i(64, 65)
+
+func _find_owned_buildable_origin(world: WorldView, building_type: String, resource_mgr: Node, search_radius: int = 16) -> Vector2i:
+	if world == null or world.world_data == null:
+		return Vector2i(-1, -1)
+	var center: Vector2i = _get_settlement_center(world)
+	for r in range(1, search_radius + 1):
+		for ox in range(-r, r + 1):
+			for oy in range(-r, r + 1):
+				if maxi(absi(ox), absi(oy)) != r:
+					continue
+				var candidate := center + Vector2i(ox, oy)
+				var check: Dictionary = BuildingSystemScript.can_place_building(building_type, candidate, world.world_data, resource_mgr)
+				if bool(check.get("valid", false)):
+					return candidate
+	return Vector2i(-1, -1)
+
+func _find_reachable_owned_move_cell(cit: Object, world: WorldView) -> Vector2i:
+	if cit == null or world == null or world.world_data == null:
+		return Vector2i(-1, -1)
+	var start_cell: Vector2i = cit.current_cell
+	var tmgr = world.territory_mgr
+	var nav = cit.nav
+	for r in range(2, 9):
+		for ox in range(-r, r + 1):
+			for oy in range(-r, r + 1):
+				if maxi(absi(ox), absi(oy)) != r:
+					continue
+				var c := start_cell + Vector2i(ox, oy)
+				if not IsoMath.is_in_bounds(c) or c == start_cell:
+					continue
+				if tmgr != null and not bool(tmgr.call("is_cell_owned", c)):
+					continue
+				if nav != null and not nav.is_cell_walkable(c):
+					continue
+				if world.world_data.occupancy[c.x][c.y]:
+					continue
+				var path: Array = cit._find_civilian_path(start_cell, c)
+				if not path.is_empty():
+					return c
+	return Vector2i(-1, -1)
+
+func _focus_camera_on_cell(world: WorldView, cell: Vector2i) -> void:
+	if world == null:
+		return
+	var cam = world.get_node_or_null("Camera2D")
+	if cam != null:
+		if cam.has_method("focus_on_cell"):
+			cam.focus_on_cell(cell)
+		cam.zoom = Vector2(1.0, 1.0)
 
 func _assert_true(condition: bool, msg: String) -> bool:
 	if condition:
@@ -162,14 +217,13 @@ func _process(_delta: float) -> bool:
 		_assert_true(current_world.citizen_list.size() == 24, "Starter population is 24 citizens")
 		_assert_true(current_world.world_data.buildings.size() >= 8, "Starter civic buildings initialized")
 		
-		# Starter grain bonus: 150 baseline + 50 perk = 200 food
+		# Starter grain bonus: authoritative EconomyConfig baseline + 50 starter_grain perk
+		var base_food: int = int(EconomyConfigScript.STARTING_RESOURCES.get(EconomyConfigScript.RES_FOOD, 0))
+		var expected_food: int = base_food + 50
 		var food_stock: int = int(rm.call("get_available_stock", "food")) if rm else 0
-		_assert_true(food_stock == 200, "Starter Grain perk applied: Food is 200 (150 baseline + 50 perk)")
+		_assert_true(food_stock == expected_food, "Starter Grain perk applied: Food is %d (%d baseline + 50 perk)" % [expected_food, base_food])
 		
-		var cam: Camera2D = current_world.get_node_or_null("Camera2D")
-		if cam:
-			cam.position = Vector2(1024, 600)
-			cam.zoom = Vector2(1.0, 1.0)
+		_focus_camera_on_cell(current_world, _get_settlement_center(current_world))
 
 		_save_screenshot("02_campaign_a_initial_settlement_perks_applied.png")
 
@@ -179,14 +233,15 @@ func _process(_delta: float) -> bool:
 		if current_hud != null and current_hud.has_method("_toggle_citizen_roster"):
 			current_hud.call("_toggle_citizen_roster")
 
-		# Select citizen #0 and issue a direct manual labor dispatch order
+		# Select citizen #0 and issue a direct manual labor dispatch order to a reachable owned cell
 		var cit = current_world.citizen_list[0]
 		_assert_true(cit != null, "Citizen #0 exists")
 		_assert_true(cit.has_method("issue_manual_command"), "Citizen supports manual labor orders (Package 2K)")
 		
-		# Dispatch manual order to move/chop tree at (25, 29)
-		var res_cmd: Dictionary = cit.issue_manual_command("move", Vector2i(25, 29))
-		_assert_true(res_cmd.get("success", false) == true, "Manual labor order dispatched to citizen #0")
+		var move_target: Vector2i = _find_reachable_owned_move_cell(cit, current_world)
+		var res_cmd: Dictionary = cit.issue_manual_command("move", move_target)
+		_assert_true(res_cmd.get("success", false) == true, "Manual labor order dispatched to citizen #0 at %s" % move_target)
+		_focus_camera_on_cell(current_world, cit.current_cell)
 
 	elif frame_count == 75:
 		_save_screenshot("03_campaign_a_citizen_roster_and_manual_command.png")
@@ -201,26 +256,11 @@ func _process(_delta: float) -> bool:
 			rm.call("add_resource", "stone", 100)
 			rm.call("add_resource", "wood", 100)
 
-		# Find a guaranteed unoccupied 3x3 footprint for Research Hall
-		var rh_cell := Vector2i(-1, -1)
-		for x in range(16, 28):
-			for y in range(16, 28):
-				var fits := true
-				for ox in range(3):
-					for oy in range(3):
-						var c := Vector2i(x + ox, y + oy)
-						if current_world.world_data.occupancy[c.x][c.y] or current_world.world_data.terrain[c.x][c.y] == 0:
-							fits = false
-							break
-					if not fits: break
-				if fits:
-					rh_cell = Vector2i(x, y)
-					break
-			if rh_cell != Vector2i(-1, -1): break
-
-		var BuildingSystemScript = load("res://scripts/economy/building_system.gd")
+		# Find a guaranteed buildable 3x3 footprint inside owned V8 territory for Research Hall
+		var rh_cell: Vector2i = _find_owned_buildable_origin(current_world, "research_hall", rm)
 		var build_res: Dictionary = BuildingSystemScript.place_building("research_hall", rh_cell, current_world.world_data, rm, "active")
 		_assert_true(build_res.get("success", false) == true, "Research Hall constructed successfully at %s" % rh_cell)
+		_focus_camera_on_cell(current_world, rh_cell if rh_cell != Vector2i(-1, -1) else _get_settlement_center(current_world))
 
 		# Start technology research in ResearchManager
 		var res_mgr = current_world.get("research_mgr")
@@ -244,24 +284,8 @@ func _process(_delta: float) -> bool:
 			rm.call("add_resource", "tools", 20)
 			rm.call("add_resource", "metal", 40)
 
-		# Find a guaranteed unoccupied 3x3 footprint for Barracks
-		var bar_cell := Vector2i(-1, -1)
-		for x in range(38, 48):
-			for y in range(16, 28):
-				var fits := true
-				for ox in range(3):
-					for oy in range(3):
-						var c := Vector2i(x + ox, y + oy)
-						if current_world.world_data.occupancy[c.x][c.y] or current_world.world_data.terrain[c.x][c.y] == 2:
-							fits = false
-							break
-					if not fits: break
-				if fits:
-					bar_cell = Vector2i(x, y)
-					break
-			if bar_cell != Vector2i(-1, -1): break
-
-		var BuildingSystemScript = load("res://scripts/economy/building_system.gd")
+		# Find a guaranteed buildable 3x3 footprint inside owned V8 territory for Barracks
+		var bar_cell: Vector2i = _find_owned_buildable_origin(current_world, "barracks", rm)
 		var b_res: Dictionary = BuildingSystemScript.place_building("barracks", bar_cell, current_world.world_data, rm, "active")
 		_assert_true(b_res.get("success", false) == true, "Barracks constructed successfully at %s" % bar_cell)
 
@@ -280,12 +304,16 @@ func _process(_delta: float) -> bool:
 				target_outpost.set("garrison_count", 1)
 				player_army.set("soldier_count", 1)
 				_assert_true(player_army.soldier_count + target_outpost.garrison_count == 2, "Soldier identity strictly conserved (1 reserve + 1 garrison)")
+				_focus_camera_on_cell(current_world, target_outpost.current_cell)
+			elif bar_cell != Vector2i(-1, -1):
+				_focus_camera_on_cell(current_world, bar_cell)
 
 		# Refresh Fog of War vision and verify territorial vision projection
 		current_world.refresh_world_vision()
 		var fow_mil = current_world.fog_of_war
 		_assert_true(fow_mil != null, "Fog of War system active")
-		_assert_true(fow_mil.is_visible(Vector2i(32, 32)) == true, "Settlement center is VISIBLE (State 2)")
+		var settlement_center: Vector2i = _get_settlement_center(current_world)
+		_assert_true(fow_mil.is_visible(settlement_center) == true, "Settlement center is VISIBLE (State 2)")
 
 	elif frame_count == 135:
 		_save_screenshot("05_campaign_a_military_outpost_garrison_fow.png")
@@ -296,9 +324,14 @@ func _process(_delta: float) -> bool:
 		var fow_trade = current_world.fog_of_war
 		var siege_mgr = current_world.get("field_siege_mgr")
 		var w_data = current_world.get("world_data")
+		var settlement_center: Vector2i = _get_settlement_center(current_world)
+		var route_dest: Vector2i = Vector2i(
+			clampi(settlement_center.x + 18, 0, w_data.map_width - 1),
+			clampi(settlement_center.y - 16, 0, w_data.map_height - 1)
+		)
 		var risk_eval: Dictionary = TradeRouteCalculatorScript.evaluate_route_risk_between(
-			Vector2i(32, 32),
-			Vector2i(50, 16),
+			settlement_center,
+			route_dest,
 			fow_trade,
 			siege_mgr,
 			w_data,
@@ -348,9 +381,7 @@ func _process(_delta: float) -> bool:
 		_assert_true(current_world.citizen_list.size() == 24, "Citizens preserved across reload (zero entity leakage)")
 		_assert_true(current_world.world_data.buildings.size() >= 8, "Buildings preserved including civic infrastructure")
 
-		var cam: Camera2D = current_world.get_node_or_null("Camera2D")
-		if cam:
-			cam.position = Vector2(1024, 600)
+		_focus_camera_on_cell(current_world, _get_settlement_center(current_world))
 
 	elif frame_count == 195:
 		_save_screenshot("07_campaign_a_mid_campaign_save_load.png")
@@ -421,8 +452,7 @@ func _process(_delta: float) -> bool:
 
 		current_world = reloaded_settled
 		current_hud = current_world.get_node_or_null("HUD")
-		var cam: Camera2D = current_world.get_node_or_null("Camera2D")
-		if cam: cam.position = Vector2(1024, 600)
+		_focus_camera_on_cell(current_world, _get_settlement_center(current_world))
 
 	elif frame_count == 255:
 		_save_screenshot("09_campaign_a_settlement_claimed_and_reloaded.png")
@@ -469,8 +499,7 @@ func _process(_delta: float) -> bool:
 
 		current_world = world_b
 		current_hud = hud_b
-		var cam: Camera2D = current_world.get_node_or_null("Camera2D")
-		if cam: cam.position = Vector2(1024, 600)
+		_focus_camera_on_cell(current_world, _get_settlement_center(current_world))
 
 	elif frame_count == 285:
 		_save_screenshot("10_campaign_b_settlement_collapse_panel.png")
@@ -534,11 +563,15 @@ func _process(_delta: float) -> bool:
 		current_hud = world_c.get_node_or_null("HUD")
 
 		var rm_c: Node = root.get_node_or_null("ResourceManager")
-		# Wood calculation: 120 baseline + 40 (master_carpenter) - 20 (arid_realm) = 140 Wood
+		# Wood calculation: authoritative EconomyConfig baseline + 40 (master_carpenter) - 20 (arid_realm)
+		var base_wood: int = int(EconomyConfigScript.STARTING_RESOURCES.get(EconomyConfigScript.RES_WOOD, 0))
+		var expected_wood: int = base_wood + 40 - 20
 		var wood_stock: int = int(rm_c.call("get_available_stock", "wood")) if rm_c else 0
-		_assert_true(wood_stock == 140, "Wood combines master_carpenter (+40) and arid_realm (-20) additively to 140 Wood")
+		_assert_true(wood_stock == expected_wood, "Wood combines master_carpenter (+40) and arid_realm (-20) additively to %d Wood" % expected_wood)
+		var base_tools: int = int(EconomyConfigScript.STARTING_RESOURCES.get(EconomyConfigScript.RES_TOOLS, 0))
+		var expected_tools: int = base_tools + 10
 		var tools_stock: int = int(rm_c.call("get_available_stock", "tools")) if rm_c else 0
-		_assert_true(tools_stock == 25, "Tools reflect master_carpenter (+10 tools): 25 tools")
+		_assert_true(tools_stock == expected_tools, "Tools reflect master_carpenter (+10 tools): %d tools" % expected_tools)
 
 		SaveManagerScript.save_to_file(world_c, SAVE_CAMPAIGN_C)
 		_assert_true(FileAccess.file_exists(SAVE_CAMPAIGN_C), "Campaign C saved successfully")
