@@ -1,16 +1,19 @@
 class_name BuildingSelectionHighlight
 extends Node2D
-## Isometric Diamond Selection Highlight for KINGDOMS UNBOUND (Package 2F).
+## Isometric Bracketed Diamond Selection Highlight for KINGDOMS UNBOUND.
 ## Renders a precise 2:1 dimetric ground footprint highlight (1x1, 2x2, 3x3)
-## conforming to diamond tile geometry and world coordinates.
+## with a subtle translucent fill, soft inner perimeter, and royal-gold corner brackets.
 
 var origin_cell: Vector2i = Vector2i(-1, -1)
 var footprint_size: Vector2i = Vector2i(1, 1)
 var is_active: bool = false
 
-var border_color: Color = Color(1.0, 0.85, 0.25, 0.95) # Royal gold
-var fill_color: Color = Color(1.0, 0.85, 0.25, 0.22)   # Translucent gold
-var border_width: float = 2.0
+var border_color: Color = Color(1.0, 0.85, 0.25, 0.95)       # Royal gold corner brackets
+var inner_border_color: Color = Color(1.0, 0.85, 0.25, 0.55) # Soft inner diamond line
+var fill_color: Color = Color(1.0, 0.85, 0.25, 0.14)         # Subtle translucent gold fill
+var bracket_width: float = 3.0
+var inner_border_width: float = 1.5
+var bracket_arm_ratio: float = 0.22
 
 func set_footprint(origin: Vector2i, size: Vector2i) -> void:
 	origin_cell = origin
@@ -31,18 +34,23 @@ func _draw() -> void:
 
 	var pts := compute_diamond_vertices(origin_cell, footprint_size)
 	if pts.size() == 4:
-		# Draw filled translucent diamond polygon
+		# Draw subtle translucent diamond fill
 		var colors := PackedColorArray([fill_color, fill_color, fill_color, fill_color])
 		draw_polygon(pts, colors)
 
-		# Draw crisp closed diamond border outline
+		# Draw soft closed inner diamond outline
 		var outline := pts.duplicate()
 		outline.append(pts[0])
-		draw_polyline(outline, border_color, border_width, true)
+		draw_polyline(outline, inner_border_color, inner_border_width, true)
 
-		# Draw subtle corner accent dots at the 4 diamond vertices
-		for p in pts:
-			draw_circle(p, 2.5, border_color)
+		# Draw royal-gold corner brackets (constant-time across 1x1, 2x2, 3x3)
+		for i in range(4):
+			var prev := pts[(i + 3) % 4]
+			var curr := pts[i]
+			var next := pts[(i + 1) % 4]
+			var p1 := curr.lerp(prev, bracket_arm_ratio)
+			var p2 := curr.lerp(next, bracket_arm_ratio)
+			draw_polyline(PackedVector2Array([p1, curr, p2]), border_color, bracket_width, true)
 
 ## Computes the 4 outer ground vertices of a multi-tile isometric footprint (w x h).
 ## - Top vertex: top vertex of cell (origin.x, origin.y)

@@ -95,6 +95,15 @@ var health: float = 100.0
 var morale: float = 70.0
 
 var current_path: Array[Vector2i] = []
+var _path_follower: ContinuousPathFollower = ContinuousPathFollower.new()
+var _follower_source_path: Array[Vector2i] = []
+var facing_dir: int = ContinuousPathFollower.ScreenDir.E
+var facing_name: String = "E"
+var is_moving_visually: bool = false
+var _walk_anim_phase: float = 0.0
+var _visual_anim_clock: float = 0.0
+var _visual_active_clip: String = ""
+var _visual_idle_offset: float = 0.0
 var active_job: JobManager.JobData = null
 var _death_processed: bool = false
 var death_cause: String = ""
@@ -130,8 +139,11 @@ func _ready() -> void:
 	if sprite == null:
 		sprite = get_node_or_null("Sprite2D")
 	if sprite:
-		sprite.offset = Vector2(-12.0, -30.0) # Ground contact foot pivot
+		sprite.offset = EntityVisualRegistry.VILLAGER_SPRITE_OFFSET
 		sprite.centered = false
+		sprite.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	_visual_idle_offset = float(abs(hash(citizen_id)) % 400) * 0.01
+	_sync_citizen_visuals(0.0)
 		
 	position = IsoMath.map_to_local(current_cell)
 	
@@ -285,7 +297,14 @@ func _process(delta: float) -> void:
 	# Check if simulation paused
 	var tm := _get_time_manager()
 	if tm != null and tm.is_paused():
+		_stop_walk_animation()
 		return
+	var anim_speed: float = 1.0
+	if tm != null and tm.get("current_speed") != null:
+		anim_speed = float(tm.get("current_speed"))
+	if anim_speed > 0.0 and current_state != State.MOVING_TO_JOB and current_state != State.HAULING and current_state != State.SEEKING_FOOD:
+		_stop_walk_animation()
+		_sync_citizen_visuals(delta * anim_speed)
 
 	# Priority 2: Vital survival emergency pauses manual command
 	if has_manual_command() and not bool(manual_command.get("is_paused", false)):
@@ -419,33 +438,134 @@ func _process_idle() -> void:
 		else:
 			status_reason = "Dân tự do (Chưa được phân công việc)"
 
+func _stop_walk_animation() -> void:
+	is_moving_visually = false
+	var spr := get_node_or_null("Sprite2D") as Sprite2D
+	if spr != null:
+		spr.offset = EntityVisualRegistry.VILLAGER_SPRITE_OFFSET
+
+func _update_walk_visuals(velocity: Vector2, speed_mult: float, delta: float) -> void:
+	if velocity.length_squared() < ContinuousPathFollower.VEL_DEADZONE_SQ:
+		_stop_walk_animation()
+		return
+	is_moving_visually = true
+	facing_dir = _path_follower.update_facing_from_velocity(velocity)
+	facing_name = ContinuousPathFollower.dir_to_name(facing_dir)
+	_walk_anim_phase = fmod(_walk_anim_phase + delta * speed_mult * 10.0, TAU)
+	var spr := get_node_or_null("Sprite2D") as Sprite2D
+	if spr != null:
+		spr.flip_h = _path_follower.last_flip_h
+		spr.offset = EntityVisualRegistry.VILLAGER_SPRITE_OFFSET
+	_sync_citizen_visuals(delta * speed_mult)
+
+func _sync_citizen_visuals(anim_dt: float) -> void:
+	var spr := sprite if sprite != null and is_instance_valid(sprite) else (get_node_or_null("Sprite2D") as Sprite2D)
+	if spr == null:
+		return
+	var norm_role := EntityVisualRegistry.normalize_villager_role(role)
+	var layout := EntityVisualRegistry.get_villager_sheet_layout(norm_role)
+	var tex := EntityVisualRegistry.get_villager_sheet_texture(norm_role)
+	if tex == null:
+		return
+	var hframes_cnt := int(layout.get("hframes", 6))
+	var vframes_cnt := int(layout.get("vframes", 6))
+	if spr.texture != tex:
+		spr.texture = tex
+	if spr.hframes != hframes_cnt:
+		spr.hframes = hframes_cnt
+	if spr.vframes != vframes_cnt:
+		spr.vframes = vframes_cnt
+	spr.centered = false
+	spr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	spr.offset = EntityVisualRegistry.VILLAGER_SPRITE_OFFSET
+
+	var is_back := (facing_dir == ContinuousPathFollower.ScreenDir.NW or facing_dir == ContinuousPathFollower.ScreenDir.N or facing_dir == ContinuousPathFollower.ScreenDir.NE)
+	var clip := "idle"
+	var row := 2 if is_back else 0
+	var fcount := int(layout.get("idle_frames", 4))
+	var fps := float(layout.get("idle_fps", 2.2))
+
+	if norm_role == "hauler" and current_state == State.HAULING:
+		if is_moving_visually:
+			clip = "carry_walk"
+			row = 5 if is_back else 4
+			fcount = int(layout.get("work_frames", 6))
+			fps = float(layout.get("walk_fps", 9.0))
+		else:
+			clip = "carry_idle"
+			row = 7 if is_back else 6
+			fcount = int(layout.get("idle_frames", 4))
+			fps = float(layout.get("idle_fps", 2.2))
+	elif is_moving_visually:
+		clip = "walk"
+		row = 3 if is_back else 1
+		fcount = int(layout.get("walk_frames", 6))
+		fps = float(layout.get("walk_fps", 9.0))
+	elif current_state == State.WORKING or current_state == State.GUARDING:
+		clip = "work"
+		row = 5 if is_back else 4
+		fcount = int(layout.get("work_frames", 6))
+		fps = float(layout.get("work_fps", 5.5))
+
+	if clip != _visual_active_clip:
+		_visual_active_clip = clip
+		_visual_anim_clock = 0.0
+	elif anim_dt > 0.0:
+		_visual_anim_clock += anim_dt
+
+	var use_idle_off := (clip == "idle" or clip == "carry_idle")
+	var eff_t := (_visual_anim_clock + _visual_idle_offset) if use_idle_off else _visual_anim_clock
+	var frame_idx := int(floor(eff_t * fps)) % maxi(1, fcount)
+	spr.frame_coords = Vector2i(frame_idx, row)
+
+func _sync_path_follower() -> void:
+	var needs_sync := current_path.size() != _follower_source_path.size()
+	if not needs_sync and not current_path.is_empty():
+		if current_path[0] != _follower_source_path[0] or current_path[-1] != _follower_source_path[-1]:
+			needs_sync = true
+		elif current_path != _follower_source_path:
+			needs_sync = true
+	if needs_sync:
+		_follower_source_path = current_path.duplicate()
+		_path_follower.set_path(current_path, nav, position)
+
 func _process_movement(delta: float) -> void:
 	if current_path.is_empty():
+		_stop_walk_animation()
+		_follower_source_path.clear()
+		_path_follower.clear()
 		_arrive_at_destination()
 		return
-		
-	var target_cell := current_path[0]
-	var target_local := IsoMath.map_to_local(target_cell)
-	var dir := target_local - position
-	var dist := dir.length()
 
 	var speed_mult: float = 1.0
 	var tm := _get_time_manager()
 	if tm != null and tm.get("current_speed") != null:
 		speed_mult = float(tm.get("current_speed"))
 	if speed_mult <= 0.0:
+		_stop_walk_animation()
 		return
-	var step_dist: float = get_effective_move_speed() * delta * speed_mult
 
-	if dist <= step_dist:
-		position = target_local
-		current_cell = target_cell
+	_sync_path_follower()
+	var step_dist: float = get_effective_move_speed() * delta * speed_mult
+	var res: Dictionary = _path_follower.advance(position, step_dist)
+	position = res["position"]
+	var new_cell: Vector2i = res["cell"]
+	if new_cell != current_cell and IsoMath.is_in_bounds(new_cell):
+		current_cell = new_cell
 		is_waiting_at_dropoff = false
-		current_path.remove_at(0)
-		if current_path.is_empty():
-			_arrive_at_destination()
-	else:
-		position += dir.normalized() * step_dist
+		while current_path.size() > 1 and current_path[0] != new_cell:
+			current_path.remove_at(0)
+		if current_path.size() > 1 and current_path[0] == new_cell:
+			current_path.remove_at(0)
+	_update_walk_visuals(res["velocity"], speed_mult, delta)
+
+	if bool(res["arrived"]):
+		current_cell = _follower_source_path[-1] if not _follower_source_path.is_empty() else current_cell
+		current_path.clear()
+		_follower_source_path.clear()
+		_path_follower.clear()
+		_stop_walk_animation()
+		_arrive_at_destination()
 
 func _arrive_at_destination() -> void:
 	match current_state:

@@ -9,6 +9,15 @@ const HALF_WIDTH: float = 16.0
 const HALF_HEIGHT: float = 8.0
 const MAP_SIZE: int = 64
 
+# Global world-depth z_index mapping for sortable entities across sibling containers.
+# TerrainLayer sits at -3000; sortable entities map to [-2500, -100]; Fog/Clouds/HUD overlays stay >= 5.
+const DEPTH_Z_BASE: int = -2500
+const DEPTH_Z_MIN_OFFSET: int = 0
+const DEPTH_Z_MAX_OFFSET: int = 2400
+
+static func world_y_to_z_index(world_y: float) -> int:
+	return DEPTH_Z_BASE + clampi(int(round(world_y)), DEPTH_Z_MIN_OFFSET, DEPTH_Z_MAX_OFFSET)
+
 ## Converts a discrete integer grid coordinate (gx, gy) to continuous map-local pixel space.
 ## The resulting Vector2 represents the bottom-center ground contact vertex of the cell diamond.
 static func map_to_local(grid_pos: Vector2i) -> Vector2:
