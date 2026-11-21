@@ -195,7 +195,7 @@ func _compute_cell_mask_value_ref(cx: int, cy: int) -> float:
 			if d >= min_d or d > 3:
 				continue
 			var nb := Vector2i(cx + dx, cy + dy)
-			if IsoMath.is_in_bounds(nb):
+			if IsoMath.is_in_bounds(nb, _get_fog_width(), _get_fog_height()):
 				if not _fog_of_war.is_unexplored(nb):
 					min_d = d
 	if min_d <= 1:
@@ -206,11 +206,23 @@ func _compute_cell_mask_value_ref(cx: int, cy: int) -> float:
 		return 0.78
 	return 1.0
 
+func _get_fog_width() -> int:
+	if _fog_of_war == null:
+		return 0
+	var w = _fog_of_war.get("map_width")
+	return int(w) if w != null else int(_fog_of_war.map_size)
+
+func _get_fog_height() -> int:
+	if _fog_of_war == null:
+		return 0
+	var h = _fog_of_war.get("map_height")
+	return int(h) if h != null else int(_fog_of_war.map_size)
+
 func _sync_full_fog_mask_ref() -> Image:
 	if _fog_of_war == null:
 		return null
-	var mw := _fog_of_war.map_size
-	var mh := _fog_of_war.map_size
+	var mw := _get_fog_width()
+	var mh := _get_fog_height()
 	var img := Image.create(mw, mh, false, Image.FORMAT_RGBA8)
 	for y in range(mh):
 		for x in range(mw):
@@ -221,8 +233,8 @@ func _sync_full_fog_mask_ref() -> Image:
 func _sync_full_fog_mask_fast() -> Image:
 	if _fog_of_war == null:
 		return null
-	var mw := _fog_of_war.map_size
-	var mh := _fog_of_war.map_size
+	var mw := _get_fog_width()
+	var mh := _get_fog_height()
 	var n := mw * mh
 	var dist := PackedByteArray()
 	dist.resize(n)
@@ -286,8 +298,8 @@ func _sync_full_fog_mask_fast() -> Image:
 func _sync_dirty_fog_mask_fast(dirty_cells: Array[Vector2i]) -> void:
 	if _fog_of_war == null or dirty_cells.is_empty():
 		return
-	var mw := _fog_of_war.map_size
-	var mh := _fog_of_war.map_size
+	var mw := _get_fog_width()
+	var mh := _get_fog_height()
 	if _fog_mask_img == null or _fog_mask_img.get_width() != mw or _fog_mask_img.get_height() != mh:
 		_fog_mask_img = _sync_full_fog_mask_fast()
 		_upload_fog_mask()
@@ -384,7 +396,7 @@ func _upload_fog_mask() -> void:
 func _get_layout_key() -> String:
 	if _fog_of_war == null:
 		return ""
-	return "%d:%d:%d:%d" % [_world_seed, _fog_of_war.map_size, _fog_of_war.map_size, _density_preset]
+	return "%d:%d:%d:%d" % [_world_seed, _get_fog_width(), _get_fog_height(), _density_preset]
 
 func sync_full() -> void:
 	clear_all()
@@ -415,8 +427,8 @@ func update_dirty_cells(dirty_cells: Array[Vector2i]) -> void:
 		return
 	_sync_dirty_fog_mask_fast(dirty_cells)
 	_upload_fog_mask()
-	var chunks_x: int = ceili(float(_fog_of_war.map_size) / float(CHUNK_SIZE))
-	var chunks_y: int = ceili(float(_fog_of_war.map_size) / float(CHUNK_SIZE))
+	var chunks_x: int = ceili(float(_get_fog_width()) / float(CHUNK_SIZE))
+	var chunks_y: int = ceili(float(_get_fog_height()) / float(CHUNK_SIZE))
 	var dirty_chunks: Dictionary = {}
 	for cell in dirty_cells:
 		var min_cx: int = clampi(floori(float(cell.x - FOOTPRINT_MARGIN) / float(CHUNK_SIZE)), 0, chunks_x - 1)
@@ -504,8 +516,8 @@ func _generate_world_chunk_candidates() -> void:
 	if _fog_of_war == null:
 		return
 
-	var mw: int = _fog_of_war.map_size
-	var mh: int = _fog_of_war.map_size
+	var mw: int = _get_fog_width()
+	var mh: int = _get_fog_height()
 	var area_scale: float = float(mw * mh) / (128.0 * 128.0)
 	var preset_mult: float = 1.0
 	if _density_preset == DensityPreset.DENSE:
@@ -535,7 +547,7 @@ func _generate_world_chunk_candidates() -> void:
 		if bank_centers.size() >= target_banks:
 			break
 		var bpos := Vector2(rng.randf_range(min_x, max_x), rng.randf_range(min_y, max_y))
-		if not IsoMath.is_in_bounds(IsoMath.local_to_map(bpos)):
+		if not IsoMath.is_in_bounds(IsoMath.local_to_map(bpos), mw, mh):
 			continue
 		var min_sep: float = rng.randf_range(152.0, 236.0)
 		var ok: bool = true
@@ -560,7 +572,7 @@ func _generate_world_chunk_candidates() -> void:
 		var angle: float = bank["angle"]
 		var target_s: int = bank["supports"]
 		var anchor_pos: Vector2 = (cpos + Vector2(rng.randf_range(-16.0, 16.0), rng.randf_range(-8.0, 8.0))).round()
-		if not IsoMath.is_in_bounds(IsoMath.local_to_map(anchor_pos)):
+		if not IsoMath.is_in_bounds(IsoMath.local_to_map(anchor_pos), mw, mh):
 			anchor_pos = cpos
 		_try_record_candidate(placed, anchor_pos, _pick_weighted_diverse_kind(rng, placed, anchor_pos, 130.0, weights, false), snappedf(rng.randf_range(1.04, 1.18), 0.01), 38.0)
 		var sup_placed: int = 0
@@ -570,7 +582,7 @@ func _generate_world_chunk_candidates() -> void:
 			var r_frac: float = rng.randf_range(0.30, 1.0)
 			var theta: float = rng.randf_range(0.0, TAU)
 			var m_pos: Vector2 = (cpos + Vector2(cos(theta) * radius * r_frac * 1.18, sin(theta) * radius * r_frac * 0.54).rotated(angle)).round()
-			if not IsoMath.is_in_bounds(IsoMath.local_to_map(m_pos)):
+			if not IsoMath.is_in_bounds(IsoMath.local_to_map(m_pos), mw, mh):
 				continue
 			if _try_record_candidate(placed, m_pos, _pick_weighted_diverse_kind(rng, placed, m_pos, 125.0, weights, false), _pick_varied_scale(rng, placed, m_pos, 0.88, 1.10), rng.randf_range(50.0, 74.0)):
 				sup_placed += 1
@@ -583,7 +595,7 @@ func _generate_world_chunk_candidates() -> void:
 		var dist_h: float = rng.randf_range(64.0, 178.0)
 		var ang: float = rng.randf_range(-0.45, 0.45) + (0.0 if rng.randf() < 0.5 else PI)
 		var bpos: Vector2 = ((host["pos"] as Vector2) + Vector2(cos(ang) * dist_h, sin(ang) * dist_h * 0.58)).round()
-		if not IsoMath.is_in_bounds(IsoMath.local_to_map(bpos)):
+		if not IsoMath.is_in_bounds(IsoMath.local_to_map(bpos), mw, mh):
 			continue
 		if _try_record_candidate(placed, bpos, _pick_weighted_diverse_kind(rng, placed, bpos, 130.0, weights, true), _pick_varied_scale(rng, placed, bpos, 0.82, 0.98), 68.0):
 			bridge_count += 1
@@ -655,7 +667,7 @@ func _is_opaque_footprint_unexplored(center_px: Vector2, kind: int, sc: float) -
 	var pts: PackedVector2Array = _opaque_pts_cache[kind] if kind < _opaque_pts_cache.size() else PackedVector2Array()
 	if pts.is_empty():
 		var cell := IsoMath.local_to_map(center_px)
-		return IsoMath.is_in_bounds(cell) and _fog_of_war.is_unexplored(cell)
+		return IsoMath.is_in_bounds(cell, _get_fog_width(), _get_fog_height()) and _fog_of_war.is_unexplored(cell)
 
 	var uv_bounds: Vector4 = _opaque_uv_bounds_cache[kind]
 	var cu: float = (center_px.x / IsoMath.TILE_WIDTH) + (center_px.y / IsoMath.TILE_HEIGHT)
@@ -665,8 +677,8 @@ func _is_opaque_footprint_unexplored(center_px: Vector2, kind: int, sc: float) -
 	var v0: int = int(floor(cv + uv_bounds.z * sc + 0.5))
 	var v1: int = int(floor(cv + uv_bounds.w * sc + 0.5))
 
-	var mw: int = _fog_of_war.map_size
-	var mh: int = _fog_of_war.map_size
+	var mw: int = _get_fog_width()
+	var mh: int = _get_fog_height()
 	var gx0: int = maxi(0, u0)
 	var gx1: int = mini(mw - 1, u1)
 	var gy0: int = maxi(0, v0)

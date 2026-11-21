@@ -4992,6 +4992,8 @@ func _setup_terrain_preview_renderer() -> void:
 	if terrain_preview_field == null:
 		terrain_preview_field = TerrainPreviewFieldScript.new()
 	terrain_preview_field.clear_sources()
+	_gameplay_preview_ids.clear()
+	_tracked_hunter_states.clear()
 	terrain_preview_field.configure(mw, mh, p_seed, 1, fog_of_war)
 
 	if terrain_preview_renderer == null or not is_instance_valid(terrain_preview_renderer):
@@ -5080,7 +5082,89 @@ func _resolve_active_townhall_cell() -> Variant:
 	return info.get("cell")
 
 func sync_gameplay_terrain_preview_sources() -> void:
-	return
+	if terrain_preview_field == null:
+		return
+	var desired_ids: Dictionary = {}
+	var next_hunter_states: Dictionary = {}
+
+	# 1. Active Town Hall (radii scaled deterministically from authoritative EconomyConfig territory radius)
+	var th_info := _resolve_active_townhall_info()
+	if not th_info.is_empty():
+		var th_cell: Vector2i = th_info["cell"]
+		var base_rad: int = maxi(1, EconomyConfig.get_territory_radius(1))
+		var cur_rad: int = maxi(1, int(th_info["radius"]))
+		var rad_scale: float = float(cur_rad) / float(base_rad)
+		var th_id := "townhall_main"
+		desired_ids[th_id] = true
+		terrain_preview_field.upsert_source(
+			th_id,
+			TerrainPreviewFieldScript.SourceCategory.TOWN_HALL,
+			th_cell,
+			TOWN_HALL_PREVIEW_RADIUS_PX * rad_scale,
+			TOWN_HALL_CORE_RADIUS_PX * rad_scale,
+			Vector2.ZERO
+		)
+
+	# 2. Qualified Scouting citizens ONLY (aligned with refresh_world_vision(): can_scout_beyond_territory == true)
+	for cit in citizen_list:
+		if cit == null or not is_instance_valid(cit):
+			continue
+		if bool(cit.get("_death_processed")):
+			continue
+		if cit.get("health") != null and float(cit.get("health")) <= 0.0:
+			continue
+		if cit.get("can_scout_beyond_territory") != true:
+			continue
+		var cid: String = str(cit.get("citizen_id")) if cit.get("citizen_id") != null else str(cit.name)
+		if cid.is_empty() or deceased_citizen_ids.has(cid):
+			continue
+		var c_cell = cit.get("current_cell")
+		if not (c_cell is Vector2i):
+			continue
+		var f_dir: int = int(cit.get("facing_dir")) if cit.get("facing_dir") != null else 0
+		var dir_vec: Vector2 = _screen_dir_to_vector(f_dir)
+		var sid := "hunter_%s" % cid
+		desired_ids[sid] = true
+		next_hunter_states[cid] = {"cell": c_cell, "dir": f_dir}
+		terrain_preview_field.upsert_source(
+			sid,
+			TerrainPreviewFieldScript.SourceCategory.HUNTER_SCOUT,
+			c_cell,
+			-1.0,
+			-1.0,
+			dir_vec
+		)
+
+	# 3. Living Soldiers (current position only, zero trail)
+	if tactical_military_mgr != null and tactical_military_mgr.has_method("get_all_units"):
+		for u in tactical_military_mgr.get_all_units():
+			if u == null or not is_instance_valid(u) or not bool(u.get("is_alive")):
+				continue
+			var u_cell = u.get("current_cell")
+			if not (u_cell is Vector2i):
+				continue
+			var uid: String = str(u.get("unit_id")) if u.get("unit_id") != null else str(u.name)
+			if uid.is_empty():
+				continue
+			var sid := "soldier_%s" % uid
+			desired_ids[sid] = true
+			terrain_preview_field.upsert_source(
+				sid,
+				TerrainPreviewFieldScript.SourceCategory.SOLDIER,
+				u_cell,
+				-1.0,
+				-1.0,
+				Vector2.ZERO
+			)
+
+	for old_id in _gameplay_preview_ids.keys():
+		if not desired_ids.has(old_id):
+			terrain_preview_field.remove_source(str(old_id))
+
+	_gameplay_preview_ids = desired_ids
+	_tracked_hunter_states = next_hunter_states
+	if terrain_preview_renderer != null and is_instance_valid(terrain_preview_renderer):
+		terrain_preview_renderer.sync_if_needed()
 
 func _sync_hunter_preview_sources_if_moved() -> void:
 	if terrain_preview_field == null:
@@ -5324,6 +5408,8 @@ func set_cloud_sea_composite_isolated_mode(enabled: bool) -> void:
 		fog_cloud_layer.visible = (not enabled) and (not debug_fog_disabled) and fog_cloud_layer.is_cloud_enabled()
 	if cloud_sea_base != null and is_instance_valid(cloud_sea_base) and fog_cloud_layer != null and is_instance_valid(fog_cloud_layer):
 		cloud_sea_base.visible = (not enabled) and (not debug_fog_disabled) and fog_cloud_layer.is_cloud_enabled()
+	if not enabled:
+		_sync_full_fog_layer()
 
 func cleanup_cloud_sea_composite() -> void:
 	if cloud_sea_composite != null and is_instance_valid(cloud_sea_composite):

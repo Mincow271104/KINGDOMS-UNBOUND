@@ -57,17 +57,22 @@ func _run_tests() -> void:
 	_assert(all_masks_present, "Fog TileSet atlas contains all 16 cardinal bitmask tiles (0..15)")
 	_assert(src.has_alternative_tile(Vector2i(0, 0), 1), "Fog TileSet atlas preserves EXPLORED alt=1 on (0,0)")
 
+	# Switch explicitly to legacy FogTileMapLayer mode to test legacy incremental vs full sync
+	if wv.has_method("set_cloud_sea_composite_isolated_mode"):
+		wv.set_cloud_sea_composite_isolated_mode(false)
+	_assert(not wv.use_cloud_sea_composite and tml.visible, "Legacy mode enabled (use_cloud_sea_composite == false, FogTileMapLayer visible)")
+
 	# Incremental reveal via military unit spawn & move
 	var probe_center := Vector2i(20, 20)
-	var edge_unexplored := Vector2i(20, 15)
 	if wv.tactical_military_mgr != null and wv.tactical_military_mgr.has_method("spawn_units_at_base"):
 		var u_ids: Array[String] = wv.tactical_military_mgr.spawn_units_at_base(1, false, probe_center)
 		var u: Node2D = wv.tactical_military_mgr.get_unit(u_ids[0])
-		u.current_cell = probe_center
+		probe_center = u.current_cell
+		var edge_unexplored := probe_center + Vector2i(0, -5)
 		wv._on_tactical_unit_moved(u.unit_id, probe_center)
 
-		# Neighbor just outside radius 4: (20, 15) has explored neighbor (20, 16) at (0, 1) -> bit 4
-		_assert(fow.is_unexplored(edge_unexplored), "Edge neighbor (20, 15) is UNEXPLORED")
+		# Neighbor just outside radius 4: (0, -5) has explored neighbor (0, -4) at (0, 1) -> bit 4
+		_assert(fow.is_unexplored(edge_unexplored), "Edge neighbor %s is UNEXPLORED" % [edge_unexplored])
 		_assert(tml.get_cell_atlas_coords(edge_unexplored).x > 0, "Incremental update assigns non-zero bitmask to UNEXPLORED frontier neighbor")
 
 		# Degrade to EXPLORED by despawning unit
@@ -75,7 +80,7 @@ func _run_tests() -> void:
 		_assert(fow.get_state(probe_center) == FogOfWar.State.EXPLORED, "Vacated center degrades to EXPLORED")
 		_assert(tml.get_cell_atlas_coords(probe_center) == Vector2i(0, 0) and tml.get_cell_alternative_tile(probe_center) == 1, "Degraded EXPLORED cell uses (0,0) alt=1")
 	else:
-		_assert(false, "Edge neighbor (20, 15) is UNEXPLORED (spawn_units_at_base unavailable)")
+		_assert(false, "Edge neighbor is UNEXPLORED (spawn_units_at_base unavailable)")
 		_assert(false, "Incremental update assigns non-zero bitmask to UNEXPLORED frontier neighbor (spawn_units_at_base unavailable)")
 		_assert(false, "Vacated center degrades to EXPLORED (spawn_units_at_base unavailable)")
 		_assert(false, "Degraded EXPLORED cell uses (0,0) alt=1 (spawn_units_at_base unavailable)")
@@ -100,6 +105,11 @@ func _run_tests() -> void:
 				mismatch_count += 1
 			idx += 1
 	_assert(mismatch_count == 0, "Incremental fog sync and full fog sync produce identical TileMapLayer state (mismatches=%d)" % mismatch_count)
+
+	# Switch back to composite mode and verify visibility toggles cleanly
+	if wv.has_method("set_cloud_sea_composite_isolated_mode"):
+		wv.set_cloud_sea_composite_isolated_mode(true)
+	_assert(wv.use_cloud_sea_composite and not tml.visible and wv.cloud_sea_composite != null and wv.cloud_sea_composite.visible, "Composite mode restored (use_cloud_sea_composite == true, CloudSeaComposite visible, FogTileMapLayer hidden)")
 
 	print("=== HYBRID BOUNDARY VISUALS RESULTS: %d passed, %d failed ===" % [_passed, _failed])
 	quit(0 if _failed == 0 else 1)
