@@ -7,6 +7,7 @@ extends Node2D
 
 @export var objective_id: String = ""
 @export var objective_name: String = "Tiền Đồn Địch"
+@export var linked_settlement_id: String = ""
 @export var owning_faction_id: String = ""
 @export var original_owner_id: String = ""
 @export var previous_owner_id: String = ""
@@ -28,8 +29,10 @@ signal objective_captured(obj_id: String, new_owner_id: String)
 signal objective_ownership_changed(obj_id: String, prev_owner: String, new_owner: String, tx_id: String)
 
 var damage_flash_timer: float = 0.0
+var is_player_building_overlapping: bool = false
 var faction_manager: Object = null
 var enemy_military_manager: Object = null
+var _test_simulate_transfer_failure: bool = false
 
 func _get_faction_manager() -> Object:
 	if faction_manager != null:
@@ -94,6 +97,13 @@ func take_damage(amount: float, attacker_id: String = "") -> void:
 	queue_redraw()
 
 func transfer_ownership(new_owner_id: String, tx_id: String = "") -> Dictionary:
+	if _test_simulate_transfer_failure:
+		return {
+			"success": false,
+			"already_applied": false,
+			"reason": "Simulated transfer ownership failure for testing"
+		}
+
 	if tx_id.strip_edges().is_empty():
 		return {
 			"success": false,
@@ -178,61 +188,70 @@ func _process(delta: float) -> void:
 			queue_redraw()
 
 func _draw() -> void:
-	# Draw isometric base footprint (2:1 slope diamond)
-	var hw := 28.0
-	var hh := 14.0
-	var diamond := PackedVector2Array([
-		Vector2(0, -hh),
-		Vector2(hw, 0),
-		Vector2(0, hh),
-		Vector2(-hw, 0)
-	])
-	draw_colored_polygon(diamond, Color(0.2, 0.18, 0.15, 0.7))
-	draw_polyline(diamond, Color(0.4, 0.35, 0.3, 0.9), 1.5, true)
+	var is_settlement_linked := not linked_settlement_id.is_empty()
+	var suppress_legacy_tower := is_settlement_linked or is_player_building_overlapping
 
-	# Outpost tower body
-	var tower_pts := PackedVector2Array([
-		Vector2(-16, 0),
-		Vector2(-16, -32),
-		Vector2(0, -40),
-		Vector2(16, -32),
-		Vector2(16, 0),
-		Vector2(0, 8)
-	])
-	var body_color := Color(0.55, 0.45, 0.4, 0.95) if is_alive else Color(0.3, 0.28, 0.28, 0.7)
-	draw_colored_polygon(tower_pts, body_color)
-	draw_polyline(tower_pts, Color(0.2, 0.15, 0.12, 0.95), 1.5, true)
+	if not suppress_legacy_tower:
+		# Draw isometric base footprint (2:1 slope diamond)
+		var hw := 28.0
+		var hh := 14.0
+		var diamond := PackedVector2Array([
+			Vector2(0, -hh),
+			Vector2(hw, 0),
+			Vector2(0, hh),
+			Vector2(-hw, 0)
+		])
+		draw_colored_polygon(diamond, Color(0.2, 0.18, 0.15, 0.7))
+		draw_polyline(diamond, Color(0.4, 0.35, 0.3, 0.9), 1.5, true)
 
-	# Package 2G: Dynamic Faction banner distinguishing owner
-	var banner_color: Color
-	match owning_faction_id:
-		"player":
-			banner_color = Color(0.2, 0.45, 0.95, 0.95) # Royal Blue
-		"rival_military":
-			banner_color = Color(0.85, 0.2, 0.2, 0.95) # Crimson Red
-		"rival_merchant":
-			banner_color = Color(0.92, 0.72, 0.15, 0.95) # Amber Gold
-		"neutral_tribe":
-			banner_color = Color(0.2, 0.75, 0.35, 0.95) # Forest Green
-		_:
-			banner_color = Color(0.65, 0.65, 0.65, 0.95)
+		# Outpost tower body
+		var tower_pts := PackedVector2Array([
+			Vector2(-16, 0),
+			Vector2(-16, -32),
+			Vector2(0, -40),
+			Vector2(16, -32),
+			Vector2(16, 0),
+			Vector2(0, 8)
+		])
+		var body_color := Color(0.55, 0.45, 0.4, 0.95) if is_alive else Color(0.3, 0.28, 0.28, 0.7)
+		draw_colored_polygon(tower_pts, body_color)
+		draw_polyline(tower_pts, Color(0.2, 0.15, 0.12, 0.95), 1.5, true)
 
-	var banner_pts := PackedVector2Array([
-		Vector2(0, -40),
-		Vector2(0, -54),
-		Vector2(12, -48),
-		Vector2(0, -42)
-	])
-	draw_colored_polygon(banner_pts, banner_color)
-	var pole_color := Color(0.85, 0.7, 0.2) if owning_faction_id == "player" else Color(0.1, 0.1, 0.1)
-	draw_line(Vector2(0, -40), Vector2(0, -56), pole_color, 1.5)
+		# Package 2G: Dynamic Faction banner distinguishing owner
+		var banner_color: Color
+		match owning_faction_id:
+			"player":
+				banner_color = Color(0.2, 0.45, 0.95, 0.95) # Royal Blue
+			"rival_military":
+				banner_color = Color(0.85, 0.2, 0.2, 0.95) # Crimson Red
+			"rival_merchant":
+				banner_color = Color(0.92, 0.72, 0.15, 0.95) # Amber Gold
+			"neutral_tribe":
+				banner_color = Color(0.2, 0.75, 0.35, 0.95) # Forest Green
+			_:
+				banner_color = Color(0.65, 0.65, 0.65, 0.95)
+
+		var banner_pts := PackedVector2Array([
+			Vector2(0, -40),
+			Vector2(0, -54),
+			Vector2(12, -48),
+			Vector2(0, -42)
+		])
+		draw_colored_polygon(banner_pts, banner_color)
+		var pole_color := Color(0.85, 0.7, 0.2) if owning_faction_id == "player" else Color(0.1, 0.1, 0.1)
+		draw_line(Vector2(0, -40), Vector2(0, -56), pole_color, 1.5)
+
+		# Impact flash
+		if damage_flash_timer > 0.0:
+			draw_polyline(tower_pts, Color(1.0, 0.9, 0.9, 0.7), 2.5, true)
 
 	# Package 2G: Visual distinction for captured outposts (conquest finial crest)
 	if is_captured:
 		draw_circle(Vector2(0, -56), 2.2, Color(1.0, 0.85, 0.2, 1.0))
 
-	# Health bar on top
-	if is_alive:
+	# Health bar on top (conditional when linked to a physical settlement HQ or overlapping player building)
+	var show_hp_bar: bool = is_alive and (not suppress_legacy_tower or is_under_active_siege or health < max_health or is_captured)
+	if show_hp_bar:
 		var bar_w := 36.0
 		var bar_h := 4.5
 		var bar_pos := Vector2(-bar_w / 2.0, -62.0)
@@ -242,14 +261,11 @@ func _draw() -> void:
 		draw_rect(Rect2(bar_pos, Vector2(bar_w * ratio, bar_h)), hp_fill_color, true)
 		draw_rect(Rect2(bar_pos, Vector2(bar_w, bar_h)), Color(0.0, 0.0, 0.0, 0.8), false, 1.0)
 
-	# Impact flash
-	if damage_flash_timer > 0.0:
-		draw_polyline(tower_pts, Color(1.0, 0.9, 0.9, 0.7), 2.5, true)
-
 func serialize() -> Dictionary:
 	return {
 		"objective_id": objective_id,
 		"objective_name": objective_name,
+		"linked_settlement_id": linked_settlement_id,
 		"owning_faction_id": owning_faction_id,
 		"original_owner_id": original_owner_id,
 		"previous_owner_id": previous_owner_id,
@@ -273,6 +289,7 @@ func deserialize(data: Dictionary) -> bool:
 	if objective_id.is_empty():
 		return false
 	objective_name = String(data.get("objective_name", "Tiền Đồn Địch"))
+	linked_settlement_id = String(data.get("linked_settlement_id", ""))
 	owning_faction_id = String(data.get("owning_faction_id", ""))
 	original_owner_id = String(data.get("original_owner_id", ""))
 	if original_owner_id.is_empty():

@@ -87,16 +87,103 @@ func _init(wv: Node = null) -> void:
 		current_cell = rally_cell
 		destination_cell = rally_cell
 
-func set_tactical_military_manager(mgr: Object) -> void:
-	if tactical_military_mgr == mgr:
+func set_tactical_military_manager(mgr: Object) -> Dictionary:
+	# 1. Both current and requested managers are null: intentional no-manager / no-op
+	if mgr == null and tactical_military_mgr == null:
+		return {"success": true, "reason": "No tactical manager attached"}
+
+	# 2. Intentional detach: current manager is non-null, requested manager is null
+	if mgr == null:
+		var old_mgr: Object = tactical_military_mgr
+		tactical_military_mgr = null
+		if is_instance_valid(old_mgr):
+			_unbind_tactical_military_manager(old_mgr)
+			if old_mgr.get("player_army_mgr") == self:
+				if old_mgr.has_method("set_player_army_manager"):
+					old_mgr.call("set_player_army_manager", null)
+				else:
+					old_mgr.set("player_army_mgr", null)
+			if old_mgr.has_method("clear_all_units"):
+				old_mgr.call("clear_all_units")
 		sync_state_from_tactical()
-		return
+		return {"success": true, "reason": "Tactical manager detached"}
 
+	# 3. Manager reference validity check
+	if not is_instance_valid(mgr):
+		return {"success": false, "reason": "Manager reference is invalid or freed"}
+
+	# 4. Check required sync method
+	if not mgr.has_method("sync_with_player_army"):
+		return {"success": false, "reason": "Manager missing required sync_with_player_army method"}
+
+	# 5. Same-manager re-synchronization branch (mgr is guaranteed non-null, valid, and implements sync_with_player_army)
+	if tactical_military_mgr == mgr:
+		var sync_raw: Variant = mgr.call("sync_with_player_army")
+		if not (sync_raw is Dictionary):
+			return {"success": false, "reason": "Invalid sync result type: expected Dictionary"}
+		var sync_dict: Dictionary = sync_raw as Dictionary
+		if not sync_dict.has("success") or not (sync_dict["success"] is bool):
+			return {"success": false, "reason": "Malformed sync result: missing boolean success key"}
+		if not sync_dict["success"]:
+			return sync_dict
+		sync_state_from_tactical()
+		return sync_dict
+
+	# 5. Replacement or new manager binding transaction
 	var old_mgr: Object = tactical_military_mgr
-	tactical_military_mgr = null
-
 	if old_mgr != null and is_instance_valid(old_mgr):
 		_unbind_tactical_military_manager(old_mgr)
+
+	tactical_military_mgr = mgr
+
+	# Attempt registration with new manager
+	var reg_res: Variant = null
+	if mgr.get("player_army_mgr") != self:
+		if mgr.has_method("set_player_army_manager"):
+			reg_res = mgr.call("set_player_army_manager", self)
+		else:
+			mgr.set("player_army_mgr", self)
+
+	# Validate registration and sync result
+	var sync_res: Dictionary = {}
+	if reg_res is Dictionary:
+		if not reg_res.has("success") or not (reg_res["success"] is bool) or not reg_res["success"]:
+			_rollback_binding(old_mgr, mgr)
+			if reg_res.has("success"):
+				return reg_res
+			return {"success": false, "reason": "Registration returned malformed dictionary"}
+		sync_res = reg_res
+	elif reg_res is bool:
+		if not reg_res:
+			_rollback_binding(old_mgr, mgr)
+			return {"success": false, "reason": "set_player_army_manager returned false"}
+		var sync_raw: Variant = mgr.call("sync_with_player_army")
+		if not (sync_raw is Dictionary):
+			_rollback_binding(old_mgr, mgr)
+			return {"success": false, "reason": "Invalid sync result type: expected Dictionary"}
+		var sync_dict: Dictionary = sync_raw as Dictionary
+		if not sync_dict.has("success") or not (sync_dict["success"] is bool) or not sync_dict["success"]:
+			_rollback_binding(old_mgr, mgr)
+			if sync_dict.has("success"):
+				return sync_dict
+			return {"success": false, "reason": "Malformed sync result: missing boolean success key"}
+		sync_res = sync_dict
+	else:
+		var sync_raw: Variant = mgr.call("sync_with_player_army")
+		if not (sync_raw is Dictionary):
+			_rollback_binding(old_mgr, mgr)
+			return {"success": false, "reason": "Invalid sync result type: expected Dictionary"}
+		var sync_dict: Dictionary = sync_raw as Dictionary
+		if not sync_dict.has("success") or not (sync_dict["success"] is bool) or not sync_dict["success"]:
+			_rollback_binding(old_mgr, mgr)
+			if sync_dict.has("success"):
+				return sync_dict
+			return {"success": false, "reason": "Malformed sync result: missing boolean success key"}
+		sync_res = sync_dict
+
+	# At this point, new manager registration & sync is confirmed successful!
+	# Safely finalize detachment of old_mgr
+	if old_mgr != null and is_instance_valid(old_mgr):
 		if old_mgr.get("player_army_mgr") == self:
 			if old_mgr.has_method("set_player_army_manager"):
 				old_mgr.call("set_player_army_manager", null)
@@ -105,18 +192,33 @@ func set_tactical_military_manager(mgr: Object) -> void:
 		if old_mgr.has_method("clear_all_units"):
 			old_mgr.call("clear_all_units")
 
-	tactical_military_mgr = mgr
-	if tactical_military_mgr != null and is_instance_valid(tactical_military_mgr):
-		_bind_tactical_military_manager(tactical_military_mgr)
-		if tactical_military_mgr.get("player_army_mgr") != self:
-			if tactical_military_mgr.has_method("set_player_army_manager"):
-				tactical_military_mgr.call("set_player_army_manager", self)
-			else:
-				tactical_military_mgr.set("player_army_mgr", self)
-		if tactical_military_mgr.has_method("sync_with_player_army"):
-			tactical_military_mgr.call("sync_with_player_army")
-
+	_bind_tactical_military_manager(mgr)
 	sync_state_from_tactical()
+	return sync_res
+
+func _rollback_binding(old_mgr: Object, failed_mgr: Object) -> void:
+	if failed_mgr != null and is_instance_valid(failed_mgr):
+		_unbind_tactical_military_manager(failed_mgr)
+		if failed_mgr.get("player_army_mgr") == self:
+			if failed_mgr.has_method("set_player_army_manager"):
+				failed_mgr.call("set_player_army_manager", null)
+			else:
+				failed_mgr.set("player_army_mgr", null)
+		if failed_mgr.has_method("clear_all_units"):
+			failed_mgr.call("clear_all_units")
+
+	tactical_military_mgr = old_mgr
+
+	if old_mgr != null and is_instance_valid(old_mgr):
+		_bind_tactical_military_manager(old_mgr)
+		if old_mgr.get("player_army_mgr") != self:
+			if old_mgr.has_method("set_player_army_manager"):
+				old_mgr.call("set_player_army_manager", self)
+			else:
+				old_mgr.set("player_army_mgr", self)
+		sync_state_from_tactical()
+	else:
+		sync_state_from_tactical()
 
 func _bind_tactical_military_manager(mgr: Object) -> void:
 	if mgr == null or not is_instance_valid(mgr):
@@ -176,13 +278,21 @@ func set_custom_world_data(wd: WorldGenerator.WorldData) -> void:
 func set_custom_event_manager(em: Object) -> void:
 	_custom_event_mgr = em
 
+var _test_simulate_null_nav: bool = false
+var _test_spawn_capacity_override: int = -1
+
+func set_test_spawn_capacity_override(val: int) -> void:
+	_test_spawn_capacity_override = val
+
 func get_nav() -> GridNavigation:
+	if _test_simulate_null_nav:
+		return null
 	if _custom_nav != null:
 		return _custom_nav
 	if is_instance_valid(world_view) and world_view.get("nav") != null:
 		return world_view.get("nav")
 	var wd = get_world_data()
-	if wd != null:
+	if wd != null and not is_instance_valid(world_view):
 		return GridNavigation.new(wd)
 	return null
 
@@ -473,6 +583,24 @@ func recruit(count: int = 1) -> Dictionary:
 			"reason": "Không thể dự trữ tài nguyên chiêu mộ",
 			"recruited": 0
 		}
+
+	# Spawn tactical units first (all-or-nothing) if tactical manager is active
+	var spawned_ids: Array = []
+	var tmm = tactical_military_mgr
+	if tmm == null and is_instance_valid(world_view):
+		tmm = world_view.get("tactical_military_mgr")
+	if tmm != null and is_instance_valid(tmm) and tmm.has_method("spawn_units_at_base"):
+		spawned_ids = tmm.call("spawn_units_at_base", count, true, rally_cell)
+		if spawned_ids.size() < count:
+			if tmm.has_method("despawn_units"):
+				tmm.call("despawn_units", spawned_ids)
+			if rm.has_method("release_cost"):
+				rm.call("release_cost", cost)
+			return {
+				"success": false,
+				"reason": "Khởi tạo binh sĩ chiến thuật thất bại tại căn cứ",
+				"recruited": 0
+			}
 
 	rm.call("commit_cost", cost)
 
@@ -1430,9 +1558,23 @@ func get_outpost_info(outpost_id: String) -> Dictionary:
 				"name": b_type.capitalize(),
 				"reason": ""
 			}
+		elif outpost_id.begins_with("bld_"):
+			return {
+				"valid": false,
+				"type": "building",
+				"capacity": 0,
+				"reason": "Công trình đã bị dỡ bỏ hoặc không tồn tại: %s" % outpost_id
+			}
 
 	# If already recorded in garrisons (e.g. from loaded save)
 	if garrisons.has(outpost_id):
+		if wd != null and outpost_id.begins_with("bld_"):
+			return {
+				"valid": false,
+				"type": "building",
+				"capacity": 0,
+				"reason": "Công trình đã bị dỡ bỏ hoặc không tồn tại: %s" % outpost_id
+			}
 		var raw_g_cap = garrisons[outpost_id].get("capacity")
 		var g_cap: int = int(raw_g_cap) if raw_g_cap != null and int(raw_g_cap) > 0 else DEFAULT_OUTPOST_GARRISON_CAPACITY
 		return {
@@ -1479,6 +1621,9 @@ func station_soldier(outpost_id: String, count: int = 1) -> Dictionary:
 	for i in range(count):
 		var s_id := "soldier_gar_%d" % next_soldier_id
 		next_soldier_id += 1
+		while _has_soldier_id(s_id):
+			s_id = "soldier_gar_%d" % next_soldier_id
+			next_soldier_id += 1
 		garrisons[outpost_id]["soldiers"].append({
 			"soldier_id": s_id,
 			"equipment_tier": equipment_tier,
@@ -1506,6 +1651,29 @@ func recall_soldier(outpost_id: String, count: int = 1) -> Dictionary:
 	var cur: int = get_garrison_count(outpost_id)
 	if cur < count:
 		return {"success": false, "reason": "Không đủ quân đồn trú để rút (Hiện có: %d lính đồn trú, yêu cầu: %d)" % [cur, count]}
+
+	# Preflight check: verify tactical military manager and nav can allocate distinct walkable spawn cells
+	var available_slots := _get_available_spawn_slots(count)
+	if available_slots < count:
+		return {
+			"success": false,
+			"reason": "Không đủ vị trí trống quanh căn cứ hoặc thiếu hệ thống quân sự để điều động binh sĩ trở về"
+		}
+
+	# Spawn tactical units first (all-or-nothing) if tactical manager is active
+	var spawned_ids: Array = []
+	var tmm = tactical_military_mgr
+	if tmm == null and is_instance_valid(world_view):
+		tmm = world_view.get("tactical_military_mgr")
+	if tmm != null and is_instance_valid(tmm) and tmm.has_method("spawn_units_at_base"):
+		spawned_ids = tmm.call("spawn_units_at_base", count, true, rally_cell)
+		if spawned_ids.size() < count:
+			if tmm.has_method("despawn_units"):
+				tmm.call("despawn_units", spawned_ids)
+			return {
+				"success": false,
+				"reason": "Khởi tạo binh sĩ chiến thuật thất bại tại căn cứ"
+			}
 
 	var s_list: Array = garrisons[outpost_id].get("soldiers", [])
 	for i in range(count):
@@ -1555,6 +1723,9 @@ func dispatch_reinforcements(outpost_id: String, count: int = 1, travel_hours: f
 	for i in range(count):
 		var s_id := "soldier_reinf_%d" % next_soldier_id
 		next_soldier_id += 1
+		while _has_soldier_id(s_id):
+			s_id = "soldier_reinf_%d" % next_soldier_id
+			next_soldier_id += 1
 		dispatched_soldiers.append({
 			"soldier_id": s_id,
 			"equipment_tier": equipment_tier,
@@ -1565,6 +1736,9 @@ func dispatch_reinforcements(outpost_id: String, count: int = 1, travel_hours: f
 
 	var disp_id := "reinf_%d" % next_reinforce_id
 	next_reinforce_id += 1
+	while _has_dispatch_id(disp_id):
+		disp_id = "reinf_%d" % next_reinforce_id
+		next_reinforce_id += 1
 	var reinf_rec := {
 		"dispatch_id": disp_id,
 		"outpost_id": outpost_id,
@@ -1613,22 +1787,78 @@ func advance_reinforcements(delta_hours: float) -> Array[Dictionary]:
 						"capacity": cap,
 						"soldiers": []
 					}
-				for s in s_list:
-					garrisons[out_id]["soldiers"].append(s)
+				var out_cap: int = int(garrisons[out_id].get("capacity", DEFAULT_OUTPOST_GARRISON_CAPACITY))
+				var cur_g_count: int = garrisons[out_id]["soldiers"].size()
+				var space_left: int = maxi(0, out_cap - cur_g_count)
+				var accepted_count: int = mini(s_list.size(), space_left)
+				for i in range(accepted_count):
+					garrisons[out_id]["soldiers"].append(s_list[i])
 				garrison_changed.emit(out_id, get_garrison_count(out_id), get_garrison_capacity(out_id))
-			else:
-				# Outpost lost while in transit: retreat to central reserve
-				soldier_count += c_count
-				army_changed.emit(soldier_count, get_army_capacity())
-				if tactical_military_mgr != null and tactical_military_mgr.has_method("sync_with_player_army"):
-					tactical_military_mgr.sync_with_player_army()
 
-			reinforcement_arrived.emit(str(r.get("dispatch_id", "")), out_id, c_count)
+				var excess_count: int = s_list.size() - accepted_count
+				if excess_count > 0:
+					# Excess soldiers return to base with spawn capacity safety (Policy C)
+					var evac_count: int = 0
+					var cas_count: int = excess_count
+					var tmm_arr = tactical_military_mgr
+					if tmm_arr == null and is_instance_valid(world_view):
+						tmm_arr = world_view.get("tactical_military_mgr")
+					var max_spawns: int = _get_available_spawn_slots(excess_count)
+					var want_to_spawn: int = mini(excess_count, max_spawns)
+					var actually_spawned: int = 0
+					if want_to_spawn > 0 and tmm_arr != null and is_instance_valid(tmm_arr):
+						if tmm_arr.has_method("spawn_units_at_base"):
+							var s_ids: Array = tmm_arr.call("spawn_units_at_base", want_to_spawn, false, rally_cell)
+							actually_spawned = s_ids.size()
+						else:
+							actually_spawned = want_to_spawn
+					evac_count = actually_spawned
+					cas_count = excess_count - evac_count
+
+					if evac_count > 0:
+						soldier_count += evac_count
+						army_changed.emit(soldier_count, get_army_capacity())
+					if cas_count > 0:
+						var em = get_event_manager()
+						if em != null and em.has_method("log_event"):
+							em.call("log_event", "Tiền đồn đã đủ quân! %d binh sĩ dư thừa rút về căn cứ an toàn, %d binh sĩ tử trận." % [evac_count, cas_count])
+			else:
+				# Outpost lost while in transit: retreat to central reserve with spawn capacity safety (Policy C)
+				var evac_count: int = 0
+				var cas_count: int = c_count
+				var tmm_lost = tactical_military_mgr
+				if tmm_lost == null and is_instance_valid(world_view):
+					tmm_lost = world_view.get("tactical_military_mgr")
+				var max_spawns: int = _get_available_spawn_slots(c_count)
+				var want_to_spawn: int = mini(c_count, max_spawns)
+				var actually_spawned: int = 0
+				if want_to_spawn > 0 and tmm_lost != null and is_instance_valid(tmm_lost):
+					if tmm_lost.has_method("spawn_units_at_base"):
+						var s_ids: Array = tmm_lost.call("spawn_units_at_base", want_to_spawn, false, rally_cell)
+						actually_spawned = s_ids.size()
+					else:
+						actually_spawned = want_to_spawn
+				evac_count = actually_spawned
+				cas_count = c_count - evac_count
+
+				if evac_count > 0:
+					soldier_count += evac_count
+					army_changed.emit(soldier_count, get_army_capacity())
+				if cas_count > 0:
+					var em = get_event_manager()
+					if em != null and em.has_method("log_event"):
+						em.call("log_event", "Đoàn tiếp viện không thể hội quân! %d binh sĩ rút về căn cứ an toàn, %d binh sĩ tử trận." % [evac_count, cas_count])
+
 			completed.append(r)
 		else:
 			remaining.append(r)
 
 	active_reinforcements = remaining
+	for comp in completed:
+		var c_out_id: String = str(comp.get("outpost_id", ""))
+		var c_soldiers: Array = comp.get("soldiers", [])
+		var c_cnt: int = int(comp.get("soldier_count", c_soldiers.size()))
+		reinforcement_arrived.emit(str(comp.get("dispatch_id", "")), c_out_id, c_cnt)
 	return completed
 
 func apply_outpost_casualties(outpost_id: String, count: int) -> int:
@@ -1646,19 +1876,303 @@ func evict_outpost_garrison(outpost_id: String, retreat_to_central: bool = false
 		return []
 	var s_list: Array = garrisons[outpost_id].get("soldiers", [])
 	var count := s_list.size()
+
+	# Preflight check if retreating to central: verify tactical spawns can be allocated
+	if retreat_to_central and count > 0 and tactical_military_mgr != null and tactical_military_mgr.has_method("can_allocate_spawns"):
+		if not bool(tactical_military_mgr.call("can_allocate_spawns", count, rally_cell)):
+			return []
+
 	garrisons.erase(outpost_id)
 	if retreat_to_central and count > 0:
 		soldier_count += count
 		army_changed.emit(soldier_count, get_army_capacity())
 		if tactical_military_mgr != null and tactical_military_mgr.has_method("sync_with_player_army"):
-			tactical_military_mgr.sync_with_player_army()
+			var sync_res = tactical_military_mgr.call("sync_with_player_army")
+			if sync_res is Dictionary and not bool(sync_res.get("success", true)):
+				# Rollback if spawn failed at instantiation boundary
+				soldier_count -= count
+				army_changed.emit(soldier_count, get_army_capacity())
+				garrisons[outpost_id] = {"outpost_id": outpost_id, "capacity": get_garrison_capacity(outpost_id), "soldiers": s_list}
+				return []
 	garrison_changed.emit(outpost_id, 0, 0)
 	return s_list
+
+func cancel_outpost_reinforcements(outpost_id: String, retreat_to_central: bool = true) -> int:
+	if outpost_id == "" or active_reinforcements.is_empty():
+		return 0
+
+	var match_count: int = 0
+	for r in active_reinforcements:
+		if str(r.get("outpost_id", "")) == outpost_id:
+			var s_list: Array = r.get("soldiers", [])
+			match_count += int(r.get("soldier_count", s_list.size()))
+
+	if match_count == 0:
+		return 0
+
+	# Preflight check if retreating to central: verify tactical spawns can be allocated
+	if retreat_to_central and match_count > 0:
+		var available := _get_available_spawn_slots(match_count)
+		if available < match_count:
+			return 0
+
+	var remaining: Array[Dictionary] = []
+	var total_cancelled_soldiers: int = 0
+
+	for r in active_reinforcements:
+		if str(r.get("outpost_id", "")) == outpost_id:
+			var s_list: Array = r.get("soldiers", [])
+			var c_count: int = int(r.get("soldier_count", s_list.size()))
+			total_cancelled_soldiers += c_count
+		else:
+			remaining.append(r)
+
+	active_reinforcements = remaining
+
+	if retreat_to_central and total_cancelled_soldiers > 0:
+		soldier_count += total_cancelled_soldiers
+		army_changed.emit(soldier_count, get_army_capacity())
+		if tactical_military_mgr != null and tactical_military_mgr.has_method("sync_with_player_army"):
+			var sync_res = tactical_military_mgr.call("sync_with_player_army")
+			if sync_res is Dictionary and not bool(sync_res.get("success", true)):
+				soldier_count -= total_cancelled_soldiers
+				army_changed.emit(soldier_count, get_army_capacity())
+				# Re-insert matched reinforcements back to active_reinforcements
+				for r in active_reinforcements:
+					pass
+				return 0
+
+	return total_cancelled_soldiers
+
+func _get_available_spawn_slots(needed: int) -> int:
+	if needed <= 0:
+		return 0
+	if _test_spawn_capacity_override >= 0:
+		return _test_spawn_capacity_override
+	var tmm = tactical_military_mgr
+	if tmm == null and is_instance_valid(world_view):
+		tmm = world_view.get("tactical_military_mgr")
+	if tmm == null or not is_instance_valid(tmm):
+		return 0
+	var nav = get_nav()
+	if nav == null or not is_instance_valid(nav):
+		return 0
+	if not tmm.has_method("get_available_spawn_count") and not tmm.has_method("can_allocate_spawns"):
+		return 0
+	if tmm.has_method("get_available_spawn_count"):
+		return int(tmm.call("get_available_spawn_count", needed, rally_cell))
+	if bool(tmm.call("can_allocate_spawns", needed, rally_cell)):
+		return needed
+	var low: int = 0
+	var high: int = needed - 1
+	var best: int = 0
+	while low <= high:
+		var mid: int = (low + high) / 2
+		if bool(tmm.call("can_allocate_spawns", mid, rally_cell)):
+			best = mid
+			low = mid + 1
+		else:
+			high = mid - 1
+	return best
+
+func evict_and_cancel_outpost(outpost_id: String, retreat_to_central: bool = true, allow_casualties_on_congestion: bool = false) -> Dictionary:
+	var gar_count: int = get_garrison_count(outpost_id)
+	var transit_count: int = get_in_transit_count(outpost_id)
+	var total_needed: int = (gar_count + transit_count) if retreat_to_central else 0
+
+	# Idempotency / early exit if no records exist for this outpost
+	if gar_count == 0 and transit_count == 0 and not garrisons.has(outpost_id):
+		return {
+			"success": true,
+			"reason": "Không có quân đồn trú hoặc tiếp viện tại tiền đồn",
+			"outpost_id": outpost_id,
+			"evicted_soldiers": [],
+			"evicted_count": 0,
+			"cancelled_count": 0,
+			"evacuated_count": 0,
+			"casualties_count": 0,
+			"total_refunded": 0,
+			"spawned_unit_ids": []
+		}
+
+	# Check dependency availability when retreat is requested
+	var available_spawns: int = _get_available_spawn_slots(total_needed) if (retreat_to_central and total_needed > 0) else 0
+
+	# Policy A: Strict all-or-nothing fail-closed (voluntary demolition)
+	if retreat_to_central and total_needed > 0 and not allow_casualties_on_congestion:
+		if available_spawns < total_needed:
+			return {
+				"success": false,
+				"reason": "Không đủ vị trí trống quanh căn cứ hoặc thiếu hệ thống quân sự để tiếp nhận binh sĩ rút về",
+				"outpost_id": outpost_id,
+				"evicted_soldiers": [],
+				"evicted_count": 0,
+				"cancelled_count": 0,
+				"evacuated_count": 0,
+				"casualties_count": 0,
+				"total_refunded": 0,
+				"spawned_unit_ids": []
+			}
+
+		# Execute actual spawn attempt with all_or_nothing = true
+		var spawned_ids: Array = []
+		var tmm = tactical_military_mgr
+		if tmm == null and is_instance_valid(world_view):
+			tmm = world_view.get("tactical_military_mgr")
+		if tmm != null and is_instance_valid(tmm) and tmm.has_method("spawn_units_at_base"):
+			spawned_ids = tmm.call("spawn_units_at_base", total_needed, true, rally_cell)
+		else:
+			for i in range(total_needed):
+				spawned_ids.append("mock_unit_%d" % i)
+
+		if spawned_ids.size() < total_needed:
+			# Instantiation failure! Clean up any partial spawns
+			if tmm != null and is_instance_valid(tmm) and tmm.has_method("despawn_units"):
+				tmm.call("despawn_units", spawned_ids)
+			return {
+				"success": false,
+				"reason": "Khởi tạo binh sĩ chiến thuật thất bại tại căn cứ",
+				"outpost_id": outpost_id,
+				"evicted_soldiers": [],
+				"evicted_count": 0,
+				"cancelled_count": 0,
+				"evacuated_count": 0,
+				"casualties_count": 0,
+				"total_refunded": 0,
+				"spawned_unit_ids": []
+			}
+
+		var evicted_soldiers: Array = evict_outpost_garrison(outpost_id, false)
+		var cancelled_soldiers_count: int = cancel_outpost_reinforcements(outpost_id, false)
+		soldier_count += total_needed
+		army_changed.emit(soldier_count, get_army_capacity())
+
+		return {
+			"success": true,
+			"reason": "",
+			"outpost_id": outpost_id,
+			"evicted_soldiers": evicted_soldiers,
+			"evicted_count": evicted_soldiers.size(),
+			"cancelled_count": cancelled_soldiers_count,
+			"evacuated_count": total_needed,
+			"casualties_count": 0,
+			"total_refunded": total_needed,
+			"spawned_unit_ids": spawned_ids
+		}
+
+	# Policy B: Forced destruction and hostile capture (evacuate what actually spawns, rest casualties)
+	var evacuated_count: int = 0
+	var casualties_count: int = 0
+	var spawned_ids_b: Array = []
+	if retreat_to_central and total_needed > 0:
+		var want_to_spawn := mini(total_needed, available_spawns)
+		if want_to_spawn > 0:
+			var tmm_b = tactical_military_mgr
+			if tmm_b == null and is_instance_valid(world_view):
+				tmm_b = world_view.get("tactical_military_mgr")
+			if tmm_b != null and is_instance_valid(tmm_b) and tmm_b.has_method("spawn_units_at_base"):
+				spawned_ids_b = tmm_b.call("spawn_units_at_base", want_to_spawn, false, rally_cell)
+			else:
+				for i in range(want_to_spawn):
+					spawned_ids_b.append("mock_unit_%d" % i)
+
+		evacuated_count = spawned_ids_b.size()
+		casualties_count = total_needed - evacuated_count
+
+	var evicted_soldiers: Array = evict_outpost_garrison(outpost_id, false)
+	var cancelled_soldiers_count: int = cancel_outpost_reinforcements(outpost_id, false)
+
+	if evacuated_count > 0:
+		soldier_count += evacuated_count
+		army_changed.emit(soldier_count, get_army_capacity())
+
+	if casualties_count > 0:
+		var em = get_event_manager()
+		if em != null and em.has_method("log_event"):
+			em.call("log_event", "Tiền đồn thất thủ! %d binh sĩ rút về căn cứ, %d binh sĩ tử trận do mất vị trí an toàn." % [evacuated_count, casualties_count])
+
+	return {
+		"success": true,
+		"reason": "",
+		"outpost_id": outpost_id,
+		"evicted_soldiers": evicted_soldiers,
+		"evicted_count": evicted_soldiers.size(),
+		"cancelled_count": cancelled_soldiers_count,
+		"evacuated_count": evacuated_count,
+		"casualties_count": casualties_count,
+		"total_refunded": evacuated_count,
+		"spawned_unit_ids": spawned_ids_b
+	}
+
+func get_outpost_military_snapshot(outpost_id: String) -> Dictionary:
+	var snap := {
+		"outpost_id": outpost_id,
+		"garrison": garrisons.get(outpost_id, {}).duplicate(true) if garrisons.has(outpost_id) else {},
+		"reinforcements": [],
+		"soldier_count": soldier_count,
+		"next_soldier_id": next_soldier_id,
+		"next_reinforce_id": next_reinforce_id,
+		"spawned_unit_ids": []
+	}
+	for r in active_reinforcements:
+		if r is Dictionary and str(r.get("outpost_id", "")) == outpost_id:
+			snap["reinforcements"].append(r.duplicate(true))
+	return snap
+
+func restore_outpost_military_snapshot(snapshot: Dictionary) -> void:
+	if snapshot.is_empty():
+		return
+	var o_id: String = str(snapshot.get("outpost_id", ""))
+	if o_id.is_empty():
+		return
+
+	# Despawn ONLY the tactical units spawned by this transaction!
+	# DO NOT run generic sync_with_player_army, which might prune pre-existing units!
+	var spawned_ids: Array = snapshot.get("spawned_unit_ids", [])
+	var tmm = tactical_military_mgr
+	if tmm == null and is_instance_valid(world_view):
+		tmm = world_view.get("tactical_military_mgr")
+	if tmm != null and is_instance_valid(tmm) and not spawned_ids.is_empty():
+		if tmm.has_method("despawn_units"):
+			tmm.call("despawn_units", spawned_ids)
+		else:
+			for uid in spawned_ids:
+				if tmm.has_method("_remove_unit"):
+					tmm.call("_remove_unit", uid)
+			if tmm.has_method("prune_invalid_units"):
+				tmm.call("prune_invalid_units")
+			if tmm.has_signal("tactical_state_updated"):
+				tmm.tactical_state_updated.emit()
+
+	var orig_reserve: int = int(snapshot.get("soldier_count", soldier_count))
+	soldier_count = orig_reserve
+	next_soldier_id = int(snapshot.get("next_soldier_id", next_soldier_id))
+	next_reinforce_id = int(snapshot.get("next_reinforce_id", next_reinforce_id))
+
+	var g: Dictionary = snapshot.get("garrison", {})
+	if not g.is_empty():
+		garrisons[o_id] = g.duplicate(true)
+	else:
+		garrisons.erase(o_id)
+
+	var r_list: Array = snapshot.get("reinforcements", [])
+	var cleaned: Array[Dictionary] = []
+	for r in active_reinforcements:
+		if r is Dictionary and str(r.get("outpost_id", "")) != o_id:
+			cleaned.append(r)
+	for r in r_list:
+		if r is Dictionary:
+			cleaned.append(r.duplicate(true))
+	active_reinforcements = cleaned
+	garrison_changed.emit(o_id, get_garrison_count(o_id), get_garrison_capacity(o_id))
+	army_changed.emit(soldier_count, get_army_capacity())
 
 func serialize_garrisons() -> Dictionary:
 	var result: Dictionary = {
 		"garrisons": {},
-		"reinforcements": []
+		"reinforcements": [],
+		"next_soldier_id": next_soldier_id,
+		"next_reinforce_id": next_reinforce_id
 	}
 	for o_id in garrisons:
 		var g = garrisons[o_id]
@@ -1708,5 +2222,66 @@ func deserialize_garrisons(data: Dictionary) -> bool:
 			if r is Dictionary:
 				active_reinforcements.append(r.duplicate(true))
 
+	if data.has("next_soldier_id"):
+		next_soldier_id = maxi(next_soldier_id, int(data["next_soldier_id"]))
+	if data.has("next_reinforce_id"):
+		next_reinforce_id = maxi(next_reinforce_id, int(data["next_reinforce_id"]))
+	_recompute_max_ids_from_records()
+
 	return true
+
+func _has_soldier_id(check_id: String) -> bool:
+	for o_id in garrisons:
+		var s_list: Array = garrisons[o_id].get("soldiers", [])
+		for s in s_list:
+			if s is Dictionary and str(s.get("soldier_id", "")) == check_id:
+				return true
+	for r in active_reinforcements:
+		if r is Dictionary:
+			var r_soldiers = r.get("soldiers", [])
+			if r_soldiers is Array:
+				for rs in r_soldiers:
+					if rs is Dictionary and str(rs.get("soldier_id", "")) == check_id:
+						return true
+	return false
+
+func _has_dispatch_id(check_id: String) -> bool:
+	for r in active_reinforcements:
+		if r is Dictionary and str(r.get("dispatch_id", "")) == check_id:
+			return true
+	return false
+
+func _recompute_max_ids_from_records() -> void:
+	var max_s: int = 0
+	var max_r: int = 0
+	for o_id in garrisons:
+		var s_list: Array = garrisons[o_id].get("soldiers", [])
+		for s in s_list:
+			if s is Dictionary:
+				var sid: String = str(s.get("soldier_id", ""))
+				var idx := sid.rfind("_")
+				if idx != -1:
+					var num_part := sid.substr(idx + 1)
+					if num_part.is_valid_int():
+						max_s = maxi(max_s, int(num_part))
+	for r in active_reinforcements:
+		if r is Dictionary:
+			var did: String = str(r.get("dispatch_id", ""))
+			var idx_d := did.rfind("_")
+			if idx_d != -1:
+				var num_d := did.substr(idx_d + 1)
+				if num_d.is_valid_int():
+					max_r = maxi(max_r, int(num_d))
+			var r_soldiers = r.get("soldiers", [])
+			if r_soldiers is Array:
+				for rs in r_soldiers:
+					if rs is Dictionary:
+						var rsid: String = str(rs.get("soldier_id", ""))
+						var idx_rs := rsid.rfind("_")
+						if idx_rs != -1:
+							var num_rs := rsid.substr(idx_rs + 1)
+							if num_rs.is_valid_int():
+								max_s = maxi(max_s, int(num_rs))
+	next_soldier_id = maxi(next_soldier_id, max_s + 1)
+	next_reinforce_id = maxi(next_reinforce_id, max_r + 1)
 

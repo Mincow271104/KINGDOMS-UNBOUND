@@ -168,6 +168,9 @@ func _test_eligibility_gating() -> void:
 
 	var army_mgr = PlayerArmyManagerScript.new()
 	var tac_mgr = TacticalMilitaryManagerScript.new(null, army_mgr)
+	var nav := GridNavigation.new()
+	army_mgr.set_custom_nav(nav)
+	tac_mgr.set_custom_nav(nav)
 	army_mgr.set_tactical_military_manager(tac_mgr)
 	army_mgr.soldier_count = 3
 	tac_mgr.sync_with_player_army()
@@ -221,6 +224,9 @@ func _test_operation_launch_and_defender_mobilization() -> void:
 
 	var army_mgr = PlayerArmyManagerScript.new()
 	var tac_mgr = TacticalMilitaryManagerScript.new(null, army_mgr)
+	var nav := GridNavigation.new()
+	army_mgr.set_custom_nav(nav)
+	tac_mgr.set_custom_nav(nav)
 	army_mgr.set_tactical_military_manager(tac_mgr)
 	army_mgr.soldier_count = 3
 	tac_mgr.sync_with_player_army()
@@ -260,6 +266,9 @@ func _test_victory_resolution_and_plunder() -> void:
 
 	var army_mgr = PlayerArmyManagerScript.new()
 	var tac_mgr = TacticalMilitaryManagerScript.new(null, army_mgr)
+	var nav := GridNavigation.new()
+	army_mgr.set_custom_nav(nav)
+	tac_mgr.set_custom_nav(nav)
 	army_mgr.set_tactical_military_manager(tac_mgr)
 	army_mgr.soldier_count = 4
 	tac_mgr.sync_with_player_army()
@@ -306,6 +315,9 @@ func _test_defeat_resolution() -> void:
 
 	var army_mgr = PlayerArmyManagerScript.new()
 	var tac_mgr = TacticalMilitaryManagerScript.new(null, army_mgr)
+	var nav := GridNavigation.new()
+	army_mgr.set_custom_nav(nav)
+	tac_mgr.set_custom_nav(nav)
 	army_mgr.set_tactical_military_manager(tac_mgr)
 	army_mgr.soldier_count = 2
 	tac_mgr.sync_with_player_army()
@@ -339,6 +351,9 @@ func _test_withdrawal_resolution() -> void:
 
 	var army_mgr = PlayerArmyManagerScript.new()
 	var tac_mgr = TacticalMilitaryManagerScript.new(null, army_mgr)
+	var nav := GridNavigation.new()
+	army_mgr.set_custom_nav(nav)
+	tac_mgr.set_custom_nav(nav)
 	army_mgr.set_tactical_military_manager(tac_mgr)
 	army_mgr.soldier_count = 2
 	tac_mgr.sync_with_player_army()
@@ -484,6 +499,9 @@ func _test_real_resource_manager_integration() -> void:
 
 	var army_mgr = PlayerArmyManagerScript.new()
 	var tac_mgr = TacticalMilitaryManagerScript.new(null, army_mgr)
+	var nav := GridNavigation.new()
+	army_mgr.set_custom_nav(nav)
+	tac_mgr.set_custom_nav(nav)
 	army_mgr.set_tactical_military_manager(tac_mgr)
 	army_mgr.soldier_count = 3
 	tac_mgr.sync_with_player_army()
@@ -523,6 +541,9 @@ func _test_tactical_attack_order_gating() -> void:
 
 	var army_mgr = PlayerArmyManagerScript.new()
 	var tac_mgr = TacticalMilitaryManagerScript.new(null, army_mgr)
+	var nav := GridNavigation.new()
+	army_mgr.set_custom_nav(nav)
+	tac_mgr.set_custom_nav(nav)
 	army_mgr.set_tactical_military_manager(tac_mgr)
 	army_mgr.soldier_count = 2
 	tac_mgr.sync_with_player_army()
@@ -564,6 +585,9 @@ func _test_peace_treaty_siege_cancellation() -> void:
 
 	var army_mgr = PlayerArmyManagerScript.new()
 	var tac_mgr = TacticalMilitaryManagerScript.new(null, army_mgr)
+	var nav := GridNavigation.new()
+	army_mgr.set_custom_nav(nav)
+	tac_mgr.set_custom_nav(nav)
 	army_mgr.set_tactical_military_manager(tac_mgr)
 	army_mgr.soldier_count = 2
 	tac_mgr.sync_with_player_army()
@@ -598,6 +622,9 @@ func _test_siege_retry_and_bounded_defenders() -> void:
 
 	var army_mgr = PlayerArmyManagerScript.new()
 	var tac_mgr = TacticalMilitaryManagerScript.new(null, army_mgr)
+	var nav := GridNavigation.new()
+	army_mgr.set_custom_nav(nav)
+	tac_mgr.set_custom_nav(nav)
 	army_mgr.set_tactical_military_manager(tac_mgr)
 	army_mgr.soldier_count = 3
 	tac_mgr.sync_with_player_army()
@@ -719,6 +746,9 @@ func _test_gate_d_siege_state_distinctions() -> void:
 
 	var army_mgr = PlayerArmyManagerScript.new()
 	var tac_mgr = TacticalMilitaryManagerScript.new(null, army_mgr)
+	var nav := GridNavigation.new()
+	army_mgr.set_custom_nav(nav)
+	tac_mgr.set_custom_nav(nav)
 	army_mgr.set_tactical_military_manager(tac_mgr)
 	army_mgr.soldier_count = 3
 	tac_mgr.sync_with_player_army()

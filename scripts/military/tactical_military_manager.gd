@@ -37,6 +37,9 @@ var next_unit_index: int = 1
 # Dependency injection for headless unit testing
 var _custom_nav: GridNavigation = null
 var _custom_time_mgr: Object = null
+var _test_spawn_capacity_override: int = -1
+var _test_simulate_spawn_instantiation_failure: bool = false
+var _test_max_successful_spawns: int = -1
 
 func _init(wv: Node = null, army_mgr: PlayerArmyManager = null) -> void:
 	world_view = wv
@@ -54,9 +57,14 @@ func set_world_view(wv: Node) -> void:
 func set_tactical_units_container(container: Node) -> void:
 	tactical_units_container = container
 
-func set_player_army_manager(mgr: PlayerArmyManager) -> void:
+func set_player_army_manager(mgr: PlayerArmyManager) -> Dictionary:
+	if mgr == null and player_army_mgr == null:
+		return {"success": true, "reason": "No army manager attached"}
+
 	if player_army_mgr == mgr:
-		return
+		if player_army_mgr == null:
+			return {"success": true, "reason": "No army manager attached"}
+		return sync_with_player_army()
 
 	var old_army: PlayerArmyManager = player_army_mgr
 	player_army_mgr = null
@@ -72,18 +80,23 @@ func set_player_army_manager(mgr: PlayerArmyManager) -> void:
 	clear_all_units()
 
 	player_army_mgr = mgr
+	var sync_res: Dictionary = {"success": true, "reason": "No army manager attached"}
 	if player_army_mgr != null and is_instance_valid(player_army_mgr):
 		_bind_army_manager(player_army_mgr)
 		if player_army_mgr.get("tactical_military_mgr") != self:
 			if player_army_mgr.has_method("set_tactical_military_manager"):
-				player_army_mgr.call("set_tactical_military_manager", self)
+				var pam_res = player_army_mgr.call("set_tactical_military_manager", self)
+				if pam_res is Dictionary and not bool(pam_res.get("success", false)):
+					return pam_res
 			else:
 				player_army_mgr.set("tactical_military_mgr", self)
 		for uid in units:
 			var u = units[uid]
 			if u != null and is_instance_valid(u) and u.has_method("set_player_army_manager"):
 				u.set_player_army_manager(player_army_mgr)
-		sync_with_player_army()
+		sync_res = sync_with_player_army()
+
+	return sync_res
 
 func _bind_army_manager(mgr: PlayerArmyManager) -> void:
 	if mgr == null or not is_instance_valid(mgr):
@@ -116,7 +129,11 @@ func set_custom_nav(p_nav: GridNavigation) -> void:
 func set_custom_time_manager(tm: Object) -> void:
 	_custom_time_mgr = tm
 
+var _test_simulate_null_nav: bool = false
+
 func get_nav() -> GridNavigation:
+	if _test_simulate_null_nav:
+		return null
 	if _custom_nav != null:
 		return _custom_nav
 	if player_army_mgr != null and player_army_mgr.has_method("get_nav"):
@@ -165,54 +182,147 @@ func get_occupied_cells(exclude_unit_ids: Array = []) -> Array[Vector2i]:
 func can_allocate_spawns(count: int, rally_cell: Vector2i = Vector2i(-1, -1), nav: GridNavigation = null) -> bool:
 	if count <= 0:
 		return true
+	if _test_simulate_spawn_instantiation_failure:
+		return false
+	if _test_max_successful_spawns >= 0 and count > _test_max_successful_spawns:
+		return false
+	if _test_spawn_capacity_override >= 0 and count > _test_spawn_capacity_override:
+		return false
 	if rally_cell == Vector2i(-1, -1):
 		rally_cell = player_army_mgr.get_rally_cell() if player_army_mgr else Vector2i(32, 33)
 	if nav == null:
 		nav = get_nav()
+	if nav == null:
+		return false
 	var occupied := get_occupied_cells()
 	var slots := _find_distinct_walkable_cells(rally_cell, count, nav, occupied)
 	return slots.size() >= count
 
-func sync_with_player_army(prefer_field_casualties: bool = false, location_restricted: bool = false) -> void:
+func get_available_spawn_count(max_needed: int = 1000, rally_cell: Vector2i = Vector2i(-1, -1), nav: GridNavigation = null) -> int:
+	if max_needed <= 0:
+		return 0
+	if _test_simulate_spawn_instantiation_failure:
+		return 0
+	if _test_max_successful_spawns >= 0:
+		max_needed = mini(max_needed, _test_max_successful_spawns)
+	if _test_spawn_capacity_override >= 0:
+		max_needed = mini(max_needed, _test_spawn_capacity_override)
+	if rally_cell == Vector2i(-1, -1):
+		rally_cell = player_army_mgr.get_rally_cell() if player_army_mgr else Vector2i(32, 33)
+	if nav == null:
+		nav = get_nav()
+	if nav == null:
+		return 0
+	var occupied := get_occupied_cells()
+	var slots := _find_distinct_walkable_cells(rally_cell, max_needed, nav, occupied)
+	return slots.size()
+
+## Atomically spawns up to `count` units at the base rally cell.
+## If all_or_nothing is true, rolls back all spawned units and returns [] if fewer than count units can be created.
+## Otherwise, returns the Array of successfully created unit IDs.
+func spawn_units_at_base(count: int, all_or_nothing: bool = false, rally_cell: Vector2i = Vector2i(-1, -1)) -> Array[String]:
+	if count <= 0:
+		return []
+	if rally_cell == Vector2i(-1, -1):
+		rally_cell = player_army_mgr.get_rally_cell() if player_army_mgr else Vector2i(32, 33)
+
+	var nav := get_nav()
+	if nav == null:
+		return []
+
+	var max_allowed := count
+	if _test_spawn_capacity_override >= 0:
+		max_allowed = mini(count, _test_spawn_capacity_override)
+	if all_or_nothing and max_allowed < count:
+		return []
+
+	var occupied := get_occupied_cells()
+	var spawn_slots := _find_distinct_walkable_cells(rally_cell, max_allowed, nav, occupied)
+	var slots_to_use := mini(max_allowed, spawn_slots.size())
+
+	if all_or_nothing and slots_to_use < count:
+		return []
+
+	var spawned_ids: Array[String] = []
+	for i in range(slots_to_use):
+		if _test_simulate_spawn_instantiation_failure or (_test_max_successful_spawns >= 0 and spawned_ids.size() >= _test_max_successful_spawns):
+			break
+
+		var slot: Vector2i = spawn_slots[i]
+		var u_id := "tac_unit_%d" % next_unit_index
+		next_unit_index += 1
+		while units.has(u_id):
+			u_id = "tac_unit_%d" % next_unit_index
+			next_unit_index += 1
+
+		var unit: Node2D = _create_unit_instance(u_id, slot)
+		if unit == null or not is_instance_valid(unit):
+			break
+
+		units[u_id] = unit
+		spawned_ids.append(u_id)
+		unit_spawned.emit(u_id, slot)
+
+	if all_or_nothing and spawned_ids.size() < count:
+		for uid in spawned_ids:
+			_remove_unit(uid)
+		prune_invalid_units()
+		return []
+
+	prune_invalid_units()
+	if not spawned_ids.is_empty():
+		tactical_state_updated.emit()
+	return spawned_ids
+
+func despawn_units(unit_ids: Array, emit_signal: bool = true) -> void:
+	for uid in unit_ids:
+		_remove_unit(str(uid))
+	prune_invalid_units()
+	if emit_signal:
+		tactical_state_updated.emit()
+
+func sync_with_player_army(prefer_field_casualties: bool = false, location_restricted: bool = false) -> Dictionary:
 	if player_army_mgr == null or not is_instance_valid(player_army_mgr):
-		return
+		return {"success": false, "spawned": 0, "needed": 0, "reason": "Missing or invalid player_army_mgr"}
 	if player_army_mgr.get("tactical_military_mgr") != self:
-		return
+		return {"success": false, "spawned": 0, "needed": 0, "reason": "Player army manager bound to different tactical manager"}
 
 	var target_count: int = player_army_mgr.get_army_count()
 	var current_count: int = units.size()
 
 	if current_count == target_count:
-		return
+		return {"success": true, "spawned": 0, "needed": 0, "reason": "Already synchronized"}
 
 	if target_count == 0:
 		clear_all_units()
 		tactical_state_updated.emit()
-		return
+		return {"success": true, "spawned": 0, "needed": 0, "reason": "Cleared all units"}
 
 	if current_count < target_count:
 		# Recruit additions: spawn missing units at base rally cell
 		var needed := target_count - current_count
 		var base_spawn := player_army_mgr.get_rally_cell()
-		var nav := get_nav()
-		var occupied := get_occupied_cells()
-		var spawn_slots := _find_distinct_walkable_cells(base_spawn, needed, nav, occupied)
-		var actual_spawn_count := mini(needed, spawn_slots.size())
-
-		if actual_spawn_count < needed:
-			printerr("[TacticalMilitaryManager] Warning: Only found %d unoccupied walkable cells for %d new units near %s" % [actual_spawn_count, needed, base_spawn])
-
-		for i in range(actual_spawn_count):
-			var slot: Vector2i = spawn_slots[i]
-			var u_id := "tac_unit_%d" % next_unit_index
-			next_unit_index += 1
-			while units.has(u_id):
-				u_id = "tac_unit_%d" % next_unit_index
-				next_unit_index += 1
-
-			var unit: Node2D = _create_unit_instance(u_id, slot)
-			units[u_id] = unit
-			unit_spawned.emit(u_id, slot)
+		var spawned_ids := spawn_units_at_base(needed, false, base_spawn)
+		var actual_spawned := spawned_ids.size()
+		if actual_spawned < needed:
+			# Transactional rollback: despawn any newly spawned units from this attempt
+			# without affecting any pre-existing units!
+			if not spawned_ids.is_empty():
+				despawn_units(spawned_ids, false)
+			# Never silently reduce player_army_mgr.soldier_count or invent casualties.
+			# Return explicit failure dictionary so callers can handle per policy.
+			return {
+				"success": false,
+				"spawned": 0,
+				"needed": needed,
+				"reason": "Spawn capacity or instantiation failure"
+			}
+		return {
+			"success": true,
+			"spawned": actual_spawned,
+			"needed": needed,
+			"reason": "Successfully spawned missing units"
+		}
 
 	elif current_count > target_count:
 		# Casualty / reduction: deterministically remove units
@@ -294,8 +404,16 @@ func sync_with_player_army(prefer_field_casualties: bool = false, location_restr
 
 	prune_invalid_units()
 	tactical_state_updated.emit()
+	return {
+		"success": true,
+		"spawned": 0,
+		"needed": 0,
+		"reason": "Successfully pruned excess units"
+	}
 
 func _create_unit_instance(u_id: String, spawn_cell: Vector2i) -> Node2D:
+	if _test_simulate_spawn_instantiation_failure:
+		return null
 	var unit: Node2D = null
 	if TacticalUnitScene != null:
 		unit = TacticalUnitScene.instantiate() as Node2D
@@ -356,12 +474,28 @@ func _remove_unit(uid: String) -> void:
 	units.erase(uid)
 	unit_despawned.emit(uid)
 	if is_instance_valid(u) and u is Node:
+		if u.has_signal("unit_reached_destination") and u.unit_reached_destination.is_connected(_on_unit_reached_destination):
+			u.unit_reached_destination.disconnect(_on_unit_reached_destination)
+		if u.has_signal("unit_cell_changed") and u.unit_cell_changed.is_connected(_on_unit_cell_changed):
+			u.unit_cell_changed.disconnect(_on_unit_cell_changed)
+		if u.has_signal("unit_defeated") and u.unit_defeated.is_connected(_on_unit_defeated):
+			u.unit_defeated.disconnect(_on_unit_defeated)
+		if u.get_parent() != null:
+			u.get_parent().remove_child(u)
 		u.queue_free()
 
 func clear_all_units() -> void:
 	for uid in units.keys():
 		var u = units[uid]
 		if is_instance_valid(u) and u is Node:
+			if u.has_signal("unit_reached_destination") and u.unit_reached_destination.is_connected(_on_unit_reached_destination):
+				u.unit_reached_destination.disconnect(_on_unit_reached_destination)
+			if u.has_signal("unit_cell_changed") and u.unit_cell_changed.is_connected(_on_unit_cell_changed):
+				u.unit_cell_changed.disconnect(_on_unit_cell_changed)
+			if u.has_signal("unit_defeated") and u.unit_defeated.is_connected(_on_unit_defeated):
+				u.unit_defeated.disconnect(_on_unit_defeated)
+			if u.get_parent() != null:
+				u.get_parent().remove_child(u)
 			u.queue_free()
 		unit_despawned.emit(uid)
 	units.clear()
@@ -544,11 +678,13 @@ func compute_garrison_return_slots(rally_cell: Vector2i, count: int, nav: GridNa
 
 	if nav == null:
 		nav = get_nav()
+	if nav == null:
+		return []
 
 	var slots: Array[Vector2i] = []
 
 	# Radius 0: check rally_cell itself
-	if IsoMath.is_in_bounds(rally_cell) and (nav == null or nav.is_cell_walkable(rally_cell)) and not excluded_cells.has(rally_cell):
+	if IsoMath.is_in_bounds(rally_cell) and nav.is_cell_walkable(rally_cell) and not excluded_cells.has(rally_cell):
 		slots.append(rally_cell)
 		if slots.size() >= count:
 			return slots
@@ -559,7 +695,7 @@ func compute_garrison_return_slots(rally_cell: Vector2i, count: int, nav: GridNa
 			for dx in range(-r, r + 1):
 				if abs(dx) + abs(dy) == r:
 					var cand := rally_cell + Vector2i(dx, dy)
-					if IsoMath.is_in_bounds(cand) and (nav == null or nav.is_cell_walkable(cand)) and not slots.has(cand) and not excluded_cells.has(cand):
+					if IsoMath.is_in_bounds(cand) and nav.is_cell_walkable(cand) and not slots.has(cand) and not excluded_cells.has(cand):
 						slots.append(cand)
 						if slots.size() >= count:
 							return slots
@@ -588,8 +724,15 @@ func _find_nearest_unassigned_cell(near_cell: Vector2i, center: Vector2i, assign
 	return Vector2i(-1, -1)
 
 func _find_distinct_walkable_cells(center: Vector2i, count: int, nav: GridNavigation = null, occupied_cells: Array[Vector2i] = []) -> Array[Vector2i]:
+	if count <= 0:
+		return []
+	if nav == null:
+		nav = get_nav()
+	if nav == null:
+		return []
+
 	var res: Array[Vector2i] = []
-	if IsoMath.is_in_bounds(center) and (nav == null or nav.is_cell_walkable(center)) and not occupied_cells.has(center):
+	if IsoMath.is_in_bounds(center) and nav.is_cell_walkable(center) and not occupied_cells.has(center):
 		res.append(center)
 	if res.size() >= count:
 		return res
@@ -600,7 +743,7 @@ func _find_distinct_walkable_cells(center: Vector2i, count: int, nav: GridNaviga
 			for dx in range(-r, r + 1):
 				if abs(dx) + abs(dy) == r:
 					var cand := center + Vector2i(dx, dy)
-					if IsoMath.is_in_bounds(cand) and (nav == null or nav.is_cell_walkable(cand)) and not res.has(cand) and not occupied_cells.has(cand):
+					if IsoMath.is_in_bounds(cand) and nav.is_cell_walkable(cand) and not res.has(cand) and not occupied_cells.has(cand):
 						res.append(cand)
 						if res.size() >= count:
 							return res
@@ -826,7 +969,12 @@ func get_all_field_units(p_rally: Vector2i = Vector2i(-1, -1)) -> Array:
 
 func order_move_all(target_cell: Vector2i, nav: GridNavigation = null) -> Dictionary:
 	if player_army_mgr != null and units.size() != player_army_mgr.get_army_count():
-		sync_with_player_army()
+		var sync_res: Dictionary = sync_with_player_army()
+		if not bool(sync_res.get("success", false)) or units.size() != player_army_mgr.get_army_count():
+			return {
+				"success": false,
+				"reason": "Không thể đồng bộ hóa quân đội trước khi di chuyển: " + str(sync_res.get("reason", "Mất đồng bộ"))
+			}
 	select_all()
 	return issue_move_order(target_cell, nav)
 
@@ -834,7 +982,12 @@ func order_move_all(target_cell: Vector2i, nav: GridNavigation = null) -> Dictio
 ## Fails closed atomically if insufficient slots or valid paths cannot be found.
 func order_return_all_to_rally(p_rally: Vector2i = Vector2i(-1, -1), nav: GridNavigation = null) -> Dictionary:
 	if player_army_mgr != null and units.size() != player_army_mgr.get_army_count():
-		sync_with_player_army()
+		var sync_res: Dictionary = sync_with_player_army()
+		if not bool(sync_res.get("success", false)) or units.size() != player_army_mgr.get_army_count():
+			return {
+				"success": false,
+				"reason": "Không thể đồng bộ hóa quân đội trước khi trở về điểm tập kết: " + str(sync_res.get("reason", "Mất đồng bộ"))
+			}
 	var r_cell: Vector2i = p_rally
 	if r_cell == Vector2i(-1, -1):
 		r_cell = player_army_mgr.get_rally_cell() if player_army_mgr else Vector2i(32, 33)
@@ -1170,12 +1323,21 @@ func deserialize_legacy(soldier_count: int, rally_cell: Vector2i, nav: GridNavig
 		nav = get_nav()
 
 	var slots := _find_distinct_walkable_cells(rally_cell, soldier_count, nav, [])
-	var actual_count := mini(soldier_count, slots.size())
-	for i in range(actual_count):
+	if slots.size() < soldier_count:
+		return false
+
+	var spawned_ids: Array = []
+	for i in range(soldier_count):
 		var slot: Vector2i = slots[i]
 		var u_id := "tac_unit_%d" % (i + 1)
 		var unit: Node2D = _create_unit_instance(u_id, slot)
+		if unit == null or not is_instance_valid(unit):
+			for s_id in spawned_ids:
+				_remove_unit(s_id)
+			prune_invalid_units()
+			return false
 		units[u_id] = unit
+		spawned_ids.append(u_id)
 		unit_spawned.emit(u_id, slot)
 
 	next_unit_index = soldier_count + 1

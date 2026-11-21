@@ -107,13 +107,29 @@ func get_enemy_military_manager() -> Object:
 # Outpost Objectives Management
 # -----------------------------------------------------------------------------
 
-func register_objective(obj_id: String, cell: Vector2i, faction_id: String, max_hp: float = 250.0, garrison: int = 3) -> Node2D:
+func register_objective(obj_id: String, cell: Vector2i, faction_id: String, max_hp: float = 250.0, garrison: int = 3, linked_settlement_id: String = "") -> Node2D:
 	if objectives.has(obj_id):
-		return objectives[obj_id]
+		var existing = objectives[obj_id]
+		if existing != null and is_instance_valid(existing):
+			var ex_stl: String = str(existing.get("linked_settlement_id")) if existing.get("linked_settlement_id") != null else ""
+			var ex_fid: String = str(existing.get("owning_faction_id")) if existing.get("owning_faction_id") != null else ""
+			if ex_stl != linked_settlement_id or ex_fid != faction_id:
+				push_error("[FieldSiegeManager] Conflicting registration for objective '%s': existing (stl='%s', fid='%s') vs requested (stl='%s', fid='%s')" % [obj_id, ex_stl, ex_fid, linked_settlement_id, faction_id])
+				return null
+			return existing
+
+	if not linked_settlement_id.is_empty():
+		for ex_obj in objectives.values():
+			if ex_obj != null and is_instance_valid(ex_obj):
+				var ex_stl_id: String = str(ex_obj.get("linked_settlement_id")) if ex_obj.get("linked_settlement_id") != null else ""
+				if ex_stl_id == linked_settlement_id:
+					push_error("[FieldSiegeManager] Settlement '%s' is already linked to objective '%s'; refusing duplicate link for '%s'" % [linked_settlement_id, str(ex_obj.get("objective_id")), obj_id])
+					return null
 
 	var obj = SiegeObjectiveActorScript.new()
 	obj.objective_id = obj_id
 	obj.objective_name = "Tiền Đồn %s" % faction_id.capitalize()
+	obj.linked_settlement_id = linked_settlement_id
 	obj.owning_faction_id = faction_id
 	obj.original_owner_id = faction_id
 	obj.previous_owner_id = ""
@@ -230,12 +246,33 @@ func transfer_outpost_ownership(obj_id: String, new_owner_id: String, tx_id: Str
 			"current_owner": obj.owning_faction_id
 		}
 
-	# Valid, non-duplicate transfer: release old garrison before ownership changes
+	# Phase 1: Pre-transfer validation and snapshot
+	var pam = null
+	var snapshot: Dictionary = {}
 	if obj.owning_faction_id == "player":
-		var pam = get_player_army_manager()
-		if pam != null and pam.has_method("evict_outpost_garrison"):
+		pam = get_player_army_manager()
+		if pam == null or not is_instance_valid(pam):
+			return {
+				"success": false,
+				"already_applied": false,
+				"reason": "PlayerArmyManager không khả dụng để giải quyết quân sự khi tiền đồn đổi chủ"
+			}
+		if pam.has_method("get_outpost_military_snapshot"):
+			snapshot = pam.get_outpost_military_snapshot(obj_id)
+
+	# Phase 2: Resolve military under Policy B (forced hostile capture)
+	if obj.owning_faction_id == "player":
+		if pam.has_method("evict_and_cancel_outpost"):
+			var evict_res: Dictionary = pam.evict_and_cancel_outpost(obj_id, true, true)
+			if not bool(evict_res.get("success", false)):
+				return {
+					"success": false,
+					"already_applied": false,
+					"reason": "Thất bại khi giải quyết quân sự tiền đồn: %s" % str(evict_res.get("reason", ""))
+				}
+			snapshot["spawned_unit_ids"] = evict_res.get("spawned_unit_ids", [])
+		elif pam.has_method("evict_outpost_garrison"):
 			pam.evict_outpost_garrison(obj_id, true)
-	release_outpost_garrison(obj_id)
 
 	if obj.get("faction_manager") == null:
 		obj.set("faction_manager", get_faction_manager())
@@ -244,7 +281,16 @@ func transfer_outpost_ownership(obj_id: String, new_owner_id: String, tx_id: Str
 
 	var prev_owner := str(obj.owning_faction_id)
 	var res: Dictionary = obj.transfer_ownership(new_owner_id, tx_id)
-	if bool(res.get("success", false)) and not bool(res.get("already_applied", false)):
+
+	# Atomic rollback on ownership commit failure
+	if not bool(res.get("success", false)):
+		if not snapshot.is_empty() and pam != null and is_instance_valid(pam) and pam.has_method("restore_outpost_military_snapshot"):
+			pam.restore_outpost_military_snapshot(snapshot)
+		return res
+
+	# Commit succeeded
+	release_outpost_garrison(obj_id)
+	if not bool(res.get("already_applied", false)):
 		outpost_ownership_changed.emit(obj_id, prev_owner, new_owner_id, tx_id)
 	return res
 

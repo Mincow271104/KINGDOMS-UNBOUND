@@ -10,6 +10,7 @@ const FieldSiegeManagerScript = preload("res://scripts/combat/field_siege_manage
 const BattleCampaignManagerScript = preload("res://scripts/combat/battle_campaign_manager.gd")
 const SiegeObjectiveActorScript = preload("res://scripts/combat/siege_objective_actor.gd")
 const SaveManagerScript = preload("res://scripts/persistence/save_manager.gd")
+const IsoMathScript = preload("res://scripts/utils/iso_math.gd")
 const WorldViewScene: PackedScene = preload("res://scenes/world/world_view.tscn")
 
 class MockUpkeepRM extends RefCounted:
@@ -45,11 +46,39 @@ func _init() -> void:
 	world_instance = WorldViewScene.instantiate()
 	root.add_child(world_instance)
 
+var viewport_push_stage: int = 0
+var vp_pam = null
+var vp_tmm = null
+var vp_cam = null
+var vp_tlayer = null
+var vp_wt_cell := Vector2i.ZERO
+var vp_sel: Array[String] = []
+
 func _process(_delta: float) -> bool:
 	frame_count += 1
 	if frame_count >= 3 and not tests_executed:
 		tests_executed = true
 		_run_all_tests()
+		if viewport_push_stage > 0:
+			return false
+		_print_summary()
+		quit(0 if failures == 0 else 1)
+		return true
+	if viewport_push_stage == 1 and frame_count >= 4:
+		viewport_push_stage = 2
+		var screen_pos: Vector2 = vp_cam.get_canvas_transform() * vp_tlayer.to_global(IsoMathScript.map_to_local(vp_wt_cell))
+		var mb_vp := InputEventMouseButton.new()
+		mb_vp.button_index = MOUSE_BUTTON_RIGHT
+		mb_vp.pressed = true
+		mb_vp.position = screen_pos
+		mb_vp.global_position = screen_pos
+		vp_tmm.selected_unit_ids = vp_sel
+		world_instance._unhandled_input(mb_vp)
+		return false
+	if viewport_push_stage == 2 and frame_count >= 6:
+		viewport_push_stage = 0
+		_assert(vp_pam != null and vp_pam.get_garrison_count("wt_rc_active") == 2, "TC-OGR.27.31: Screen-space right-click (no target_cell meta) routed to active watchtower stationing (2/2)")
+		_assert(vp_pam != null and vp_pam.soldier_count == 0, "TC-OGR.27.32: Central reserve decremented to 0 via screen-space right-click")
 		_print_summary()
 		quit(0 if failures == 0 else 1)
 		return true
@@ -103,6 +132,7 @@ func _run_all_tests() -> void:
 	_test_tc_cap_06_legacy_pre_package_1x_default_objectives()
 	_test_tc_cap_07_save_load_persistence()
 	_test_tc_cap_08_soldier_conservation()
+	_test_tc_ogr_27_tactical_right_click_stationing()
 
 # -----------------------------------------------------------------------------
 # 1. TC-OGR.01: Initialization & Defaults
@@ -279,7 +309,7 @@ func _test_tc_ogr_08_rejection_at_hostile_or_unowned_outpost() -> void:
 # -----------------------------------------------------------------------------
 func _test_tc_ogr_09_soldier_recall_to_central_reserve() -> void:
 	print("\n--- TC-OGR.09: Soldier Recall from Outpost Back to Central Reserve ---")
-	var pam = PlayerArmyManagerScript.new()
+	var pam = PlayerArmyManagerScript.new(world_instance)
 	pam.soldier_count = 5
 	pam.register_outpost_for_testing("outpost_recall_test", 4, Vector2i(10, 10), "player")
 
@@ -549,7 +579,7 @@ func _test_tc_ogr_21_multiple_simultaneous_garrisons() -> void:
 # -----------------------------------------------------------------------------
 func _test_tc_ogr_22_outpost_lost_in_transit_retreats_safely() -> void:
 	print("\n--- TC-OGR.22: Outpost Lost in Transit Retreats Safely to Central Reserve ---")
-	var pam = PlayerArmyManagerScript.new()
+	var pam = PlayerArmyManagerScript.new(world_instance)
 	pam.soldier_count = 5
 	pam.register_outpost_for_testing("outpost_lost_transit", 4, Vector2i(10, 10), "player")
 
@@ -956,3 +986,176 @@ func _test_tc_cap_08_soldier_conservation() -> void:
 	_assert(pam_c.get_garrison_count("outpost_cons_1") == 0, "TC-CAP.08.16: Garrison evicted to 0")
 	_assert(pam_c.soldier_count == 9, "TC-CAP.08.17: Central reserve restored to 9 (7 + 2)")
 	_assert(pam_c.get_total_soldier_count() == 9, "TC-CAP.08.18: Final conservation holds at 9 with zero leaks")
+
+# -----------------------------------------------------------------------------
+# 35. TC-OGR.27: Tactical Right-Click Stationing at Friendly Outpost (§6.2)
+# -----------------------------------------------------------------------------
+func _make_right_click_event(target_cell: Vector2i) -> InputEventMouseButton:
+	var mb := InputEventMouseButton.new()
+	mb.button_index = MOUSE_BUTTON_RIGHT
+	mb.pressed = true
+	mb.set_meta("target_cell", target_cell)
+	return mb
+
+func _test_tc_ogr_27_tactical_right_click_stationing() -> void:
+	print("\n--- TC-OGR.27: Tactical Right-Click Friendly Outpost Stationing (Actual Input Route) ---")
+	if world_instance == null:
+		_assert(false, "TC-OGR.27.0: world_instance must be available")
+		return
+
+	var pam = world_instance.get("player_army_mgr")
+	var tmm = world_instance.get("tactical_military_mgr")
+	var fsm = world_instance.get("field_siege_mgr")
+	var hud = world_instance.get("hud")
+	var wd = world_instance.get("world_data")
+	var fog = world_instance.get("fog_of_war")
+	_assert(pam != null and tmm != null and fsm != null and wd != null, "TC-OGR.27.1: Live PAM, TMM, FSM, WorldData available")
+	if pam == null or tmm == null or fsm == null or wd == null:
+		return
+
+	# Clean reset for deterministic test
+	pam.garrisons.clear()
+	pam.active_reinforcements.clear()
+	pam.soldier_count = 6
+	tmm.sync_with_player_army()
+	_assert(tmm.get_unit_count() == 6, "TC-OGR.27.2: 6 tactical units spawned in central reserve")
+
+	var obj_rc = fsm.register_objective("outpost_rc_test", Vector2i(20, 20), "player", 250.0, 3)
+	_assert(obj_rc != null, "TC-OGR.27.3: Registered player-owned outpost at (20,20) with capacity 3")
+
+	# Refresh FogOfWar so player-owned outpost at (20,20) is VISIBLE via real vision observers
+	if world_instance.has_method("refresh_world_vision"):
+		world_instance.refresh_world_vision()
+	_assert(fog == null or fog.is_visible(Vector2i(20, 20)), "TC-OGR.27.3b: Player outpost (20,20) is VISIBLE in FogOfWar")
+
+	var all_units: Array = tmm.get_all_units()
+	var near_ids: Array[String] = []
+	for i in range(2):
+		var u = all_units[i]
+		u.current_cell = Vector2i(21 + i, 20)
+		u.target_cell = u.current_cell
+		near_ids.append(str(u.unit_id))
+	var far_ids: Array[String] = []
+	for i in range(2, 6):
+		var u = all_units[i]
+		u.current_cell = Vector2i(32 + (i - 2), 34)
+		u.target_cell = u.current_cell
+		far_ids.append(str(u.unit_id))
+
+	# 1. Mixed near + far selection via actual WorldView._unhandled_input right-click
+	var sel_mixed: Array[String] = [near_ids[0], far_ids[0]]
+	tmm.selected_unit_ids = sel_mixed
+	world_instance._unhandled_input(_make_right_click_event(Vector2i(20, 20)))
+
+	_assert(pam.get_garrison_count("outpost_rc_test") == 1, "TC-OGR.27.4: Mixed selection stations only the 1 near unit via _unhandled_input")
+	_assert(pam.soldier_count == 5, "TC-OGR.27.5: Central reserve decremented to 5")
+	_assert(tmm.get_unit_count() == 5, "TC-OGR.27.6: Exactly 5 tactical units remain")
+	_assert(tmm.get_unit(far_ids[0]) != null, "TC-OGR.27.7: Far unit in mixed selection remained in reserve")
+	_assert(pam.get_total_soldier_count() == 6, "TC-OGR.27.8: Total soldier count strictly conserved at 6")
+
+	# 2. Second near unit via actual _unhandled_input right-click on 2x2 outpost offset (21, 21)
+	var sel_near2: Array[String] = [near_ids[1]]
+	tmm.selected_unit_ids = sel_near2
+	world_instance._unhandled_input(_make_right_click_event(Vector2i(21, 21)))
+	_assert(pam.get_garrison_count("outpost_rc_test") == 2, "TC-OGR.27.8b: Near unit stationed via 2x2 footprint cell (21,21)")
+	_assert(pam.soldier_count == 4, "TC-OGR.27.8c: Central reserve decremented to 4")
+
+	# 3. Far unit via actual _unhandled_input right-click -> dispatches reinforcement
+	var sel_far1: Array[String] = [far_ids[0]]
+	tmm.selected_unit_ids = sel_far1
+	world_instance._unhandled_input(_make_right_click_event(Vector2i(20, 20)))
+
+	_assert(pam.get_in_transit_count("outpost_rc_test") == 1, "TC-OGR.27.9: Far selected unit dispatched as reinforcement via _unhandled_input")
+	_assert(pam.soldier_count == 3, "TC-OGR.27.10: Central reserve decremented to 3")
+	_assert(tmm.get_unit_count() == 3, "TC-OGR.27.11: 3 tactical units remain")
+	_assert(pam.get_total_soldier_count() == 6, "TC-OGR.27.12: Total soldier count strictly conserved at 6 during transit")
+
+	# 4. Full capacity rejection via actual _unhandled_input (2 garrison + 1 transit = 3)
+	var sel_far2: Array[String] = [far_ids[1]]
+	tmm.selected_unit_ids = sel_far2
+	world_instance._unhandled_input(_make_right_click_event(Vector2i(20, 20)))
+
+	_assert(pam.get_garrison_count("outpost_rc_test") == 2, "TC-OGR.27.13: Full capacity blocks over-stationing")
+	_assert(pam.get_in_transit_count("outpost_rc_test") == 1, "TC-OGR.27.14: In-transit unchanged at 1")
+	_assert(pam.soldier_count == 3, "TC-OGR.27.15: Central reserve preserved at 3")
+	_assert(tmm.get_unit_count() == 3, "TC-OGR.27.16: Remaining tactical units not despawned on rejection")
+	_assert(pam.get_total_soldier_count() == 6, "TC-OGR.27.17: Total soldier count conserved at 6 after rejection")
+	if hud != null and hud.event_title != null:
+		_assert(hud.event_title.text == "Không Thể Đồn Trú", "TC-OGR.27.18: HUD shows fail-closed rejection banner")
+
+	# 5. Active Watchtower building right-click stationing via _unhandled_input
+	var wt_cell := Vector2i(33, 35)
+	wd.buildings.append({
+		"id": "wt_rc_active",
+		"type": "watchtower",
+		"cell": wt_cell,
+		"size": Vector2i(1, 1),
+		"state": "active",
+		"health": 100,
+		"max_health": 100
+	})
+	var sel_wt: Array[String] = [far_ids[1]]
+	tmm.selected_unit_ids = sel_wt
+	world_instance._unhandled_input(_make_right_click_event(wt_cell))
+	_assert(pam.get_garrison_count("wt_rc_active") == 1, "TC-OGR.27.19: Active watchtower stations near unit via _unhandled_input")
+	_assert(pam.soldier_count == 2, "TC-OGR.27.20: Central reserve decremented to 2")
+	_assert(pam.get_total_soldier_count() == 6, "TC-OGR.27.21: Conservation holds at 6 after watchtower stationing")
+
+	# 6. Inactive (under_construction) Palisade rejection via _unhandled_input
+	var pal_cell := Vector2i(34, 35)
+	wd.buildings.append({
+		"id": "pal_rc_inactive",
+		"type": "palisade",
+		"cell": pal_cell,
+		"size": Vector2i(1, 1),
+		"state": "under_construction",
+		"health": 100,
+		"max_health": 100
+	})
+	var sel_pal: Array[String] = [far_ids[2]]
+	tmm.selected_unit_ids = sel_pal
+	world_instance._unhandled_input(_make_right_click_event(pal_cell))
+	_assert(pam.get_garrison_count("pal_rc_inactive") == 0, "TC-OGR.27.22: Inactive palisade rejects stationing fail-closed")
+	_assert(pam.soldier_count == 2, "TC-OGR.27.23: Central reserve preserved at 2 on inactive building")
+	if hud != null and hud.event_title != null:
+		_assert(hud.event_title.text == "Không Thể Đồn Trú", "TC-OGR.27.24: HUD displays rejection banner for inactive palisade")
+
+	# 7. Non-player-owned objective right-click routes to siege path (not friendly stationing)
+	var rival_obj = fsm.get_objective("outpost_rival_military")
+	if rival_obj != null:
+		if fog != null:
+			fog.reveal_circle(rival_obj.current_cell, 4)
+		tmm.selected_unit_ids = sel_pal
+		world_instance._unhandled_input(_make_right_click_event(rival_obj.current_cell))
+		_assert(pam.get_garrison_count("outpost_rival_military") == 0, "TC-OGR.27.25: Hostile objective never accepts player garrison")
+		_assert(pam.get_in_transit_count("outpost_rival_military") == 0, "TC-OGR.27.26: Hostile objective never accepts player reinforcement")
+		_assert(pam.soldier_count == 2, "TC-OGR.27.27: Central reserve preserved on hostile objective click")
+
+	# 8. Ordinary terrain right-click preserves move-order behavior
+	var move_cell := Vector2i(35, 34)
+	tmm.selected_unit_ids = sel_pal
+	world_instance._unhandled_input(_make_right_click_event(move_cell))
+	var moved_u = tmm.get_unit(far_ids[2])
+	_assert(moved_u != null and moved_u.order_state == 1, "TC-OGR.27.28: Ordinary terrain right-click still issues move order")
+
+	# 9. Central reserve == 0 constraint & fail-closed preservation
+	pam.soldier_count = 0
+	world_instance._handle_tactical_right_click_friendly_outpost("wt_rc_active", "Tháp Canh", wt_cell, true)
+	_assert(pam.get_garrison_count("wt_rc_active") == 1, "TC-OGR.27.29: Zero central reserve rejects stationing fail-closed")
+	_assert(tmm.get_unit(far_ids[2]) != null, "TC-OGR.27.30: Tactical unit preserved when reserve constraint rejects")
+
+	# 10. End-to-end Godot Viewport.push_input(mb) dispatch without target_cell meta
+	pam.soldier_count = 1
+	var cam = world_instance.get("camera")
+	var t_layer = world_instance.get("terrain_layer")
+	if cam != null and t_layer != null:
+		cam.focus_on_cell(wt_cell)
+		vp_pam = pam
+		vp_tmm = tmm
+		vp_cam = cam
+		vp_tlayer = t_layer
+		vp_wt_cell = wt_cell
+		vp_sel = sel_pal
+		viewport_push_stage = 1
+	else:
+		_assert(false, "TC-OGR.27.31: Camera and terrain_layer available for Viewport.push_input()")
