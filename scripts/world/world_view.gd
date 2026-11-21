@@ -54,11 +54,13 @@ var fog_of_war: FogOfWar
 var poi_mgr: POIManager
 var event_system: WorldEventSystem
 var poi_nodes_by_id: Dictionary = {}
+const TerrainPreviewFieldScript = preload("res://scripts/world/terrain_preview_field.gd")
+const TerrainPreviewRendererScript = preload("res://scripts/world/terrain_preview_renderer.gd")
 var fog_tile_layer: TileMapLayer = null
 var cloud_sea_base: Polygon2D = null
-var fog_cloud_layer: Node = null
+var fog_cloud_layer: FogCloudLayer = null
 var cloud_sea_composite: Polygon2D = null
-var use_cloud_sea_composite: bool = false
+var use_cloud_sea_composite: bool = true
 const TOWN_HALL_PREVIEW_RADIUS_PX: float = 350.0
 const TOWN_HALL_CORE_RADIUS_PX: float = 200.0
 var _gameplay_preview_ids: Dictionary = {}
@@ -71,8 +73,8 @@ var _fog_state_last_stats: Dictionary = {}
 var _fog_transition_viewport: SubViewport = null
 var _fog_transition_rect: ColorRect = null
 var _fog_transition_update_count: int = 0
-var terrain_preview_field: RefCounted = null
-var terrain_preview_renderer: Node = null
+var terrain_preview_field: TerrainPreviewFieldScript = null
+var terrain_preview_renderer: TerrainPreviewRendererScript = null
 static var _cloud_sea_shader: Shader = null
 const CLOUD_SEA_BASE_TEX_PATH: String = "res://assets/fog/cloud_sea_base_v4_512.png"
 const CLOUD_SEA_WISP_TEX_PATH: String = "res://assets/fog/cloud_sea_base_v5_wisps_512.png"
@@ -4904,6 +4906,20 @@ func _setup_fog_layer() -> void:
 	fog_tile_layer.visible = not debug_fog_disabled
 	world_root.add_child(fog_tile_layer)
 
+	fog_cloud_layer = FogCloudLayer.new()
+	fog_cloud_layer.visible = true
+	world_root.add_child(fog_cloud_layer)
+	var cloud_seed: int = int(world_data.get("seed")) if world_data != null and world_data.get("seed") != null else world_seed
+	fog_cloud_layer.configure(fog_of_war, cloud_seed, FogCloudLayer.DensityPreset.BALANCED)
+
+	var mw_fog: int = fog_of_war.map_width if fog_of_war != null else IsoMath.get_active_map_width()
+	var mh_fog: int = fog_of_war.map_height if fog_of_war != null else IsoMath.get_active_map_height()
+	cloud_sea_base = _create_cloud_sea_base(mw_fog, mh_fog, fog_cloud_layer.get_fog_mask_texture())
+	cloud_sea_base.visible = not use_cloud_sea_composite and fog_cloud_layer.is_cloud_enabled()
+	world_root.add_child(cloud_sea_base)
+
+	_setup_terrain_preview_renderer()
+	_setup_cloud_sea_composite()
 	_sync_full_fog_layer()
 	_apply_fog_presentation_visibility()
 
@@ -4916,7 +4932,20 @@ func _exit_tree() -> void:
 	cleanup_terrain_preview_renderer()
 
 func _setup_terrain_preview_renderer() -> void:
-	return
+	var mw: int = fog_of_war.map_width if fog_of_war != null else IsoMath.get_active_map_width()
+	var mh: int = fog_of_war.map_height if fog_of_war != null else IsoMath.get_active_map_height()
+	var p_seed: int = int(world_data.get("seed")) if world_data != null and world_data.get("seed") != null else world_seed
+
+	if terrain_preview_field == null:
+		terrain_preview_field = TerrainPreviewFieldScript.new()
+	terrain_preview_field.clear_sources()
+	terrain_preview_field.configure(mw, mh, p_seed, 1, fog_of_war)
+
+	if terrain_preview_renderer == null or not is_instance_valid(terrain_preview_renderer):
+		terrain_preview_renderer = TerrainPreviewRendererScript.new()
+		terrain_preview_renderer.name = "TerrainPreviewRenderer"
+		add_child(terrain_preview_renderer)
+	terrain_preview_renderer.configure(terrain_preview_field, 1)
 
 func rebind_terrain_preview_fog(new_fog: FogOfWar = null) -> void:
 	var target_fog: FogOfWar = new_fog if new_fog != null else fog_of_war
